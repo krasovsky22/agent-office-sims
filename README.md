@@ -7,9 +7,10 @@ Prototype. Built with TypeScript, Three.js, and Colyseus.
 ## Where this is
 
 The walking skeleton: a shared grey office you can walk around with other people,
-with smooth remote movement and collision both sides agree on. The ticket board,
-object interaction, and the AI agent employees are later milestones. What exists
-now is the presence layer they will be built on.
+with smooth remote movement and collision both sides agree on. On top of that,
+the ticket board exists as replicated state with its rules enforced on the
+server — a board panel to see it in, object interaction, and the AI agent
+employees are later milestones.
 
 ## Running it
 
@@ -58,7 +59,7 @@ Then confirm all five:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision resolver unit tests
+pnpm test        # collision resolver and ticket board unit tests
 pnpm lint
 pnpm build       # production client bundle
 ```
@@ -69,6 +70,7 @@ pnpm build       # production client bundle
 packages/shared/   @sim/shared   the contract both sides import
   src/state.ts        replicated Colyseus schema
   src/messages.ts     client -> server commands, with their parsers
+  src/tickets.ts      the board's rules: transitions, authority, commands
   src/layout.ts       the office floor plan, as data
   src/collision.ts    capsule-vs-AABB movement resolution
   src/constants.ts    tick rate, speeds, radii, ranges
@@ -76,7 +78,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
 apps/client/       @sim/client   Three.js scene, React HUD overlay
 ```
 
-Three things are worth knowing before changing anything:
+Four things are worth knowing before changing anything:
 
 - **The floor plan is data.** `shared/layout.ts` is the only place a wall
   position exists. The client builds meshes from it and the server collides
@@ -89,3 +91,8 @@ Three things are worth knowing before changing anything:
   moves on the frame you press a key. The server clamps the implied speed and
   re-runs the shared resolver before publishing the result, so a modified client
   cannot teleport or walk through walls, while an honest one feels no delay.
+- **The board is server-authoritative, and has one gate.** A client asks; the
+  server decides. `shared/tickets.ts` holds the legal status transitions and
+  `mayActOnTicket`, the single predicate every command is checked against. It is
+  permissive for now; the CEO-only rules replace that one body rather than
+  adding a check anywhere else.
