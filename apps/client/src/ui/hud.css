@@ -1,0 +1,88 @@
+/* The HUD is a transparent layer above the canvas, so it must not swallow the
+   clicks and drags the camera needs. Only panels opt back into pointer events. */
+
+.hud {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px;
+  gap: 16px;
+  color: #eef0f4;
+  font-size: 13px;
+  line-height: 1.45;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hud__panel {
+  min-width: 190px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(18, 18, 22, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.hud__title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #9aa0aa;
+}
+
+.hud__roster {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hud__occupant {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.hud__name {
+  font-weight: 500;
+}
+
+.hud__badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: rgba(243, 207, 106, 0.16);
+  color: #f3cf6a;
+}
+
+.hud__you {
+  font-size: 11px;
+  color: #9aa0aa;
+}
+
+.hud__status {
+  margin: 0;
+  color: #9aa0aa;
+}
+
+.hud__status--failed {
+  color: #f08a7a;
+}
+
+.hud__hint {
+  margin: 6px 0 0;
+  color: #9aa0aa;
+}
+
+.hud__keys {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color: #eef0f4;
+}

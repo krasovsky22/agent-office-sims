@@ -1,0 +1,32 @@
+{
+  "name": "agent-office-sims",
+  "private": true,
+  "version": "0.1.0",
+  "description": "3D multiplayer office simulator prototype",
+  "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c cyan,magenta \"pnpm --filter @sim/server dev\" \"pnpm --filter @sim/client dev\"",
+    "build": "pnpm --filter @sim/client build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "@colyseus/schema": "3.0.76"
+    },
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
