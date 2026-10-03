@@ -58,7 +58,7 @@ Then confirm all five:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision resolver unit tests
+pnpm test        # collision resolver and pathfinding unit tests
 pnpm lint
 pnpm build       # production client bundle
 ```
@@ -71,6 +71,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/messages.ts     client -> server commands, with their parsers
   src/layout.ts       the office floor plan, as data
   src/collision.ts    capsule-vs-AABB movement resolution
+  src/nav.ts          pathfinding over the layout's waypoint graph
   src/constants.ts    tick rate, speeds, radii, ranges
 apps/server/       @sim/server   Colyseus room and simulation tick
 apps/client/       @sim/client   Three.js scene, React HUD overlay
