@@ -6,13 +6,14 @@ Prototype. Built with TypeScript, Three.js, and Colyseus.
 
 ## Where this is
 
-The walking skeleton: a shared grey office you can walk around with other people,
+The walking skeleton: a shared office you can walk around with other people,
 with smooth remote movement and collision both sides agree on, and enough
 expression to tell each other you are there — emotes and text chat, each drawn
-above the speaker's head and relayed through the server. The ticket board
-exists as replicated state with its rules enforced on the
-server — a board panel to see it in, object interaction, and the AI agent
-employees are later milestones.
+above the speaker's head and relayed through the server. The floor plan is a
+whole floor — desk rows in the open plan, a meeting room, a kitchen, the CEO's
+corner office and the lobby, joined by a corridor. The ticket board exists as
+replicated state with its rules enforced on the server — a board panel to see
+it in, object interaction, and the AI agent employees are later milestones.
 
 ## Running it
 
@@ -57,10 +58,11 @@ Then confirm all eight:
 2. **Walking is immediate in your own tab** — no lag between the key going down
    and the avatar moving — and **smooth in the other tab**: the remote avatar
    glides rather than stepping between positions, and does not snap backwards.
-3. **Walls and desks stop you.** Walk hard into a wall or a desk straight on and
-   at an angle. Head-on you stop against the surface; at an angle you slide
-   along it. You never pass through, and both tabs show you ending up in the
-   same place.
+3. **Walls, desks and props stop you, doorways do not.** Walk hard into a wall
+   or a desk straight on and at an angle. Head-on you stop against the surface;
+   at an angle you slide along it. You never pass through, and both tabs show
+   you ending up in the same place. Then walk a lap of the floor: every room is
+   reachable through a doorway.
 4. **Closing a tab removes that avatar** from the other tab within about a
    second, and reopening it rejoins cleanly. If the CEO is the one who left, the
    title passes to the player who has been in the office longest.
@@ -82,7 +84,7 @@ Then confirm all eight:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, pathfinding, tickets, messages, expression limits, server origins, avatar animation
+pnpm test        # collision, floor plan, pathfinding, tickets, messages, expression limits, server origins, avatar animation
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```

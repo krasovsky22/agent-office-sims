@@ -15,13 +15,13 @@ import * as THREE from "three";
 
 const FLOOR_COLOUR = 0x4a4a50;
 const WALL_COLOUR = 0x8e8e95;
-const DESK_COLOUR = 0x6c6c74;
+const FURNITURE_COLOUR = 0x6c6c74;
 
 /**
  * One unit cube, scaled per mesh.
  *
- * Walls and desks are all boxes of different sizes; sharing the geometry and
- * scaling the mesh keeps the scene to three materials and one box buffer.
+ * Walls, desks and props are all boxes of different sizes; sharing the geometry
+ * and scaling the mesh keeps the scene to three materials and one box buffer.
  */
 const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
 
@@ -44,7 +44,7 @@ function addWall(parent: THREE.Object3D, spec: WallSpec, material: THREE.Materia
 }
 
 /**
- * Adds the floor, the walls, the desks and the lighting to a scene.
+ * Adds the floor, the walls, the furniture and the lighting to a scene.
  *
  * @returns the group holding the world, so a caller can remove the whole office
  * in one call.
@@ -54,7 +54,7 @@ export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): THREE.Gro
   office.name = layout.name;
 
   const wallMaterial = new THREE.MeshLambertMaterial({ color: WALL_COLOUR });
-  const deskMaterial = new THREE.MeshLambertMaterial({ color: DESK_COLOUR });
+  const furnitureMaterial = new THREE.MeshLambertMaterial({ color: FURNITURE_COLOUR });
   const floorMaterial = new THREE.MeshLambertMaterial({ color: FLOOR_COLOUR });
 
   const floor = centreOf(layout.floor);
@@ -68,11 +68,13 @@ export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): THREE.Gro
     addWall(office, spec, wallMaterial);
   }
 
-  for (const spec of layout.desks) {
-    // The mesh is rotated, while collision uses the axis-aligned box the shared
-    // layout derives from the same yaw. For the quarter turns the layout uses,
-    // those are the same footprint.
-    const mesh = new THREE.Mesh(UNIT_BOX, deskMaterial);
+  // Desks and props are grey boxes alike until the asset kit lands, and both
+  // are positioned the same way, so one loop builds both. The mesh is rotated,
+  // while collision uses the axis-aligned box the shared layout derives from
+  // the same yaw; for the quarter turns the layout uses, those are the same
+  // footprint.
+  for (const spec of [...layout.desks, ...layout.props]) {
+    const mesh = new THREE.Mesh(UNIT_BOX, furnitureMaterial);
     mesh.scale.set(spec.width, spec.height, spec.depth);
     mesh.position.set(spec.x, spec.height / 2, spec.z);
     mesh.rotation.y = spec.yaw;
