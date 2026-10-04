@@ -24,10 +24,25 @@ export interface RosterEntry {
   readonly isLocal: boolean;
 }
 
+/**
+ * The proximity prompt: what the player can do from where they are standing.
+ *
+ * `blocked` is for a prompt the server would refuse — a chair somebody else is
+ * already in. Shown rather than hidden, because a prompt that vanishes when a
+ * colleague sits down reads as a bug, while "taken" reads as the office.
+ */
+export interface HudPrompt {
+  readonly keys: string;
+  readonly label: string;
+  readonly blocked: boolean;
+}
+
 export interface HudSnapshot {
   readonly status: ConnectionStatus;
   readonly detail?: string;
   readonly roster: readonly RosterEntry[];
+  /** `undefined` when there is nothing in reach. */
+  readonly prompt: HudPrompt | undefined;
 }
 
 export interface HudStore {
@@ -37,7 +52,7 @@ export interface HudStore {
   publish: (next: HudSnapshot) => void;
 }
 
-const INITIAL: HudSnapshot = { status: "connecting", roster: [] };
+const INITIAL: HudSnapshot = { status: "connecting", roster: [], prompt: undefined };
 
 export function createHudStore(): HudStore {
   let snapshot = INITIAL;
@@ -68,7 +83,10 @@ const STATUS_TEXT: Record<ConnectionStatus, string> = {
 };
 
 export function Hud({ store }: { store: HudStore }) {
-  const { status, detail, roster } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const { status, detail, roster, prompt } = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+  );
 
   return (
     <div className="hud">
@@ -96,9 +114,17 @@ export function Hud({ store }: { store: HudStore }) {
           {detail === undefined ? "" : ` — ${detail}`}
         </p>
         <p className="hud__hint">
-          <span className="hud__keys">W A S D</span> to walk, drag to look around.
+          <span className="hud__keys">W A S D</span> to walk, <span className="hud__keys">E</span>{" "}
+          to use what you are standing by, drag to look around.
         </p>
       </div>
+
+      {prompt === undefined ? null : (
+        <div className={prompt.blocked ? "hud__prompt hud__prompt--blocked" : "hud__prompt"}>
+          <span className="hud__keys">{prompt.keys}</span>
+          <span>{prompt.label}</span>
+        </div>
+      )}
     </div>
   );
 }

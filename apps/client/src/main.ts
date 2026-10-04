@@ -9,8 +9,15 @@
 
 import {
   ANIMATION_STATE,
+  INTERACT_RANGE,
+  INTERACTION_KIND,
+  type InteractableSpec,
   OFFICE_LAYOUT,
   type OfficeLayout,
+  authorizeInteract,
+  interactableById,
+  nearestInteractable,
+  promptFor,
   sanitizeName,
 } from "@sim/shared";
 import { createElement } from "react";
@@ -21,7 +28,7 @@ import { RoomConnection, type RemotePose } from "./net/room.js";
 import { PlayerController } from "./player/controller.js";
 import { Avatar } from "./scene/avatar.js";
 import { buildOffice } from "./scene/office.js";
-import { Hud, type HudSnapshot, createHudStore } from "./ui/Hud.js";
+import { Hud, type HudPrompt, type HudSnapshot, createHudStore } from "./ui/Hud.js";
 
 const DEFAULT_SERVER_URL = "ws://localhost:2567";
 
@@ -35,6 +42,9 @@ const DEFAULT_SERVER_URL = "ws://localhost:2567";
 const MAX_FRAME_SECONDS = 0.1;
 
 const BACKGROUND_COLOUR = 0x15151a;
+
+/** The prompt shown while the player is sitting, so standing up is discoverable. */
+const STAND_UP_PROMPT: HudPrompt = { keys: "W A S D", label: "Stand up", blocked: false };
 
 function requireCanvas(): HTMLCanvasElement {
   const canvas = document.querySelector<HTMLCanvasElement>("#scene");
@@ -75,7 +85,7 @@ function start(): void {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BACKGROUND_COLOUR);
-  buildOffice(scene, OFFICE_LAYOUT);
+  const { seatAnchors } = buildOffice(scene, OFFICE_LAYOUT);
 
   const camera = createCamera(canvas, OFFICE_LAYOUT);
   const controller = new PlayerController(camera, canvas);
@@ -150,13 +160,89 @@ function start(): void {
 
   let previousFrameMs = performance.now();
 
+  // The prompt as last published, held as loose fields so the per-frame check
+  // that nothing has changed costs no allocation.
+  let promptKeys = "";
+  let promptLabel = "";
+  let promptBlocked = false;
+
+  /**
+   * Works out what the player can do from where they are standing, and tells
+   * React only when the answer changes.
+   *
+   * The availability test is `authorizeInteract` — the same function the server
+   * will run on the message this prompt invites — so the prompt is never an
+   * offer the server is going to turn down.
+   *
+   * @returns the interactable `E` would use, or `undefined`.
+   */
+  const refreshPrompt = (engagedWith: string): InteractableSpec | undefined => {
+    let prompt: HudPrompt | undefined;
+    let target: InteractableSpec | undefined;
+
+    if (engagedWith !== "") {
+      const held = interactableById(OFFICE_LAYOUT, engagedWith);
+      // Only a seat is worth a prompt: a coffee break ends on its own.
+      prompt = held?.kind === INTERACTION_KIND.seat ? STAND_UP_PROMPT : undefined;
+    } else {
+      target = nearestInteractable(OFFICE_LAYOUT, controller.pose, INTERACT_RANGE);
+      if (target !== undefined) {
+        const decision = authorizeInteract(
+          OFFICE_LAYOUT,
+          {
+            id: room.sessionId,
+            x: controller.pose.x,
+            z: controller.pose.z,
+            interactableId: engagedWith,
+          },
+          target.id,
+          INTERACT_RANGE,
+          (interactableId) => room.holderOf(interactableId),
+        );
+        prompt = {
+          keys: "E",
+          label: decision.allowed ? promptFor(target) : `${promptFor(target)} — taken`,
+          blocked: !decision.allowed,
+        };
+      }
+    }
+
+    const keys = prompt?.keys ?? "";
+    const label = prompt?.label ?? "";
+    const blocked = prompt?.blocked ?? false;
+    if (keys !== promptKeys || label !== promptLabel || blocked !== promptBlocked) {
+      promptKeys = keys;
+      promptLabel = label;
+      promptBlocked = blocked;
+      publishHud({ prompt });
+    }
+
+    return target;
+  };
+
   const frame = (nowMs: number) => {
     const deltaSeconds = Math.min((nowMs - previousFrameMs) / 1000, MAX_FRAME_SECONDS);
     previousFrameMs = nowMs;
 
+    const localId = room.sessionId;
+    const localView = room.viewOf(localId);
+    const engagedWith = localView?.interactableId ?? "";
+
+    // Before the controller moves: a hold the server granted or let lapse has to
+    // be in effect for this frame's prediction, not the next one's.
+    controller.setHold(interactableById(OFFICE_LAYOUT, engagedWith)?.anchor);
     controller.update(deltaSeconds);
+
+    const target = refreshPrompt(engagedWith);
+    if (controller.takeReleaseRequest()) {
+      room.sendRelease();
+    }
+    if (controller.takeInteractRequest() && target !== undefined) {
+      room.sendInteract(target.id);
+    }
+
     room.sendPose(controller.pose, nowMs);
-    if (room.localServerPose.known) {
+    if (room.localServerPose.known && !controller.held) {
       controller.applyCorrection(
         room.localServerPose.x,
         room.localServerPose.z,
@@ -164,8 +250,17 @@ function start(): void {
       );
     }
 
-    const localId = room.sessionId;
     for (const [id, avatar] of avatars) {
+      const view = room.viewOf(id);
+      avatar.setAnimation(view?.animation ?? ANIMATION_STATE.idle);
+
+      // A sitter's place in the world comes from the desk it is parented to, so
+      // it is the one case the loop does not pose.
+      const seat = view === undefined ? undefined : seatAnchors.get(view.interactableId);
+      avatar.setSeat(seat, scene);
+      if (seat !== undefined) {
+        continue;
+      }
       if (id === localId) {
         avatar.setPose(controller.pose.x, controller.pose.z, controller.pose.yaw);
       } else if (room.sampleRemote(id, nowMs, remotePose)) {

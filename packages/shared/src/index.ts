@@ -3,5 +3,6 @@
 export * from "./constants.js";
 export * from "./layout.js";
 export * from "./collision.js";
+export * from "./interaction.js";
 export * from "./state.js";
 export * from "./messages.js";

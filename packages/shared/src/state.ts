@@ -46,9 +46,20 @@ export type OccupantKind = (typeof OCCUPANT_KIND)[keyof typeof OCCUPANT_KIND];
 export const ANIMATION_STATE = {
   idle: "idle",
   walking: "walking",
+  seated: "seated",
+  drinking: "drinking",
 } as const;
 
 export type AnimationState = (typeof ANIMATION_STATE)[keyof typeof ANIMATION_STATE];
+
+/**
+ * The states a client is allowed to claim for itself.
+ *
+ * Walking is client-authoritative, so a client reports its own idle or walking.
+ * The rest are consequences of an interaction the server granted, and a client
+ * that could simply assert one would be sitting at a desk from across the room.
+ */
+export type ReportedAnimation = typeof ANIMATION_STATE.idle | typeof ANIMATION_STATE.walking;
 
 /** Anyone standing in the office: a player now, an agent employee later. */
 export class Occupant extends Schema {
@@ -59,6 +70,14 @@ export class Occupant extends Schema {
   declare public z: number;
   declare public yaw: number;
   declare public animation: AnimationState;
+  /**
+   * Id of the interactable this occupant is engaged with, or `""` when free.
+   *
+   * Replicated rather than kept server-side because every client needs it: it
+   * is what tells the other tab to hang this body off a particular desk, and
+   * what tells a client a chair is already taken.
+   */
+  declare public interactableId: string;
 
   public constructor() {
     super();
@@ -69,6 +88,7 @@ export class Occupant extends Schema {
     this.z = 0;
     this.yaw = 0;
     this.animation = ANIMATION_STATE.idle;
+    this.interactableId = "";
   }
 }
 
@@ -80,6 +100,7 @@ defineTypes(Occupant, {
   z: "float32",
   yaw: "float32",
   animation: "string",
+  interactableId: "string",
 });
 
 /** An occupant driven by a browser. */

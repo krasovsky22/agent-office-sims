@@ -6,7 +6,7 @@
  * one. The server never reads a field off a raw message directly.
  */
 
-import { ANIMATION_STATE, type AnimationState } from "./state.js";
+import { ANIMATION_STATE, type ReportedAnimation } from "./state.js";
 
 /** Matchmaking name of the only room type this milestone defines. */
 export const OFFICE_ROOM_NAME = "office";
@@ -14,6 +14,10 @@ export const OFFICE_ROOM_NAME = "office";
 export const CLIENT_MESSAGE = {
   /** The client's own pose, sent on a fixed interval while it is connected. */
   pose: "pose",
+  /** A request to use a named interactable the sender believes it is next to. */
+  interact: "interact",
+  /** A request to stop using whatever the sender is currently engaged with. */
+  release: "release",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -23,7 +27,18 @@ export interface PoseMessage {
   readonly x: number;
   readonly z: number;
   readonly yaw: number;
-  readonly animation: AnimationState;
+  readonly animation: ReportedAnimation;
+}
+
+/**
+ * Which interactable a client wants to use.
+ *
+ * The id alone: the client does not get to say where it is standing, how far
+ * away it is, or what the interaction should do. The server already knows all
+ * three from the pose it has accepted and the shared layout.
+ */
+export interface InteractMessage {
+  readonly target: string;
 }
 
 /** Options a client may supply when joining the office room. */
@@ -39,7 +54,10 @@ const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g;
 
 const WHITESPACE_RUN = /\s+/g;
 
-function isAnimationState(value: unknown): value is AnimationState {
+/** Longest interactable id the parser will carry; comfortably over the real ones. */
+const MAX_TARGET_LENGTH = 64;
+
+function isReportedAnimation(value: unknown): value is ReportedAnimation {
   return value === ANIMATION_STATE.idle || value === ANIMATION_STATE.walking;
 }
 
@@ -63,7 +81,7 @@ export function parsePoseMessage(raw: unknown): PoseMessage | undefined {
     !isFiniteNumber(candidate.x) ||
     !isFiniteNumber(candidate.z) ||
     !isFiniteNumber(candidate.yaw) ||
-    !isAnimationState(candidate.animation)
+    !isReportedAnimation(candidate.animation)
   ) {
     return undefined;
   }
@@ -73,6 +91,26 @@ export function parsePoseMessage(raw: unknown): PoseMessage | undefined {
     yaw: candidate.yaw,
     animation: candidate.animation,
   };
+}
+
+/**
+ * Validates a raw `interact` payload.
+ *
+ * Only the shape is checked here. Whether the named interactable exists, is in
+ * reach, or is free is the server's decision, made with `authorizeInteract`
+ * against the layout and the sender's authoritative pose.
+ *
+ * @returns the message, or `undefined` if the payload is not one.
+ */
+export function parseInteractMessage(raw: unknown): InteractMessage | undefined {
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
+  const { target } = raw as { target?: unknown };
+  if (typeof target !== "string" || target === "" || target.length > MAX_TARGET_LENGTH) {
+    return undefined;
+  }
+  return { target };
 }
 
 /**
