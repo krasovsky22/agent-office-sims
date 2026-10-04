@@ -43,10 +43,10 @@ export type OccupantKind = (typeof OCCUPANT_KIND)[keyof typeof OCCUPANT_KIND];
  * A string rather than a boolean because sitting, typing and talking all land
  * here once there is anything in the office to do.
  *
- * `sitting` and `typing` are carried but not yet produced: nothing in the office
- * can be sat at, so no client sets them. They are listed because the renderer
- * has a clip for each of them, which means the milestone that adds chairs and
- * desk work only has to write this field rather than extend the protocol.
+ * `sitting` is produced by the server when it seats an occupant at a desk.
+ * `typing` is carried but not yet produced: it is listed because the renderer
+ * has a clip for it, so the milestone that adds desk work only has to write
+ * this field rather than extend the protocol.
  */
 export const ANIMATION_STATE = {
   idle: "idle",
@@ -69,6 +69,15 @@ export function isAnimationState(value: unknown): value is AnimationState {
   return typeof value === "string" && ANIMATION_STATES.has(value);
 }
 
+/**
+ * The states a client is allowed to claim for itself.
+ *
+ * Walking is client-authoritative, so a client reports its own idle or walking.
+ * The rest are consequences of an interaction the server granted, and a client
+ * that could simply assert one would be sitting at a desk from across the room.
+ */
+export type ReportedAnimation = typeof ANIMATION_STATE.idle | typeof ANIMATION_STATE.walking;
+
 /** Anyone standing in the office: a player now, an agent employee later. */
 export class Occupant extends Schema {
   declare public id: string;
@@ -78,6 +87,14 @@ export class Occupant extends Schema {
   declare public z: number;
   declare public yaw: number;
   declare public animation: AnimationState;
+  /**
+   * Id of the interactable this occupant is engaged with, or `""` when free.
+   *
+   * Replicated rather than kept server-side because every client needs it: it
+   * is what tells the other tab to draw this body at a particular desk, and
+   * what tells a client a chair is already taken.
+   */
+  declare public interactableId: string;
 
   public constructor() {
     super();
@@ -88,6 +105,7 @@ export class Occupant extends Schema {
     this.z = 0;
     this.yaw = 0;
     this.animation = ANIMATION_STATE.idle;
+    this.interactableId = "";
   }
 }
 
@@ -99,6 +117,7 @@ defineTypes(Occupant, {
   z: "float32",
   yaw: "float32",
   animation: "string",
+  interactableId: "string",
 });
 
 /** An occupant driven by a browser. */

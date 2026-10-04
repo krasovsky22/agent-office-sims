@@ -27,7 +27,7 @@ import {
   SPEED_TOLERANCE,
   WALK_SPEED,
   ANIMATION_STATE,
-  type AnimationState,
+  type ReportedAnimation,
   normalizeYaw,
   resolveMove,
 } from "@sim/shared";
@@ -44,7 +44,7 @@ export interface OccupantMotion {
     x: number;
     z: number;
     yaw: number;
-    animation: AnimationState;
+    animation: ReportedAnimation;
   };
   /** Whether {@link pending} holds a pose the simulation has not consumed. */
   hasPending: boolean;
@@ -64,6 +64,21 @@ export function createMotion(x: number, z: number, yaw: number, now: number): Oc
     lastMessageAt: now,
     joinedAt: now,
   };
+}
+
+/**
+ * Throws away a pose that has not been simulated yet and restarts the travel
+ * budget from now.
+ *
+ * Used when the server moves an occupant itself — into a chair, out of one —
+ * because the pose in flight describes where the client was before that
+ * happened. Applying it afterwards would drag the occupant back out of the
+ * chair, and leaving `lastAppliedAt` behind would hand them a travel budget
+ * covering however long they sat there.
+ */
+export function discardPending(motion: OccupantMotion, now: number): void {
+  motion.hasPending = false;
+  motion.lastAppliedAt = now;
 }
 
 /** Records a validated pose message, replacing any pose not yet simulated. */

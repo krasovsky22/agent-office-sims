@@ -16,12 +16,13 @@
  * nothing you can see.
  */
 
-import type { OfficeLayout, WallSpec } from "@sim/shared";
+import { type InteractableSpec, type OfficeLayout, type WallSpec, interactables } from "@sim/shared";
 import * as THREE from "three";
 
 const FLOOR_COLOUR = 0x4a4a50;
 const WALL_COLOUR = 0x8e8e95;
 const FURNITURE_COLOUR = 0x6c6c74;
+const FIXTURE_COLOUR = 0xe6e8ee;
 
 /** Shadow map resolution. One light, one map, so this is the whole budget. */
 const SHADOW_MAP_SIZE = 2048;
@@ -77,6 +78,30 @@ function addWall(parent: THREE.Object3D, spec: WallSpec, material: THREE.Materia
 }
 
 /**
+ * Adds an interactable's box, scaled and positioned from its layout volume.
+ *
+ * Placed by a 3D box rather than a footprint and a height because not every
+ * fixture stands on the floor — the whiteboard hangs at chest height. Only
+ * fixtures the asset kit has no model for carry a volume, so this stays up
+ * whether or not the kit loads.
+ */
+function addFixture(parent: THREE.Object3D, spec: InteractableSpec, material: THREE.Material): void {
+  const { volume } = spec;
+  if (volume === undefined) {
+    return;
+  }
+  const mesh = new THREE.Mesh(UNIT_BOX, material);
+  mesh.scale.set(volume.maxX - volume.minX, volume.maxY - volume.minY, volume.maxZ - volume.minZ);
+  mesh.position.set(
+    (volume.minX + volume.maxX) / 2,
+    (volume.minY + volume.maxY) / 2,
+    (volume.minZ + volume.maxZ) / 2,
+  );
+  mesh.name = spec.id;
+  parent.add(mesh);
+}
+
+/**
  * Frames the whole floor in the one shadow camera.
  *
  * Derived from the layout's extent rather than written down, so a bigger floor
@@ -101,7 +126,8 @@ function aimShadowCamera(sun: THREE.DirectionalLight, layout: OfficeLayout): voi
 }
 
 /**
- * Adds the floor, the walls, the grey desk boxes and the lighting to a scene.
+ * Adds the floor, the walls, the grey desk boxes, the hand-placed fixtures and
+ * the lighting to a scene.
  *
  * @returns a handle on the world, so a caller can remove the whole office in one
  * call and swap the grey desks for the prop kit's.
@@ -143,6 +169,11 @@ export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): OfficeVie
     greyDesks.add(mesh);
   }
   office.add(greyDesks);
+
+  const fixtureMaterial = new THREE.MeshLambertMaterial({ color: FIXTURE_COLOUR });
+  for (const spec of interactables(layout)) {
+    addFixture(office, spec, fixtureMaterial);
+  }
 
   scene.add(office);
 

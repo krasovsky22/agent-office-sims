@@ -25,6 +25,20 @@ export interface Aabb2 {
   readonly maxZ: number;
 }
 
+/**
+ * An axis-aligned box in the world, for the few things that are not simply
+ * standing on the floor. A whiteboard hangs at chest height, so a footprint
+ * alone would not say where to draw it.
+ */
+export interface Aabb3 {
+  readonly minX: number;
+  readonly minY: number;
+  readonly minZ: number;
+  readonly maxX: number;
+  readonly maxY: number;
+  readonly maxZ: number;
+}
+
 /** A point on the ground plane. */
 export interface Vec2 {
   readonly x: number;
@@ -131,6 +145,46 @@ export interface SpawnSpec {
   readonly yaw: number;
 }
 
+/** What sort of thing an interactable is. */
+export const INTERACTION_KIND = {
+  seat: "seat",
+  coffee: "coffee",
+  whiteboard: "whiteboard",
+} as const;
+
+export type InteractionKind = (typeof INTERACTION_KIND)[keyof typeof INTERACTION_KIND];
+
+/**
+ * Something in the office an occupant can walk up to and use.
+ *
+ * This is world data and nothing more: what the interaction *does* — how long it
+ * holds you, which animation it puts you in, what the prompt reads — is a rule,
+ * and rules live in `interaction.ts`. Keeping the two apart is what lets the
+ * client show a prompt and the server authorise the same interaction from one
+ * description.
+ */
+export interface InteractableSpec {
+  readonly id: string;
+  readonly kind: InteractionKind;
+  /** The pose an occupant takes while using it: where to stand, and facing. */
+  readonly anchor: SpawnSpec;
+  /**
+   * Box the client draws, or `undefined` when something else already shows it
+   * — a desk's chair or the coffee machine's prop.
+   */
+  readonly volume: Aabb3 | undefined;
+}
+
+/**
+ * One place to sit at a desk: where along the desk it is, and the pose of the
+ * occupant sitting there.
+ */
+export interface Workstation {
+  /** Offset along the desk's own width, so a screen can be put in front of it. */
+  readonly localX: number;
+  readonly seat: SpawnSpec;
+}
+
 export interface OfficeLayout {
   readonly name: string;
   /** Outer extent of the floor slab, walls included. */
@@ -143,6 +197,13 @@ export interface OfficeLayout {
   readonly waypoints: readonly WaypointSpec[];
   /** Cycled through in arrival order so occupants do not stack up. */
   readonly spawnPoints: readonly SpawnSpec[];
+  /**
+   * Interactables placed by hand. Desk seats and the coffee machine are not
+   * listed here: they are derived from the desk and the prop they belong to,
+   * so neither can be moved and leave its interactable behind.
+   * {@link interactables} returns all of them.
+   */
+  readonly fixtures: readonly InteractableSpec[];
 }
 
 const WALL_HEIGHT = 3;
@@ -150,6 +211,21 @@ const DESK_HEIGHT = 0.75;
 
 /** Quarter turn, the only yaw granularity the shipped layout uses. */
 const QUARTER_TURN = Math.PI / 2;
+
+/** Floor space allowed per seat along a desk's width. */
+const SEAT_PITCH = 1.6;
+
+/**
+ * Gap between the edge of a desk and the centre of the occupant sitting at it.
+ *
+ * Comfortably more than {@link OCCUPANT_RADIUS}, so a seat is never a position
+ * the collision resolver would have refused to put someone in. The layout
+ * invariant check enforces that rather than trusting this number.
+ */
+const CHAIR_GAP = 0.55;
+
+/** Gap between the front of a prop and the occupant standing at it. */
+const STANDING_GAP = 0.5;
 
 function rect(minX: number, minZ: number, maxX: number, maxZ: number): Aabb2 {
   return { minX, minZ, maxX, maxZ };
@@ -161,6 +237,17 @@ function wall(id: string, minX: number, minZ: number, maxX: number, maxZ: number
 
 function desk(id: string, x: number, z: number, yaw: number, width = 1.6, depth = 0.8): DeskSpec {
   return { id, x, z, yaw, width, depth, height: DESK_HEIGHT };
+}
+
+function box3(
+  minX: number,
+  minY: number,
+  minZ: number,
+  maxX: number,
+  maxY: number,
+  maxZ: number,
+): Aabb3 {
+  return { minX, minY, minZ, maxX, maxY, maxZ };
 }
 
 /**
@@ -374,7 +461,110 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { x: 7.2, z: 2.5, yaw: 0 },
     { x: 0, z: 3, yaw: 0 },
   ],
+  fixtures: [
+    // Hung on the meeting room's stretch of the north wall, across the table
+    // from its chairs, so it needs no footprint of its own — the wall is
+    // already solid. The reader stands between the table and the wall.
+    {
+      id: "whiteboard-meeting",
+      kind: INTERACTION_KIND.whiteboard,
+      anchor: { x: -2.85, z: -10.7, yaw: 0 },
+      volume: box3(-4.35, 1, -11.7, -1.35, 2.1, -11.62),
+    },
+  ],
 };
+
+/**
+ * Rotates a point in a furnishing's local frame into world space.
+ *
+ * Local X runs along a desk's width and local Z along its depth, before the yaw
+ * is applied; yaw 0 faces -Z, as it does everywhere in the layout.
+ */
+export function localToWorld(origin: Vec2, yaw: number, localX: number, localZ: number): Vec2 {
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  return {
+    x: origin.x + localX * cos + localZ * sin,
+    z: origin.z - localX * sin + localZ * cos,
+  };
+}
+
+/**
+ * The places to sit at a desk.
+ *
+ * Seat count comes from the desk's width, so a 1.6 m desk gets one and a 3.2 m
+ * meeting table gets two without either number being written down. The
+ * occupant sits on the desk's +Z side and faces it, which is -Z local — so a
+ * desk's yaw is also the yaw of everyone sitting at it.
+ *
+ * Both the chair props and the seat interactables come from here, which is
+ * what keeps the chair you see and the chair you sit in at one position.
+ */
+export function workstations(spec: DeskSpec): readonly Workstation[] {
+  const seats = Math.max(1, Math.round(spec.width / SEAT_PITCH));
+  const pitch = spec.width / seats;
+  const result: Workstation[] = [];
+  for (let seat = 0; seat < seats; seat += 1) {
+    const localX = (seat - (seats - 1) / 2) * pitch;
+    const position = localToWorld(spec, spec.yaw, localX, spec.depth / 2 + CHAIR_GAP);
+    result.push({ localX, seat: { x: position.x, z: position.z, yaw: spec.yaw } });
+  }
+  return result;
+}
+
+/**
+ * The interactable each prop kind turns into, or `undefined` for one that is
+ * only furniture. Keyed by record, so a new prop kind is a type error here until
+ * somebody decides whether it can be used.
+ */
+const PROP_INTERACTION: Record<PropKind, InteractionKind | undefined> = {
+  coffee: INTERACTION_KIND.coffee,
+};
+
+const interactableCache = new WeakMap<OfficeLayout, readonly InteractableSpec[]>();
+
+/**
+ * Every interactable in a layout: a seat per workstation, one per usable prop,
+ * then the hand-placed fixtures.
+ *
+ * Cached per layout, like {@link collisionBoxes}, because both sides query it
+ * often — the client once a frame for its prompt — and the layout never changes
+ * at runtime.
+ */
+export function interactables(layout: OfficeLayout): readonly InteractableSpec[] {
+  const cached = interactableCache.get(layout);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const all: InteractableSpec[] = [];
+  for (const spec of layout.desks) {
+    workstations(spec).forEach((workstation, index) => {
+      all.push({
+        id: `seat-${spec.id}-${index + 1}`,
+        kind: INTERACTION_KIND.seat,
+        anchor: workstation.seat,
+        volume: undefined,
+      });
+    });
+  }
+  for (const spec of layout.props) {
+    const kind = PROP_INTERACTION[spec.kind];
+    if (kind === undefined) {
+      continue;
+    }
+    // Stood at the prop's +Z side and facing it, the same convention a seat uses.
+    const position = localToWorld(spec, spec.yaw, 0, spec.depth / 2 + STANDING_GAP);
+    all.push({
+      id: spec.id,
+      kind,
+      anchor: { x: position.x, z: position.z, yaw: spec.yaw },
+      volume: undefined,
+    });
+  }
+  all.push(...layout.fixtures);
+  interactableCache.set(layout, all);
+  return all;
+}
 
 /**
  * The ground footprint a desk blocks once its yaw is applied.
@@ -520,6 +710,19 @@ export function describeLayoutProblems(layout: OfficeLayout): string[] {
   }
 
   problems.push(...describeWaypointProblems(layout));
+
+  const interactableIds = new Set<string>();
+  for (const spec of interactables(layout)) {
+    if (interactableIds.has(spec.id)) {
+      problems.push(`interactable id ${spec.id} is used twice`);
+    }
+    interactableIds.add(spec.id);
+    // An anchor inside geometry is a prompt that appears and then strands the
+    // occupant, so it is checked here rather than discovered by sitting down.
+    if (overlapsObstacle(layout, spec.anchor)) {
+      problems.push(`interactable ${spec.id} anchors inside an obstacle`);
+    }
+  }
 
   for (const point of layout.spawnPoints) {
     if (overlapsObstacle(layout, point)) {

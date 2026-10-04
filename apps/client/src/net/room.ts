@@ -30,6 +30,7 @@ import {
   type EmoteEvent,
   type EmoteMessage,
   INTERPOLATION_DELAY_MS,
+  type InteractMessage,
   OFFICE_ROOM_NAME,
   type Occupant,
   type OccupantKind,
@@ -37,6 +38,7 @@ import {
   POSE_BUFFER_SIZE,
   POSE_SEND_INTERVAL_MS,
   type PoseMessage,
+  type ReportedAnimation,
   SERVER_MESSAGE,
   type ThrottledEvent,
   isHumanPlayer,
@@ -56,13 +58,30 @@ interface PoseSample {
   animation: AnimationState;
 }
 
-/** What the HUD and the avatar layer need to know about an occupant. */
+/**
+ * What the HUD and the avatar layer need to know about an occupant.
+ *
+ * Mutated in place as patches arrive rather than replaced, so the game loop can
+ * read one every frame without allocating. Only the fields the HUD renders
+ * trigger an `onOccupantsChanged`; `interactableId` changes far too often for
+ * that and is read from the loop instead.
+ */
 export interface OccupantView {
   readonly id: string;
   name: string;
   kind: OccupantKind;
   isCeo: boolean;
   readonly isLocal: boolean;
+  /** Interactable this occupant is engaged with, or `""` when free. */
+  interactableId: string;
+}
+
+/** The local pose as reported to the server: only states a client may claim. */
+export interface ReportedPose {
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+  readonly animation: ReportedAnimation;
 }
 
 /** A pose written by {@link RoomConnection.sampleRemote}. */
@@ -100,7 +119,7 @@ export class RoomConnection {
     x: Number.NaN,
     z: Number.NaN,
     yaw: Number.NaN,
-    animation: ANIMATION_STATE.idle as AnimationState,
+    animation: ANIMATION_STATE.idle as ReportedAnimation,
   };
 
   public constructor(private readonly events: RoomConnectionEvents = {}) {}
@@ -146,13 +165,43 @@ export class RoomConnection {
     return this.views.get(id)?.name;
   }
 
+  /** One occupant, for a game loop that must not allocate. */
+  public viewOf(id: string): OccupantView | undefined {
+    return this.views.get(id);
+  }
+
+  /**
+   * The occupant holding an interactable, or `undefined` if it is free.
+   *
+   * Read from replicated state, which makes it the server's answer as of the
+   * last patch. Good enough to grey out a prompt; the server decides for real.
+   */
+  public holderOf(interactableId: string): string | undefined {
+    for (const view of this.views.values()) {
+      if (view.interactableId === interactableId) {
+        return view.id;
+      }
+    }
+    return undefined;
+  }
+
+  /** Asks to use an interactable. The server decides; there is no reply. */
+  public sendInteract(target: string): void {
+    this.room?.send(CLIENT_MESSAGE.interact, { target } satisfies InteractMessage);
+  }
+
+  /** Asks to be let go of whatever the local player is engaged with. */
+  public sendRelease(): void {
+    this.room?.send(CLIENT_MESSAGE.release, {});
+  }
+
   /**
    * Reports the local pose, at most once per {@link POSE_SEND_INTERVAL_MS}.
    *
    * A pose identical to the last one sent is skipped: a player standing still
    * has nothing to report, and the server already shows them idle.
    */
-  public sendPose(pose: RemotePose, nowMs: number): void {
+  public sendPose(pose: ReportedPose, nowMs: number): void {
     const room = this.room;
     if (room === undefined || nowMs - this.lastSentAt < POSE_SEND_INTERVAL_MS) {
       return;
@@ -256,6 +305,7 @@ export class RoomConnection {
         kind: occupant.kind,
         isCeo: isHumanPlayer(occupant) && occupant.isCeo,
         isLocal,
+        interactableId: occupant.interactableId,
       };
       this.views.set(sessionId, view);
 
@@ -319,6 +369,10 @@ export class RoomConnection {
       view.isCeo = isCeo;
       this.events.onOccupantsChanged?.();
     }
+
+    // Deliberately outside that notification: this changes as often as
+    // someone sits down, and the HUD has no business re-rendering for it.
+    view.interactableId = occupant.interactableId;
 
     if (isLocal) {
       this.readLocalPose(occupant);
