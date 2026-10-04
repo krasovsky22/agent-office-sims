@@ -11,9 +11,12 @@ with smooth remote movement and collision both sides agree on, and enough
 expression to tell each other you are there — emotes and text chat, each drawn
 above the speaker's head and relayed through the server. The floor plan is a
 whole floor — desk rows in the open plan, a meeting room, a kitchen, the CEO's
-corner office and the lobby, joined by a corridor. The ticket board exists as
-replicated state with its rules enforced on the server — a board panel to see
-it in, object interaction, and the AI agent employees are later milestones.
+corner office and the lobby, joined by a corridor — and it is furnished now,
+with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
+one shadow-casting light, though the furniture is still scenery. On top of
+that, the ticket board exists as replicated state with its rules enforced on
+the server — a board panel to see it in, object interaction, and the AI agent
+employees are later milestones.
 
 ## Running it
 
@@ -40,6 +43,10 @@ pointer cannot click anything — then `Enter` sends and `Esc` abandons. Both gi
 focus back, so walking resumes without a click. While the box has focus it keeps
 every key it is given, so typing an `a` is a letter rather than a step to the
 left.
+
+Two query parameters are useful while developing. `?props=off` renders the
+grey-box office instead of the asset kit, and `?debug` puts the draw-call count
+and the number of placed props on the HUD.
 
 ## The two-tab check
 
@@ -202,6 +209,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/messages.ts     commands and events, with the parsers for the untrusted ones
   src/tickets.ts      the board's rules: transitions, authority, commands
   src/layout.ts       the office floor plan, as data
+  src/props.ts        the furniture, derived from that floor plan
   src/collision.ts    capsule-vs-AABB movement resolution
   src/nav.ts          pathfinding over the layout's waypoint graph
   src/constants.ts    tick rate, speeds, radii, ranges, expression limits
@@ -209,6 +217,9 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/expression.ts   per-occupant emote and chat budgets
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
+  src/scene/propKit.ts   the asset registry: one model per prop kind
+  src/scene/props.ts     those props, drawn as instanced meshes
+  src/assets/office-kit/ the vendored models, and their licence
 ```
 
 Five things are worth knowing before changing anything:
@@ -236,3 +247,27 @@ Five things are worth knowing before changing anything:
   `mayActOnTicket`, the single predicate every command is checked against. It is
   permissive for now; the CEO-only rules replace that one body rather than
   adding a check anywhere else.
+- **The furniture is data too, and none of it collides.** `shared/props.ts`
+  derives every prop from the floor plan — a chair and a screen per workstation, a
+  frame in every doorway gap, a plant in each room — so a layout change furnishes
+  itself. Only walls and desks are solid; you can walk through a chair. Giving the
+  decor footprints means changing what the server collides against, which is a
+  deliberate follow-up rather than something to slip in on the client.
+
+## Assets
+
+The props come from Kenney's **Furniture Kit 2.0**, which is CC0. Six models are
+vendored into `apps/client/src/assets/office-kit/`, with the pack's own licence
+text, the checksums, and the re-download command recorded in the `README.md`
+beside them. That file is the provenance record — keep it current when the models
+change.
+
+The office draws them as one `InstancedMesh` per kind per material, so a desk row
+costs matrices rather than draw calls: the shipped floor plan places 58 props in
+13 instanced draws, and adding desks does not add any. `?debug` shows the live
+count, and `packages/shared/src/props.test.ts` asserts the property that makes it
+hold.
+
+If a model fails to download the client falls back to the grey-box office rather
+than an empty one, and says so on the HUD. `?props=off` takes the same path on
+purpose.

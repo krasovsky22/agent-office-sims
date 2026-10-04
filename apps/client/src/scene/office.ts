@@ -1,13 +1,19 @@
 /**
- * Builds the office geometry from the shared layout.
+ * Builds the office shell from the shared layout.
  *
  * Every box in here comes from `@sim/shared`'s layout data. Nothing in this file
  * decides where a wall is, which is what lets the server collide against the
  * same floor plan the player can see.
  *
- * The look is the intended one, not a placeholder: untextured grey boxes, two
- * lights, no shadows and no post-processing. A low-poly asset kit replaces the
- * boxes in a later milestone; until then the render budget stays this small.
+ * The shell — floor slab and walls — is still untextured grey boxes. The
+ * furniture is not: `props.ts` draws that from the asset kit, and the grey desk
+ * boxes this file makes are the fallback it replaces. See {@link OfficeView}.
+ *
+ * Lighting is a hemisphere fill plus one shadow-casting directional light. Only
+ * the floor receives its shadows and only the furniture and the avatars cast
+ * them: the walls are a closed box around the camera, so shadowing them would
+ * cost a second pass over most of the scene's triangles and change almost
+ * nothing you can see.
  */
 
 import type { OfficeLayout, WallSpec } from "@sim/shared";
@@ -17,6 +23,20 @@ const FLOOR_COLOUR = 0x4a4a50;
 const WALL_COLOUR = 0x8e8e95;
 const FURNITURE_COLOUR = 0x6c6c74;
 
+/** Shadow map resolution. One light, one map, so this is the whole budget. */
+const SHADOW_MAP_SIZE = 2048;
+
+/**
+ * Pulls the shadow comparison off the surface that cast it.
+ *
+ * Without it the low-poly desk tops self-shadow into stripes, which is far more
+ * visible than the slight contact gap the bias introduces.
+ */
+const SHADOW_NORMAL_BIAS = 0.02;
+
+/** Slack added to the shadow camera's frustum so the floor's corners are inside it. */
+const SHADOW_MARGIN = 2;
+
 /**
  * One unit cube, scaled per mesh.
  *
@@ -24,6 +44,19 @@ const FURNITURE_COLOUR = 0x6c6c74;
  * and scaling the mesh keeps the scene to three materials and one box buffer.
  */
 const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
+
+/**
+ * A built office, and the one thing a caller needs to do to it afterwards.
+ *
+ * The grey desk boxes exist so that the office is walkable before — or without —
+ * the asset kit. Once the kit has loaded, the desk props stand in exactly the
+ * same footprints, so the boxes are hidden rather than deleted: a kit that fails
+ * to load leaves them showing, which is the fallback the milestone asks for.
+ */
+export interface OfficeView {
+  readonly group: THREE.Group;
+  setGreyDesksVisible(visible: boolean): void;
+}
 
 function centreOf(box: { minX: number; minZ: number; maxX: number; maxZ: number }) {
   return {
@@ -44,12 +77,36 @@ function addWall(parent: THREE.Object3D, spec: WallSpec, material: THREE.Materia
 }
 
 /**
- * Adds the floor, the walls, the furniture and the lighting to a scene.
+ * Frames the whole floor in the one shadow camera.
  *
- * @returns the group holding the world, so a caller can remove the whole office
- * in one call.
+ * Derived from the layout's extent rather than written down, so a bigger floor
+ * plan keeps its shadows instead of losing them off the edge of the map.
  */
-export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): THREE.Group {
+function aimShadowCamera(sun: THREE.DirectionalLight, layout: OfficeLayout): void {
+  const floor = centreOf(layout.floor);
+  const reach = Math.hypot(floor.width, floor.depth) / 2 + SHADOW_MARGIN;
+
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+  sun.shadow.normalBias = SHADOW_NORMAL_BIAS;
+
+  const shadowCamera = sun.shadow.camera;
+  shadowCamera.left = -reach;
+  shadowCamera.right = reach;
+  shadowCamera.top = reach;
+  shadowCamera.bottom = -reach;
+  shadowCamera.near = 0.5;
+  shadowCamera.far = sun.position.length() + reach;
+  shadowCamera.updateProjectionMatrix();
+}
+
+/**
+ * Adds the floor, the walls, the grey desk boxes and the lighting to a scene.
+ *
+ * @returns a handle on the world, so a caller can remove the whole office in one
+ * call and swap the grey desks for the prop kit's.
+ */
+export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): OfficeView {
   const office = new THREE.Group();
   office.name = layout.name;
 
@@ -61,6 +118,7 @@ export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): THREE.Gro
   const floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(floor.width, floor.depth), floorMaterial);
   floorMesh.rotation.x = -Math.PI / 2;
   floorMesh.position.set(floor.x, 0, floor.z);
+  floorMesh.receiveShadow = true;
   floorMesh.name = "floor";
   office.add(floorMesh);
 
@@ -68,6 +126,8 @@ export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): THREE.Gro
     addWall(office, spec, wallMaterial);
   }
 
+  const greyDesks = new THREE.Group();
+  greyDesks.name = "grey-desks";
   // Desks and props are grey boxes alike until the asset kit lands, and both
   // are positioned the same way, so one loop builds both. The mesh is rotated,
   // while collision uses the axis-aligned box the shared layout derives from
@@ -78,9 +138,11 @@ export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): THREE.Gro
     mesh.scale.set(spec.width, spec.height, spec.depth);
     mesh.position.set(spec.x, spec.height / 2, spec.z);
     mesh.rotation.y = spec.yaw;
+    mesh.castShadow = true;
     mesh.name = spec.id;
-    office.add(mesh);
+    greyDesks.add(mesh);
   }
+  office.add(greyDesks);
 
   scene.add(office);
 
@@ -89,7 +151,13 @@ export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): THREE.Gro
 
   const sun = new THREE.DirectionalLight(0xffffff, 1.2);
   sun.position.set(-8, 14, 6);
+  aimShadowCamera(sun, layout);
   scene.add(sun);
 
-  return office;
+  return {
+    group: office,
+    setGreyDesksVisible(visible) {
+      greyDesks.visible = visible;
+    },
+  };
 }

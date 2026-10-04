@@ -11,6 +11,7 @@ import {
   ANIMATION_STATE,
   CLIENT_MESSAGE,
   OFFICE_LAYOUT,
+  OFFICE_PROPS,
   type OfficeLayout,
   sanitizeName,
 } from "@sim/shared";
@@ -24,6 +25,8 @@ import { PlayerController } from "./player/controller.js";
 import { Avatar } from "./scene/avatar.js";
 import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
 import { buildOffice } from "./scene/office.js";
+import { loadPropKit } from "./scene/propKit.js";
+import { buildProps } from "./scene/props.js";
 import { Hud, type ChatLogEntry, type HudSnapshot, createHudStore } from "./ui/Hud.js";
 
 /**
@@ -48,6 +51,9 @@ const CHAT_LOG_LIMIT = 50;
 
 /** How long a "you are going too fast" notice stays on the HUD. */
 const NOTICE_DURATION_MS = 2500;
+
+/** How often the `?debug` readout is refreshed. Off the frame path otherwise. */
+const DEBUG_INTERVAL_MS = 500;
 
 function requireCanvas(): HTMLCanvasElement {
   const canvas = document.querySelector<HTMLCanvasElement>("#scene");
@@ -79,6 +85,25 @@ function readRequestedName(): string {
   return sanitizeName(new URLSearchParams(window.location.search).get("name"));
 }
 
+/**
+ * Whether to draw the asset kit's furniture or stay on the grey boxes.
+ *
+ * `?props=off` turns it off for one tab and `VITE_PROPS=off` for a whole build,
+ * which is what makes the grey-box path something you can actually look at rather
+ * than dead code. Either way the office is the same shape and walkable — a failed
+ * load lands in the same place, see {@link furnish}.
+ */
+function readPropsEnabled(): boolean {
+  const requested =
+    new URLSearchParams(window.location.search).get("props") ?? import.meta.env.VITE_PROPS;
+  return requested !== "off";
+}
+
+/** Whether `?debug` asked for the draw-call readout. */
+function readDebugEnabled(): boolean {
+  return new URLSearchParams(window.location.search).has("debug");
+}
+
 function createCamera(canvas: HTMLCanvasElement, layout: OfficeLayout): THREE.PerspectiveCamera {
   const span = Math.max(layout.floor.maxX - layout.floor.minX, layout.floor.maxZ - layout.floor.minZ);
   return new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, span * 4);
@@ -89,10 +114,14 @@ function start(): void {
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // One directional light casts, the floor receives, and nothing else
+  // participates — see the lighting note in `scene/office.ts`.
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BACKGROUND_COLOUR);
-  buildOffice(scene, OFFICE_LAYOUT);
+  const office = buildOffice(scene, OFFICE_LAYOUT);
 
   const camera = createCamera(canvas, OFFICE_LAYOUT);
   const controller = new PlayerController(camera, canvas);
@@ -142,6 +171,32 @@ function start(): void {
   const appendChatLine = (entry: ChatLogEntry) => {
     publishHud({ chatLog: [...hud.chatLog, entry].slice(-CHAT_LOG_LIMIT) });
   };
+
+  /**
+   * Loads the prop kit and furnishes the office, or leaves the grey boxes up.
+   *
+   * All of the kit or none of it: the loading cover stays over the scene until
+   * every model is in, then the props go in and the grey desks go out in the same
+   * frame, so the office is never seen half-furnished. A failed download takes the
+   * same exit as the flag being off — the grey office is already standing and
+   * walkable, and the HUD says which of the two happened.
+   */
+  let placedProps = 0;
+  const furnish = async (): Promise<void> => {
+    if (!readPropsEnabled()) {
+      publishHud({ assets: "greybox" });
+      return;
+    }
+    try {
+      const kit = await loadPropKit();
+      placedProps = buildProps(scene, OFFICE_PROPS, kit).instances;
+      office.setGreyDesksVisible(false);
+      publishHud({ assets: "ready" });
+    } catch {
+      publishHud({ assets: "failed" });
+    }
+  };
+  void furnish();
 
   const room: RoomConnection = new RoomConnection({
     onStatusChanged: (status, detail) => {
@@ -228,6 +283,12 @@ function start(): void {
 
   let previousFrameMs = performance.now();
 
+  // Read back after the draw, not before, so the count is a real frame's. The
+  // point of showing it is the instancing claim: this number stays put as desks
+  // are added, which is the acceptance criterion for the prop batching.
+  const debugEnabled = readDebugEnabled();
+  let nextDebugMs = 0;
+
   const frame = (nowMs: number) => {
     const deltaSeconds = Math.min((nowMs - previousFrameMs) / 1000, MAX_FRAME_SECONDS);
     previousFrameMs = nowMs;
@@ -258,6 +319,12 @@ function start(): void {
     }
 
     renderer.render(scene, camera);
+
+    if (debugEnabled && nowMs >= nextDebugMs) {
+      nextDebugMs = nowMs + DEBUG_INTERVAL_MS;
+      publishHud({ debug: { drawCalls: renderer.info.render.calls, props: placedProps } });
+    }
+
     requestAnimationFrame(frame);
   };
 
