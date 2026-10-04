@@ -13,12 +13,22 @@
  *
  * The local player is not interpolated — it is predicted, by the controller —
  * so its authoritative pose is exposed separately for reconciliation.
+ *
+ * Expression — emotes, chat — does not come through state at all. It arrives as
+ * server events and is handed straight to the caller, including the local
+ * player's own: everything renders on the path the server published it on, so
+ * what you see above your own head is what everyone else sees above it.
  */
 
 import {
   ANIMATION_STATE,
   type AnimationState,
+  type ChatEvent,
+  type ChatMessage,
   CLIENT_MESSAGE,
+  type Emote,
+  type EmoteEvent,
+  type EmoteMessage,
   INTERPOLATION_DELAY_MS,
   OFFICE_ROOM_NAME,
   type Occupant,
@@ -27,6 +37,8 @@ import {
   POSE_BUFFER_SIZE,
   POSE_SEND_INTERVAL_MS,
   type PoseMessage,
+  SERVER_MESSAGE,
+  type ThrottledEvent,
   isHumanPlayer,
   normalizeYaw,
   shortestYawDelta,
@@ -67,6 +79,12 @@ export interface RoomConnectionEvents {
   onStatusChanged?: (status: ConnectionStatus, detail?: string) => void;
   /** The local player's starting pose, as the server assigned it. */
   onLocalSpawn?: (x: number, z: number, yaw: number) => void;
+  /** An occupant emoted. Fired for the local player too, via the server. */
+  onEmote?: (event: EmoteEvent) => void;
+  /** An occupant said something. Fired for the local player too. */
+  onChat?: (event: ChatEvent) => void;
+  /** The local client's own emote or chat was dropped by the rate limiter. */
+  onThrottled?: (event: ThrottledEvent) => void;
 }
 
 export class RoomConnection {
@@ -118,6 +136,17 @@ export class RoomConnection {
   }
 
   /**
+   * The display name of one occupant, for attributing an event to them.
+   *
+   * `undefined` when the occupant is unknown, which an event can outrun: a
+   * message broadcast as its sender disconnects may be decoded after the state
+   * patch that removed them.
+   */
+  public occupantName(id: string): string | undefined {
+    return this.views.get(id)?.name;
+  }
+
+  /**
    * Reports the local pose, at most once per {@link POSE_SEND_INTERVAL_MS}.
    *
    * A pose identical to the last one sent is skipped: a player standing still
@@ -148,6 +177,23 @@ export class RoomConnection {
       yaw: pose.yaw,
       animation: pose.animation,
     } satisfies PoseMessage);
+  }
+
+  /**
+   * Fires an emote.
+   *
+   * Nothing is drawn locally in response: the emote is drawn when the server
+   * broadcasts it back, which is the same path every other client sees. An
+   * emote the server rate-limited away therefore does not appear above the
+   * sender's own head either, which is the honest thing to show.
+   */
+  public sendEmote(emote: Emote): void {
+    this.room?.send(CLIENT_MESSAGE.emote, { emote } satisfies EmoteMessage);
+  }
+
+  /** Says something out loud. Echoed back by the server, like an emote. */
+  public sendChat(text: string): void {
+    this.room?.send(CLIENT_MESSAGE.chat, { text } satisfies ChatMessage);
   }
 
   /**
@@ -231,6 +277,21 @@ export class RoomConnection {
       this.views.delete(sessionId);
       this.buffers.delete(sessionId);
       this.events.onOccupantsChanged?.();
+    });
+
+    // Expression arrives as events rather than state, so there is nothing to
+    // diff here: the server has already validated and sanitized each one, and
+    // the handler's job is only to pass it on.
+    room.onMessage<EmoteEvent>(SERVER_MESSAGE.emote, (event) => {
+      this.events.onEmote?.(event);
+    });
+
+    room.onMessage<ChatEvent>(SERVER_MESSAGE.chat, (event) => {
+      this.events.onChat?.(event);
+    });
+
+    room.onMessage<ThrottledEvent>(SERVER_MESSAGE.throttled, (event) => {
+      this.events.onThrottled?.(event);
     });
 
     room.onError((code, message) => {

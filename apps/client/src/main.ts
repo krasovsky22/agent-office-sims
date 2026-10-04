@@ -9,6 +9,7 @@
 
 import {
   ANIMATION_STATE,
+  CLIENT_MESSAGE,
   OFFICE_LAYOUT,
   type OfficeLayout,
   sanitizeName,
@@ -21,7 +22,7 @@ import { RoomConnection, type RemotePose } from "./net/room.js";
 import { PlayerController } from "./player/controller.js";
 import { Avatar } from "./scene/avatar.js";
 import { buildOffice } from "./scene/office.js";
-import { Hud, type HudSnapshot, createHudStore } from "./ui/Hud.js";
+import { Hud, type ChatLogEntry, type HudSnapshot, createHudStore } from "./ui/Hud.js";
 
 const DEFAULT_SERVER_URL = "ws://localhost:2567";
 
@@ -35,6 +36,18 @@ const DEFAULT_SERVER_URL = "ws://localhost:2567";
 const MAX_FRAME_SECONDS = 0.1;
 
 const BACKGROUND_COLOUR = 0x15151a;
+
+/**
+ * Chat lines kept in the HUD log.
+ *
+ * Scrollback, not history: the log is for catching up on what was said while
+ * you were looking the other way, and a session that outlives this many lines
+ * has nothing at the top worth keeping on the frame budget.
+ */
+const CHAT_LOG_LIMIT = 50;
+
+/** How long a "you are going too fast" notice stays on the HUD. */
+const NOTICE_DURATION_MS = 2500;
 
 function requireCanvas(): HTMLCanvasElement {
   const canvas = document.querySelector<HTMLCanvasElement>("#scene");
@@ -92,7 +105,6 @@ function start(): void {
   window.addEventListener("resize", resize);
 
   const hudStore = createHudStore();
-  createRoot(requireHudMount()).render(createElement(Hud, { store: hudStore }));
 
   const avatars = new Map<string, Avatar>();
   const remotePose: RemotePose = { x: 0, z: 0, yaw: 0, animation: ANIMATION_STATE.idle };
@@ -101,6 +113,25 @@ function start(): void {
   const publishHud = (next: Partial<HudSnapshot>) => {
     hud = { ...hud, ...next };
     hudStore.publish(hud);
+  };
+
+  let nextChatId = 1;
+  let noticeTimer: number | undefined;
+
+  /** Shows a line to this player only, and takes it down again shortly. */
+  const showNotice = (text: string) => {
+    if (noticeTimer !== undefined) {
+      window.clearTimeout(noticeTimer);
+    }
+    publishHud({ notice: text });
+    noticeTimer = window.setTimeout(() => {
+      noticeTimer = undefined;
+      publishHud({ notice: undefined });
+    }, NOTICE_DURATION_MS);
+  };
+
+  const appendChatLine = (entry: ChatLogEntry) => {
+    publishHud({ chatLog: [...hud.chatLog, entry].slice(-CHAT_LOG_LIMIT) });
   };
 
   const room: RoomConnection = new RoomConnection({
@@ -146,7 +177,44 @@ function start(): void {
         })),
       });
     },
+
+    // Expression events arrive for everyone, the local player included, so
+    // there is one path from "somebody did a thing" to it being drawn. An
+    // avatar can already be gone when an event lands — the state patch that
+    // removed it may be decoded first — in which case there is nothing above
+    // which to draw, and the chat log still records what was said.
+    onEmote: (event) => {
+      avatars.get(event.occupantId)?.showEmote(event.emote, performance.now());
+    },
+
+    onChat: (event) => {
+      avatars.get(event.occupantId)?.showChat(event.text, performance.now());
+      appendChatLine({
+        id: nextChatId++,
+        author: room.occupantName(event.occupantId) ?? "Someone",
+        text: event.text,
+        isLocal: event.occupantId === room.sessionId,
+      });
+    },
+
+    onThrottled: (event) => {
+      showNotice(
+        event.command === CLIENT_MESSAGE.chat
+          ? "Too many messages — that one was dropped."
+          : "Too many emotes — that one was dropped.",
+      );
+    },
   });
+
+  createRoot(requireHudMount()).render(
+    createElement(Hud, {
+      store: hudStore,
+      actions: {
+        sendEmote: (emote) => room.sendEmote(emote),
+        sendChat: (text) => room.sendChat(text),
+      },
+    }),
+  );
 
   let previousFrameMs = performance.now();
 
@@ -171,6 +239,9 @@ function start(): void {
       } else if (room.sampleRemote(id, nowMs, remotePose)) {
         avatar.setPose(remotePose.x, remotePose.z, remotePose.yaw);
       }
+      // Overhead content is parented to the avatar, so it has already followed
+      // the body; all that is left is retiring whatever has expired.
+      avatar.updateExpressions(nowMs);
     }
 
     renderer.render(scene, camera);

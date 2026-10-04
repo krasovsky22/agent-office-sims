@@ -1,26 +1,39 @@
 /**
  * The shared office.
  *
- * One room holds everyone on the floor. It owns three things: who is in the
- * office, where the authoritative version of each of them is, and which of them
- * is the CEO.
+ * One room holds everyone on the floor. It owns four things: who is in the
+ * office, where the authoritative version of each of them is, which of them is
+ * the CEO, and what they are expressing.
+ *
+ * Expression — emotes and chat — is relayed rather than replicated. A wave is
+ * true for two seconds and a sentence for six, so neither belongs in the
+ * schema, where a client joining afterwards would be handed it as though it
+ * were still happening. The server validates, sanitizes and rate-limits, then
+ * broadcasts; clients draw what they receive and forget it when it expires.
  */
 
 import { type Client, Room } from "@colyseus/core";
 import {
   ANIMATION_STATE,
+  type ChatEvent,
   CLIENT_MESSAGE,
+  type EmoteEvent,
   HumanPlayer,
   OCCUPANT_KIND,
   OFFICE_LAYOUT,
   OfficeState,
+  SERVER_MESSAGE,
   TICK_INTERVAL_MS,
+  type ThrottledEvent,
   isHumanPlayer,
   normalizeYaw,
+  parseChatMessage,
+  parseEmoteMessage,
   parseJoinOptions,
   parsePoseMessage,
 } from "@sim/shared";
 
+import { type ExpressionBudget, createExpressionBudget, tryConsume } from "../sim/expression.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
 
 /**
@@ -38,6 +51,9 @@ export class OfficeRoom extends Room<OfficeState> {
   /** Server-only per-occupant bookkeeping, keyed by session id. */
   private readonly motions = new Map<string, OccupantMotion>();
 
+  /** Per-occupant emote and chat allowances, keyed by session id. */
+  private readonly budgets = new Map<string, ExpressionBudget>();
+
   private spawnCursor = 0;
   private hireCount = 0;
 
@@ -53,6 +69,30 @@ export class OfficeRoom extends Room<OfficeState> {
         return;
       }
       recordPose(motion, pose, this.clock.currentTime);
+    });
+
+    this.onMessage(CLIENT_MESSAGE.emote, (client, raw: unknown) => {
+      const message = parseEmoteMessage(raw);
+      if (message === undefined || !this.spend(client, "emote")) {
+        return;
+      }
+      this.broadcast(SERVER_MESSAGE.emote, {
+        occupantId: client.sessionId,
+        emote: message.emote,
+      } satisfies EmoteEvent);
+    });
+
+    this.onMessage(CLIENT_MESSAGE.chat, (client, raw: unknown) => {
+      // The text is sanitized by the parser, so what goes out over the wire is
+      // already capped and stripped. No client ever has to re-check it.
+      const message = parseChatMessage(raw);
+      if (message === undefined || !this.spend(client, "chat")) {
+        return;
+      }
+      this.broadcast(SERVER_MESSAGE.chat, {
+        occupantId: client.sessionId,
+        text: message.text,
+      } satisfies ChatEvent);
     });
 
     this.setSimulationInterval(() => {
@@ -78,12 +118,14 @@ export class OfficeRoom extends Room<OfficeState> {
 
     this.state.occupants.set(client.sessionId, player);
     this.motions.set(client.sessionId, createMotion(spawn.x, spawn.z, spawn.yaw, now));
+    this.budgets.set(client.sessionId, createExpressionBudget(now));
   }
 
   public override onLeave(client: Client): void {
     const departing = this.state.occupants.get(client.sessionId);
     this.state.occupants.delete(client.sessionId);
     this.motions.delete(client.sessionId);
+    this.budgets.delete(client.sessionId);
 
     // The office should not be left without a CEO just because one tab closed.
     if (departing !== undefined && isHumanPlayer(departing) && departing.isCeo) {
@@ -120,6 +162,31 @@ export class OfficeRoom extends Room<OfficeState> {
         occupant.animation = ANIMATION_STATE.idle;
       }
     }
+  }
+
+  /**
+   * Charges one emote or chat message against the sender's budget.
+   *
+   * Parsing happens before this, so a malformed payload never costs an honest
+   * client part of its allowance; it is dropped the way a malformed pose is.
+   *
+   * A client that is over its budget is told so, and only that client. The
+   * alternative — dropping in silence — makes a rate limit indistinguishable
+   * from a lost message, and leaves the sender repeating themselves into a
+   * limiter they cannot see.
+   *
+   * @returns whether the message may be relayed.
+   */
+  private spend(client: Client, command: ThrottledEvent["command"]): boolean {
+    const budget = this.budgets.get(client.sessionId);
+    if (budget === undefined || !this.state.occupants.has(client.sessionId)) {
+      return false;
+    }
+    if (tryConsume(budget[command], this.clock.currentTime)) {
+      return true;
+    }
+    client.send(SERVER_MESSAGE.throttled, { command } satisfies ThrottledEvent);
+    return false;
   }
 
   /** Cycles the layout's spawn points so arrivals do not stack on one spot. */

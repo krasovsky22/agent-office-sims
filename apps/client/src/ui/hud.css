@@ -16,6 +16,21 @@
   user-select: none;
 }
 
+.hud__column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Columns share the window with the canvas, so neither may grow past its own
+     width when its contents do. A chat line is content from another player; the
+     layout must be the same whatever they typed. */
+  min-width: 0;
+  max-width: min(320px, 38vw);
+}
+
+.hud__column--right {
+  align-items: stretch;
+}
+
 .hud__panel {
   min-width: 190px;
   padding: 10px 12px;
@@ -23,6 +38,14 @@
   border-radius: 8px;
   background: rgba(18, 18, 22, 0.72);
   backdrop-filter: blur(6px);
+}
+
+/* The chat panel is the one part of the HUD a player types into and clicks. */
+.hud__panel--chat {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .hud__title {
@@ -85,4 +108,137 @@
 .hud__keys {
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
   color: #eef0f4;
+}
+
+/* The chat scrollback.
+
+   Three rules here exist to keep another player's message from reshaping the
+   HUD, and all three are load-bearing:
+
+   - `max-height` with `overflow-y: auto` bounds the log however many lines
+     arrive, so a conversation scrolls instead of growing down the screen.
+   - `overflow-wrap: anywhere` breaks a long run with no spaces in it. Word
+     wrapping alone cannot break one, so without this a single 160-character
+     word would push the panel wider than the window.
+   - `white-space: pre-wrap` keeps the text readable while still wrapping; the
+     server has already collapsed whitespace runs and stripped the control
+     characters that would otherwise reflow a line. */
+.hud__log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 180px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.hud__line {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.hud__author {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: #9aa0aa;
+}
+
+.hud__author--you {
+  color: #cfd3da;
+}
+
+.hud__said {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hud__composer {
+  display: flex;
+  gap: 6px;
+}
+
+.hud__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(10, 10, 13, 0.7);
+  color: #eef0f4;
+  font: inherit;
+}
+
+.hud__input:focus-visible {
+  outline: 2px solid rgba(243, 207, 106, 0.6);
+  outline-offset: 1px;
+}
+
+.hud__send,
+.hud__emote {
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(40, 40, 48, 0.8);
+  color: #eef0f4;
+  font: inherit;
+  cursor: pointer;
+}
+
+.hud__send {
+  padding: 5px 10px;
+}
+
+.hud__send:hover,
+.hud__emote:hover {
+  background: rgba(58, 58, 68, 0.9);
+}
+
+.hud__emotes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.hud__emote {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+}
+
+.hud__emoteGlyph {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.hud__emoteCaption {
+  font-size: 11px;
+}
+
+.hud__emoteKey {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 10px;
+  color: #9aa0aa;
+}
+
+.hud__notice {
+  margin: 0;
+  color: #f0c650;
+  font-size: 11px;
 }

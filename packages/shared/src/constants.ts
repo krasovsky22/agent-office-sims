@@ -88,3 +88,39 @@ export const RECONCILE_SNAP_THRESHOLD = 3;
 
 /** Fraction of the remaining error removed per second while easing. */
 export const RECONCILE_EASE_RATE = 6;
+
+/**
+ * How long an emote stays above its actor's head.
+ *
+ * An emote is a gesture, not a status: it has to be long enough to notice from
+ * across the office and short enough that a room full of people is not a wall
+ * of frozen sprites.
+ */
+export const EMOTE_LIFETIME_MS = 2200;
+
+/** How long a chat bubble stays above its speaker's head. */
+export const CHAT_BUBBLE_LIFETIME_MS = 6000;
+
+/**
+ * Longest chat message the server will accept, in characters.
+ *
+ * The cap is enforced by truncation rather than rejection, so a long message
+ * still says something. It bounds the bubble's text and the HUD log entry, both
+ * of which are laid out for a message no longer than this.
+ */
+export const MAX_CHAT_LENGTH = 160;
+
+/**
+ * Chat messages a client may send back to back before the server starts
+ * dropping them.
+ */
+export const CHAT_BURST_ALLOWANCE = 4;
+
+/** Rate at which a client's chat allowance is restored, in messages/second. */
+export const CHAT_REFILL_PER_SECOND = 0.8;
+
+/** Emotes a client may fire back to back before the server starts dropping. */
+export const EMOTE_BURST_ALLOWANCE = 3;
+
+/** Rate at which a client's emote allowance is restored, in emotes/second. */
+export const EMOTE_REFILL_PER_SECOND = 0.6;
