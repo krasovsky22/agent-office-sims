@@ -18,8 +18,8 @@
 
 import { MAX_CHAT_LENGTH } from "./constants.js";
 import {
-  ANIMATION_STATE,
   type AnimationState,
+  isAnimationState,
   type TicketStatus,
   isTicketStatus,
 } from "./state.js";
@@ -177,10 +177,6 @@ const MAX_ID_LENGTH = 64;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g;
 
 const WHITESPACE_RUN = /\s+/g;
-
-function isAnimationState(value: unknown): value is AnimationState {
-  return value === ANIMATION_STATE.idle || value === ANIMATION_STATE.walking;
-}
 
 function isEmote(value: unknown): value is Emote {
   return typeof value === "string" && (EMOTES as readonly string[]).includes(value);
