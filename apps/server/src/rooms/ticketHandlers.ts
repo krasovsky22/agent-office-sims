@@ -20,7 +20,6 @@ import {
   type TicketActor,
   type TicketCommand,
   type TicketCommandResult,
-  type TicketPermission,
   applyTicketCommand,
   isHumanPlayer,
   parseTicketAssignMessage,
@@ -38,8 +37,6 @@ export interface TicketHost {
   readonly now: () => number;
   /** Mints an id for a created ticket. */
   readonly nextTicketId: () => string;
-  /** Overrides the shared authority seam. Omitted in the room. */
-  readonly permit?: TicketPermission;
 }
 
 /**
@@ -103,7 +100,6 @@ export function runTicketCommand(
     actor,
     now: host.now(),
     nextTicketId: host.nextTicketId,
-    ...(host.permit === undefined ? {} : { permit: host.permit }),
   });
 }
 

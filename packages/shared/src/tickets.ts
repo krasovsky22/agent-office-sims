@@ -70,11 +70,6 @@ export function isLegalTicketTransition(from: TicketStatus, to: TicketStatus): b
   return TICKET_TRANSITIONS[from].includes(to);
 }
 
-/** The statuses `from` may move to, for a consumer offering the choice. */
-export function legalTicketTransitions(from: TicketStatus): readonly TicketStatus[] {
-  return TICKET_TRANSITIONS[from];
-}
-
 /**
  * Whether a status requires an assignee.
  *
@@ -152,20 +147,9 @@ export const TICKET_REJECTION = {
   missingAssignee: "missing-assignee",
   /** An edit that would change nothing, or clear the title entirely. */
   emptyEdit: "empty-edit",
-  /** The board is at {@link MAX_BOARD_TICKETS}. */
-  boardFull: "board-full",
 } as const;
 
 export type TicketRejection = (typeof TICKET_REJECTION)[keyof typeof TICKET_REJECTION];
-
-/**
- * Tickets one room will hold.
- *
- * A bound rather than a design target: the board is in memory and a client can
- * send `create` as fast as it likes, so something has to stop a single tab
- * growing the replicated state without limit.
- */
-export const MAX_BOARD_TICKETS = 200;
 
 /** A parsed command, tagged so the applier can switch on it. */
 export type TicketCommand =
@@ -257,10 +241,6 @@ function createTicket(
   payload: TicketCreateMessage,
   context: TicketCommandContext,
 ): TicketCommandResult {
-  if (context.board.size >= MAX_BOARD_TICKETS) {
-    return reject(TICKET_REJECTION.boardFull);
-  }
-
   const ticket = new Ticket();
   ticket.id = context.nextTicketId();
   ticket.title = payload.title;

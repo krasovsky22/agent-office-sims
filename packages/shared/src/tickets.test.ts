@@ -13,7 +13,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   type TicketAction,
-  MAX_BOARD_TICKETS,
   STARTER_TICKETS,
   TICKET_ACTION,
   TICKET_REJECTION,
@@ -417,20 +416,6 @@ describe("create", () => {
     expect(ticket.createdAt).toBe(T0 + 5);
     expect(ticket.updatedAt).toBe(T0 + 5);
     expect(describeBoardProblems(board.state.tickets)).toEqual([]);
-  });
-
-  it("stops at the board limit rather than growing the state without bound", () => {
-    const board = harness();
-    for (let i = board.state.tickets.size; i < MAX_BOARD_TICKETS; i += 1) {
-      expect(board.run({ action: TICKET_ACTION.create, payload: { title: `T${i}`, body: "" } }).ok).toBe(
-        true,
-      );
-    }
-
-    const result = board.run({ action: TICKET_ACTION.create, payload: { title: "One more", body: "" } });
-
-    expect(result).toEqual({ ok: false, rejection: TICKET_REJECTION.boardFull });
-    expect(board.state.tickets.size).toBe(MAX_BOARD_TICKETS);
   });
 });
 
