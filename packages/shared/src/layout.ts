@@ -61,7 +61,7 @@ export interface DeskSpec {
  * Desks have their own spec because the rows of them are the floor plan's main
  * structure; everything else solid that is not a wall or a desk is a prop.
  */
-export type PropKind = "coffee" | "whiteboard";
+export type PropKind = "coffee";
 
 /**
  * A solid furnishing other than a desk, positioned the same way a desk is.
@@ -252,8 +252,6 @@ export const OFFICE_LAYOUT: OfficeLayout = {
   props: [
     // Against the kitchen's north wall, with room to stand in front of it.
     { id: "coffee-machine", kind: "coffee", x: 3.15, z: -11.1, yaw: 0, width: 0.9, depth: 0.7, height: 1.5 },
-    // At the head of the meeting table, flat against the north wall.
-    { id: "whiteboard-meeting", kind: "whiteboard", x: -2.85, z: -11.55, yaw: 0, width: 2.4, depth: 0.3, height: 1.3 },
   ],
   rooms: [
     { id: "ceo-office", name: "CEO Office", bounds: rect(-11.7, -11.7, -6, -5) },
