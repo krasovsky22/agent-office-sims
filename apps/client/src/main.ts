@@ -233,7 +233,8 @@ function start(): void {
     controller.setHold(interactableById(OFFICE_LAYOUT, engagedWith)?.anchor);
     controller.update(deltaSeconds);
 
-    const target = refreshPrompt(engagedWith);
+    const locallyHeldWith = controller.held ? engagedWith : "";
+    const target = refreshPrompt(locallyHeldWith);
     if (controller.takeReleaseRequest()) {
       room.sendRelease();
     }
@@ -256,7 +257,10 @@ function start(): void {
 
       // A sitter's place in the world comes from the desk it is parented to, so
       // it is the one case the loop does not pose.
-      const seat = view === undefined ? undefined : seatAnchors.get(view.interactableId);
+      const seat =
+        view === undefined
+          ? undefined
+          : seatAnchors.get(id === localId ? locallyHeldWith : view.interactableId);
       avatar.setSeat(seat, scene);
       if (seat !== undefined) {
         continue;
