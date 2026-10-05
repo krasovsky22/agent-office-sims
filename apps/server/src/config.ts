@@ -22,12 +22,14 @@ const DEV_ORIGINS: readonly string[] = ["http://localhost:5173", "http://127.0.0
 /**
  * What a cross-origin response says when the origin is not on the allowlist.
  *
- * `null` is a valid origin serialization that no real page can present, so a
- * browser comparing it against its own origin always rejects the response. The
- * socket upgrade is the real gate; this only stops the matchmaking reply from
- * being readable.
+ * Not `null`: a sandboxed iframe or `data:` URL sends a literal `Origin: null`
+ * header, and the Fetch spec's CORS-check matches that against an
+ * `Access-Control-Allow-Origin: null` reply. This string can never be a real
+ * request's serialized origin, so no browser's CORS check can ever match it.
+ * The socket upgrade is the real gate; this only stops the matchmaking reply
+ * from being readable.
  */
-export const DISALLOWED_ORIGIN = "null";
+export const DISALLOWED_ORIGIN = "https://disallowed.invalid";
 
 export interface ServerConfig {
   readonly port: number;
