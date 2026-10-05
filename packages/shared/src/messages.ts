@@ -194,11 +194,11 @@ export function sanitizeChatText(raw: unknown): string {
   if (typeof raw !== "string") {
     return "";
   }
-  return raw
-    .replace(CONTROL_CHARACTERS, " ")
-    .replace(WHITESPACE_RUN, " ")
-    .trim()
+  return Array.from(
+    raw.replace(CONTROL_CHARACTERS, " ").replace(WHITESPACE_RUN, " ").trim()
+  )
     .slice(0, MAX_CHAT_LENGTH)
+    .join("")
     .trim();
 }
 
@@ -226,11 +226,11 @@ export function sanitizeName(raw: unknown): string {
   if (typeof raw !== "string") {
     return "";
   }
-  return raw
-    .replace(CONTROL_CHARACTERS, " ")
-    .replace(WHITESPACE_RUN, " ")
-    .trim()
-    .slice(0, MAX_NAME_LENGTH);
+  return Array.from(
+    raw.replace(CONTROL_CHARACTERS, " ").replace(WHITESPACE_RUN, " ").trim()
+  )
+    .slice(0, MAX_NAME_LENGTH)
+    .join("");
 }
 
 /** Reads join options off an untrusted payload. */

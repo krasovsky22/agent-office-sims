@@ -138,11 +138,14 @@ function elideLast(
   if (last === undefined) {
     return lines;
   }
-  let shortened = last;
-  while (shortened.length > 1 && context.measureText(`${shortened}…`).width > maxWidth) {
-    shortened = shortened.slice(0, -1);
+  const characters = Array.from(last);
+  while (
+    characters.length > 1 &&
+    context.measureText(`${characters.join("")}…`).width > maxWidth
+  ) {
+    characters.pop();
   }
-  lines[lines.length - 1] = `${shortened}…`;
+  lines[lines.length - 1] = `${characters.join("")}…`;
   return lines;
 }
 
