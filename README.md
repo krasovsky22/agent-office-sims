@@ -22,8 +22,10 @@ pnpm dev
 
 That starts both halves: the Colyseus server on `ws://localhost:2567` and the
 Vite client on `http://localhost:5173`. Both have working defaults, so no
-configuration is required; `.env.example` lists the two variables (`PORT` and
-`VITE_SERVER_URL`) if you need to point the client somewhere else.
+configuration is required; `.env.example` lists the three variables (`PORT`,
+`ALLOWED_ORIGINS`, and `VITE_SERVER_URL`) if you need to point the client
+somewhere else. A deployment has to set all three — see
+[Deploying it](#deploying-it).
 
 Walk with `W A S D` or the arrow keys. Click the canvas to capture the mouse,
 then move it to swing the camera; `Esc` releases it.
@@ -58,10 +60,115 @@ Then confirm all five:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision resolver and pathfinding unit tests
+pnpm test        # collision resolver, pathfinding, and server origin allowlist
 pnpm lint
-pnpm build       # production client bundle
+pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
+
+`pnpm build` refuses to run without `VITE_SERVER_URL`, because the bundle is
+static and a missing one cannot be corrected after the fact. To build locally
+against `pnpm dev`'s server:
+
+```sh
+VITE_SERVER_URL=ws://localhost:2567 pnpm build
+```
+
+## Deploying it
+
+The two halves go to different kinds of host, and the reason is the state. The
+server holds the room in memory behind long-lived sockets, so it needs a process
+that keeps running — a container host, not a serverless function. The client is
+a folder of static files and can go anywhere that serves them over HTTPS.
+
+Nothing in this repository is a secret, and nothing here should become one: both
+halves read their configuration from the environment, and the repository is
+public.
+
+### Environment variables
+
+| Variable | Half | When | Required for a deployment |
+| --- | --- | --- | --- |
+| `PORT` | server | runtime | No — most platforms assign it. Defaults to `2567`. |
+| `ALLOWED_ORIGINS` | server | runtime | **Yes.** Comma-separated origins allowed to join. Defaults to the local dev server, which no deployed page is served from. |
+| `VITE_SERVER_URL` | client | **build** | **Yes.** The server's WebSocket URL, e.g. `wss://office-server.fly.dev`. |
+
+`VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
+static file cannot be reconfigured afterwards. Changing it means rebuilding and
+re-uploading the client. The build refuses to run without it, and refuses a
+`ws://` URL for any host but localhost, because a page served over HTTPS cannot
+open an insecure socket.
+
+`ALLOWED_ORIGINS` is an exact-match allowlist with no wildcard, checked in both
+places a browser reaches the server: the matchmaking response is only made
+readable to a listed origin, and the WebSocket upgrade is refused outright for
+one that is not. Scheme and port are part of an origin, so `https://example.com`
+does not admit `http://example.com`. A request with no `Origin` header at all is
+allowed through — that is not a browser, and the header is a browser mechanism.
+
+### Order of operations
+
+The two halves each need to know the other's URL, so deploy the server first:
+
+1. **Deploy the server**, with `ALLOWED_ORIGINS` set to anything for now. Note
+   the hostname the platform gives it.
+2. **Build and deploy the client** with `VITE_SERVER_URL=wss://<that hostname>`.
+   Note the origin the static host serves it from.
+3. **Set `ALLOWED_ORIGINS` to that origin** and restart the server.
+
+### The server, on Fly.io
+
+`Dockerfile` builds the server alone — the client's dependencies are never
+installed into the image — and `fly.toml` carries the deployment settings.
+
+```sh
+fly launch --no-deploy            # claims an app name, rewrites `app` in fly.toml
+fly secrets set ALLOWED_ORIGINS=https://your-client-host.example
+fly deploy
+curl https://<your-app>.fly.dev/health      # {"status":"ok"}
+```
+
+Two settings in `fly.toml` are deliberate and should stay that way while the
+room lives in memory: `auto_stop_machines = "off"` with
+`min_machines_running = 1`, so the machine is never suspended out from under the
+people standing in the office, and one machine rather than several, since a
+second would hold its own separate rooms and two people on the same URL could be
+matched into different offices.
+
+Fly's proxy terminates TLS and forwards plain HTTP and `ws://` to the container,
+which is why the server needs no certificate and the client still uses `wss://`.
+WebSocket upgrades pass through it unchanged; Colyseus pings every few seconds,
+which is frequent enough that the proxy never sees the connection as idle.
+
+### The server, on Railway
+
+Railway builds the same `Dockerfile` with no extra configuration. Point a new
+service at this repository, set `ALLOWED_ORIGINS` in the service's variables,
+and expose it — Railway assigns `PORT` itself, which the server reads, and
+proxies WebSockets over the generated `https://` domain.
+
+### The client, anywhere static
+
+```sh
+VITE_SERVER_URL=wss://<your-server-host> pnpm build
+```
+
+That writes `apps/client/dist/`, which is the entire deployment: upload it to
+Netlify, Vercel, Cloudflare Pages, GitHub Pages, or any other static host. Asset
+URLs are relative, so it works at a domain root or under a path prefix without
+being rebuilt. There is no server-side rendering and no API to proxy — the only
+thing the page talks to is the WebSocket.
+
+### Checking a deployment
+
+- `GET /health` on the server returns `{"status":"ok"}`. This is what the
+  platform probes, and the only HTTP the server serves; everything else is 404.
+- Open the deployed client in two tabs, as in
+  [The two-tab check](#the-two-tab-check), and confirm the same five things.
+  Doing it from two different networks is the real test, since that is the one
+  the single-machine case cannot fake.
+- A browser console showing a CORS error naming
+  `Access-Control-Allow-Origin` means `ALLOWED_ORIGINS` does not list the origin
+  the client is served from. The server logs the origins it accepted on boot.
 
 ## Layout
 
