@@ -15,6 +15,7 @@ import {
   OFFICE_LAYOUT,
   type OfficeLayout,
   authorizeInteract,
+  heldAnimationFor,
   interactableById,
   nearestInteractable,
   promptFor,
@@ -253,7 +254,15 @@ function start(): void {
 
     for (const [id, avatar] of avatars) {
       const view = room.viewOf(id);
-      avatar.setAnimation(view?.animation ?? ANIMATION_STATE.idle);
+      const heldSpec =
+        id === localId ? interactableById(OFFICE_LAYOUT, locallyHeldWith) : undefined;
+      const animation =
+        id === localId
+          ? heldSpec
+            ? heldAnimationFor(heldSpec)
+            : controller.pose.animation
+          : view?.animation ?? ANIMATION_STATE.idle;
+      avatar.setAnimation(animation);
 
       // A sitter's place in the world comes from the desk it is parented to, so
       // it is the one case the loop does not pose.
