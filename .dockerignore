@@ -1,0 +1,22 @@
+# The build installs dependencies itself and copies only the server's half of
+# the repository, so everything here is either rebuilt, unused, or must not
+# leave the machine.
+
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.github
+.vite
+coverage
+*.tsbuildinfo
+*.log
+
+# Local secrets and overrides. `.env.example` is committed and carries no
+# values, but there is no reason for any of it to be in an image.
+.env
+.env.*
+
+.claude
+.DS_Store

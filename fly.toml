@@ -1,0 +1,48 @@
+# Fly.io deployment for the server.
+#
+# `app` is a placeholder: `fly launch --no-deploy` rewrites it to whatever name
+# you claim. Everything else here is a decision rather than a default, and the
+# README explains the two that matter — one machine, never suspended.
+
+app = "agent-office-sims"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "2567"
+
+[http_service]
+  internal_port = 2567
+
+  # The client is served over HTTPS, so its socket is wss://. Fly's proxy
+  # terminates TLS and forwards plain HTTP and ws:// to the port above, which is
+  # why the server needs no certificate of its own.
+  force_https = true
+
+  # The room lives in this process's memory. A machine that suspends to save
+  # money takes the office with it and drops everyone in it, so it stays up —
+  # this is the "persistent process" half of the deployment.
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+  # One machine, deliberately. Two would each hold their own rooms, and two
+  # people could be matched into different offices on the same URL. Spreading
+  # rooms across processes is a later problem with its own answer.
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 64
+    soft_limit = 48
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
