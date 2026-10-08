@@ -79,7 +79,7 @@ Then confirm all eight:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision resolver, message parsers, expression rate limit
+pnpm test        # collision, pathfinding, message parsers, expression rate limit
 pnpm lint
 pnpm build       # production client bundle
 ```
@@ -92,6 +92,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/messages.ts     commands and events, with the parsers for the untrusted ones
   src/layout.ts       the office floor plan, as data
   src/collision.ts    capsule-vs-AABB movement resolution
+  src/nav.ts          pathfinding over the layout's waypoint graph
   src/constants.ts    tick rate, speeds, radii, ranges, expression limits
 apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/expression.ts   per-occupant emote and chat budgets
