@@ -19,12 +19,11 @@ import { createRoot } from "react-dom/client";
 import * as THREE from "three";
 
 import { RoomConnection, type RemotePose } from "./net/room.js";
+import { resolveServerUrl } from "./net/serverUrl.js";
 import { PlayerController } from "./player/controller.js";
 import { Avatar } from "./scene/avatar.js";
 import { buildOffice } from "./scene/office.js";
 import { Hud, type ChatLogEntry, type HudSnapshot, createHudStore } from "./ui/Hud.js";
-
-const DEFAULT_SERVER_URL = "ws://localhost:2567";
 
 /**
  * Longest frame the simulation will integrate.
@@ -65,9 +64,13 @@ function requireHudMount(): HTMLElement {
   return mount;
 }
 
+/**
+ * The server URL baked in at build time. A production build cannot get here
+ * without one — `vite.config.ts` refuses to build — so the fallback only ever
+ * serves `pnpm dev`.
+ */
 function readServerUrl(): string {
-  const configured = import.meta.env.VITE_SERVER_URL;
-  return configured === undefined || configured === "" ? DEFAULT_SERVER_URL : configured;
+  return resolveServerUrl(import.meta.env.VITE_SERVER_URL);
 }
 
 /** An optional `?name=` lets two tabs be told apart at a glance. */
