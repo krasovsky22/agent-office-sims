@@ -1,9 +1,12 @@
 /**
  * The shared office.
  *
- * One room holds everyone on the floor. It owns three things: who is in the
- * office, where the authoritative version of each of them is, and which of them
- * is the CEO.
+ * One room holds everyone on the floor. It owns four things: who is in the
+ * office, where the authoritative version of each of them is, which of them is
+ * the CEO, and the ticket board they work from.
+ *
+ * The board's rules are not here. `ticketHandlers.ts` wires the five commands
+ * up and `@sim/shared`'s `tickets.ts` decides what each one is allowed to do.
  */
 
 import { type Client, Room } from "@colyseus/core";
@@ -22,6 +25,12 @@ import {
 } from "@sim/shared";
 
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
+import {
+  type TicketHost,
+  createTicketIdFactory,
+  registerTicketHandlers,
+  seedTicketBoard,
+} from "./ticketHandlers.js";
 
 /**
  * Silence after which an occupant is shown as standing still.
@@ -44,6 +53,16 @@ export class OfficeRoom extends Room<OfficeState> {
   public override onCreate(): void {
     this.state = new OfficeState();
     this.patchRate = TICK_INTERVAL_MS;
+
+    // `Date.now()` rather than `this.clock`, because a ticket timestamp is read
+    // as a wall-clock date in a panel, not as an offset from this room's start.
+    const ticketHost: TicketHost = {
+      state: this.state,
+      now: () => Date.now(),
+      nextTicketId: createTicketIdFactory(),
+    };
+    seedTicketBoard(ticketHost);
+    registerTicketHandlers(this, ticketHost);
 
     this.onMessage(CLIENT_MESSAGE.pose, (client, raw: unknown) => {
       const pose = parsePoseMessage(raw);
