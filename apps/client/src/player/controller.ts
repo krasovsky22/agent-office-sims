@@ -28,6 +28,8 @@ import {
 } from "@sim/shared";
 import * as THREE from "three";
 
+import { isTypingTarget } from "../keys.js";
+
 /** Distance from the camera to the player when nothing is in the way. */
 const CAMERA_DISTANCE = 7;
 
@@ -174,18 +176,31 @@ export class PlayerController {
 
   public attach(): void {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) {
+        return;
+      }
       if (ALL_KEYS.has(event.code)) {
         this.pressed.add(event.code);
         // Stop the arrow keys from scrolling the page out from under the canvas.
         event.preventDefault();
       }
     };
+    // Key-up is *not* filtered by target: focus can move between a key going
+    // down and coming up, and a key released into a newly focused input would
+    // otherwise stay held forever.
     const onKeyUp = (event: KeyboardEvent) => {
       this.pressed.delete(event.code);
     };
     // A window that loses focus mid-stride would otherwise keep walking.
     const onBlur = () => {
       this.pressed.clear();
+    };
+    // Same for focus moving into a text field mid-stride, which stays inside the
+    // window and so never reaches `blur`.
+    const onFocusIn = (event: FocusEvent) => {
+      if (isTypingTarget(event.target)) {
+        this.pressed.clear();
+      }
     };
     const onPointerDown = () => {
       if (document.pointerLockElement !== this.viewport) {
@@ -206,6 +221,7 @@ export class PlayerController {
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onBlur);
+    window.addEventListener("focusin", onFocusIn);
     this.viewport.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("mousemove", onMouseMove);
 
@@ -213,6 +229,7 @@ export class PlayerController {
       () => window.removeEventListener("keydown", onKeyDown),
       () => window.removeEventListener("keyup", onKeyUp),
       () => window.removeEventListener("blur", onBlur),
+      () => window.removeEventListener("focusin", onFocusIn),
       () => this.viewport.removeEventListener("pointerdown", onPointerDown),
       () => window.removeEventListener("mousemove", onMouseMove),
     ];

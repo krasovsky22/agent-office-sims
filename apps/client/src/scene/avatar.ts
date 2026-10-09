@@ -1,16 +1,60 @@
 /**
- * An occupant's body: a capsule, a floating nameplate, and a CEO marker.
+ * An occupant's body: a capsule, a floating nameplate, a CEO marker, and
+ * whatever the occupant is currently expressing.
  *
  * The nameplate is a sprite, so it faces the camera from every angle without the
  * game loop having to orient it. Its text is drawn once into a canvas when the
  * avatar is built or renamed, not per frame.
+ *
+ * **Everything overhead hangs off one anchor.** `overhead` is a group at head
+ * height, and the nameplate, the emote sprite and the chat bubble are its
+ * children at fixed local offsets. Two things follow from that. Overhead
+ * content tracks the body for free — the game loop moves the avatar's group and
+ * the anchor comes with it, with no second position to keep in step. And when
+ * the capsule is replaced by a rigged mesh, re-parenting this one group to a
+ * head bone moves all of it; nothing outside this class holds a position.
+ *
+ * Expression is the same for every occupant, so an agent employee gets emotes
+ * and chat bubbles by being given an {@link Avatar}, with no extra work here.
  */
 
-import { OCCUPANT_HEIGHT, OCCUPANT_RADIUS } from "@sim/shared";
+import {
+  CHAT_BUBBLE_LIFETIME_MS,
+  EMOTE_LIFETIME_MS,
+  type Emote,
+  OCCUPANT_HEIGHT,
+  OCCUPANT_RADIUS,
+} from "@sim/shared";
 import * as THREE from "three";
 
-/** Height of the nameplate above the floor. */
-const NAMEPLATE_Y = OCCUPANT_HEIGHT + 0.42;
+import { EMOTE_APPEARANCE } from "../emotes.js";
+
+import { Billboard, paintEmote, paintSpeechBubble } from "./billboard.js";
+
+/** Height of the overhead anchor above the floor. */
+const OVERHEAD_Y = OCCUPANT_HEIGHT;
+
+/** Nameplate offset above {@link OVERHEAD_Y}. */
+const NAMEPLATE_OFFSET = 0.42;
+
+/**
+ * Offsets of the expression sprites above {@link OVERHEAD_Y}.
+ *
+ * Stacked so that an occupant waving mid-sentence shows both: the emote clears
+ * the nameplate, and the bubble clears the emote. The bubble is painted
+ * bottom-anchored inside its own canvas, so it grows upward with its line count
+ * rather than down into the emote.
+ */
+const EMOTE_OFFSET = 0.85;
+const CHAT_OFFSET = 1.42;
+
+const EMOTE_CANVAS_WIDTH = 256;
+const EMOTE_CANVAS_HEIGHT = 224;
+const EMOTE_WORLD_HEIGHT = 0.46;
+
+const CHAT_CANVAS_WIDTH = 512;
+const CHAT_CANVAS_HEIGHT = 224;
+const CHAT_WORLD_HEIGHT = 0.62;
 
 /** World height of a nameplate sprite. */
 const NAMEPLATE_HEIGHT = 0.3;
@@ -28,6 +72,9 @@ const NAMEPLATE_CANVAS_WIDTH = 640;
 const NAMEPLATE_CANVAS_HEIGHT = 64;
 
 const CEO_MARKER_Y = OCCUPANT_HEIGHT + 0.13;
+
+/** Expiry sentinel for "not showing anything". */
+const NOT_SHOWING = Number.NEGATIVE_INFINITY;
 
 const LOCAL_BODY_COLOUR = 0xcfd3da;
 const REMOTE_BODY_COLOUR = 0x9aa0aa;
@@ -89,6 +136,12 @@ function drawNameplate(canvas: HTMLCanvasElement, name: string, isCeo: boolean):
 export class Avatar {
   public readonly group = new THREE.Group();
 
+  /**
+   * Where overhead content hangs. See the note at the top of this file: this is
+   * the single thing a rigged avatar re-parents.
+   */
+  private readonly overhead = new THREE.Group();
+
   private readonly body: THREE.Mesh;
   private readonly bodyMaterial: THREE.MeshLambertMaterial;
   private readonly ceoMarker: THREE.Mesh;
@@ -96,12 +149,35 @@ export class Avatar {
   private readonly nameplateCanvas = document.createElement("canvas");
   private readonly nameplateTexture: THREE.CanvasTexture;
 
+  private readonly emoteBillboard = new Billboard({
+    canvasWidth: EMOTE_CANVAS_WIDTH,
+    canvasHeight: EMOTE_CANVAS_HEIGHT,
+    worldHeight: EMOTE_WORLD_HEIGHT,
+  });
+
+  private readonly chatBillboard = new Billboard({
+    canvasWidth: CHAT_CANVAS_WIDTH,
+    canvasHeight: CHAT_CANVAS_HEIGHT,
+    worldHeight: CHAT_WORLD_HEIGHT,
+  });
+
+  private emoteExpiresAt = NOT_SHOWING;
+  private chatExpiresAt = NOT_SHOWING;
+
   private name: string;
   private isCeo: boolean;
 
   public constructor(options: AvatarOptions) {
     this.name = options.name;
     this.isCeo = options.isCeo;
+
+    this.overhead.position.y = OVERHEAD_Y;
+    this.group.add(this.overhead);
+
+    this.emoteBillboard.sprite.position.y = EMOTE_OFFSET;
+    this.overhead.add(this.emoteBillboard.sprite);
+    this.chatBillboard.sprite.position.y = CHAT_OFFSET;
+    this.overhead.add(this.chatBillboard.sprite);
 
     this.bodyMaterial = new THREE.MeshLambertMaterial({
       color: options.isLocal ? LOCAL_BODY_COLOUR : REMOTE_BODY_COLOUR,
@@ -128,14 +204,53 @@ export class Avatar {
     this.nameplate = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: this.nameplateTexture, transparent: true, depthTest: false }),
     );
-    this.nameplate.position.y = NAMEPLATE_Y;
+    this.nameplate.position.y = NAMEPLATE_OFFSET;
     this.applyNameplateScale();
-    this.group.add(this.nameplate);
+    this.overhead.add(this.nameplate);
   }
 
   public setPose(x: number, z: number, yaw: number): void {
     this.group.position.set(x, 0, z);
     this.group.rotation.y = yaw;
+  }
+
+  /** Shows an emote above the head, replacing any emote still showing. */
+  public showEmote(emote: Emote, nowMs: number): void {
+    const appearance = EMOTE_APPEARANCE[emote];
+    this.emoteBillboard.show(paintEmote(appearance.glyph, appearance.caption));
+    this.emoteExpiresAt = nowMs + EMOTE_LIFETIME_MS;
+  }
+
+  /**
+   * Shows a chat bubble above the head, replacing any bubble still showing.
+   *
+   * `text` has already been sanitized and length-capped by the server, and is
+   * painted as characters onto a canvas, so there is no markup context here for
+   * it to escape into.
+   */
+  public showChat(text: string, nowMs: number): void {
+    this.chatBillboard.show(paintSpeechBubble(text));
+    this.chatExpiresAt = nowMs + CHAT_BUBBLE_LIFETIME_MS;
+  }
+
+  /**
+   * Retires anything whose time is up.
+   *
+   * Called every frame from the game loop with the frame's timestamp, which is
+   * the same clock the lifetimes were stamped against. Expiry is deliberately
+   * not a `setTimeout` per emote: a timer that fires while the tab is
+   * backgrounded, or after the avatar has been disposed, is a bug waiting to
+   * be written, and the loop is already running.
+   */
+  public updateExpressions(nowMs: number): void {
+    if (this.emoteBillboard.visible && nowMs >= this.emoteExpiresAt) {
+      this.emoteBillboard.hide();
+      this.emoteExpiresAt = NOT_SHOWING;
+    }
+    if (this.chatBillboard.visible && nowMs >= this.chatExpiresAt) {
+      this.chatBillboard.hide();
+      this.chatExpiresAt = NOT_SHOWING;
+    }
   }
 
   /** Re-renders the nameplate only when something it shows has changed. */
@@ -155,6 +270,8 @@ export class Avatar {
     this.bodyMaterial.dispose();
     this.nameplate.material.dispose();
     this.nameplateTexture.dispose();
+    this.emoteBillboard.dispose();
+    this.chatBillboard.dispose();
   }
 
   private applyNameplateScale(): void {
