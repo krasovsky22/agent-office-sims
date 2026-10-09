@@ -4,10 +4,10 @@
  *
  * Three things about the shape of this file are load-bearing:
  *
- * - **The capsule is still here, as the fallback.** An avatar is built as a
- *   capsule and upgraded to the humanoid once the model has downloaded. A model
- *   that never arrives therefore leaves a body you can see and walk, rather
- *   than an invisible player.
+ * - **The capsule is still here, as the fallback.** An avatar built without a
+ *   model yet stands as a capsule until {@link Avatar.useModel} upgrades it. A
+ *   model that never arrives therefore leaves a body you can see and walk,
+ *   rather than an invisible player.
  * - **Head-height attachments hang off {@link Avatar.headAnchor}.** The
  *   nameplate, the CEO marker, the emote sprite and the chat bubble are all
  *   children of it. It is a plain object whose height follows the pose, so
@@ -189,6 +189,27 @@ function drawNameplate(canvas: HTMLCanvasElement, name: string, isCeo: boolean):
   context.fillText(label, centreX, centreY + 1);
 }
 
+/** The humanoid body, built once a model is available. */
+function createHumanoidBody(
+  model: AvatarModel,
+  isLocal: boolean,
+  initialAnimation: AnimationState,
+): AvatarBody {
+  const instance = model.createInstance(isLocal);
+  const animator = new AvatarAnimator(instance.root, instance.clips);
+  animator.setState(initialAnimation);
+
+  return {
+    root: instance.root,
+    animator,
+    isHumanoid: true,
+    dispose: () => {
+      animator.dispose();
+      instance.dispose();
+    },
+  };
+}
+
 /** The capsule: the body an avatar has before the model arrives, or instead of it. */
 function createCapsuleBody(isLocal: boolean): AvatarBody {
   const root = new THREE.Group();
@@ -267,7 +288,10 @@ export class Avatar {
     this.isCeo = options.isCeo;
     this.isLocal = options.isLocal;
 
-    this.body = createCapsuleBody(options.isLocal);
+    this.body =
+      options.model !== undefined
+        ? createHumanoidBody(options.model, options.isLocal, this.animation)
+        : createCapsuleBody(options.isLocal);
     this.group.add(this.body.root);
 
     this.headAnchor.position.y = HEAD_ANCHOR_Y;
@@ -294,10 +318,6 @@ export class Avatar {
     this.nameplate.position.y = NAMEPLATE_OFFSET_Y;
     this.applyNameplateScale();
     this.headAnchor.add(this.nameplate);
-
-    if (options.model !== undefined) {
-      this.useModel(options.model);
-    }
   }
 
   public setPose(x: number, z: number, yaw: number): void {
@@ -361,21 +381,10 @@ export class Avatar {
       return;
     }
 
-    const instance = model.createInstance(this.isLocal);
-    const animator = new AvatarAnimator(instance.root, instance.clips);
-    animator.setState(this.animation);
-
+    const next = createHumanoidBody(model, this.isLocal, this.animation);
     this.body.dispose();
-    this.body = {
-      root: instance.root,
-      animator,
-      isHumanoid: true,
-      dispose: () => {
-        animator.dispose();
-        instance.dispose();
-      },
-    };
-    this.group.add(instance.root);
+    this.body = next;
+    this.group.add(this.body.root);
   }
 
   /** Shows an emote above the head, replacing any emote still showing. */
