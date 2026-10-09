@@ -51,7 +51,7 @@ makes the check easier to read:
 
 Then confirm all eight:
 
-1. **Both tabs list both players**, with the right names on the right capsules,
+1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
    `CEO` badge in the roster, and `· CEO` on the floating nameplate.
 2. **Walking is immediate in your own tab** — no lag between the key going down
@@ -82,7 +82,7 @@ Then confirm all eight:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, pathfinding, tickets, messages, expression limits, server origins
+pnpm test        # collision, pathfinding, tickets, messages, expression limits, server origins, avatar animation
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
