@@ -9,9 +9,10 @@ Prototype. Built with TypeScript, Three.js, and Colyseus.
 The walking skeleton: a shared grey office you can walk around with other people,
 with smooth remote movement and collision both sides agree on, and enough
 expression to tell each other you are there — emotes and text chat, each drawn
-above the speaker's head and relayed through the server. The ticket board,
-object interaction, and the AI agent employees are later milestones. What exists
-now is the presence layer they will be built on.
+above the speaker's head and relayed through the server. The ticket board
+exists as replicated state with its rules enforced on the
+server — a board panel to see it in, object interaction, and the AI agent
+employees are later milestones.
 
 ## Running it
 
@@ -81,7 +82,7 @@ Then confirm all eight:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, pathfinding, message parsers, expression rate limit, server origins
+pnpm test        # collision, pathfinding, tickets, messages, expression limits, server origins
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -197,6 +198,7 @@ thing the page talks to is the WebSocket.
 packages/shared/   @sim/shared   the contract both sides import
   src/state.ts        replicated Colyseus schema
   src/messages.ts     commands and events, with the parsers for the untrusted ones
+  src/tickets.ts      the board's rules: transitions, authority, commands
   src/layout.ts       the office floor plan, as data
   src/collision.ts    capsule-vs-AABB movement resolution
   src/nav.ts          pathfinding over the layout's waypoint graph
@@ -207,7 +209,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
 ```
 
-Four things are worth knowing before changing anything:
+Five things are worth knowing before changing anything:
 
 - **The floor plan is data.** `shared/layout.ts` is the only place a wall
   position exists. The client builds meshes from it and the server collides
@@ -227,3 +229,8 @@ Four things are worth knowing before changing anything:
   happening. Nothing draws an emote or a bubble it did not receive from the
   server, including the one above your own head, so what you see over yourself
   is what everyone else sees.
+- **The board is server-authoritative, and has one gate.** A client asks; the
+  server decides. `shared/tickets.ts` holds the legal status transitions and
+  `mayActOnTicket`, the single predicate every command is checked against. It is
+  permissive for now; the CEO-only rules replace that one body rather than
+  adding a check anywhere else.

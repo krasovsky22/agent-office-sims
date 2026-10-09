@@ -1,15 +1,18 @@
 /**
  * The shared office.
  *
- * One room holds everyone on the floor. It owns four things: who is in the
+ * One room holds everyone on the floor. It owns five things: who is in the
  * office, where the authoritative version of each of them is, which of them is
- * the CEO, and what they are expressing.
+ * the CEO, what they are expressing, and the ticket board they work from.
  *
  * Expression — emotes and chat — is relayed rather than replicated. A wave is
  * true for two seconds and a sentence for six, so neither belongs in the
  * schema, where a client joining afterwards would be handed it as though it
  * were still happening. The server validates, sanitizes and rate-limits, then
  * broadcasts; clients draw what they receive and forget it when it expires.
+ *
+ * The board's rules are not here. `ticketHandlers.ts` wires the five commands
+ * up and `@sim/shared`'s `tickets.ts` decides what each one is allowed to do.
  */
 
 import { type Client, Room } from "@colyseus/core";
@@ -35,6 +38,12 @@ import {
 
 import { type ExpressionBudget, createExpressionBudget, tryConsume } from "../sim/expression.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
+import {
+  type TicketHost,
+  createTicketIdFactory,
+  registerTicketHandlers,
+  seedTicketBoard,
+} from "./ticketHandlers.js";
 
 /**
  * Silence after which an occupant is shown as standing still.
@@ -60,6 +69,16 @@ export class OfficeRoom extends Room<OfficeState> {
   public override onCreate(): void {
     this.state = new OfficeState();
     this.patchRate = TICK_INTERVAL_MS;
+
+    // `Date.now()` rather than `this.clock`, because a ticket timestamp is read
+    // as a wall-clock date in a panel, not as an offset from this room's start.
+    const ticketHost: TicketHost = {
+      state: this.state,
+      now: () => Date.now(),
+      nextTicketId: createTicketIdFactory(),
+    };
+    seedTicketBoard(ticketHost);
+    registerTicketHandlers(this, ticketHost);
 
     this.onMessage(CLIENT_MESSAGE.pose, (client, raw: unknown) => {
       const pose = parsePoseMessage(raw);

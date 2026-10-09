@@ -95,19 +95,116 @@ export class HumanPlayer extends Occupant {
 
 defineTypes(HumanPlayer, { isCeo: "boolean" });
 
+/**
+ * Where a ticket sits on the board.
+ *
+ * The order of these keys is the order of the board's columns, left to right,
+ * and the transition table in `tickets.ts` is written against it. Anything that
+ * needs to list the statuses should read {@link TICKET_STATUSES} rather than
+ * spelling them out again.
+ */
+export const TICKET_STATUS = {
+  backlog: "backlog",
+  assigned: "assigned",
+  in_progress: "in_progress",
+  review: "review",
+  done: "done",
+} as const;
+
+export type TicketStatus = (typeof TICKET_STATUS)[keyof typeof TICKET_STATUS];
+
+/** Every status, in board-column order. */
+export const TICKET_STATUSES: readonly TicketStatus[] = Object.values(TICKET_STATUS);
+
+/** Whether an arbitrary value is one of the five statuses. */
+export function isTicketStatus(value: unknown): value is TicketStatus {
+  return typeof value === "string" && (TICKET_STATUSES as readonly string[]).includes(value);
+}
+
+/**
+ * One unit of work on the board.
+ *
+ * `assigneeId` and `createdById` hold occupant ids — session ids for the humans
+ * in this milestone — rather than object references, because Colyseus replicates
+ * trees and not graphs. A consumer resolves them against
+ * {@link OfficeState.occupants}; an id that is no longer in that map is a
+ * ticket whose assignee has disconnected, which the board renders rather than
+ * repairs.
+ *
+ * `outputArtifact` is the agent employee's deliverable — the thing a reviewer
+ * reads before moving the ticket to `done`. Nothing writes it in this
+ * milestone: the agents that will are a later issue, and the field is here so
+ * that issue does not have to reshape the board to land it.
+ *
+ * Timestamps are epoch milliseconds under the `number` type, which is
+ * variable-length on the wire and so holds a value that `uint32` could not.
+ */
+export class Ticket extends Schema {
+  declare public id: string;
+  declare public title: string;
+  declare public body: string;
+  declare public status: TicketStatus;
+  /** Occupant id of the current assignee, or `""` when unassigned. */
+  declare public assigneeId: string;
+  /** Occupant id of whoever filed it, or {@link SYSTEM_AUTHOR_ID} for a seed. */
+  declare public createdById: string;
+  /** The assignee's deliverable, written when an agent finishes. `""` until. */
+  declare public outputArtifact: string;
+  declare public createdAt: number;
+  declare public updatedAt: number;
+
+  public constructor() {
+    super();
+    this.id = "";
+    this.title = "";
+    this.body = "";
+    this.status = TICKET_STATUS.backlog;
+    this.assigneeId = "";
+    this.createdById = "";
+    this.outputArtifact = "";
+    this.createdAt = 0;
+    this.updatedAt = 0;
+  }
+}
+
+defineTypes(Ticket, {
+  id: "string",
+  title: "string",
+  body: "string",
+  status: "string",
+  assigneeId: "string",
+  createdById: "string",
+  outputArtifact: "string",
+  createdAt: "number",
+  updatedAt: "number",
+});
+
+/**
+ * Author recorded on a ticket the room created itself.
+ *
+ * Not an occupant id, and deliberately not resolvable in
+ * {@link OfficeState.occupants}: a consumer that looks it up finds nothing and
+ * should render the ticket as unattributed.
+ */
+export const SYSTEM_AUTHOR_ID = "system";
+
 export class OfficeState extends Schema {
   declare public occupants: MapSchema<Occupant>;
+  /** The ticket board, keyed by {@link Ticket.id}. */
+  declare public tickets: MapSchema<Ticket>;
   declare public tick: number;
 
   public constructor() {
     super();
     this.occupants = new MapSchema<Occupant>();
+    this.tickets = new MapSchema<Ticket>();
     this.tick = 0;
   }
 }
 
 defineTypes(OfficeState, {
   occupants: { map: Occupant },
+  tickets: { map: Ticket },
   tick: "uint32",
 });
 
