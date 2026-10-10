@@ -42,13 +42,32 @@ export type OccupantKind = (typeof OCCUPANT_KIND)[keyof typeof OCCUPANT_KIND];
  *
  * A string rather than a boolean because sitting, typing and talking all land
  * here once there is anything in the office to do.
+ *
+ * `sitting` and `typing` are carried but not yet produced: nothing in the office
+ * can be sat at, so no client sets them. They are listed because the renderer
+ * has a clip for each of them, which means the milestone that adds chairs and
+ * desk work only has to write this field rather than extend the protocol.
  */
 export const ANIMATION_STATE = {
   idle: "idle",
   walking: "walking",
+  sitting: "sitting",
+  typing: "typing",
 } as const;
 
 export type AnimationState = (typeof ANIMATION_STATE)[keyof typeof ANIMATION_STATE];
+
+const ANIMATION_STATES: ReadonlySet<string> = new Set(Object.values(ANIMATION_STATE));
+
+/**
+ * Whether an untrusted value is one of the {@link ANIMATION_STATE} members.
+ *
+ * Derived from the object rather than written out, so that adding a state here
+ * cannot leave the server rejecting poses that carry it.
+ */
+export function isAnimationState(value: unknown): value is AnimationState {
+  return typeof value === "string" && ANIMATION_STATES.has(value);
+}
 
 /** Anyone standing in the office: a player now, an agent employee later. */
 export class Occupant extends Schema {

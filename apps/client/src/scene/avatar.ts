@@ -1,52 +1,60 @@
 /**
- * An occupant's body: a capsule, a floating nameplate, a CEO marker, and
- * whatever the occupant is currently expressing.
+ * An occupant's body: a rigged humanoid, a floating nameplate, a CEO marker,
+ * and whatever the occupant is currently expressing.
+ *
+ * Three things about the shape of this file are load-bearing:
+ *
+ * - **The capsule is still here, as the fallback.** An avatar built without a
+ *   model yet stands as a capsule until {@link Avatar.useModel} upgrades it. A
+ *   model that never arrives therefore leaves a body you can see and walk,
+ *   rather than an invisible player.
+ * - **Head-height attachments hang off {@link Avatar.headAnchor}.** The
+ *   nameplate, the CEO marker, the emote sprite and the chat bubble are all
+ *   children of it. It is a plain object whose height follows the pose, so
+ *   nothing outside this file has to know whether the body underneath is a
+ *   capsule, a standing humanoid or a seated one.
+ * - **Speed is derived here, from the pose.** The walk cycle has to be played at
+ *   the speed the body is moving, and that is the same measurement for the local
+ *   player and for an interpolated remote one. Taking it from the rendered
+ *   position means neither the controller nor the network layer has to report it.
  *
  * The nameplate is a sprite, so it faces the camera from every angle without the
  * game loop having to orient it. Its text is drawn once into a canvas when the
  * avatar is built or renamed, not per frame.
- *
- * **Everything overhead hangs off one anchor.** `overhead` is a group at head
- * height, and the nameplate, the emote sprite and the chat bubble are its
- * children at fixed local offsets. Two things follow from that. Overhead
- * content tracks the body for free — the game loop moves the avatar's group and
- * the anchor comes with it, with no second position to keep in step. And when
- * the capsule is replaced by a rigged mesh, re-parenting this one group to a
- * head bone moves all of it; nothing outside this class holds a position.
  *
  * Expression is the same for every occupant, so an agent employee gets emotes
  * and chat bubbles by being given an {@link Avatar}, with no extra work here.
  */
 
 import {
+  ANIMATION_STATE,
+  type AnimationState,
   CHAT_BUBBLE_LIFETIME_MS,
-  EMOTE_LIFETIME_MS,
   type Emote,
+  EMOTE_LIFETIME_MS,
   OCCUPANT_HEIGHT,
   OCCUPANT_RADIUS,
+  SPEED_TOLERANCE,
+  WALK_SPEED,
 } from "@sim/shared";
 import * as THREE from "three";
 
 import { EMOTE_APPEARANCE } from "../emotes.js";
 
+import { AvatarAnimator } from "./avatarAnimator.js";
+import type { AvatarModel } from "./avatarModel.js";
 import { Billboard, paintEmote, paintSpeechBubble } from "./billboard.js";
 
-/** Height of the overhead anchor above the floor. */
-const OVERHEAD_Y = OCCUPANT_HEIGHT;
-
-/** Nameplate offset above {@link OVERHEAD_Y}. */
-const NAMEPLATE_OFFSET = 0.42;
-
 /**
- * Offsets of the expression sprites above {@link OVERHEAD_Y}.
+ * Offsets of the expression sprites above the head anchor.
  *
  * Stacked so that an occupant waving mid-sentence shows both: the emote clears
  * the nameplate, and the bubble clears the emote. The bubble is painted
  * bottom-anchored inside its own canvas, so it grows upward with its line count
  * rather than down into the emote.
  */
-const EMOTE_OFFSET = 0.85;
-const CHAT_OFFSET = 1.42;
+const EMOTE_OFFSET_Y = 0.85;
+const CHAT_OFFSET_Y = 1.42;
 
 const EMOTE_CANVAS_WIDTH = 256;
 const EMOTE_CANVAS_HEIGHT = 224;
@@ -55,6 +63,29 @@ const EMOTE_WORLD_HEIGHT = 0.46;
 const CHAT_CANVAS_WIDTH = 512;
 const CHAT_CANVAS_HEIGHT = 224;
 const CHAT_WORLD_HEIGHT = 0.62;
+
+/**
+ * Height of the attachment point everything above the head hangs from: the
+ * crown of a standing occupant.
+ */
+const HEAD_ANCHOR_Y = OCCUPANT_HEIGHT;
+
+/**
+ * How far the head drops when seated, measured off the model's seated pose.
+ *
+ * The anchor follows it so a nameplate still sits above the head of someone at a
+ * desk instead of floating where they used to be standing.
+ */
+const SEATED_HEAD_DROP = 0.18;
+
+/** Fraction of the remaining gap the head anchor closes per second. */
+const HEAD_ANCHOR_EASE_RATE = 8;
+
+/** Nameplate height above the head anchor. */
+const NAMEPLATE_OFFSET_Y = 0.42;
+
+/** CEO marker height above the head anchor. */
+const CEO_MARKER_OFFSET_Y = 0.13;
 
 /** World height of a nameplate sprite. */
 const NAMEPLATE_HEIGHT = 0.3;
@@ -71,8 +102,6 @@ const NAMEPLATE_HEIGHT = 0.3;
 const NAMEPLATE_CANVAS_WIDTH = 640;
 const NAMEPLATE_CANVAS_HEIGHT = 64;
 
-const CEO_MARKER_Y = OCCUPANT_HEIGHT + 0.13;
-
 /** Expiry sentinel for "not showing anything". */
 const NOT_SHOWING = Number.NEGATIVE_INFINITY;
 
@@ -81,9 +110,21 @@ const REMOTE_BODY_COLOUR = 0x9aa0aa;
 const FACING_COLOUR = 0x5e6470;
 const CEO_MARKER_COLOUR = 0xf0c650;
 
+/** Fraction of the gap the smoothed speed closes per second. */
+const SPEED_EASE_RATE = 12;
+
 /**
- * Shared geometry. A capsule's `length` is the cylindrical section only, so the
- * total standing height is `length + 2 * radius`.
+ * Fastest speed the walk scaling will believe.
+ *
+ * A reconciliation snap or a spawn moves the body further in one frame than any
+ * walk could, and an unclamped sample would spin the walk cycle for the moment
+ * it takes to decay.
+ */
+const MAX_TRACKED_SPEED = WALK_SPEED * SPEED_TOLERANCE;
+
+/**
+ * Shared capsule geometry. A capsule's `length` is the cylindrical section only,
+ * so the total standing height is `length + 2 * radius`.
  */
 const BODY_GEOMETRY = new THREE.CapsuleGeometry(
   OCCUPANT_RADIUS,
@@ -102,6 +143,21 @@ export interface AvatarOptions {
   readonly isCeo: boolean;
   /** The local player's body is lighter, so you can pick yourself out. */
   readonly isLocal: boolean;
+  /**
+   * The humanoid model, or `undefined` while it is still downloading or if it
+   * failed to. An avatar built without one stands as a capsule until
+   * {@link Avatar.useModel} is called.
+   */
+  readonly model: AvatarModel | undefined;
+}
+
+/** A body, however it happens to be drawn. */
+interface AvatarBody {
+  readonly root: THREE.Object3D;
+  /** Absent on the capsule, which has no clips to play. */
+  readonly animator: AvatarAnimator | undefined;
+  readonly isHumanoid: boolean;
+  dispose: () => void;
 }
 
 function drawNameplate(canvas: HTMLCanvasElement, name: string, isCeo: boolean): void {
@@ -133,17 +189,68 @@ function drawNameplate(canvas: HTMLCanvasElement, name: string, isCeo: boolean):
   context.fillText(label, centreX, centreY + 1);
 }
 
+/** The humanoid body, built once a model is available. */
+function createHumanoidBody(
+  model: AvatarModel,
+  isLocal: boolean,
+  initialAnimation: AnimationState,
+): AvatarBody {
+  const instance = model.createInstance(isLocal);
+  const animator = new AvatarAnimator(instance.root, instance.clips);
+  animator.setState(initialAnimation);
+
+  return {
+    root: instance.root,
+    animator,
+    isHumanoid: true,
+    dispose: () => {
+      animator.dispose();
+      instance.dispose();
+    },
+  };
+}
+
+/** The capsule: the body an avatar has before the model arrives, or instead of it. */
+function createCapsuleBody(isLocal: boolean): AvatarBody {
+  const root = new THREE.Group();
+  root.name = "avatar-capsule";
+
+  const material = new THREE.MeshLambertMaterial({
+    color: isLocal ? LOCAL_BODY_COLOUR : REMOTE_BODY_COLOUR,
+  });
+  const capsule = new THREE.Mesh(BODY_GEOMETRY, material);
+  capsule.position.y = OCCUPANT_HEIGHT / 2;
+  root.add(capsule);
+
+  // A nub on the front, so which way an avatar faces is readable at a glance.
+  const facing = new THREE.Mesh(FACING_GEOMETRY, FACING_MATERIAL);
+  facing.position.set(0, OCCUPANT_HEIGHT * 0.72, -OCCUPANT_RADIUS);
+  root.add(facing);
+
+  return {
+    root,
+    animator: undefined,
+    isHumanoid: false,
+    dispose: () => {
+      root.removeFromParent();
+      material.dispose();
+    },
+  };
+}
+
 export class Avatar {
   public readonly group = new THREE.Group();
 
   /**
-   * Where overhead content hangs. See the note at the top of this file: this is
-   * the single thing a rigged avatar re-parents.
+   * Where everything that belongs above an occupant's head attaches.
+   *
+   * Nameplate, CEO marker, emote sprite and chat bubble are all children of
+   * it. Its height tracks the pose, so a child at a fixed local offset keeps
+   * sitting above the head, and when the capsule is replaced by a rigged
+   * mesh, re-parenting this one group to a head bone moves all of it.
    */
-  private readonly overhead = new THREE.Group();
+  public readonly headAnchor = new THREE.Object3D();
 
-  private readonly body: THREE.Mesh;
-  private readonly bodyMaterial: THREE.MeshLambertMaterial;
   private readonly ceoMarker: THREE.Mesh;
   private readonly nameplate: THREE.Sprite;
   private readonly nameplateCanvas = document.createElement("canvas");
@@ -164,37 +271,41 @@ export class Avatar {
   private emoteExpiresAt = NOT_SHOWING;
   private chatExpiresAt = NOT_SHOWING;
 
+  private body: AvatarBody;
+  private readonly isLocal: boolean;
+
   private name: string;
   private isCeo: boolean;
+  private animation: AnimationState = ANIMATION_STATE.idle;
+
+  private speed = 0;
+  private previousX = 0;
+  private previousZ = 0;
+  private hasPreviousPose = false;
 
   public constructor(options: AvatarOptions) {
     this.name = options.name;
     this.isCeo = options.isCeo;
+    this.isLocal = options.isLocal;
 
-    this.overhead.position.y = OVERHEAD_Y;
-    this.group.add(this.overhead);
+    this.body =
+      options.model !== undefined
+        ? createHumanoidBody(options.model, options.isLocal, this.animation)
+        : createCapsuleBody(options.isLocal);
+    this.group.add(this.body.root);
 
-    this.emoteBillboard.sprite.position.y = EMOTE_OFFSET;
-    this.overhead.add(this.emoteBillboard.sprite);
-    this.chatBillboard.sprite.position.y = CHAT_OFFSET;
-    this.overhead.add(this.chatBillboard.sprite);
+    this.headAnchor.position.y = HEAD_ANCHOR_Y;
+    this.group.add(this.headAnchor);
 
-    this.bodyMaterial = new THREE.MeshLambertMaterial({
-      color: options.isLocal ? LOCAL_BODY_COLOUR : REMOTE_BODY_COLOUR,
-    });
-    this.body = new THREE.Mesh(BODY_GEOMETRY, this.bodyMaterial);
-    this.body.position.y = OCCUPANT_HEIGHT / 2;
-    this.group.add(this.body);
-
-    // A nub on the front, so which way an avatar faces is readable at a glance.
-    const facing = new THREE.Mesh(FACING_GEOMETRY, FACING_MATERIAL);
-    facing.position.set(0, OCCUPANT_HEIGHT * 0.72, -OCCUPANT_RADIUS);
-    this.group.add(facing);
+    this.emoteBillboard.sprite.position.y = EMOTE_OFFSET_Y;
+    this.headAnchor.add(this.emoteBillboard.sprite);
+    this.chatBillboard.sprite.position.y = CHAT_OFFSET_Y;
+    this.headAnchor.add(this.chatBillboard.sprite);
 
     this.ceoMarker = new THREE.Mesh(CEO_MARKER_GEOMETRY, CEO_MARKER_MATERIAL);
-    this.ceoMarker.position.y = CEO_MARKER_Y;
+    this.ceoMarker.position.y = CEO_MARKER_OFFSET_Y;
     this.ceoMarker.visible = options.isCeo;
-    this.group.add(this.ceoMarker);
+    this.headAnchor.add(this.ceoMarker);
 
     this.nameplateCanvas.width = NAMEPLATE_CANVAS_WIDTH;
     this.nameplateCanvas.height = NAMEPLATE_CANVAS_HEIGHT;
@@ -204,14 +315,76 @@ export class Avatar {
     this.nameplate = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: this.nameplateTexture, transparent: true, depthTest: false }),
     );
-    this.nameplate.position.y = NAMEPLATE_OFFSET;
+    this.nameplate.position.y = NAMEPLATE_OFFSET_Y;
     this.applyNameplateScale();
-    this.overhead.add(this.nameplate);
+    this.headAnchor.add(this.nameplate);
   }
 
   public setPose(x: number, z: number, yaw: number): void {
     this.group.position.set(x, 0, z);
     this.group.rotation.y = yaw;
+    if (!this.hasPreviousPose) {
+      // The first pose is a placement, not travel: crediting the distance from
+      // the origin to it would report a speed nobody moved at.
+      this.previousX = x;
+      this.previousZ = z;
+      this.hasPreviousPose = true;
+    }
+  }
+
+  /** The state the body should be in, as the replicated field reports it. */
+  public setAnimation(animation: AnimationState): void {
+    if (animation === this.animation) {
+      return;
+    }
+    this.animation = animation;
+    this.body.animator?.setState(animation);
+  }
+
+  /** Advances the animation and whatever follows the pose. */
+  public update(deltaSeconds: number): void {
+    if (deltaSeconds > 0) {
+      const travelled = Math.hypot(
+        this.group.position.x - this.previousX,
+        this.group.position.z - this.previousZ,
+      );
+      const sampled = Math.min(travelled / deltaSeconds, MAX_TRACKED_SPEED);
+      // Remote poses arrive at a fifth of the frame rate, so the per-frame
+      // sample is steppy even when the avatar is gliding; the walk cycle is
+      // played at the smoothed speed rather than the raw one.
+      this.speed += (sampled - this.speed) * (1 - Math.exp(-SPEED_EASE_RATE * deltaSeconds));
+
+      const targetY = HEAD_ANCHOR_Y - (isSeated(this.animation) ? SEATED_HEAD_DROP : 0);
+      const gap = targetY - this.headAnchor.position.y;
+      this.headAnchor.position.y += gap * (1 - Math.exp(-HEAD_ANCHOR_EASE_RATE * deltaSeconds));
+    }
+
+    this.previousX = this.group.position.x;
+    this.previousZ = this.group.position.z;
+
+    const animator = this.body.animator;
+    if (animator !== undefined) {
+      animator.setSpeed(this.speed);
+      animator.update(deltaSeconds);
+    }
+  }
+
+  /**
+   * Replaces the capsule with the humanoid body.
+   *
+   * Called once the model has downloaded, which may be after some avatars have
+   * already been built. Calling it on a body that is already the humanoid does
+   * nothing.
+   */
+  public useModel(model: AvatarModel): void {
+    if (this.body.isHumanoid) {
+      return;
+    }
+
+    const next = createHumanoidBody(model, this.isLocal, this.animation);
+    this.body.dispose();
+    this.body = next;
+    this.group.add(this.body.root);
   }
 
   /** Shows an emote above the head, replacing any emote still showing. */
@@ -267,7 +440,7 @@ export class Avatar {
 
   public dispose(): void {
     this.group.removeFromParent();
-    this.bodyMaterial.dispose();
+    this.body.dispose();
     this.nameplate.material.dispose();
     this.nameplateTexture.dispose();
     this.emoteBillboard.dispose();
@@ -278,4 +451,9 @@ export class Avatar {
     const aspect = NAMEPLATE_CANVAS_WIDTH / NAMEPLATE_CANVAS_HEIGHT;
     this.nameplate.scale.set(NAMEPLATE_HEIGHT * aspect, NAMEPLATE_HEIGHT, 1);
   }
+}
+
+/** Whether a state has the occupant off their feet. */
+function isSeated(animation: AnimationState): boolean {
+  return animation === ANIMATION_STATE.sitting || animation === ANIMATION_STATE.typing;
 }

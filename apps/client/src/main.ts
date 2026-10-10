@@ -22,6 +22,7 @@ import { RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
 import { PlayerController } from "./player/controller.js";
 import { Avatar } from "./scene/avatar.js";
+import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
 import { buildOffice } from "./scene/office.js";
 import { Hud, type ChatLogEntry, type HudSnapshot, createHudStore } from "./ui/Hud.js";
 
@@ -113,6 +114,11 @@ function start(): void {
   const remotePose: RemotePose = { x: 0, z: 0, yaw: 0, animation: ANIMATION_STATE.idle };
   let hud: HudSnapshot = hudStore.getSnapshot();
 
+  // Undefined until the humanoid model has downloaded, and for the rest of the
+  // session if it never does. Avatars built in the meantime stand as capsules
+  // and are upgraded in place below.
+  let avatarModel: AvatarModel | undefined;
+
   const publishHud = (next: Partial<HudSnapshot>) => {
     hud = { ...hud, ...next };
     hudStore.publish(hud);
@@ -156,6 +162,7 @@ function start(): void {
             name: view.name,
             isCeo: view.isCeo,
             isLocal: view.isLocal,
+            model: avatarModel,
           });
           scene.add(avatar.group);
           avatars.set(view.id, avatar);
@@ -239,9 +246,12 @@ function start(): void {
     for (const [id, avatar] of avatars) {
       if (id === localId) {
         avatar.setPose(controller.pose.x, controller.pose.z, controller.pose.yaw);
+        avatar.setAnimation(controller.pose.animation);
       } else if (room.sampleRemote(id, nowMs, remotePose)) {
         avatar.setPose(remotePose.x, remotePose.z, remotePose.yaw);
+        avatar.setAnimation(remotePose.animation);
       }
+      avatar.update(deltaSeconds);
       // Overhead content is parented to the avatar, so it has already followed
       // the body; all that is left is retiring whatever has expired.
       avatar.updateExpressions(nowMs);
@@ -252,6 +262,18 @@ function start(): void {
   };
 
   requestAnimationFrame(frame);
+
+  void loadAvatarModel(import.meta.env.BASE_URL)
+    .then((model) => {
+      avatarModel = model;
+      for (const avatar of avatars.values()) {
+        avatar.useModel(model);
+      }
+    })
+    .catch(() => {
+      // Every avatar stays the capsule it was built as, which is a body you can
+      // see and walk rather than an invisible player.
+    });
 
   // Leave deliberately, so the other tabs see the avatar go within a tick or two
   // rather than waiting for the socket to time out.
