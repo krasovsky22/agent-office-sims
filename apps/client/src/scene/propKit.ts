@@ -1,5 +1,5 @@
 /**
- * The prop asset kit: one model per {@link PropKind}, loaded and normalised.
+ * The prop asset kit: one model per {@link AssetPropKind}, loaded and normalised.
  *
  * This module is the whole of what the client knows about the asset pack — the
  * six files, which kind each one draws, and which way round each one happens to
@@ -16,7 +16,7 @@
  * already baked into the vertices. That is what a {@link PropModel} is.
  */
 
-import type { PropKind } from "@sim/shared";
+import type { AssetPropKind } from "@sim/shared";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -48,14 +48,14 @@ export interface PropPart {
 }
 
 export interface PropModel {
-  readonly kind: PropKind;
+  readonly kind: AssetPropKind;
   /** One entry per material in the model. This is the batch count for the kind. */
   readonly parts: readonly PropPart[];
-  /** Natural size in metres, which `PropSpec.fit` is measured against. */
+  /** Natural size in metres, which `AssetPropSpec.fit` is measured against. */
   readonly size: THREE.Vector3;
 }
 
-export type PropKit = ReadonlyMap<PropKind, PropModel>;
+export type PropKit = ReadonlyMap<AssetPropKind, PropModel>;
 
 interface KitEntry {
   readonly url: string;
@@ -77,7 +77,7 @@ const HALF_TURN = Math.PI;
  * The pack models desks and chairs looking along +Z and screens looking along
  * -Z, so the first two are turned and the rest are not.
  */
-const KIT: Readonly<Record<PropKind, KitEntry>> = {
+const KIT: Readonly<Record<AssetPropKind, KitEntry>> = {
   desk: { url: deskUrl, yawOffset: HALF_TURN },
   chair: { url: chairUrl, yawOffset: HALF_TURN },
   monitor: { url: monitorUrl, yawOffset: 0 },
@@ -87,7 +87,7 @@ const KIT: Readonly<Record<PropKind, KitEntry>> = {
 };
 
 /** Every kind the kit supplies, for callers that want to preload or report. */
-export const PROP_KINDS = Object.keys(KIT) as readonly PropKind[];
+export const PROP_KINDS = Object.keys(KIT) as readonly AssetPropKind[];
 
 function materialOf(mesh: THREE.Mesh): THREE.Material | undefined {
   return Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
@@ -101,7 +101,7 @@ function materialOf(mesh: THREE.Mesh): THREE.Material | undefined {
  * entry's yaw) into a cloned geometry, measure the result, then shift everything
  * so the footprint's centre is the origin and the base is y = 0.
  */
-function normalise(kind: PropKind, root: THREE.Object3D, yawOffset: number): PropModel {
+function normalise(kind: AssetPropKind, root: THREE.Object3D, yawOffset: number): PropModel {
   root.updateWorldMatrix(false, true);
 
   const bake = new THREE.Matrix4()

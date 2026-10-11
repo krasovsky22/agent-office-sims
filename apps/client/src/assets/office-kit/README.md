@@ -33,7 +33,7 @@ the archive's copy; nothing was re-exported, re-scaled, or re-materialled.
 | `door` | `doorwayOpen.glb` | `Models/GLTF format/doorwayOpen.glb` |
 | `coffee` | `kitchenCoffeeMachine.glb` | `Models/GLTF format/kitchenCoffeeMachine.glb` |
 
-The prop kinds on the left are the shared layout's `PropKind` union, and
+The prop kinds on the left are the shared layout's `AssetPropKind` union, and
 `apps/client/src/scene/propKit.ts` is the registry that holds this mapping in
 code. Adding a kind means adding a row here too.
 

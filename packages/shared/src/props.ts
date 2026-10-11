@@ -3,7 +3,7 @@
  *
  * Same rule as `layout.ts`: a prop position is written down once, here, and the
  * client only reads it. Nothing in `apps/client` decides where a desk, chair, or
- * plant goes — it receives a list of {@link PropSpec} and draws it.
+ * plant goes — it receives a list of {@link AssetPropSpec} and draws it.
  *
  * Most of this file is derivation rather than a table of coordinates. Desks,
  * chairs, monitors, doors, and plants all come out of the floor plan's own
@@ -24,6 +24,7 @@ import {
   type Aabb2,
   type DeskSpec,
   type OfficeLayout,
+  type PropSpec,
   type WallSpec,
   OFFICE_LAYOUT,
   collisionBoxes,
@@ -36,7 +37,7 @@ import {
  * kind and nothing else. Adding a kind here means adding a model there, so the
  * union stays deliberately short.
  */
-export type PropKind = "desk" | "chair" | "monitor" | "plant" | "door" | "coffee";
+export type AssetPropKind = "desk" | "chair" | "monitor" | "plant" | "door" | "coffee";
 
 /** An exact box a model should be stretched to fill. */
 export interface PropFit {
@@ -53,9 +54,9 @@ export interface PropFit {
  * sits at — zero for anything standing on the floor, a desk's height for
  * anything standing on a desk.
  */
-export interface PropSpec {
+export interface AssetPropSpec {
   readonly id: string;
-  readonly kind: PropKind;
+  readonly kind: AssetPropKind;
   readonly x: number;
   /** Height of the prop's base above the floor. */
   readonly y: number;
@@ -103,6 +104,16 @@ const PLANT_INSET = 0.8;
  */
 const DOORWAY_MAX_SPAN = 2;
 
+/**
+ * Narrowest wall gap still treated as a doorway.
+ *
+ * Two walls can end a few centimetres apart with nothing meant to pass
+ * between them — a corner, not an opening. 0.5 m sits below every shipped
+ * doorway's width (narrowed to 0.6 m by the test that proves the frame fits
+ * the gap, not a written-down size) and above that kind of construction gap.
+ */
+const DOORWAY_MIN_SPAN = 0.5;
+
 /** Height of a door frame, capped by the wall it sits in. */
 const DOORWAY_HEIGHT = 2.1;
 
@@ -137,8 +148,8 @@ function nearBox(box: Aabb2, point: { x: number; z: number }, margin: number): b
  * `layout.ts`'s `deskAabb` hands the collision resolver — so the desk you can
  * see and the desk that stops you are one shape.
  */
-function deskProps(spec: DeskSpec): PropSpec[] {
-  const props: PropSpec[] = [
+function deskProps(spec: DeskSpec): AssetPropSpec[] {
+  const props: AssetPropSpec[] = [
     {
       id: `prop-${spec.id}`,
       kind: "desk",
@@ -225,9 +236,9 @@ function wallAxis(spec: WallSpec): WallAxis {
  * {@link DOORWAY_MAX_SPAN}. The frame is then fitted to the gap it found, which
  * is why no door position or width appears in this file.
  */
-function doorProps(layout: OfficeLayout): PropSpec[] {
+function doorProps(layout: OfficeLayout): AssetPropSpec[] {
   const axes = layout.walls.map(wallAxis);
-  const props: PropSpec[] = [];
+  const props: AssetPropSpec[] = [];
 
   for (let i = 0; i < axes.length; i += 1) {
     for (let j = i + 1; j < axes.length; j += 1) {
@@ -242,7 +253,7 @@ function doorProps(layout: OfficeLayout): PropSpec[] {
 
       const [first, second] = a.longMin <= b.longMin ? [a, b] : [b, a];
       const span = second.longMin - first.longMax;
-      if (span <= 0 || span > DOORWAY_MAX_SPAN) {
+      if (span < DOORWAY_MIN_SPAN || span > DOORWAY_MAX_SPAN) {
         continue;
       }
 
@@ -283,9 +294,9 @@ const CORNERS = [
  * plant in the same corner, and a corner already occupied by a desk is skipped —
  * which is what keeps this derivation safe when the floor plan changes under it.
  */
-function plantProps(layout: OfficeLayout): PropSpec[] {
+function plantProps(layout: OfficeLayout): AssetPropSpec[] {
   const boxes = collisionBoxes(layout);
-  const props: PropSpec[] = [];
+  const props: AssetPropSpec[] = [];
 
   layout.rooms.forEach((room, index) => {
     for (let step = 0; step < CORNERS.length; step += 1) {
@@ -317,40 +328,44 @@ function plantProps(layout: OfficeLayout): PropSpec[] {
 /**
  * The pieces with nowhere to be derived from.
  *
- * A coffee machine does not follow from a wall or a desk, so these two are
- * placed by hand against the shipped floor plan: one in the lobby, where
- * everyone walks past, and one against the bullpen's east wall. They are scaled
- * up to the floor-standing size an office has rather than the countertop model
- * the asset kit ships.
+ * A coffee machine does not follow from a wall or a desk, so the layout places
+ * it by hand, in `layout.props`, against the shipped floor plan specifically.
+ * This just carries that placement over into a render prop, fitted to the
+ * exact box the layout already states.
  *
  * {@link describePropProblems} checks them, so a layout change that walls one of
  * them in fails the test suite rather than being noticed in a screenshot.
  */
-const HAND_PLACED: readonly PropSpec[] = [
-  { id: "prop-coffee-lobby", kind: "coffee", x: 0, y: 0, z: -8.18, yaw: Math.PI, scale: 2 },
-  { id: "prop-coffee-bullpen", kind: "coffee", x: 11.18, y: 0, z: 1, yaw: QUARTER_TURN, scale: 2 },
-];
+function handPlacedProps(layout: OfficeLayout): AssetPropSpec[] {
+  return layout.props.map((spec: PropSpec) => ({
+    id: `prop-${spec.id}`,
+    kind: spec.kind,
+    x: spec.x,
+    y: 0,
+    z: spec.z,
+    yaw: spec.yaw,
+    fit: { width: spec.width, depth: spec.depth, height: spec.height },
+  }));
+}
 
 /**
  * Every prop a layout furnishes itself with.
  *
  * Pure derivation: give it a different floor plan and you get that floor plan's
- * furniture. The shipped office's full set is {@link OFFICE_PROPS}, which is this
- * plus the hand-placed pieces.
+ * furniture, hand-placed pieces included. The shipped office's full set is
+ * {@link OFFICE_PROPS}.
  */
-export function derivedProps(layout: OfficeLayout): readonly PropSpec[] {
+export function derivedProps(layout: OfficeLayout): readonly AssetPropSpec[] {
   return [
     ...layout.desks.flatMap(deskProps),
     ...doorProps(layout),
     ...plantProps(layout),
+    ...handPlacedProps(layout),
   ];
 }
 
 /** The furniture of the shipped office. This is what the client renders. */
-export const OFFICE_PROPS: readonly PropSpec[] = [
-  ...derivedProps(OFFICE_LAYOUT),
-  ...HAND_PLACED,
-];
+export const OFFICE_PROPS: readonly AssetPropSpec[] = derivedProps(OFFICE_LAYOUT);
 
 /**
  * Props grouped by kind, which is also the renderer's batching plan.
@@ -362,9 +377,9 @@ export const OFFICE_PROPS: readonly PropSpec[] = [
  * contract rather than something you have to open a profiler to believe.
  */
 export function groupPropsByKind(
-  props: readonly PropSpec[],
-): ReadonlyMap<PropKind, readonly PropSpec[]> {
-  const batches = new Map<PropKind, PropSpec[]>();
+  props: readonly AssetPropSpec[],
+): ReadonlyMap<AssetPropKind, readonly AssetPropSpec[]> {
+  const batches = new Map<AssetPropKind, AssetPropSpec[]>();
   for (const prop of props) {
     const batch = batches.get(prop.kind);
     if (batch === undefined) {
@@ -386,11 +401,13 @@ export function groupPropsByKind(
  */
 export function describePropProblems(
   layout: OfficeLayout,
-  props: readonly PropSpec[],
+  props: readonly AssetPropSpec[],
 ): string[] {
   const problems: string[] = [];
   const boxes = collisionBoxes(layout);
-  const freeStanding = new Set<PropKind>(["chair", "plant", "coffee"]);
+  // A coffee machine stands against a wall by design — "coffee" is deliberately
+  // excluded, unlike a chair or a plant, which both need room to walk up to.
+  const freeStanding = new Set<AssetPropKind>(["chair", "plant"]);
   const seen = new Set<string>();
 
   for (const prop of props) {

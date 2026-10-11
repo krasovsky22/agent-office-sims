@@ -8,10 +8,10 @@
  * test asserting the batch count does not grow with the prop count.
  *
  * Nothing here decides where anything goes. Every position, rotation, and size
- * arrives in the {@link PropSpec} list; this file only turns specs into matrices.
+ * arrives in the {@link AssetPropSpec} list; this file only turns specs into matrices.
  */
 
-import { type PropSpec, groupPropsByKind } from "@sim/shared";
+import { type AssetPropSpec, groupPropsByKind } from "@sim/shared";
 import * as THREE from "three";
 
 import type { PropKit } from "./propKit.js";
@@ -44,7 +44,7 @@ export interface PropsView {
  * `scale` is a plain multiplier for a prop the kit models at the wrong size.
  * Neither means the model is drawn as authored.
  */
-function scaleFor(spec: PropSpec, size: THREE.Vector3, into: THREE.Vector3): THREE.Vector3 {
+function scaleFor(spec: AssetPropSpec, size: THREE.Vector3, into: THREE.Vector3): THREE.Vector3 {
   if (spec.fit !== undefined) {
     return into.set(
       size.x > MIN_MODEL_EXTENT ? spec.fit.width / size.x : 1,
@@ -65,7 +65,7 @@ function scaleFor(spec: PropSpec, size: THREE.Vector3, into: THREE.Vector3): THR
  */
 export function buildProps(
   parent: THREE.Object3D,
-  specs: readonly PropSpec[],
+  specs: readonly AssetPropSpec[],
   kit: PropKit,
 ): PropsView {
   const group = new THREE.Group();

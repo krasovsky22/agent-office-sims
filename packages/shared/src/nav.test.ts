@@ -63,6 +63,10 @@ const FIXTURE_LAYOUT: OfficeLayout = {
     wall("closet-east", 9.7, 1, 10, 5.7),
   ],
   desks: [{ id: "desk-west", x: -6, z: 0, yaw: 0, width: 1.6, depth: 0.8, height: 0.75 }],
+  // Nav never reads props or doorways; they are empty so the fixture is a
+  // complete layout without stating anything nav would never look at.
+  props: [],
+  doorways: [],
   // Nav never reads rooms; they are here so the fixture is a complete layout
   // and so the "outside every room" case can be stated with `roomAt`.
   rooms: [
@@ -87,7 +91,13 @@ const IN_CLOSET = { x: 7, z: 3 };
 
 describe("the fixture layout", () => {
   it("is a layout the resolver would accept, so the cases below mean something", () => {
-    expect(describeLayoutProblems(FIXTURE_LAYOUT)).toEqual([]);
+    // The sealed closet is deliberately unreachable - that is exactly what the
+    // unreachable-goal cases below exercise - so its two waypoints are the only
+    // problems a sound fixture should report.
+    expect(describeLayoutProblems(FIXTURE_LAYOUT)).toEqual([
+      "waypoint wp-closet-near is not reachable from wp-west-desk through the link graph",
+      "waypoint wp-closet-far is not reachable from wp-west-desk through the link graph",
+    ]);
   });
 });
 
@@ -228,10 +238,10 @@ describe("findPath", () => {
  */
 describe("OFFICE_LAYOUT", () => {
   const R = OCCUPANT_RADIUS;
-  const AT_CEO_DESK = { x: -8.4, z: -4.8 };
-  const AT_MEETING_TABLE = { x: 7.9, z: -4.5 };
-  const CEO_DOORWAY = { x: -5, z: -5.9 };
-  const BULLPEN_CENTRE = { x: 0, z: 2 };
+  const AT_CEO_DESK = { x: -8.7, z: -6.8 };
+  const AT_MEETING_TABLE = { x: -2.85, z: -6.8 };
+  const CEO_DOORWAY = { x: -8.7, z: -4.85 };
+  const FLOOR_WEST = { x: -7.2, z: 2.5 };
 
   it("joins direct neighbours", () => {
     expect(findWaypointPath("wp-ceo-desk", "wp-ceo-door", OFFICE_LAYOUT)).toEqual([
@@ -240,31 +250,36 @@ describe("OFFICE_LAYOUT", () => {
     ]);
   });
 
-  it("routes from the CEO desk to the meeting table across three rooms", () => {
+  it("routes from the CEO desk to the meeting table across the corridor", () => {
     expect(findPath(AT_CEO_DESK, AT_MEETING_TABLE, OFFICE_LAYOUT, R)).toEqual([
       "wp-ceo-desk",
       "wp-ceo-door",
-      "wp-lobby-north",
+      "wp-corridor-ceo",
+      "wp-corridor-west-door",
+      "wp-corridor-meeting",
       "wp-meeting-door",
       "wp-meeting-table",
     ]);
   });
 
-  it("routes across the bullpen, start and goal in the same room", () => {
-    expect(findPath({ x: -7.5, z: 2 }, { x: 7.5, z: 2 }, OFFICE_LAYOUT, R)).toEqual([
-      "wp-bullpen-west",
-      "wp-bullpen-centre",
-      "wp-bullpen-east",
+  it("routes across the open floor, start and goal in the same room", () => {
+    expect(findPath(FLOOR_WEST, { x: 7.2, z: 2.5 }, OFFICE_LAYOUT, R)).toEqual([
+      "wp-floor-aisle-north-west",
+      "wp-floor-aisle-north",
+      "wp-floor-aisle-north-east",
     ]);
   });
 
   it("routes from the CEO doorway, which belongs to no room", () => {
     expect(roomAt(OFFICE_LAYOUT, CEO_DOORWAY)).toBeUndefined();
-    expect(findPath(CEO_DOORWAY, BULLPEN_CENTRE, OFFICE_LAYOUT, R)).toEqual([
+    expect(findPath(CEO_DOORWAY, FLOOR_WEST, OFFICE_LAYOUT, R)).toEqual([
       "wp-ceo-door",
-      "wp-lobby-north",
-      "wp-lobby-south",
-      "wp-bullpen-centre",
+      "wp-corridor-ceo",
+      "wp-corridor-west-door",
+      "wp-floor-west-door",
+      "wp-floor-north",
+      "wp-floor-aisle-north",
+      "wp-floor-aisle-north-west",
     ]);
   });
 

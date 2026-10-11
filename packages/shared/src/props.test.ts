@@ -15,17 +15,17 @@ import { describe, expect, it } from "vitest";
 import { OFFICE_LAYOUT, type DeskSpec, type OfficeLayout } from "./layout.js";
 import {
   OFFICE_PROPS,
-  type PropKind,
+  type AssetPropKind,
   derivedProps,
   describePropProblems,
   groupPropsByKind,
 } from "./props.js";
 
-function kinds(props: readonly { kind: PropKind }[]): Set<PropKind> {
+function kinds(props: readonly { kind: AssetPropKind }[]): Set<AssetPropKind> {
   return new Set(props.map((prop) => prop.kind));
 }
 
-function countOf(kind: PropKind, props: readonly { kind: PropKind }[]): number {
+function countOf(kind: AssetPropKind, props: readonly { kind: AssetPropKind }[]): number {
   return props.filter((prop) => prop.kind === kind).length;
 }
 
@@ -67,7 +67,7 @@ describe("the shipped office's props", () => {
     const seats = (deskId: string) =>
       OFFICE_PROPS.filter((prop) => prop.kind === "chair" && prop.id.startsWith(`prop-${deskId}-`));
 
-    expect(seats("desk-01")).toHaveLength(1);
+    expect(seats("desk-north-1")).toHaveLength(1);
     expect(seats("desk-ceo")).toHaveLength(1);
     expect(seats("table-meeting")).toHaveLength(2);
   });
@@ -81,49 +81,51 @@ describe("the shipped office's props", () => {
       expect(deskHeights.has(monitor.y), monitor.id).toBe(true);
     }
 
-    // desk-01 faces -Z, so its screen faces back down the floor at the seat.
-    const screen = OFFICE_PROPS.find((prop) => prop.id === "prop-desk-01-monitor-1");
-    const chair = OFFICE_PROPS.find((prop) => prop.id === "prop-desk-01-chair-1");
-    expect(screen?.z).toBeLessThan(0);
-    expect(chair?.z).toBeGreaterThan(0);
+    // desk-north-1 faces -Z, so its screen sits on the far side from the seat.
+    const desk = OFFICE_LAYOUT.desks.find((spec) => spec.id === "desk-north-1");
+    const screen = OFFICE_PROPS.find((prop) => prop.id === "prop-desk-north-1-monitor-1");
+    const chair = OFFICE_PROPS.find((prop) => prop.id === "prop-desk-north-1-chair-1");
+    expect(screen?.z).toBeLessThan(desk?.z ?? 0);
+    expect(chair?.z).toBeGreaterThan(desk?.z ?? 0);
     expect(screen?.yaw).toBeCloseTo(Math.PI);
     expect(chair?.yaw).toBeCloseTo(0);
   });
 
-  it("finds a door frame in each of the two doorways and none in the open thoroughfare", () => {
+  it("finds a door frame in each doorway gap and none in the open thoroughfare", () => {
     const doors = OFFICE_PROPS.filter((prop) => prop.kind === "door");
-    expect(doors).toHaveLength(2);
+    // One fewer than the layout's doorway count: the lobby's doorway is a gap
+    // in the wall shell itself, not between two walls, so there is nothing for
+    // the gap-finding derivation to pair up.
+    expect(doors).toHaveLength(OFFICE_LAYOUT.doorways.length - 1);
 
-    const [west, east] = [...doors].sort((a, b) => a.x - b.x);
+    // The CEO office's doorway onto the corridor, which is also where the
+    // navigation waypoints put their door node.
+    const ceoDoor = doors.find((prop) => prop.id === "prop-door-wall-ceo-south-west");
+    expect(ceoDoor?.x).toBeCloseTo(-8.7);
+    expect(ceoDoor?.z).toBeCloseTo(-4.85);
+    expect(ceoDoor?.fit?.width).toBeCloseTo(1.4);
 
-    // The two gaps the layout leaves in the CEO and meeting-room walls, which are
-    // also where the navigation waypoints put their door nodes.
-    expect(west?.x).toBeCloseTo(-5);
-    expect(west?.z).toBeCloseTo(-5.9);
-    expect(west?.fit?.width).toBeCloseTo(1.4);
-    expect(east?.x).toBeCloseTo(4);
-    expect(east?.z).toBeCloseTo(-5.9);
-    expect(east?.fit?.width).toBeCloseTo(1.4);
-
-    // Both frames are turned to span a wall that runs north-south, and both are
+    // The wall it spans runs east-west, so the frame is not turned, and it is
     // as thick as that wall.
-    expect(west?.yaw).toBeCloseTo(Math.PI / 2);
-    expect(west?.fit?.depth).toBeCloseTo(0.3);
+    expect(ceoDoor?.yaw).toBeCloseTo(0);
+    expect(ceoDoor?.fit?.depth).toBeCloseTo(0.3);
   });
 
   it("fits each door frame to the gap it fills, not to a written-down size", () => {
+    const SHRINK = 0.8;
     const narrowed = {
       ...OFFICE_LAYOUT,
       walls: OFFICE_LAYOUT.walls.map((spec) =>
-        spec.id === "wall-ceo-east-south"
-          ? { ...spec, footprint: { ...spec.footprint, minZ: -6 } }
+        spec.id === "wall-ceo-south-east"
+          ? { ...spec, footprint: { ...spec.footprint, minX: spec.footprint.minX - SHRINK } }
           : spec,
       ),
     };
 
-    const door = derivedProps(narrowed).find((prop) => prop.id === "prop-door-wall-ceo-east-north");
-    expect(door?.fit?.width).toBeCloseTo(0.6);
-    expect(door?.z).toBeCloseTo(-6.3);
+    const original = OFFICE_PROPS.find((prop) => prop.id === "prop-door-wall-ceo-south-west");
+    const door = derivedProps(narrowed).find((prop) => prop.id === "prop-door-wall-ceo-south-west");
+    expect(door?.fit?.width).toBeCloseTo((original?.fit?.width ?? 0) - SHRINK);
+    expect(door?.z).toBeCloseTo(-4.85);
   });
 
   it("stands one plant in each room, never two in the same corner of the floor", () => {
@@ -163,8 +165,8 @@ describe("prop derivation", () => {
   });
 
   it("reports a prop that a layout change has walled in", () => {
-    // Swallow the bullpen's north-west corner, where its plant stands.
-    const plant = OFFICE_PROPS.find((prop) => prop.id === "prop-plant-bullpen");
+    // Swallow whichever room corner a plant stands in.
+    const plant = OFFICE_PROPS.find((prop) => prop.kind === "plant");
     expect(plant).toBeDefined();
     const swallowed = {
       ...OFFICE_LAYOUT,
