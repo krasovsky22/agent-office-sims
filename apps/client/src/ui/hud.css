@@ -31,6 +31,36 @@
   align-items: stretch;
 }
 
+/* The loading cover. It hides the office until the whole prop kit has arrived,
+   so the furniture appears in one frame instead of assembling in view. It stays
+   mounted and fades, which is why the transition can run at all. */
+.hud__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #15151a;
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+
+.hud__loading--done {
+  opacity: 0;
+  /* Delayed so the fade is visible before the element leaves the layer. */
+  visibility: hidden;
+  transition:
+    opacity 0.4s ease,
+    visibility 0s 0.4s;
+}
+
+.hud__loading-text {
+  margin: 0;
+  color: #9aa0aa;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
 .hud__panel {
   min-width: 190px;
   padding: 10px 12px;

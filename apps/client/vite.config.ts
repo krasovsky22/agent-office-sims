@@ -18,6 +18,13 @@ export default defineConfig(({ command, mode }) => {
     // Relative asset URLs, so the same bundle works at a domain root and under
     // a path prefix without being rebuilt for each.
     base: "./",
+    build: {
+      // Keep the prop models as files. Vite inlines small assets as data URLs by
+      // default, which would bury the smallest of them in the JS bundle where the
+      // browser cannot cache it separately and a failed fetch cannot be told from a
+      // parse error.
+      assetsInlineLimit: (filePath) => (filePath.endsWith(".glb") ? false : undefined),
+    },
     server: {
       port: 5173,
       // Fail loudly rather than drifting to another port: the two-tab check in

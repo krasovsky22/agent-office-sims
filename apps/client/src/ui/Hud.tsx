@@ -38,6 +38,22 @@ export interface ChatLogEntry {
   readonly isLocal: boolean;
 }
 
+/**
+ * How the prop asset kit ended up.
+ *
+ * `greybox` is the deliberate fallback — the flag is off — and `failed` is the
+ * accidental one. Both leave a walkable grey office, and the HUD says which.
+ */
+export type AssetState = "loading" | "ready" | "greybox" | "failed";
+
+/** What `?debug` puts on screen. Absent unless asked for. */
+export interface DebugReadout {
+  /** Draw calls the last frame issued, straight off the renderer. */
+  readonly drawCalls: number;
+  /** Props placed, to compare against the draw calls they cost. */
+  readonly props: number;
+}
+
 export interface HudSnapshot {
   readonly status: ConnectionStatus;
   readonly detail?: string;
@@ -51,6 +67,8 @@ export interface HudSnapshot {
    * would otherwise refuse.
    */
   readonly notice?: string | undefined;
+  readonly assets: AssetState;
+  readonly debug?: DebugReadout;
 }
 
 export interface HudActions {
@@ -66,7 +84,7 @@ export interface HudStore {
   publish: (next: HudSnapshot) => void;
 }
 
-const INITIAL: HudSnapshot = { status: "connecting", roster: [], chatLog: [] };
+const INITIAL: HudSnapshot = { status: "connecting", roster: [], chatLog: [], assets: "loading" };
 
 export function createHudStore(): HudStore {
   let snapshot = INITIAL;
@@ -269,14 +287,30 @@ function ChatLog({ entries }: { entries: readonly ChatLogEntry[] }) {
   );
 }
 
+/**
+ * What the status panel says about the furniture, when there is anything to say.
+ *
+ * A loaded kit says nothing: the office looking like an office is not news.
+ */
+const ASSET_TEXT: Partial<Record<AssetState, string>> = {
+  greybox: "Grey-box mode — props are off.",
+  failed: "Asset kit did not load; showing grey boxes.",
+};
+
 export function Hud({ store, actions }: { store: HudStore; actions: HudActions }) {
-  const { status, detail, roster, chatLog, notice } = useSyncExternalStore(
+  const { status, detail, roster, chatLog, notice, assets, debug } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
   );
+  const assetNote = ASSET_TEXT[assets];
 
   return (
     <div className="hud">
+      {/* Always mounted, so hiding it is a transition rather than a cut. */}
+      <div className={assets === "loading" ? "hud__loading" : "hud__loading hud__loading--done"}>
+        <p className="hud__loading-text">Furnishing the office…</p>
+      </div>
+
       <div className="hud__column">
         <div className="hud__panel">
           <h2 className="hud__title">In the office ({roster.length})</h2>
@@ -301,10 +335,17 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
             {STATUS_TEXT[status]}
             {detail === undefined ? "" : ` — ${detail}`}
           </p>
+          {assetNote === undefined ? null : <p className="hud__status">{assetNote}</p>}
           <p className="hud__hint">
             <span className="hud__keys">W A S D</span> to walk, drag to look around,{" "}
             <span className="hud__keys">Enter</span> to chat.
           </p>
+          {debug === undefined ? null : (
+            <p className="hud__hint">
+              <span className="hud__keys">{debug.drawCalls}</span> draw calls ·{" "}
+              <span className="hud__keys">{debug.props}</span> props
+            </p>
+          )}
         </div>
       </div>
 

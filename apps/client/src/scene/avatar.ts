@@ -220,6 +220,10 @@ function createCapsuleBody(isLocal: boolean): AvatarBody {
   });
   const capsule = new THREE.Mesh(BODY_GEOMETRY, material);
   capsule.position.y = OCCUPANT_HEIGHT / 2;
+  // The body is the only part of an avatar that casts: a shadow under a player
+  // is what sells them standing on the floor, and the nub and the CEO cone are
+  // too small to read as anything but noise.
+  capsule.castShadow = true;
   root.add(capsule);
 
   // A nub on the front, so which way an avatar faces is readable at a glance.
