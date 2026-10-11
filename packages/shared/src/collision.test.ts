@@ -13,14 +13,20 @@ import { OFFICE_LAYOUT, describeLayoutProblems } from "./layout.js";
 
 const R = OCCUPANT_RADIUS;
 
-/** Contact faces of the walls and desks the cases below aim at. */
-const SOUTH_WALL_FACE = 8.7;
+/** Contact faces of the walls, desks and props the cases below aim at. */
+const SOUTH_WALL_FACE = 11.7;
 const EAST_WALL_FACE = 11.7;
-const NORTH_WALL_FACE = -8.7;
-const DIVIDER_SOUTH_FACE = -2.85;
-const CEO_DOOR_JAMB_X = -4.85;
-const DESK_04_SOUTH_FACE = 0.4;
-const CEO_DESK_EAST_FACE = -7.3;
+const NORTH_WALL_FACE = -11.7;
+const PARTITION_NORTH_FACE = -2.7;
+const PARTITION_SOUTH_FACE = -2.4;
+const MEETING_EAST_WALL_FACE = 0;
+const DESK_ROW_SOUTH_FACE = 0.9;
+const CEO_DESK_SOUTH_FACE = -8.05;
+const COFFEE_MACHINE_SOUTH_FACE = -10.75;
+
+/** Start and travel of the diagonal that wedges into the meeting room corner. */
+const CORNER_START = { x: -1, z: -10 };
+const CORNER_DELTA = { x: 5, z: -5 };
 
 function move(from: { x: number; z: number }, delta: { x: number; z: number }) {
   return resolveMove(from, delta, R, OFFICE_LAYOUT);
@@ -43,57 +49,63 @@ const PLACES = 3;
 const cases: readonly Case[] = [
   {
     name: "head-on into the south wall stops a radius short",
-    from: { x: 0, z: 6 },
+    from: { x: 0, z: 9 },
     delta: { x: 0, z: 4 },
     expect: { x: 0, z: SOUTH_WALL_FACE - R },
   },
   {
     name: "head-on into a desk stops a radius short",
-    from: { x: 1.5, z: 2 },
+    from: { x: 1.8, z: 2.5 },
     delta: { x: 0, z: -3 },
-    expect: { x: 1.5, z: DESK_04_SOUTH_FACE + R },
+    expect: { x: 1.8, z: DESK_ROW_SOUTH_FACE + R },
   },
   {
     name: "oblique approach to the east wall keeps the along-wall component",
-    from: { x: 10, z: 0 },
+    from: { x: 10, z: 2.5 },
     delta: { x: 3, z: 2 },
-    expect: { x: EAST_WALL_FACE - R, z: 2 },
+    expect: { x: EAST_WALL_FACE - R, z: 4.5 },
   },
   {
-    name: "oblique approach to a partition slides south past it",
-    from: { x: 3, z: -4.6 },
+    name: "oblique approach to the partition slides east along it",
+    from: { x: 0, z: -4 },
     delta: { x: 2, z: 1 },
-    expect: { x: 3.85 - R, z: -3.6 },
+    expect: { x: 2, z: PARTITION_NORTH_FACE - R },
   },
   {
-    name: "diagonal into the lobby's inside corner stops on both faces",
-    from: { x: -2, z: -6 },
-    delta: { x: -5, z: -5 },
-    expect: { x: CEO_DOOR_JAMB_X + R, z: NORTH_WALL_FACE + R },
+    name: "diagonal into the meeting room's inside corner stops on both faces",
+    from: CORNER_START,
+    delta: CORNER_DELTA,
+    expect: { x: MEETING_EAST_WALL_FACE - R, z: NORTH_WALL_FACE + R },
   },
   {
     name: "a step long enough to cross a wall is still stopped by it",
-    from: { x: -9.5, z: 0 },
+    from: { x: -10.7, z: 0 },
     delta: { x: 0, z: -20 },
-    expect: { x: -9.5, z: DIVIDER_SOUTH_FACE + R },
+    expect: { x: -10.7, z: PARTITION_SOUTH_FACE + R },
   },
   {
     name: "an absurd step is stopped by the same wall",
-    from: { x: -9.5, z: 0 },
+    from: { x: -10.7, z: 0 },
     delta: { x: 0, z: -1000 },
-    expect: { x: -9.5, z: DIVIDER_SOUTH_FACE + R },
+    expect: { x: -10.7, z: PARTITION_SOUTH_FACE + R },
   },
   {
     name: "a doorway is passable",
-    from: { x: -3, z: -5.9 },
-    delta: { x: -4, z: 0 },
-    expect: { x: CEO_DESK_EAST_FACE + R, z: -5.9 },
+    from: { x: -8.7, z: -3.7 },
+    delta: { x: 0, z: -6 },
+    expect: { x: -8.7, z: CEO_DESK_SOUTH_FACE + R },
+  },
+  {
+    name: "head-on into a prop stops a radius short",
+    from: { x: 3.15, z: -10 },
+    delta: { x: 0, z: -2 },
+    expect: { x: 3.15, z: COFFEE_MACHINE_SOUTH_FACE + R },
   },
   {
     name: "unobstructed movement is untouched",
-    from: { x: 0, z: 6 },
+    from: { x: 0, z: 6.5 },
     delta: { x: 1, z: -1 },
-    expect: { x: 1, z: 5 },
+    expect: { x: 1, z: 5.5 },
   },
 ];
 
@@ -108,25 +120,25 @@ describe("resolveMove", () => {
   }
 
   it("leaves a zero movement exactly where it was", () => {
-    const result = move({ x: 1.25, z: -4.5 }, { x: 0, z: 0 });
-    expect(result).toEqual({ x: 1.25, z: -4.5 });
+    const result = move({ x: 1.25, z: -3.7 }, { x: 0, z: 0 });
+    expect(result).toEqual({ x: 1.25, z: -3.7 });
   });
 
   it("treats a non-finite component as no movement on that axis", () => {
-    const result = move({ x: 0, z: 6 }, { x: Number.NaN, z: -1 });
+    const result = move({ x: 0, z: 9 }, { x: Number.NaN, z: -1 });
     expect(result.x).toBeCloseTo(0, 6);
-    expect(result.z).toBeCloseTo(5, 6);
+    expect(result.z).toBeCloseTo(8, 6);
   });
 
   it("is deterministic", () => {
-    const first = move({ x: -2, z: -6 }, { x: -5, z: -5 });
-    const second = move({ x: -2, z: -6 }, { x: -5, z: -5 });
+    const first = move(CORNER_START, CORNER_DELTA);
+    const second = move(CORNER_START, CORNER_DELTA);
     expect(second).toEqual(first);
   });
 
   it("holds position when pressed into a corner it already rests in", () => {
-    const corner = move({ x: -2, z: -6 }, { x: -5, z: -5 });
-    const pressed = move(corner, { x: -1, z: -1 });
+    const corner = move(CORNER_START, CORNER_DELTA);
+    const pressed = move(corner, { x: 1, z: -1 });
     expect(pressed.x).toBeCloseTo(corner.x, 6);
     expect(pressed.z).toBeCloseTo(corner.z, 6);
   });
@@ -138,7 +150,7 @@ describe("resolveMove", () => {
    * correction shows up as rubber-banding.
    */
   it("lands in the same place however the travel is divided", () => {
-    const from = { x: 10, z: 0 };
+    const from = { x: 10, z: 2.5 };
     const total = { x: WALK_SPEED, z: WALK_SPEED };
 
     const once = move(from, total);
@@ -164,13 +176,14 @@ describe("resolveMove", () => {
    */
   it("never leaves an occupant inside geometry", () => {
     const starts = [
-      { x: 0, z: 6 },
-      { x: -2, z: -6 },
-      { x: 3, z: -4.6 },
-      { x: 10, z: 0 },
-      { x: -9.5, z: 0 },
-      { x: 0, z: -1.5 },
-      { x: 7.9, z: -4.2 },
+      { x: 0, z: 9 },
+      CORNER_START,
+      { x: 0, z: -4 },
+      { x: 10, z: 2.5 },
+      { x: -10.7, z: 0 },
+      { x: 3.15, z: -10 },
+      { x: -8.7, z: -6.8 },
+      { x: 9, z: -8 },
     ];
     const distances = [0.05, 0.5, 4, 40];
 
@@ -194,7 +207,7 @@ describe("resolveMove", () => {
   it("keeps an occupant inside the building", () => {
     for (let step = 0; step < 36; step += 1) {
       const angle = (step / 36) * Math.PI * 2;
-      const result = move({ x: 0, z: 2 }, { x: Math.cos(angle) * 200, z: Math.sin(angle) * 200 });
+      const result = move({ x: 0, z: 2.5 }, { x: Math.cos(angle) * 200, z: Math.sin(angle) * 200 });
       expect(result.x).toBeGreaterThan(OFFICE_LAYOUT.floor.minX);
       expect(result.x).toBeLessThan(OFFICE_LAYOUT.floor.maxX);
       expect(result.z).toBeGreaterThan(OFFICE_LAYOUT.floor.minZ);
