@@ -18,8 +18,8 @@
 
 import { MAX_CHAT_LENGTH } from "./constants.js";
 import {
-  type AnimationState,
-  isAnimationState,
+  ANIMATION_STATE,
+  type ReportedAnimation,
   type TicketStatus,
   isTicketStatus,
 } from "./state.js";
@@ -34,6 +34,10 @@ export const CLIENT_MESSAGE = {
   emote: "emote",
   /** A line of text chat. */
   chat: "chat",
+  /** A request to use a named interactable the sender believes it is next to. */
+  interact: "interact",
+  /** A request to stop using whatever the sender is currently engaged with. */
+  release: "release",
   /** File a new ticket into the backlog. */
   ticketCreate: "ticket:create",
   /** Give a ticket an owner, taking it out of the backlog if it is in one. */
@@ -90,7 +94,18 @@ export interface PoseMessage {
   readonly x: number;
   readonly z: number;
   readonly yaw: number;
-  readonly animation: AnimationState;
+  readonly animation: ReportedAnimation;
+}
+
+/**
+ * Which interactable a client wants to use.
+ *
+ * The id alone: the client does not get to say where it is standing, how far
+ * away it is, or what the interaction should do. The server already knows all
+ * three from the pose it has accepted and the shared layout.
+ */
+export interface InteractMessage {
+  readonly target: string;
 }
 
 /** A gesture the sending client wants to perform. */
@@ -182,6 +197,10 @@ function isEmote(value: unknown): value is Emote {
   return typeof value === "string" && (EMOTES as readonly string[]).includes(value);
 }
 
+function isReportedAnimation(value: unknown): value is ReportedAnimation {
+  return value === ANIMATION_STATE.idle || value === ANIMATION_STATE.walking;
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -202,7 +221,7 @@ export function parsePoseMessage(raw: unknown): PoseMessage | undefined {
     !isFiniteNumber(candidate.x) ||
     !isFiniteNumber(candidate.z) ||
     !isFiniteNumber(candidate.yaw) ||
-    !isAnimationState(candidate.animation)
+    !isReportedAnimation(candidate.animation)
   ) {
     return undefined;
   }
@@ -212,6 +231,23 @@ export function parsePoseMessage(raw: unknown): PoseMessage | undefined {
     yaw: candidate.yaw,
     animation: candidate.animation,
   };
+}
+
+/**
+ * Validates a raw `interact` payload.
+ *
+ * Only the shape is checked here. Whether the named interactable exists, is in
+ * reach, or is free is the server's decision, made with `authorizeInteract`
+ * against the layout and the sender's authoritative pose.
+ *
+ * @returns the message, or `undefined` if the payload is not one.
+ */
+export function parseInteractMessage(raw: unknown): InteractMessage | undefined {
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
+  const { target } = raw as { target?: unknown };
+  return isId(target) ? { target } : undefined;
 }
 
 /**
@@ -342,7 +378,7 @@ export function sanitizeTicketBody(raw: unknown): string {
     .slice(0, MAX_TICKET_BODY_LENGTH);
 }
 
-/** Whether a value is usable as an occupant or ticket id. */
+/** Whether a value is usable as an occupant, ticket or interactable id. */
 function isId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= MAX_ID_LENGTH;
 }

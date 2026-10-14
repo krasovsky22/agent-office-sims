@@ -54,6 +54,19 @@ export interface DebugReadout {
   readonly props: number;
 }
 
+/**
+ * The proximity prompt: what the player can do from where they are standing.
+ *
+ * `blocked` is for a prompt the server would refuse — a chair somebody else is
+ * already in. Shown rather than hidden, because a prompt that vanishes when a
+ * colleague sits down reads as a bug, while "taken" reads as the office.
+ */
+export interface HudPrompt {
+  readonly keys: string;
+  readonly label: string;
+  readonly blocked: boolean;
+}
+
 export interface HudSnapshot {
   readonly status: ConnectionStatus;
   readonly detail?: string;
@@ -67,6 +80,8 @@ export interface HudSnapshot {
    * would otherwise refuse.
    */
   readonly notice?: string | undefined;
+  /** `undefined` when there is nothing in reach. */
+  readonly prompt?: HudPrompt | undefined;
   readonly assets: AssetState;
   readonly debug?: DebugReadout;
 }
@@ -298,7 +313,7 @@ const ASSET_TEXT: Partial<Record<AssetState, string>> = {
 };
 
 export function Hud({ store, actions }: { store: HudStore; actions: HudActions }) {
-  const { status, detail, roster, chatLog, notice, assets, debug } = useSyncExternalStore(
+  const { status, detail, roster, chatLog, notice, prompt, assets, debug } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
   );
@@ -337,8 +352,9 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           </p>
           {assetNote === undefined ? null : <p className="hud__status">{assetNote}</p>}
           <p className="hud__hint">
-            <span className="hud__keys">W A S D</span> to walk, drag to look around,{" "}
-            <span className="hud__keys">Enter</span> to chat.
+            <span className="hud__keys">W A S D</span> to walk,{" "}
+            <span className="hud__keys">E</span> to use what you are standing by, drag to look
+            around, <span className="hud__keys">Enter</span> to chat.
           </p>
           {debug === undefined ? null : (
             <p className="hud__hint">
@@ -358,6 +374,13 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           {notice === undefined ? null : <p className="hud__notice">{notice}</p>}
         </div>
       </div>
+
+      {prompt === undefined ? null : (
+        <div className={prompt.blocked ? "hud__prompt hud__prompt--blocked" : "hud__prompt"}>
+          <span className="hud__keys">{prompt.keys}</span>
+          <span>{prompt.label}</span>
+        </div>
+      )}
     </div>
   );
 }

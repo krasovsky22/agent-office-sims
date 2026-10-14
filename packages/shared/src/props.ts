@@ -28,6 +28,8 @@ import {
   type WallSpec,
   OFFICE_LAYOUT,
   collisionBoxes,
+  localToWorld,
+  workstations,
 } from "./layout.js";
 
 /**
@@ -84,12 +86,6 @@ export interface AssetPropSpec {
  */
 export const PROP_CLEARANCE = 0.4;
 
-/** Floor space allowed per seat along a desk's width. */
-const SEAT_PITCH = 1.6;
-
-/** Gap between the edge of a desk and the chair pulled up to it. */
-const CHAIR_GAP = 0.55;
-
 /** How far onto the desk a monitor sits, measured from the desk's far edge. */
 const MONITOR_INSET = 0.25;
 
@@ -119,16 +115,6 @@ const DOORWAY_HEIGHT = 2.1;
 
 const QUARTER_TURN = Math.PI / 2;
 
-/** Rotates a point in a prop's local frame into world space. */
-function toWorld(origin: { x: number; z: number }, yaw: number, localX: number, localZ: number) {
-  const cos = Math.cos(yaw);
-  const sin = Math.sin(yaw);
-  return {
-    x: origin.x + localX * cos + localZ * sin,
-    z: origin.z - localX * sin + localZ * cos,
-  };
-}
-
 /** Whether a point is inside a box grown by `margin` on every side. */
 function nearBox(box: Aabb2, point: { x: number; z: number }, margin: number): boolean {
   return (
@@ -140,10 +126,11 @@ function nearBox(box: Aabb2, point: { x: number; z: number }, margin: number): b
 }
 
 /**
- * The desk itself, plus a seat and a screen for every workstation along it.
+ * The desk itself, plus a chair and a screen for every workstation along it.
  *
- * Seat count comes from the desk's width, so a 1.6 m desk gets one and a 3.2 m
- * meeting table gets two without either number being written down. The desk prop
+ * The workstations come from `layout.ts`, which is also where the seat
+ * interactables come from, so each chair stands exactly where its occupant
+ * sits. The desk prop
  * is fitted to the layout's own `width`/`depth`/`height`, which is the same box
  * `layout.ts`'s `deskAabb` hands the collision resolver — so the desk you can
  * see and the desk that stops you are one shape.
@@ -161,34 +148,27 @@ function deskProps(spec: DeskSpec): AssetPropSpec[] {
     },
   ];
 
-  const seats = Math.max(1, Math.round(spec.width / SEAT_PITCH));
-  const seatPitch = spec.width / seats;
-
-  for (let seat = 0; seat < seats; seat += 1) {
-    const localX = (seat - (seats - 1) / 2) * seatPitch;
-
-    // The occupant sits on the desk's +Z side and faces it, which is -Z local.
-    const chair = toWorld(spec, spec.yaw, localX, spec.depth / 2 + CHAIR_GAP);
+  workstations(spec).forEach(({ localX, seat }, index) => {
     props.push({
-      id: `prop-${spec.id}-chair-${seat + 1}`,
+      id: `prop-${spec.id}-chair-${index + 1}`,
       kind: "chair",
-      x: chair.x,
+      x: seat.x,
       y: 0,
-      z: chair.z,
-      yaw: spec.yaw,
+      z: seat.z,
+      yaw: seat.yaw,
     });
 
     // The screen stands on the desktop at the far edge, turned to face the seat.
-    const monitor = toWorld(spec, spec.yaw, localX, MONITOR_INSET - spec.depth / 2);
+    const monitor = localToWorld(spec, spec.yaw, localX, MONITOR_INSET - spec.depth / 2);
     props.push({
-      id: `prop-${spec.id}-monitor-${seat + 1}`,
+      id: `prop-${spec.id}-monitor-${index + 1}`,
       kind: "monitor",
       x: monitor.x,
       y: spec.height,
       z: monitor.z,
       yaw: spec.yaw + Math.PI,
     });
-  }
+  });
 
   return props;
 }

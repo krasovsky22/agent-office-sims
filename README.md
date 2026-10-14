@@ -13,10 +13,11 @@ above the speaker's head and relayed through the server. The floor plan is a
 whole floor — desk rows in the open plan, a meeting room, a kitchen, the CEO's
 corner office and the lobby, joined by a corridor — and it is furnished now,
 with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
-one shadow-casting light, though the furniture is still scenery. On top of
-that, the ticket board exists as replicated state with its rules enforced on
-the server — a board panel to see it in, object interaction, and the AI agent
-employees are later milestones.
+one shadow-casting light. Some of it can be used: walk up to a desk chair, the
+kitchen's coffee machine or the meeting room's whiteboard and a prompt offers
+the action, which the server grants or refuses. On top of that, the ticket
+board exists as replicated state with its rules enforced on the server — a
+board panel to see it in and the AI agent employees are later milestones.
 
 ## Running it
 
@@ -35,7 +36,9 @@ somewhere else. A deployment has to set all three — see
 [Deploying it](#deploying-it).
 
 Walk with `W A S D` or the arrow keys. Click the canvas to capture the mouse,
-then move it to swing the camera; `Esc` releases it.
+then move it to swing the camera; `Esc` releases it. Walk up to a desk chair, the
+coffee machine or the whiteboard and a prompt appears; `E` uses it. Any movement
+key gets you out of a chair.
 
 `1` to `5` fire the five emotes, which are also buttons in the chat panel.
 `Enter` moves focus to the chat box — and releases the mouse, since a captured
@@ -57,7 +60,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all eight:
+Then confirm all ten:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -85,13 +88,20 @@ Then confirm all eight:
    the first few go out, the rest are refused and the panel says so. Chat is the
    same. Refusals come from the server, so a modified client cannot talk its way
    past them.
-8. **`pnpm typecheck` passes** across the whole repository.
+8. **Sitting down replicates.** Walk Dana up to a chair at an open-floor desk
+   until the prompt reads `Sit down`, press `E`, and Milo's tab shows Dana
+   seated in that chair, not standing beside it. Press a movement key and Dana
+   stands up and walks off cleanly in both tabs.
+9. **A chair holds one person.** With Dana sitting, walk Milo to the same
+   chair: the prompt reads `Sit down — taken` and `E` does nothing. The chair
+   frees up when Dana stands, and also if Dana's tab is simply closed.
+10. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, tickets, messages, expression limits, server origins, avatar animation
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets, messages, expression limits, server origins, avatar animation
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -194,7 +204,7 @@ thing the page talks to is the WebSocket.
 - `GET /health` on the server returns `{"status":"ok"}`. This is what the
   platform probes, and the only HTTP the server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same eight things.
+  [The two-tab check](#the-two-tab-check), and confirm the same ten things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -208,10 +218,11 @@ packages/shared/   @sim/shared   the contract both sides import
   src/state.ts        replicated Colyseus schema
   src/messages.ts     commands and events, with the parsers for the untrusted ones
   src/tickets.ts      the board's rules: transitions, authority, commands
-  src/layout.ts       the office floor plan, as data
+  src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
   src/collision.ts    capsule-vs-AABB movement resolution
   src/nav.ts          pathfinding over the layout's waypoint graph
+  src/interaction.ts  what each interactable does, and who may use it
   src/constants.ts    tick rate, speeds, radii, ranges, expression limits
 apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/expression.ts   per-occupant emote and chat budgets
@@ -222,7 +233,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/assets/office-kit/ the vendored models, and their licence
 ```
 
-Five things are worth knowing before changing anything:
+Six things are worth knowing before changing anything:
 
 - **The floor plan is data.** `shared/layout.ts` is the only place a wall
   position exists. The client builds meshes from it and the server collides
@@ -252,7 +263,16 @@ Five things are worth knowing before changing anything:
   frame in every doorway gap, a plant in each room — so a layout change furnishes
   itself. Only walls and desks are solid; you can walk through a chair. Giving the
   decor footprints means changing what the server collides against, which is a
-  deliberate follow-up rather than something to slip in on the client.
+  deliberate follow-up rather than something to slip in on the client. The
+  seats you can sit in come from the same workstations as the chairs, so each
+  seat is exactly where its chair stands.
+- **Interaction is server-authoritative, unlike movement.** A client may ask
+  to use an interactable by id and nothing more. Whether it is in reach, whether
+  the chair is free, and what sitting down does to you are all decided by the
+  server, which measures from the pose it accepted rather than anything in the
+  message. The client runs the same `shared/interaction.ts` rule before showing
+  its prompt, so what it offers is what the server will grant — but the offer is
+  not the decision.
 
 ## Assets
 

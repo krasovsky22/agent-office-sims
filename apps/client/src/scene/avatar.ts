@@ -78,6 +78,19 @@ const HEAD_ANCHOR_Y = OCCUPANT_HEIGHT;
  */
 const SEATED_HEAD_DROP = 0.18;
 
+/**
+ * The capsule's seated pose, as a squash and a lift of the standing body.
+ *
+ * The capsule has no skeleton to pose, so sitting is a transform. The numbers
+ * put the crown of a sitting capsule a little over a third of a metre below a
+ * standing one, which is the difference that has to be legible from across the
+ * office in the other tab.
+ */
+const CAPSULE_SEATED_SQUASH = 0.62;
+const CAPSULE_SEATED_LIFT = 0.3;
+const CAPSULE_SEATED_HEAD_DROP =
+  OCCUPANT_HEIGHT - (CAPSULE_SEATED_LIFT + OCCUPANT_HEIGHT * CAPSULE_SEATED_SQUASH);
+
 /** Fraction of the remaining gap the head anchor closes per second. */
 const HEAD_ANCHOR_EASE_RATE = 8;
 
@@ -109,6 +122,7 @@ const LOCAL_BODY_COLOUR = 0xcfd3da;
 const REMOTE_BODY_COLOUR = 0x9aa0aa;
 const FACING_COLOUR = 0x5e6470;
 const CEO_MARKER_COLOUR = 0xf0c650;
+const CUP_COLOUR = 0xe8dcc4;
 
 /** Fraction of the gap the smoothed speed closes per second. */
 const SPEED_EASE_RATE = 12;
@@ -134,9 +148,11 @@ const BODY_GEOMETRY = new THREE.CapsuleGeometry(
 );
 const FACING_GEOMETRY = new THREE.BoxGeometry(0.14, 0.14, 0.1);
 const CEO_MARKER_GEOMETRY = new THREE.ConeGeometry(0.16, 0.26, 10);
+const CUP_GEOMETRY = new THREE.CylinderGeometry(0.05, 0.04, 0.11, 8);
 
 const FACING_MATERIAL = new THREE.MeshLambertMaterial({ color: FACING_COLOUR });
 const CEO_MARKER_MATERIAL = new THREE.MeshLambertMaterial({ color: CEO_MARKER_COLOUR });
+const CUP_MATERIAL = new THREE.MeshLambertMaterial({ color: CUP_COLOUR });
 
 export interface AvatarOptions {
   readonly name: string;
@@ -256,6 +272,7 @@ export class Avatar {
   public readonly headAnchor = new THREE.Object3D();
 
   private readonly ceoMarker: THREE.Mesh;
+  private readonly cup: THREE.Mesh;
   private readonly nameplate: THREE.Sprite;
   private readonly nameplateCanvas = document.createElement("canvas");
   private readonly nameplateTexture: THREE.CanvasTexture;
@@ -297,6 +314,14 @@ export class Avatar {
         ? createHumanoidBody(options.model, options.isLocal, this.animation)
         : createCapsuleBody(options.isLocal);
     this.group.add(this.body.root);
+
+    // Held out to one side rather than straight ahead: a cup in front of the
+    // chest is hidden behind the body from the owner's own camera, which is
+    // exactly the viewer who most needs to see that the break is running.
+    this.cup = new THREE.Mesh(CUP_GEOMETRY, CUP_MATERIAL);
+    this.cup.position.set(OCCUPANT_RADIUS + 0.07, OCCUPANT_HEIGHT * 0.56, -OCCUPANT_RADIUS * 0.7);
+    this.cup.visible = false;
+    this.group.add(this.cup);
 
     this.headAnchor.position.y = HEAD_ANCHOR_Y;
     this.group.add(this.headAnchor);
@@ -343,6 +368,12 @@ export class Avatar {
     }
     this.animation = animation;
     this.body.animator?.setState(animation);
+    this.applyCapsulePosture();
+  }
+
+  /** Shows or hides the coffee cup a break at the machine puts in hand. */
+  public setHoldingCup(holding: boolean): void {
+    this.cup.visible = holding;
   }
 
   /** Advances the animation and whatever follows the pose. */
@@ -358,7 +389,8 @@ export class Avatar {
       // played at the smoothed speed rather than the raw one.
       this.speed += (sampled - this.speed) * (1 - Math.exp(-SPEED_EASE_RATE * deltaSeconds));
 
-      const targetY = HEAD_ANCHOR_Y - (isSeated(this.animation) ? SEATED_HEAD_DROP : 0);
+      const seatedDrop = this.body.isHumanoid ? SEATED_HEAD_DROP : CAPSULE_SEATED_HEAD_DROP;
+      const targetY = HEAD_ANCHOR_Y - (isSeated(this.animation) ? seatedDrop : 0);
       const gap = targetY - this.headAnchor.position.y;
       this.headAnchor.position.y += gap * (1 - Math.exp(-HEAD_ANCHOR_EASE_RATE * deltaSeconds));
     }
@@ -449,6 +481,20 @@ export class Avatar {
     this.nameplateTexture.dispose();
     this.emoteBillboard.dispose();
     this.chatBillboard.dispose();
+  }
+
+  /**
+   * Squashes the capsule into a seated pose, or stands it back up.
+   *
+   * The humanoid sits by playing its clip, so this leaves it alone.
+   */
+  private applyCapsulePosture(): void {
+    if (this.body.isHumanoid) {
+      return;
+    }
+    const seated = isSeated(this.animation);
+    this.body.root.scale.y = seated ? CAPSULE_SEATED_SQUASH : 1;
+    this.body.root.position.y = seated ? CAPSULE_SEATED_LIFT : 0;
   }
 
   private applyNameplateScale(): void {

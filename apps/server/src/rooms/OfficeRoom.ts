@@ -1,9 +1,17 @@
 /**
  * The shared office.
  *
- * One room holds everyone on the floor. It owns five things: who is in the
+ * One room holds everyone on the floor. It owns six things: who is in the
  * office, where the authoritative version of each of them is, which of them is
- * the CEO, what they are expressing, and the ticket board they work from.
+ * the CEO, which of them is sitting at or standing over something, what they
+ * are expressing, and the ticket board they work from.
+ *
+ * Interactions are server-decided, not client-reported. A client may ask to use
+ * an interactable; it may not say that it is in reach of one, that the chair is
+ * free, or that it is now seated. Each of those is re-derived in
+ * `sim/interaction.ts` from the shared layout and the pose this room has
+ * accepted, because each of them is a check a modified client would simply
+ * leave out.
  *
  * Expression — emotes and chat — is relayed rather than replicated. A wave is
  * true for two seconds and a sentence for six, so neither belongs in the
@@ -32,11 +40,20 @@ import {
   normalizeYaw,
   parseChatMessage,
   parseEmoteMessage,
+  parseInteractMessage,
   parseJoinOptions,
   parsePoseMessage,
 } from "@sim/shared";
 
+import { recordOfficeEvent } from "../sim/events.js";
 import { type ExpressionBudget, createExpressionBudget, tryConsume } from "../sim/expression.js";
+import {
+  HoldRegistry,
+  type InteractionHost,
+  holdTick,
+  releaseHold,
+  requestInteract,
+} from "../sim/interaction.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
 import {
   type TicketHost,
@@ -63,12 +80,25 @@ export class OfficeRoom extends Room<OfficeState> {
   /** Per-occupant emote and chat allowances, keyed by session id. */
   private readonly budgets = new Map<string, ExpressionBudget>();
 
+  /** The authoritative answer to who is sitting where. */
+  private readonly holds = new HoldRegistry();
+
+  /** Assigned in `onCreate`, once the state it reads exists. */
+  private interaction!: InteractionHost;
+
   private spawnCursor = 0;
   private hireCount = 0;
 
   public override onCreate(): void {
     this.state = new OfficeState();
     this.patchRate = TICK_INTERVAL_MS;
+    this.interaction = {
+      layout: OFFICE_LAYOUT,
+      occupants: this.state.occupants,
+      motions: this.motions,
+      holds: this.holds,
+      lastUsedAt: new Map(),
+    };
 
     // `Date.now()` rather than `this.clock`, because a ticket timestamp is read
     // as a wall-clock date in a panel, not as an offset from this room's start.
@@ -88,6 +118,36 @@ export class OfficeRoom extends Room<OfficeState> {
         return;
       }
       recordPose(motion, pose, this.clock.currentTime);
+    });
+
+    this.onMessage(CLIENT_MESSAGE.interact, (client, raw: unknown) => {
+      const message = parseInteractMessage(raw);
+      if (message === undefined) {
+        return;
+      }
+      // A refusal is not answered: the client ran the same rule before showing
+      // its prompt, so a refusal means either a race it will see resolved in
+      // the next patch or a client that was not asking honestly.
+      const outcome = requestInteract(
+        this.interaction,
+        client.sessionId,
+        message.target,
+        this.clock.currentTime,
+      );
+      if (outcome.result === "used") {
+        // An interaction that holds nothing has no state to change, so all it
+        // can do for now is leave a trace. The whiteboard is the only one, and
+        // it is a placeholder on purpose — see `sim/events.ts`.
+        recordOfficeEvent("interact", {
+          actor: this.state.occupants.get(client.sessionId)?.name ?? client.sessionId,
+          target: outcome.target.id,
+          kind: outcome.target.kind,
+        });
+      }
+    });
+
+    this.onMessage(CLIENT_MESSAGE.release, (client) => {
+      releaseHold(this.interaction, client.sessionId, this.clock.currentTime);
     });
 
     this.onMessage(CLIENT_MESSAGE.emote, (client, raw: unknown) => {
@@ -142,6 +202,10 @@ export class OfficeRoom extends Room<OfficeState> {
 
   public override onLeave(client: Client): void {
     const departing = this.state.occupants.get(client.sessionId);
+    // Before the occupant goes, so a closed tab does not leave its chair
+    // reserved for the rest of the session.
+    this.holds.release(client.sessionId);
+    this.interaction.lastUsedAt.delete(client.sessionId);
     this.state.occupants.delete(client.sessionId);
     this.motions.delete(client.sessionId);
     this.budgets.delete(client.sessionId);
@@ -169,6 +233,11 @@ export class OfficeRoom extends Room<OfficeState> {
     for (const [sessionId, motion] of this.motions) {
       const occupant = this.state.occupants.get(sessionId);
       if (occupant === undefined) {
+        continue;
+      }
+      // Held occupants do not move and do not time out into idle; a timed hold
+      // that has run out is released here, against the clock, not a timer.
+      if (holdTick(this.interaction, sessionId, now)) {
         continue;
       }
       if (motion.hasPending) {

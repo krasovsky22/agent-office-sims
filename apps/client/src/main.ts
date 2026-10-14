@@ -10,9 +10,17 @@
 import {
   ANIMATION_STATE,
   CLIENT_MESSAGE,
+  INTERACT_RANGE,
+  INTERACTION_KIND,
+  type InteractableSpec,
   OFFICE_LAYOUT,
   OFFICE_PROPS,
   type OfficeLayout,
+  authorizeInteract,
+  heldAnimationFor,
+  interactableById,
+  nearestInteractable,
+  promptFor,
   sanitizeName,
 } from "@sim/shared";
 import { createElement } from "react";
@@ -27,7 +35,13 @@ import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
 import { buildOffice } from "./scene/office.js";
 import { loadPropKit } from "./scene/propKit.js";
 import { buildProps } from "./scene/props.js";
-import { Hud, type ChatLogEntry, type HudSnapshot, createHudStore } from "./ui/Hud.js";
+import {
+  Hud,
+  type ChatLogEntry,
+  type HudPrompt,
+  type HudSnapshot,
+  createHudStore,
+} from "./ui/Hud.js";
 
 /**
  * Longest frame the simulation will integrate.
@@ -54,6 +68,9 @@ const NOTICE_DURATION_MS = 2500;
 
 /** How often the `?debug` readout is refreshed. Off the frame path otherwise. */
 const DEBUG_INTERVAL_MS = 500;
+
+/** The prompt shown while the player is sitting, so standing up is discoverable. */
+const STAND_UP_PROMPT: HudPrompt = { keys: "W A S D", label: "Stand up", blocked: false };
 
 function requireCanvas(): HTMLCanvasElement {
   const canvas = document.querySelector<HTMLCanvasElement>("#scene");
@@ -289,13 +306,92 @@ function start(): void {
   const debugEnabled = readDebugEnabled();
   let nextDebugMs = 0;
 
+  // The prompt as last published, held as loose fields so the per-frame check
+  // that nothing has changed costs no allocation.
+  let promptKeys = "";
+  let promptLabel = "";
+  let promptBlocked = false;
+
+  /**
+   * Works out what the player can do from where they are standing, and tells
+   * React only when the answer changes.
+   *
+   * The availability test is `authorizeInteract` — the same function the server
+   * will run on the message this prompt invites — so the prompt is never an
+   * offer the server is going to turn down.
+   *
+   * @returns the interactable `E` would use, or `undefined`.
+   */
+  const refreshPrompt = (engagedWith: string): InteractableSpec | undefined => {
+    let prompt: HudPrompt | undefined;
+    let target: InteractableSpec | undefined;
+
+    if (engagedWith !== "") {
+      const held = interactableById(OFFICE_LAYOUT, engagedWith);
+      // Only a seat is worth a prompt: a coffee break ends on its own.
+      prompt = held?.kind === INTERACTION_KIND.seat ? STAND_UP_PROMPT : undefined;
+    } else {
+      target = nearestInteractable(OFFICE_LAYOUT, controller.pose, INTERACT_RANGE);
+      if (target !== undefined) {
+        const decision = authorizeInteract(
+          OFFICE_LAYOUT,
+          {
+            id: room.sessionId,
+            x: controller.pose.x,
+            z: controller.pose.z,
+            interactableId: engagedWith,
+          },
+          target.id,
+          INTERACT_RANGE,
+          (interactableId) => room.holderOf(interactableId),
+        );
+        prompt = {
+          keys: "E",
+          label: decision.allowed ? promptFor(target) : `${promptFor(target)} — taken`,
+          blocked: !decision.allowed,
+        };
+      }
+    }
+
+    const keys = prompt?.keys ?? "";
+    const label = prompt?.label ?? "";
+    const blocked = prompt?.blocked ?? false;
+    if (keys !== promptKeys || label !== promptLabel || blocked !== promptBlocked) {
+      promptKeys = keys;
+      promptLabel = label;
+      promptBlocked = blocked;
+      publishHud({ prompt });
+    }
+
+    return target;
+  };
+
   const frame = (nowMs: number) => {
     const deltaSeconds = Math.min((nowMs - previousFrameMs) / 1000, MAX_FRAME_SECONDS);
     previousFrameMs = nowMs;
 
+    const localId = room.sessionId;
+    const engagedWith = room.viewOf(localId)?.interactableId ?? "";
+
+    // Before the controller moves: a hold the server granted or let lapse has to
+    // be in effect for this frame's prediction, not the next one's.
+    controller.setHold(interactableById(OFFICE_LAYOUT, engagedWith)?.anchor);
     controller.update(deltaSeconds);
+
+    // What the controller is predicting, not what the last patch said: between
+    // a movement key standing the player up and the server confirming it, the
+    // replicated hold is stale and would keep offering "Stand up".
+    const locallyHeldWith = controller.held ? engagedWith : "";
+    const target = refreshPrompt(locallyHeldWith);
+    if (controller.takeReleaseRequest()) {
+      room.sendRelease();
+    }
+    if (controller.takeInteractRequest() && target !== undefined) {
+      room.sendInteract(target.id);
+    }
+
     room.sendPose(controller.pose, nowMs);
-    if (room.localServerPose.known) {
+    if (room.localServerPose.known && !controller.held) {
       controller.applyCorrection(
         room.localServerPose.x,
         room.localServerPose.z,
@@ -303,9 +399,22 @@ function start(): void {
       );
     }
 
-    const localId = room.sessionId;
     for (const [id, avatar] of avatars) {
-      if (id === localId) {
+      // The local player is drawn from the predicted hold, so standing up shows
+      // on the frame the key goes down rather than a round trip later.
+      const held = interactableById(
+        OFFICE_LAYOUT,
+        id === localId ? locallyHeldWith : room.viewOf(id)?.interactableId ?? "",
+      );
+      avatar.setHoldingCup(held?.kind === INTERACTION_KIND.coffee);
+
+      if (held !== undefined) {
+        // A held occupant's place comes straight from the layout, so a sitter
+        // in the other tab is perfectly still in the chair instead of
+        // interpolating toward a position that is not changing.
+        avatar.setPose(held.anchor.x, held.anchor.z, held.anchor.yaw);
+        avatar.setAnimation(heldAnimationFor(held));
+      } else if (id === localId) {
         avatar.setPose(controller.pose.x, controller.pose.z, controller.pose.yaw);
         avatar.setAnimation(controller.pose.animation);
       } else if (room.sampleRemote(id, nowMs, remotePose)) {

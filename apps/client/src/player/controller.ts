@@ -15,12 +15,13 @@
 
 import {
   ANIMATION_STATE,
-  type AnimationState,
   OCCUPANT_RADIUS,
   OFFICE_LAYOUT,
   RECONCILE_EASE_RATE,
   RECONCILE_SNAP_THRESHOLD,
   RECONCILE_THRESHOLD,
+  type ReportedAnimation,
+  type SpawnSpec,
   WALK_SPEED,
   normalizeYaw,
   resolveMove,
@@ -65,13 +66,23 @@ const BACKWARD_KEYS = new Set(["KeyS", "ArrowDown"]);
 const LEFT_KEYS = new Set(["KeyA", "ArrowLeft"]);
 const RIGHT_KEYS = new Set(["KeyD", "ArrowRight"]);
 
-const ALL_KEYS = new Set([...FORWARD_KEYS, ...BACKWARD_KEYS, ...LEFT_KEYS, ...RIGHT_KEYS]);
+/** The one verb key. Named in the HUD prompt as `E`. */
+const INTERACT_KEY = "KeyE";
+
+const MOVEMENT_KEYS = new Set([
+  ...FORWARD_KEYS,
+  ...BACKWARD_KEYS,
+  ...LEFT_KEYS,
+  ...RIGHT_KEYS,
+]);
+
+const ALL_KEYS = new Set([...MOVEMENT_KEYS, INTERACT_KEY]);
 
 export interface Pose {
   x: number;
   z: number;
   yaw: number;
-  animation: AnimationState;
+  animation: ReportedAnimation;
 }
 
 interface Box3 {
@@ -159,6 +170,20 @@ export class PlayerController {
   private readonly cameraTarget = new THREE.Vector3();
   private disposers: Array<() => void> = [];
 
+  /** The anchor the player is being held at, or `undefined` when free. */
+  private anchor: SpawnSpec | undefined;
+
+  /**
+   * Set between asking the server to let go and the server saying it has.
+   *
+   * Without it the hold still in the replicated state would re-seat the player
+   * on the very next frame, and standing up would never take.
+   */
+  private releasePending = false;
+
+  private interactRequested = false;
+  private releaseRequested = false;
+
   public constructor(
     private readonly camera: THREE.PerspectiveCamera,
     private readonly viewport: HTMLCanvasElement,
@@ -170,6 +195,10 @@ export class PlayerController {
     this.pose.z = z;
     this.pose.yaw = normalizeYaw(yaw);
     this.pose.animation = ANIMATION_STATE.idle;
+    // A rejoin reuses this controller, and the player arrives standing however
+    // they left.
+    this.anchor = undefined;
+    this.releasePending = false;
     this.cameraYaw = this.pose.yaw;
     this.updateCamera();
   }
@@ -179,11 +208,19 @@ export class PlayerController {
       if (isTypingTarget(event.target)) {
         return;
       }
-      if (ALL_KEYS.has(event.code)) {
-        this.pressed.add(event.code);
-        // Stop the arrow keys from scrolling the page out from under the canvas.
-        event.preventDefault();
+      if (!ALL_KEYS.has(event.code)) {
+        return;
       }
+      // Stop the arrow keys from scrolling the page out from under the canvas.
+      event.preventDefault();
+      if (event.code === INTERACT_KEY) {
+        // A press, not a state: holding the key down must not fire repeatedly.
+        if (!event.repeat) {
+          this.interactRequested = true;
+        }
+        return;
+      }
+      this.pressed.add(event.code);
     };
     // Key-up is *not* filtered by target: focus can move between a key going
     // down and coming up, and a key released into a newly focused input would
@@ -243,8 +280,76 @@ export class PlayerController {
     this.pressed.clear();
   }
 
+  /**
+   * Tells the controller where the server is holding the player, if anywhere.
+   *
+   * Called every frame from the replicated state, so a hold the server granted,
+   * a hold that timed out on its own, and a hold released after a reconnect all
+   * arrive through one path.
+   *
+   * @param anchor the pose being held, or `undefined` when the player is free.
+   */
+  public setHold(anchor: SpawnSpec | undefined): void {
+    if (anchor === undefined) {
+      this.anchor = undefined;
+      this.releasePending = false;
+      return;
+    }
+    if (this.releasePending || this.anchor === anchor) {
+      return;
+    }
+    // Snap onto the anchor rather than easing: the server derived it from the
+    // same shared layout, so this is not a correction, it is the same answer.
+    this.anchor = anchor;
+    this.pose.x = anchor.x;
+    this.pose.z = anchor.z;
+    this.pose.yaw = normalizeYaw(anchor.yaw);
+    this.pose.animation = ANIMATION_STATE.idle;
+  }
+
+  /** Whether the player is standing in a held pose this frame. */
+  public get held(): boolean {
+    return this.anchor !== undefined;
+  }
+
+  /**
+   * Takes a pending interact keypress, if there is one.
+   *
+   * Swallowed while a release is pending: the replicated hold is still the old
+   * one, so the request would pass the client's check, re-seat the player in
+   * the same server tick as the release, and the release would never be seen.
+   */
+  public takeInteractRequest(): boolean {
+    const requested = this.interactRequested && !this.releasePending;
+    this.interactRequested = false;
+    return requested;
+  }
+
+  /** Takes a pending request to be let go of, if there is one. */
+  public takeReleaseRequest(): boolean {
+    const requested = this.releaseRequested;
+    this.releaseRequested = false;
+    return requested;
+  }
+
   /** Advances the local player by one frame and follows with the camera. */
   public update(deltaSeconds: number): void {
+    if (this.anchor !== undefined) {
+      if (!this.movementPressed()) {
+        // Held: the pose is the server's, so there is nothing to predict. The
+        // camera still swings, which is what makes sitting feel like a place to
+        // be rather than a cutscene.
+        this.updateCamera();
+        return;
+      }
+      // Movement input is the only way out of a hold. Let go locally and walk
+      // this same frame; the server frees the anchor when the request lands,
+      // which is before any pose sent after it, because the socket is ordered.
+      this.anchor = undefined;
+      this.releasePending = true;
+      this.releaseRequested = true;
+    }
+
     // Camera yaw defines which way "forward" is: the player walks away from the
     // camera, as a third-person control scheme should.
     const forwardX = -Math.sin(this.cameraYaw);
@@ -318,6 +423,15 @@ export class PlayerController {
     const blend = 1 - Math.exp(-RECONCILE_EASE_RATE * deltaSeconds);
     this.pose.x += errorX * blend;
     this.pose.z += errorZ * blend;
+  }
+
+  private movementPressed(): boolean {
+    for (const code of this.pressed) {
+      if (MOVEMENT_KEYS.has(code)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private turnToward(targetYaw: number, deltaSeconds: number): void {

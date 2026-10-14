@@ -67,6 +67,33 @@ export const MIN_OBSTACLE_THICKNESS = 0.3;
 export const MAX_COLLISION_SUBSTEPS = 512;
 
 /**
+ * How close an occupant has to stand to an interactable's anchor before it can
+ * be used. The client shows its prompt at exactly this distance and the server
+ * re-checks against it, so the prompt and the server's answer agree.
+ */
+export const INTERACT_RANGE = 1.5;
+
+/**
+ * Multiplier applied to {@link INTERACT_RANGE} before the server refuses an
+ * interaction as out of range.
+ *
+ * The server measures from the pose it has accepted, which trails the pose the
+ * client prompted from by up to a round trip. Without this slack a player who
+ * pressed the key the instant the prompt appeared would be refused. It is the
+ * same bargain {@link SPEED_TOLERANCE} makes: wide enough to absorb a packet in
+ * flight, far too narrow to let a modified client reach across the room.
+ */
+export const INTERACT_RANGE_TOLERANCE = 1.25;
+
+/**
+ * How long a coffee break holds an occupant at the machine.
+ *
+ * The hold expires on the server's own clock, checked in the simulation tick,
+ * so no client can shorten it and nothing has to be awaited.
+ */
+export const COFFEE_BREAK_MS = 2500;
+
+/**
  * How far behind the present each remote avatar is rendered. Remote poses
  * arrive at {@link POSE_SEND_RATE_HZ}, so rendering this far back leaves two
  * samples to interpolate between and hides ordinary network jitter.
