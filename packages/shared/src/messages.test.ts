@@ -16,8 +16,11 @@ import {
   EMOTES,
   parseChatMessage,
   parseEmoteMessage,
+  parseInteractMessage,
+  parsePoseMessage,
   sanitizeChatText,
 } from "./messages.js";
+import { ANIMATION_STATE } from "./state.js";
 
 describe("parseEmoteMessage", () => {
   for (const emote of EMOTES) {
@@ -103,6 +106,56 @@ describe("parseChatMessage", () => {
   for (const [description, raw] of rejected) {
     it(`rejects ${description}`, () => {
       expect(parseChatMessage(raw)).toBeUndefined();
+    });
+  }
+});
+
+describe("parsePoseMessage", () => {
+  for (const animation of [ANIMATION_STATE.idle, ANIMATION_STATE.walking]) {
+    it(`accepts a pose reporting ${animation}`, () => {
+      expect(parsePoseMessage({ x: 1, z: 2, yaw: 0, animation })).toEqual({
+        x: 1,
+        z: 2,
+        yaw: 0,
+        animation,
+      });
+    });
+  }
+
+  // Sitting is the server's consequence of a granted interact. A client that
+  // could report it would be seated at a desk from across the room.
+  for (const animation of [ANIMATION_STATE.sitting, ANIMATION_STATE.typing]) {
+    it(`rejects a pose claiming ${animation}`, () => {
+      expect(parsePoseMessage({ x: 1, z: 2, yaw: 0, animation })).toBeUndefined();
+    });
+  }
+});
+
+describe("parseInteractMessage", () => {
+  it("accepts a target id", () => {
+    expect(parseInteractMessage({ target: "seat-desk-north-1-1" })).toEqual({
+      target: "seat-desk-north-1-1",
+    });
+  });
+
+  it("carries only the target, whatever else the client sends", () => {
+    expect(parseInteractMessage({ target: "coffee-machine", x: 0, z: 0, seated: true })).toEqual({
+      target: "coffee-machine",
+    });
+  });
+
+  const rejected: readonly [string, unknown][] = [
+    ["an empty target", { target: "" }],
+    ["an over-long target", { target: "x".repeat(65) }],
+    ["a non-string target", { target: 7 }],
+    ["a missing target", {}],
+    ["a bare string", "coffee-machine"],
+    ["null", null],
+  ];
+
+  for (const [description, raw] of rejected) {
+    it(`rejects ${description}`, () => {
+      expect(parseInteractMessage(raw)).toBeUndefined();
     });
   }
 });
