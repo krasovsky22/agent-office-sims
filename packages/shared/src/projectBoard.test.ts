@@ -38,6 +38,10 @@ function boardInteractable(layout: OfficeLayout = OFFICE_LAYOUT): InteractableSp
   return spec;
 }
 
+function withBoard(board: WallBoardSpec): OfficeLayout {
+  return { ...OFFICE_LAYOUT, boards: [board] };
+}
+
 const LOBBY_CENTRE = { x: 9, z: -8 };
 
 describe("the lobby's project board", () => {
@@ -90,5 +94,30 @@ describe("the lobby's project board", () => {
     const spec = boardInteractable({ ...OFFICE_LAYOUT, boards: [east] });
     expect(spec.anchor.x).toBeCloseTo(10.7);
     expect(spec.anchor.z).toBeCloseTo(-8);
+  });
+});
+
+describe("board placement checks", () => {
+  it("report a board turned to face the wall it hangs on", () => {
+    const board = projectBoard();
+    expect(describeLayoutProblems(withBoard({ ...board, yaw: 0 }))).toEqual([
+      `board ${board.id} is not hung on a wall`,
+      `board ${board.id} does not face into room lobby`,
+    ]);
+  });
+
+  it("report a board left hanging in the middle of a room", () => {
+    const board = projectBoard();
+    expect(describeLayoutProblems(withBoard({ ...board, z: -8 }))).toEqual([
+      `board ${board.id} is not hung on a wall`,
+    ]);
+  });
+
+  it("report a board naming a room the plan does not have", () => {
+    const board = projectBoard();
+    expect(describeLayoutProblems(withBoard({ ...board, roomId: "atrium" }))).toEqual([
+      `board ${board.id} faces unknown room atrium`,
+      `board ${board.id} does not face into room atrium`,
+    ]);
   });
 });

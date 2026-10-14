@@ -87,7 +87,7 @@ export interface HudSnapshot {
   readonly debug?: DebugReadout;
   /** The lobby board's latest snapshot; absent until the server sends one. */
   readonly projectBoard?: ProjectBoardSnapshot;
-  /** Whether the local player is standing close enough to read the board up close. */
+  /** Whether the local player opened the board's close-up with `E` at its prompt. */
   readonly boardCloseUp: boolean;
 }
 
