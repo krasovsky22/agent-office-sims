@@ -230,6 +230,37 @@ describe("OFFICE_LAYOUT seats", () => {
       );
     }
   });
+
+  it("leave every other interactable reachable on foot from the first spawn point", () => {
+    const spawn = OFFICE_LAYOUT.spawnPoints[0];
+    expect(spawn).toBeDefined();
+    if (spawn === undefined) {
+      return;
+    }
+    const start = "wp-floor-aisle-north";
+    const atStart = walkTo(spawn, waypoint(start));
+
+    const others = interactables(OFFICE_LAYOUT).filter((spec) => spec.exit === undefined);
+    expect(others.map((spec) => spec.kind).sort()).toEqual(
+      [INTERACTION_KIND.board, INTERACTION_KIND.coffee, INTERACTION_KIND.whiteboard].sort(),
+    );
+    for (const spec of others) {
+      const node = nearestWaypoint(spec.anchor, OFFICE_LAYOUT);
+      expect(node, spec.id).toBeDefined();
+      if (node === undefined) {
+        continue;
+      }
+
+      const atNode = walkRoute(atStart, routeBetween(start, node.id));
+      const arrived = walkTo(atNode, spec.anchor);
+      expect(distanceBetween(arrived, spec.anchor), `walking up to ${spec.id}`).toBeLessThanOrEqual(
+        ARRIVAL_TOLERANCE,
+      );
+      expect(distanceBetween(arrived, spec.anchor), `reaching ${spec.id}`).toBeLessThanOrEqual(
+        INTERACT_RANGE,
+      );
+    }
+  });
 });
 
 describe("OFFICE_LAYOUT doorways", () => {

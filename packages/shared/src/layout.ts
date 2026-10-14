@@ -459,8 +459,12 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { id: "wp-ceo-door", x: -8.7, z: -4.85, links: ["wp-ceo-desk", "wp-corridor-ceo"] },
 
     // Meeting room.
-    { id: "wp-meeting-table", x: -2.85, z: -6.8, links: ["wp-meeting-door"] },
+    { id: "wp-meeting-table", x: -2.85, z: -6.4, links: ["wp-meeting-door", "wp-meeting-east"] },
     { id: "wp-meeting-door", x: -2.85, z: -4.85, links: ["wp-meeting-table", "wp-corridor-meeting"] },
+    // Round the table's east end to the whiteboard, which the table hides from
+    // the door.
+    { id: "wp-meeting-east", x: -0.6, z: -6.4, links: ["wp-meeting-table", "wp-meeting-whiteboard"] },
+    { id: "wp-meeting-whiteboard", x: -0.6, z: -10.7, links: ["wp-meeting-east"] },
 
     // Kitchen.
     { id: "wp-kitchen-coffee", x: 3.15, z: -10, links: ["wp-kitchen-door"] },
@@ -872,8 +876,9 @@ export function describeLayoutProblems(layout: OfficeLayout): string[] {
     // An anchor inside geometry is a prompt that appears and then strands the
     // occupant, so it is checked here rather than discovered by sitting down.
     // A seat's anchor is inside its own chair by design, which is why chairs
-    // are left out of this test and its exit is held to the full one instead.
-    if (overlapsObstacle(spec.anchor, structure)) {
+    // are left out of its test and its exit is held to the full one instead.
+    const anchorBlockers = spec.exit === undefined ? collisionBoxes(layout) : structure;
+    if (overlapsObstacle(spec.anchor, anchorBlockers)) {
       problems.push(`interactable ${spec.id} anchors inside an obstacle`);
     }
     if (spec.exit !== undefined) {

@@ -68,6 +68,20 @@ describe("the office's interactables", () => {
     expect(describeLayoutProblems(OFFICE_LAYOUT)).toEqual([]);
   });
 
+  it("rejects anything but a seat anchored inside a chair", () => {
+    const seat = interactables(OFFICE_LAYOUT).find((spec) => spec.kind === INTERACTION_KIND.seat);
+    const [fixture] = OFFICE_LAYOUT.fixtures;
+    expect(seat).toBeDefined();
+    expect(fixture).toBeDefined();
+    if (seat === undefined || fixture === undefined) {
+      return;
+    }
+    const onChair = { ...OFFICE_LAYOUT, fixtures: [{ ...fixture, anchor: seat.anchor }] };
+    expect(describeLayoutProblems(onChair)).toContain(
+      `interactable ${fixture.id} anchors inside an obstacle`,
+    );
+  });
+
   it("gives every chair a seat, standing exactly where the chair does", () => {
     const seats = interactables(OFFICE_LAYOUT).filter(
       (spec) => spec.kind === INTERACTION_KIND.seat,
