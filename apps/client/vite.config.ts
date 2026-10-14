@@ -18,6 +18,10 @@ export default defineConfig(({ command, mode }) => {
     // Relative asset URLs, so the same bundle works at a domain root and under
     // a path prefix without being rebuilt for each.
     base: "./",
+    // Vite does not count .glb as an asset on its own. The app only imports the
+    // models with `?url`, which forces it; the facing test reads one with
+    // `?inline` under Vitest, which needs Vite to know what the file is.
+    assetsInclude: ["**/*.glb"],
     build: {
       // Keep the prop models as files. Vite inlines small assets as data URLs by
       // default, which would bury the smallest of them in the JS bundle where the

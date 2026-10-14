@@ -74,13 +74,14 @@ const HALF_TURN = Math.PI;
 /**
  * The registry. The layout names a kind; this says which file draws it.
  *
- * The pack models desks and chairs looking along +Z and screens looking along
- * -Z, so the first two are turned and the rest are not.
+ * The pack models everything with a front looking along +Z, the screen's
+ * display included (`propKit.test.ts` measures it), so every model with a front
+ * is turned. A plant and a door frame read the same from either side.
  */
 const KIT: Readonly<Record<AssetPropKind, KitEntry>> = {
   desk: { url: deskUrl, yawOffset: HALF_TURN },
   chair: { url: chairUrl, yawOffset: HALF_TURN },
-  monitor: { url: monitorUrl, yawOffset: 0 },
+  monitor: { url: monitorUrl, yawOffset: HALF_TURN },
   plant: { url: plantUrl, yawOffset: 0 },
   door: { url: doorUrl, yawOffset: 0 },
   coffee: { url: coffeeUrl, yawOffset: HALF_TURN },
@@ -198,6 +199,17 @@ function mergeByMaterial(
 }
 
 /**
+ * Normalises one loaded model with its registry entry's turn applied.
+ *
+ * Split out of {@link loadPropKit} so a test can hand it a model parsed from the vendored file
+ * and check which way the result faces, which no browser-free test could do
+ * through the URL loader.
+ */
+export function modelFromScene(kind: AssetPropKind, root: THREE.Object3D): PropModel {
+  return normalise(kind, root, KIT[kind].yawOffset);
+}
+
+/**
  * Loads every model in the registry.
  *
  * All six at once and all-or-nothing: the caller shows one loading state and then
@@ -213,7 +225,7 @@ export async function loadPropKit(): Promise<PropKit> {
     PROP_KINDS.map(async (kind) => {
       const entry = KIT[kind];
       const gltf = await loader.loadAsync(entry.url);
-      return normalise(kind, gltf.scene, entry.yawOffset);
+      return modelFromScene(kind, gltf.scene);
     }),
   );
   return new Map(loaded.map((model) => [model.kind, model]));
