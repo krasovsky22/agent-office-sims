@@ -9,3 +9,4 @@ export * from "./interaction.js";
 export * from "./state.js";
 export * from "./messages.js";
 export * from "./tickets.js";
+export * from "./projectBoard.js";

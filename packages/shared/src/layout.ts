@@ -95,6 +95,28 @@ export interface PropSpec {
   readonly height: number;
 }
 
+/**
+ * A display hung flat against a wall: something to read, not to walk around.
+ *
+ * Nothing collides with a board, because the wall it hangs on already does. It
+ * is positioned by the centre of its face, on the wall's surface, and `yaw` is
+ * the direction that face looks, in the same convention as everything else: 0
+ * faces -Z. What it shows is not part of the floor plan; `id` is what the
+ * client matches a feed to.
+ */
+export interface WallBoardSpec {
+  readonly id: string;
+  /** The room the board faces into, which is where it is read from. */
+  readonly roomId: string;
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+  readonly width: number;
+  readonly height: number;
+  /** Height of the board's bottom edge above the floor. */
+  readonly elevation: number;
+}
+
 /** A named region of the floor. Nothing collides with a room. */
 export interface RoomSpec {
   readonly id: string;
@@ -150,6 +172,7 @@ export const INTERACTION_KIND = {
   seat: "seat",
   coffee: "coffee",
   whiteboard: "whiteboard",
+  board: "board",
 } as const;
 
 export type InteractionKind = (typeof INTERACTION_KIND)[keyof typeof INTERACTION_KIND];
@@ -192,6 +215,7 @@ export interface OfficeLayout {
   readonly walls: readonly WallSpec[];
   readonly desks: readonly DeskSpec[];
   readonly props: readonly PropSpec[];
+  readonly boards: readonly WallBoardSpec[];
   readonly rooms: readonly RoomSpec[];
   readonly doorways: readonly DoorwaySpec[];
   readonly waypoints: readonly WaypointSpec[];
@@ -226,6 +250,12 @@ const CHAIR_GAP = 0.55;
 
 /** Gap between the front of a prop and the occupant standing at it. */
 const STANDING_GAP = 0.5;
+
+/** Gap between a wall board and the occupant standing to read it. */
+const READING_GAP = 1;
+
+/** The lobby board that shows this repository's own GitHub issues and pull requests. */
+export const PROJECT_BOARD_ID = "project-board";
 
 function rect(minX: number, minZ: number, maxX: number, maxZ: number): Aabb2 {
   return { minX, minZ, maxX, maxZ };
@@ -339,6 +369,20 @@ export const OFFICE_LAYOUT: OfficeLayout = {
   props: [
     // Against the kitchen's north wall, with room to stand in front of it.
     { id: "coffee-machine", kind: "coffee", x: 3.15, z: -11.1, yaw: 0, width: 0.9, depth: 0.7, height: 1.5 },
+  ],
+  boards: [
+    // The lobby's north wall, facing the way in: the first thing an arriving
+    // player sees, and wide enough to read from the middle of the room.
+    {
+      id: PROJECT_BOARD_ID,
+      roomId: "lobby",
+      x: 9,
+      z: -11.7,
+      yaw: Math.PI,
+      width: 5,
+      height: 2.5,
+      elevation: 0.35,
+    },
   ],
   rooms: [
     { id: "ceo-office", name: "CEO Office", bounds: rect(-11.7, -11.7, -6, -5) },
@@ -525,7 +569,7 @@ const interactableCache = new WeakMap<OfficeLayout, readonly InteractableSpec[]>
 
 /**
  * Every interactable in a layout: a seat per workstation, one per usable prop,
- * then the hand-placed fixtures.
+ * one per wall board, then the hand-placed fixtures.
  *
  * Cached per layout, like {@link collisionBoxes}, because both sides query it
  * often — the client once a frame for its prompt — and the layout never changes
@@ -558,6 +602,16 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
       id: spec.id,
       kind,
       anchor: { x: position.x, z: position.z, yaw: spec.yaw },
+      volume: undefined,
+    });
+  }
+  for (const board of layout.boards) {
+    // Stood in front of the face and turned to look at it; a board draws itself.
+    const position = localToWorld(board, board.yaw, 0, -READING_GAP);
+    all.push({
+      id: board.id,
+      kind: INTERACTION_KIND.board,
+      anchor: { x: position.x, z: position.z, yaw: board.yaw - Math.PI },
       volume: undefined,
     });
   }
@@ -709,6 +763,7 @@ export function describeLayoutProblems(layout: OfficeLayout): string[] {
     }
   }
 
+  problems.push(...describeBoardProblems(layout));
   problems.push(...describeWaypointProblems(layout));
 
   const interactableIds = new Set<string>();
@@ -751,6 +806,44 @@ function overlapsObstacle(layout: OfficeLayout, point: Vec2): boolean {
     }
   }
   return false;
+}
+
+/** How far either side of a board's face it is sampled for a wall and a room. */
+const BOARD_PROBE = MIN_OBSTACLE_THICKNESS / 2;
+
+/**
+ * Checks that every board hangs on a wall and faces into the room it names.
+ *
+ * A board is placed by hand, so the mistake to catch is one turned the wrong
+ * way round — facing into the wall it is mounted on — or left hanging in the
+ * middle of a room.
+ */
+function describeBoardProblems(layout: OfficeLayout): string[] {
+  const problems: string[] = [];
+  const roomIds = new Set(layout.rooms.map((room) => room.id));
+
+  for (const board of layout.boards) {
+    if (!roomIds.has(board.roomId)) {
+      problems.push(`board ${board.id} faces unknown room ${board.roomId}`);
+    }
+    if (board.width <= 0 || board.height <= 0 || board.elevation < 0) {
+      problems.push(`board ${board.id} has a non-positive size or a negative elevation`);
+    }
+    const forwardX = -Math.sin(board.yaw);
+    const forwardZ = -Math.cos(board.yaw);
+    const behind = { x: board.x - forwardX * BOARD_PROBE, z: board.z - forwardZ * BOARD_PROBE };
+    const inFront = {
+      x: board.x + forwardX * (BOARD_PROBE + OCCUPANT_RADIUS),
+      z: board.z + forwardZ * (BOARD_PROBE + OCCUPANT_RADIUS),
+    };
+    if (!layout.walls.some((spec) => containsPoint(spec.footprint, behind))) {
+      problems.push(`board ${board.id} is not hung on a wall`);
+    }
+    if (roomAt(layout, inFront)?.id !== board.roomId) {
+      problems.push(`board ${board.id} does not face into room ${board.roomId}`);
+    }
+  }
+  return problems;
 }
 
 /**

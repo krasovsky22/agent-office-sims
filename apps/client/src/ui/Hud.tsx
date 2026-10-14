@@ -13,12 +13,13 @@
  * socket itself.
  */
 
-import { EMOTES, type Emote, MAX_CHAT_LENGTH } from "@sim/shared";
+import { EMOTES, type Emote, MAX_CHAT_LENGTH, type ProjectBoardSnapshot } from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ConnectionStatus } from "../net/room.js";
+import { ProjectBoardPanel } from "./ProjectBoardPanel.js";
 
 import "./hud.css";
 
@@ -84,6 +85,10 @@ export interface HudSnapshot {
   readonly prompt?: HudPrompt | undefined;
   readonly assets: AssetState;
   readonly debug?: DebugReadout;
+  /** The lobby board's latest snapshot; absent until the server sends one. */
+  readonly projectBoard?: ProjectBoardSnapshot;
+  /** Whether the local player opened the board's close-up with `E` at its prompt. */
+  readonly boardCloseUp: boolean;
 }
 
 export interface HudActions {
@@ -99,7 +104,13 @@ export interface HudStore {
   publish: (next: HudSnapshot) => void;
 }
 
-const INITIAL: HudSnapshot = { status: "connecting", roster: [], chatLog: [], assets: "loading" };
+const INITIAL: HudSnapshot = {
+  status: "connecting",
+  roster: [],
+  chatLog: [],
+  assets: "loading",
+  boardCloseUp: false,
+};
 
 export function createHudStore(): HudStore {
   let snapshot = INITIAL;
@@ -313,10 +324,18 @@ const ASSET_TEXT: Partial<Record<AssetState, string>> = {
 };
 
 export function Hud({ store, actions }: { store: HudStore; actions: HudActions }) {
-  const { status, detail, roster, chatLog, notice, prompt, assets, debug } = useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot,
-  );
+  const {
+    status,
+    detail,
+    roster,
+    chatLog,
+    notice,
+    prompt,
+    assets,
+    debug,
+    projectBoard,
+    boardCloseUp,
+  } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
 
   return (
@@ -364,6 +383,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           )}
         </div>
       </div>
+
+      {boardCloseUp ? <ProjectBoardPanel snapshot={projectBoard} /> : null}
 
       <div className="hud__column hud__column--right">
         <div className="hud__panel hud__panel--chat">

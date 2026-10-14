@@ -1,12 +1,14 @@
 /**
- * The origin allowlist is the one piece of deployment configuration that is a
- * security boundary rather than a convenience, so it is the one piece with
- * tests. Each case below is a claim the README makes about `ALLOWED_ORIGINS`.
+ * The origin allowlist is the piece of deployment configuration that is a
+ * security boundary rather than a convenience. Each case below is a claim the
+ * README makes about `ALLOWED_ORIGINS`, or about the lobby board's
+ * `PROJECT_BOARD_*` variables, which refuse to start the server when they are
+ * wrong rather than polling a repository nobody meant.
  */
 
 import { describe, expect, it } from "vitest";
 
-import { isOriginAllowed, readAllowedOrigins, readPort } from "./config.js";
+import { isOriginAllowed, readAllowedOrigins, readPort, readProjectBoardConfig } from "./config.js";
 
 const SITE = "https://office.example.com";
 
@@ -87,5 +89,41 @@ describe("isOriginAllowed", () => {
 
   it("refuses everything when the allowlist is empty", () => {
     expect(isOriginAllowed(SITE, [])).toBe(false);
+  });
+});
+
+describe("readProjectBoardConfig", () => {
+  it("defaults to this repository, anonymously, every three minutes", () => {
+    expect(readProjectBoardConfig({})).toEqual({
+      repository: "krasovsky22/agent-office-sims",
+      token: undefined,
+      pollIntervalMs: 180_000,
+    });
+  });
+
+  it("polls every minute by default once a token raises the rate limit", () => {
+    expect(readProjectBoardConfig({ PROJECT_BOARD_TOKEN: " ghp_example " })).toMatchObject({
+      token: "ghp_example",
+      pollIntervalMs: 60_000,
+    });
+  });
+
+  it("reads a repository and an interval", () => {
+    expect(
+      readProjectBoardConfig({ PROJECT_BOARD_REPO: "someone/some.repo", PROJECT_BOARD_POLL_SECONDS: "300" }),
+    ).toMatchObject({ repository: "someone/some.repo", pollIntervalMs: 300_000 });
+  });
+
+  it.each(["off", "agent-office-sims", "a/b/c", "https://github.com/a/b", "a/b c"])(
+    "refuses to start on repository %j",
+    (value) => {
+      expect(() => readProjectBoardConfig({ PROJECT_BOARD_REPO: value })).toThrow(/PROJECT_BOARD_REPO/);
+    },
+  );
+
+  it.each(["5", "0", "-60", "1.5", "soon"])("refuses to start on interval %j", (value) => {
+    expect(() => readProjectBoardConfig({ PROJECT_BOARD_POLL_SECONDS: value })).toThrow(
+      /PROJECT_BOARD_POLL_SECONDS/,
+    );
   });
 });

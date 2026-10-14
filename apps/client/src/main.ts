@@ -16,6 +16,7 @@ import {
   OFFICE_LAYOUT,
   OFFICE_PROPS,
   type OfficeLayout,
+  PROJECT_BOARD_ID,
   authorizeInteract,
   heldAnimationFor,
   interactableById,
@@ -32,6 +33,7 @@ import { resolveServerUrl } from "./net/serverUrl.js";
 import { PlayerController } from "./player/controller.js";
 import { Avatar } from "./scene/avatar.js";
 import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
+import { buildLobbyBoard } from "./scene/lobbyBoard.js";
 import { buildOffice } from "./scene/office.js";
 import { loadPropKit } from "./scene/propKit.js";
 import { buildProps } from "./scene/props.js";
@@ -68,6 +70,9 @@ const NOTICE_DURATION_MS = 2500;
 
 /** How often the `?debug` readout is refreshed. Off the frame path otherwise. */
 const DEBUG_INTERVAL_MS = 500;
+
+/** What the prompt reads while the player is reading a wall board up close. */
+const CLOSE_BOARD_LABEL = "Close the board";
 
 /** The prompt shown while the player is sitting, so standing up is discoverable. */
 const STAND_UP_PROMPT: HudPrompt = { keys: "W A S D", label: "Stand up", blocked: false };
@@ -139,6 +144,12 @@ function start(): void {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BACKGROUND_COLOUR);
   const office = buildOffice(scene, OFFICE_LAYOUT);
+
+  const boardSpec = OFFICE_LAYOUT.boards.find((spec) => spec.id === PROJECT_BOARD_ID);
+  const lobbyBoard =
+    boardSpec === undefined
+      ? undefined
+      : buildLobbyBoard(scene, boardSpec, renderer.capabilities.getMaxAnisotropy());
 
   const camera = createCamera(canvas, OFFICE_LAYOUT);
   const controller = new PlayerController(camera, canvas);
@@ -286,6 +297,13 @@ function start(): void {
           : "Too many emotes — that one was dropped.",
       );
     },
+
+    // The same snapshot goes to the wall and to the close-up panel, so what
+    // the board shows at a distance and up close cannot disagree.
+    onProjectBoard: (snapshot) => {
+      lobbyBoard?.show(snapshot);
+      publishHud({ projectBoard: snapshot });
+    },
   });
 
   createRoot(requireHudMount()).render(
@@ -311,6 +329,10 @@ function start(): void {
   let promptKeys = "";
   let promptLabel = "";
   let promptBlocked = false;
+
+  // The wall board whose close-up is open, or `""`. Local to this tab: reading
+  // a board holds nothing, so there is nothing for the server to know.
+  let readingBoard = "";
 
   /**
    * Works out what the player can do from where they are standing, and tells
@@ -347,7 +369,12 @@ function start(): void {
         );
         prompt = {
           keys: "E",
-          label: decision.allowed ? promptFor(target) : `${promptFor(target)} — taken`,
+          label:
+            target.id === readingBoard
+              ? CLOSE_BOARD_LABEL
+              : decision.allowed
+                ? promptFor(target)
+                : `${promptFor(target)} — taken`,
           blocked: !decision.allowed,
         };
       }
@@ -386,8 +413,23 @@ function start(): void {
     if (controller.takeReleaseRequest()) {
       room.sendRelease();
     }
+    // Stepping out of reach closes a close-up just as `E` does.
+    if (target?.id !== readingBoard) {
+      readingBoard = "";
+    }
     if (controller.takeInteractRequest() && target !== undefined) {
-      room.sendInteract(target.id);
+      if (target.id === readingBoard) {
+        readingBoard = "";
+      } else {
+        if (target.kind === INTERACTION_KIND.board) {
+          readingBoard = target.id;
+        }
+        room.sendInteract(target.id);
+      }
+    }
+    const closeUp = readingBoard === PROJECT_BOARD_ID;
+    if (closeUp !== hud.boardCloseUp) {
+      publishHud({ boardCloseUp: closeUp });
     }
 
     room.sendPose(controller.pose, nowMs);
