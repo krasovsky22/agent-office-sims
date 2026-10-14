@@ -83,8 +83,7 @@ const IDLE_AFTER_MS = 400;
 
 /** What `index.ts` hands the room type when it defines it. */
 export interface OfficeRoomOptions {
-  /** `null` when the lobby board's feed is switched off. */
-  readonly projectBoard: ProjectBoardSource | null;
+  readonly projectBoard: ProjectBoardSource;
 }
 
 export class OfficeRoom extends Room<OfficeState> {

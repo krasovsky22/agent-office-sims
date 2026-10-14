@@ -39,8 +39,7 @@ configuration is required; `.env.example` lists the variables (`PORT`,
 has to set the first three — see [Deploying it](#deploying-it).
 
 The server polls GitHub for the lobby board as soon as it starts, anonymously
-unless `PROJECT_BOARD_TOKEN` is set. `PROJECT_BOARD_REPO=off` stops it making
-any requests, for working offline.
+unless `PROJECT_BOARD_TOKEN` is set.
 
 Walk with `W A S D` or the arrow keys. Click the canvas to capture the mouse,
 then move it to swing the camera; `Esc` releases it. Walk up to a desk chair, the
@@ -147,7 +146,7 @@ public.
 | `PORT` | server | runtime | No — most platforms assign it. Defaults to `2567`. |
 | `ALLOWED_ORIGINS` | server | runtime | **Yes.** Comma-separated origins allowed to join. Defaults to the local dev server, which no deployed page is served from. |
 | `VITE_SERVER_URL` | client | **build** | **Yes.** The server's WebSocket URL, e.g. `wss://office-server.fly.dev`. |
-| `PROJECT_BOARD_REPO` | server | runtime | No. The `owner/name` the lobby board shows. Defaults to this repository; `off` disables the feed. |
+| `PROJECT_BOARD_REPO` | server | runtime | No. The `owner/name` the lobby board shows. Defaults to this repository. |
 | `PROJECT_BOARD_TOKEN` | server | runtime | No, but recommended. A read-only GitHub token; see below. |
 | `PROJECT_BOARD_POLL_SECONDS` | server | runtime | No. Seconds between polls, at least 15. Defaults to 180, or 60 with a token. |
 

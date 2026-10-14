@@ -13,7 +13,7 @@
  *
  * `fetch` is injected, so the tests drive this with canned responses and no
  * network. The token is only ever put in an `Authorization` header to the
- * configured API host, and never into an error message or a URL.
+ * GitHub API host, and never into an error message or a URL.
  */
 
 import { CHECK_STATUS, type CheckStatus, type ProjectBoardLists } from "@sim/shared";
@@ -36,8 +36,6 @@ export interface GithubClientOptions {
   readonly repository: string;
   readonly token?: string | undefined;
   readonly fetch?: FetchLike;
-  /** Overridable for GitHub Enterprise; defaults to github.com's API. */
-  readonly apiUrl?: string;
 }
 
 /** GitHub refused because the rate limit is spent. */
@@ -60,7 +58,7 @@ export class GithubRequestError extends Error {
   }
 }
 
-const DEFAULT_API_URL = "https://api.github.com";
+const API_URL = "https://api.github.com";
 
 /** Open items fetched per page; the REST API's maximum. */
 const OPEN_PAGE_SIZE = 100;
@@ -214,7 +212,6 @@ export function parsePullRequestDetails(
  */
 export function createGithubLoader(options: GithubClientOptions): BoardLoader {
   const fetchImpl: FetchLike = options.fetch ?? ((url, init) => fetch(url, init));
-  const apiUrl = (options.apiUrl ?? DEFAULT_API_URL).replace(/\/+$/, "");
   const { repository, token } = options;
   const cache = new Map<string, CachedPage>();
 
@@ -248,9 +245,9 @@ export function createGithubLoader(options: GithubClientOptions): BoardLoader {
     const page: CachedPage = {
       etag: response.headers.get("etag") ?? "",
       items: parseIssuePage(await response.json()),
-      // Only ever follow a link back to the API this was configured with, so a
+      // Only ever follow a link back to GitHub's API, so a
       // token is never sent anywhere a response header points it.
-      next: next !== undefined && next.startsWith(`${apiUrl}/`) ? next : undefined,
+      next: next !== undefined && next.startsWith(`${API_URL}/`) ? next : undefined,
     };
     if (page.etag !== "") {
       cache.set(url, page);
@@ -261,7 +258,7 @@ export function createGithubLoader(options: GithubClientOptions): BoardLoader {
   const getOpenItems = async (signal: AbortSignal): Promise<GithubIssueItem[]> => {
     const items: GithubIssueItem[] = [];
     let url: string | undefined =
-      `${apiUrl}/repos/${repository}/issues?state=open&per_page=${OPEN_PAGE_SIZE}`;
+      `${API_URL}/repos/${repository}/issues?state=open&per_page=${OPEN_PAGE_SIZE}`;
     for (let page = 0; url !== undefined && page < MAX_OPEN_PAGES; page += 1) {
       const result: CachedPage = await getPage(url, signal);
       items.push(...result.items);
@@ -283,7 +280,7 @@ export function createGithubLoader(options: GithubClientOptions): BoardLoader {
     }
     const [owner, name] = repository.split("/");
     try {
-      const response = await fetchImpl(`${apiUrl}/graphql`, {
+      const response = await fetchImpl(`${API_URL}/graphql`, {
         method: "POST",
         headers: headers({ "Content-Type": "application/json" }),
         body: JSON.stringify({ query: PULL_REQUEST_DETAILS_QUERY, variables: { owner, name } }),
@@ -299,7 +296,7 @@ export function createGithubLoader(options: GithubClientOptions): BoardLoader {
     const [openItems, closedPage, details] = await Promise.all([
       getOpenItems(signal),
       getPage(
-        `${apiUrl}/repos/${repository}/issues?state=closed&sort=updated&direction=desc&per_page=${CLOSED_PAGE_SIZE}`,
+        `${API_URL}/repos/${repository}/issues?state=closed&sort=updated&direction=desc&per_page=${CLOSED_PAGE_SIZE}`,
         signal,
       ),
       getDetails(signal),

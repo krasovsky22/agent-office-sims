@@ -114,12 +114,7 @@ describe("readProjectBoardConfig", () => {
     ).toMatchObject({ repository: "someone/some.repo", pollIntervalMs: 300_000 });
   });
 
-  it("switches the feed off", () => {
-    expect(readProjectBoardConfig({ PROJECT_BOARD_REPO: "off" })).toBeUndefined();
-    expect(readProjectBoardConfig({ PROJECT_BOARD_REPO: "OFF" })).toBeUndefined();
-  });
-
-  it.each(["agent-office-sims", "a/b/c", "https://github.com/a/b", "a/b c"])(
+  it.each(["off", "agent-office-sims", "a/b/c", "https://github.com/a/b", "a/b c"])(
     "refuses to start on repository %j",
     (value) => {
       expect(() => readProjectBoardConfig({ PROJECT_BOARD_REPO: value })).toThrow(/PROJECT_BOARD_REPO/);

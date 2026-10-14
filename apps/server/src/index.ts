@@ -29,16 +29,13 @@ import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
 
 const { port, allowedOrigins, projectBoard } = readConfig();
 
-const projectFeed =
-  projectBoard === undefined
-    ? undefined
-    : new ProjectFeed({
-        repository: projectBoard.repository,
-        load: createGithubLoader({ repository: projectBoard.repository, token: projectBoard.token }),
-        intervalMs: projectBoard.pollIntervalMs,
-        // eslint-disable-next-line no-console -- a stale or recovered feed is an operator's business
-        log: (line) => console.warn(line),
-      });
+const projectFeed = new ProjectFeed({
+  repository: projectBoard.repository,
+  load: createGithubLoader({ repository: projectBoard.repository, token: projectBoard.token }),
+  intervalMs: projectBoard.pollIntervalMs,
+  // eslint-disable-next-line no-console -- a stale or recovered feed is an operator's business
+  log: (line) => console.warn(line),
+});
 
 restrictMatchmakingOrigins(allowedOrigins);
 
@@ -49,28 +46,26 @@ const server = new Server({
   }),
 });
 
-// Always named, even when the feed is off, so that a client's join options can
-// never supply the key: Colyseus lets the server's options win a collision.
+// Colyseus lets these server options win a collision with a client's join
+// options, so a client can never supply the feed.
 server.define(OFFICE_ROOM_NAME, OfficeRoom, {
-  projectBoard: projectFeed ?? null,
+  projectBoard: projectFeed,
 } satisfies OfficeRoomOptions);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    projectFeed?.stop();
+    projectFeed.stop();
     void server.gracefullyShutdown();
   });
 }
 
 await server.listen(port);
-projectFeed?.start();
+projectFeed.start();
 /* eslint-disable no-console -- the lines a developer or a platform log needs on boot */
 console.log(`office server listening on port ${port} at ${TICK_RATE_HZ}Hz`);
 console.log(`allowed origins: ${allowedOrigins.join(", ")}`);
 console.log(
-  projectBoard === undefined
-    ? "project board: feed off"
-    : `project board: ${projectBoard.repository} every ${projectBoard.pollIntervalMs / 1000}s, ` +
-        (projectBoard.token === undefined ? "anonymous" : "with a token"),
+  `project board: ${projectBoard.repository} every ${projectBoard.pollIntervalMs / 1000}s, ` +
+    (projectBoard.token === undefined ? "anonymous" : "with a token"),
 );
 /* eslint-enable no-console */

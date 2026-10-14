@@ -67,8 +67,7 @@ export interface ServerConfig {
   readonly port: number;
   /** Origins permitted to matchmake and open a socket, already normalized. */
   readonly allowedOrigins: readonly string[];
-  /** `undefined` when `PROJECT_BOARD_REPO=off` switched the lobby board's feed off. */
-  readonly projectBoard: ProjectBoardConfig | undefined;
+  readonly projectBoard: ProjectBoardConfig;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -82,22 +81,16 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
 /**
  * Reads the lobby board's feed settings.
  *
- * - `PROJECT_BOARD_REPO`: `owner/name`, defaulting to this repository, or `off`
- *   to make no GitHub requests at all — for working offline.
+ * - `PROJECT_BOARD_REPO`: `owner/name`, defaulting to this repository.
  * - `PROJECT_BOARD_TOKEN`: optional. Raises the rate limit and turns on check
  *   status and sidebar-linked pull requests, which only GraphQL can answer.
  * - `PROJECT_BOARD_POLL_SECONDS`: optional, at least {@link MIN_POLL_SECONDS}.
  */
-export function readProjectBoardConfig(
-  env: NodeJS.ProcessEnv = process.env,
-): ProjectBoardConfig | undefined {
+export function readProjectBoardConfig(env: NodeJS.ProcessEnv = process.env): ProjectBoardConfig {
   const rawRepository = env["PROJECT_BOARD_REPO"]?.trim() ?? "";
-  if (rawRepository.toLowerCase() === "off") {
-    return undefined;
-  }
   const repository = rawRepository === "" ? DEFAULT_PROJECT_REPOSITORY : rawRepository;
   if (!REPOSITORY_PATTERN.test(repository)) {
-    throw new Error(`PROJECT_BOARD_REPO must be owner/name or "off", got "${rawRepository}"`);
+    throw new Error(`PROJECT_BOARD_REPO must be owner/name, got "${rawRepository}"`);
   }
 
   const rawToken = env["PROJECT_BOARD_TOKEN"]?.trim() ?? "";
