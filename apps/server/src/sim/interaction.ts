@@ -27,6 +27,7 @@ import {
   heldAnimationFor,
   holdMsFor,
   holdsAnchor,
+  interactableById,
   normalizeYaw,
 } from "@sim/shared";
 
@@ -202,20 +203,28 @@ export function requestInteract(
 /**
  * Frees whatever an occupant was holding and hands movement back.
  *
- * The occupant is left standing at the anchor rather than moved anywhere: the
- * client resumes predicting from the same point, so standing up costs no
+ * The occupant is stood at the interactable's exit — behind the chair, for a
+ * seat, whose anchor is inside it — or left at the anchor when it has none.
+ * Either way the point comes from the shared layout, which the client reads
+ * too, so it resumes predicting from the same place and standing up costs no
  * correction. Safe to call on an occupant that holds nothing.
  *
  * @returns whether there was a hold to release.
  */
 export function releaseHold(host: InteractionHost, sessionId: string, now: number): boolean {
-  if (host.holds.heldBy(sessionId) === undefined) {
+  const hold = host.holds.heldBy(sessionId);
+  if (hold === undefined) {
     return false;
   }
   host.holds.release(sessionId);
 
   const occupant = host.occupants.get(sessionId);
   if (occupant !== undefined) {
+    const exit = interactableById(host.layout, hold.interactableId)?.exit;
+    if (exit !== undefined) {
+      occupant.x = exit.x;
+      occupant.z = exit.z;
+    }
     occupant.interactableId = "";
     occupant.animation = ANIMATION_STATE.idle;
   }

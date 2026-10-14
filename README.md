@@ -290,14 +290,16 @@ Seven things are worth knowing before changing anything:
   `mayActOnTicket`, the single predicate every command is checked against. It is
   permissive for now; the CEO-only rules replace that one body rather than
   adding a check anywhere else.
-- **The furniture is data too, and none of it collides.** `shared/props.ts`
+- **The furniture is data too, and only some of it collides.** `shared/props.ts`
   derives every prop from the floor plan — a chair and a screen per workstation, a
   frame in every doorway gap, a plant in each room — so a layout change furnishes
-  itself. Only walls and desks are solid; you can walk through a chair. Giving the
-  decor footprints means changing what the server collides against, which is a
-  deliberate follow-up rather than something to slip in on the client. The
-  seats you can sit in come from the same workstations as the chairs, so each
-  seat is exactly where its chair stands.
+  itself. Walls, desks, the coffee machine and the chairs are solid; screens,
+  plants and door frames are not. A chair's footprint, its seat height and its
+  backrest are one shared record, `DESK_CHAIR` in `shared/layout.ts`: the chair
+  prop is fitted to it, the server collides against it, and the seated avatar is
+  lifted onto it. The seats you can sit in come from the same workstations as
+  the chairs, so each seat is exactly where its chair stands, and getting up
+  stands you just behind the chair rather than inside it.
 - **Interaction is server-authoritative, unlike movement.** A client may ask
   to use an interactable by id and nothing more. Whether it is in reach, whether
   the chair is free, and what sitting down does to you are all decided by the

@@ -14,12 +14,21 @@ import { describe, expect, it } from "vitest";
 
 import { resolveMove } from "./collision.js";
 import {
+  INTERACT_RANGE,
   MIN_OBSTACLE_THICKNESS,
   OCCUPANT_RADIUS,
   TICK_RATE_HZ,
   WALK_SPEED,
 } from "./constants.js";
-import { OFFICE_LAYOUT, type Vec2, type WaypointSpec, roomAt } from "./layout.js";
+import {
+  INTERACTION_KIND,
+  OFFICE_LAYOUT,
+  type Vec2,
+  type WaypointSpec,
+  interactables,
+  roomAt,
+} from "./layout.js";
+import { nearestWaypoint } from "./nav.js";
 
 const R = OCCUPANT_RADIUS;
 
@@ -173,6 +182,52 @@ describe("OFFICE_LAYOUT rooms", () => {
     for (const [room, id] of destinations) {
       const arrived = walkRoute(atStart, routeBetween(start, id));
       expect(roomAt(OFFICE_LAYOUT, arrived)?.id, `reaching ${room}`).toBe(room);
+    }
+  });
+});
+
+describe("OFFICE_LAYOUT seats", () => {
+  /**
+   * Chairs are solid, so a seat is only usable if the spot behind its chair —
+   * where you are stood when you get up — is somewhere you can walk to, close
+   * enough to the seat to sit down from, and somewhere you can walk away from.
+   */
+  it("can each be walked up to from the first spawn point, sat at, and left", () => {
+    const spawn = OFFICE_LAYOUT.spawnPoints[0];
+    expect(spawn).toBeDefined();
+    if (spawn === undefined) {
+      return;
+    }
+    const start = "wp-floor-aisle-north";
+    const atStart = walkTo(spawn, waypoint(start));
+
+    const seats = interactables(OFFICE_LAYOUT).filter((spec) => spec.kind === INTERACTION_KIND.seat);
+    expect(seats.length).toBeGreaterThan(0);
+    for (const seat of seats) {
+      const { exit } = seat;
+      expect(exit, seat.id).toBeDefined();
+      if (exit === undefined) {
+        continue;
+      }
+      const node = nearestWaypoint(exit, OFFICE_LAYOUT);
+      expect(node, seat.id).toBeDefined();
+      if (node === undefined) {
+        continue;
+      }
+
+      const atNode = walkRoute(atStart, routeBetween(start, node.id));
+      const arrived = walkTo(atNode, exit);
+      expect(distanceBetween(arrived, exit), `walking up to ${seat.id}`).toBeLessThanOrEqual(
+        ARRIVAL_TOLERANCE,
+      );
+      expect(distanceBetween(arrived, seat.anchor), `reaching ${seat.id}`).toBeLessThanOrEqual(
+        INTERACT_RANGE,
+      );
+
+      const left = walkTo(exit, node);
+      expect(distanceBetween(left, node), `walking away from ${seat.id}`).toBeLessThanOrEqual(
+        ARRIVAL_TOLERANCE,
+      );
     }
   });
 });

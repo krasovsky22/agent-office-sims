@@ -15,9 +15,11 @@ import {
   HumanPlayer,
   INTERACT_RANGE,
   INTERACT_REFUSAL,
+  OCCUPANT_RADIUS,
   OFFICE_LAYOUT,
   type InteractableSpec,
   interactableById,
+  isBlocked,
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
@@ -232,18 +234,21 @@ describe("requestInteract", () => {
 });
 
 describe("releaseHold", () => {
-  it("stands the occupant up where they sat and frees the desk", () => {
+  it("stands the occupant up behind the chair and frees the desk", () => {
     const room = createRoom();
     const alice = join(room, "alice", SEAT);
     requestInteract(room, "alice", SEAT, 0);
 
     expect(releaseHold(room, "alice", 500)).toBe(true);
 
-    const { anchor } = specOf(SEAT);
+    const { exit } = specOf(SEAT);
+    expect(exit).toBeDefined();
     expect(alice.interactableId).toBe("");
     expect(alice.animation).toBe(ANIMATION_STATE.idle);
-    expect(alice.x).toBeCloseTo(anchor.x);
-    expect(alice.z).toBeCloseTo(anchor.z);
+    expect(alice.x).toBeCloseTo(exit?.x ?? Number.NaN);
+    expect(alice.z).toBeCloseTo(exit?.z ?? Number.NaN);
+    // The chair is solid, and the occupant is let go outside it.
+    expect(isBlocked(alice, OCCUPANT_RADIUS, OFFICE_LAYOUT)).toBe(false);
     expect(room.holds.holderOf(SEAT)).toBeUndefined();
   });
 
@@ -347,6 +352,10 @@ describe("holdTick", () => {
     expect(holdTick(room, "alice", 1000 + COFFEE_BREAK_MS)).toBe(false);
     expect(alice.interactableId).toBe("");
     expect(room.holds.holderOf(COFFEE)).toBeUndefined();
+    // The machine has no exit, so the drinker is left standing where they poured.
+    const { anchor } = specOf(COFFEE);
+    expect(alice.x).toBeCloseTo(anchor.x);
+    expect(alice.z).toBeCloseTo(anchor.z);
   });
 });
 

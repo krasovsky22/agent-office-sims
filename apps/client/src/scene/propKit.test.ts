@@ -7,13 +7,24 @@
  * the chair, and nothing but a screenshot would notice. So this parses the real
  * file, runs it through the same normalisation the renderer uses, and checks the
  * display face against the chair it belongs to.
+ *
+ * The chair gets the same treatment for the same reason: the shared
+ * {@link DESK_CHAIR} says where its seat and backrest are, the collision world
+ * and the seated avatar both trust it, and only the model can say it is right.
  */
 
-import { OFFICE_LAYOUT, OFFICE_PROPS, type AssetPropSpec, derivedProps } from "@sim/shared";
+import {
+  DESK_CHAIR,
+  OFFICE_LAYOUT,
+  OFFICE_PROPS,
+  type AssetPropSpec,
+  derivedProps,
+} from "@sim/shared";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { describe, expect, it } from "vitest";
 
+import chairData from "../assets/office-kit/chairDesk.glb?inline";
 import monitorData from "../assets/office-kit/computerScreen.glb?inline";
 import { modelFromScene } from "./propKit.js";
 
@@ -94,5 +105,49 @@ describe("monitor facing", () => {
     for (const [monitor, chair] of workstations(derivedProps({ ...OFFICE_LAYOUT, desks }))) {
       expect(facing(normal, monitor, chair), monitor.id).toBeGreaterThan(0.95);
     }
+  });
+});
+
+/** The chair model as the renderer draws it, as one raycastable object. */
+async function chairModel(): Promise<{ object: THREE.Object3D; size: THREE.Vector3 }> {
+  const buffer = await (await fetch(chairData)).arrayBuffer();
+  const gltf = await new GLTFLoader().parseAsync(buffer, "");
+  const model = modelFromScene("chair", gltf.scene);
+  const object = new THREE.Group();
+  for (const part of model.parts) {
+    object.add(new THREE.Mesh(part.geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })));
+  }
+  object.updateMatrixWorld(true);
+  return { object, size: model.size };
+}
+
+/** Where a ray first meets the chair, or `undefined` if it misses. */
+function firstHit(object: THREE.Object3D, from: THREE.Vector3, direction: THREE.Vector3) {
+  return new THREE.Raycaster(from, direction).intersectObject(object, true)[0]?.point;
+}
+
+describe("the desk chair", () => {
+  /** A centimetre, finer than any of these surfaces could be seen to move. */
+  const PLACES = 2;
+
+  it("is the size the shared layout fits it to and blocks", async () => {
+    const { size } = await chairModel();
+    expect(size.x).toBeCloseTo(DESK_CHAIR.width, PLACES);
+    expect(size.y).toBeCloseTo(DESK_CHAIR.height, PLACES);
+    expect(size.z).toBeCloseTo(DESK_CHAIR.depth, PLACES);
+  });
+
+  it("has its seat where the seated avatar is lifted to", async () => {
+    const { object } = await chairModel();
+    // Straight down onto the middle of the cushion.
+    const seat = firstHit(object, new THREE.Vector3(0, 3, 0), new THREE.Vector3(0, -1, 0));
+    expect(seat?.y).toBeCloseTo(DESK_CHAIR.seatHeight, PLACES);
+  });
+
+  it("has its backrest where the seated avatar leans back to", async () => {
+    const { object } = await chairModel();
+    // From in front of the chair, toward its back, between cushion and top.
+    const backrest = firstHit(object, new THREE.Vector3(0, 0.75, -2), new THREE.Vector3(0, 0, 1));
+    expect(backrest?.z).toBeCloseTo(DESK_CHAIR.backrestOffset, PLACES);
   });
 });
