@@ -11,6 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { isBlocked } from "./collision.js";
 import {
   COFFEE_BREAK_MS,
   INTERACT_RANGE,
@@ -31,6 +32,7 @@ import {
 import {
   INTERACTION_KIND,
   OFFICE_LAYOUT,
+  chairBoxes,
   collisionBoxes,
   describeLayoutProblems,
   interactables,
@@ -66,6 +68,20 @@ describe("the office's interactables", () => {
     expect(describeLayoutProblems(OFFICE_LAYOUT)).toEqual([]);
   });
 
+  it("rejects anything but a seat anchored inside a chair", () => {
+    const seat = interactables(OFFICE_LAYOUT).find((spec) => spec.kind === INTERACTION_KIND.seat);
+    const [fixture] = OFFICE_LAYOUT.fixtures;
+    expect(seat).toBeDefined();
+    expect(fixture).toBeDefined();
+    if (seat === undefined || fixture === undefined) {
+      return;
+    }
+    const onChair = { ...OFFICE_LAYOUT, fixtures: [{ ...fixture, anchor: seat.anchor }] };
+    expect(describeLayoutProblems(onChair)).toContain(
+      `interactable ${fixture.id} anchors inside an obstacle`,
+    );
+  });
+
   it("gives every chair a seat, standing exactly where the chair does", () => {
     const seats = interactables(OFFICE_LAYOUT).filter(
       (spec) => spec.kind === INTERACTION_KIND.seat,
@@ -80,6 +96,33 @@ describe("the office's interactables", () => {
       );
       expect(seat, `no seat at ${chair.id}`).toBeDefined();
       expect(seat?.anchor.yaw).toBe(chair.yaw);
+    }
+  });
+
+  it("makes every chair solid, so nobody stands in a seat they are not sitting in", () => {
+    for (const spec of interactables(OFFICE_LAYOUT)) {
+      if (spec.kind === INTERACTION_KIND.seat) {
+        expect(isBlocked(spec.anchor, OCCUPANT_RADIUS, OFFICE_LAYOUT), spec.id).toBe(true);
+      }
+    }
+  });
+
+  it("stands someone getting up behind the chair, clear of it and in reach of the seat", () => {
+    for (const desk of OFFICE_LAYOUT.desks) {
+      for (const { seat, exit } of workstations(desk)) {
+        expect(isBlocked(exit, OCCUPANT_RADIUS, OFFICE_LAYOUT)).toBe(false);
+        expect(Math.hypot(exit.x - seat.x, exit.z - seat.z)).toBeLessThanOrEqual(INTERACT_RANGE);
+        // Behind: further from the desk than the seat is, along the way it faces.
+        const forwardX = -Math.sin(seat.yaw);
+        const forwardZ = -Math.cos(seat.yaw);
+        expect(forwardX * (exit.x - seat.x) + forwardZ * (exit.z - seat.z)).toBeLessThan(0);
+      }
+    }
+  });
+
+  it("lets go where the anchor is for everything but a seat", () => {
+    for (const spec of interactables(OFFICE_LAYOUT)) {
+      expect(spec.exit === undefined, spec.id).toBe(spec.kind !== INTERACTION_KIND.seat);
     }
   });
 
@@ -132,11 +175,14 @@ describe("the office's interactables", () => {
   it("hangs the whiteboard on the meeting room wall without adding a footprint", () => {
     const whiteboard = specOf("whiteboard-meeting");
     expect(whiteboard.volume).toBeDefined();
-    // Every collision box is a wall, a desk or a prop; the whiteboard is none
-    // of them, so the collision world is exactly what it was without it.
+    // Every collision box is a wall, a desk, a prop or a chair; the whiteboard
+    // is none of them, so the collision world is exactly what it was without it.
     const boxes = collisionBoxes(OFFICE_LAYOUT);
     expect(boxes).toHaveLength(
-      OFFICE_LAYOUT.walls.length + OFFICE_LAYOUT.desks.length + OFFICE_LAYOUT.props.length,
+      OFFICE_LAYOUT.walls.length +
+        OFFICE_LAYOUT.desks.length +
+        OFFICE_LAYOUT.props.length +
+        chairBoxes(OFFICE_LAYOUT).length,
     );
     const room = OFFICE_LAYOUT.rooms.find((candidate) => candidate.id === "meeting-room");
     expect(room).toBeDefined();

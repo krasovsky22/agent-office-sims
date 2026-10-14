@@ -13,6 +13,7 @@
 
 import {
   COLLISION_SUBSTEP,
+  INTERACT_RANGE,
   MIN_OBSTACLE_THICKNESS,
   OCCUPANT_RADIUS,
 } from "./constants.js";
@@ -196,7 +197,44 @@ export interface InteractableSpec {
    * — a desk's chair or the coffee machine's prop.
    */
   readonly volume: Aabb3 | undefined;
+  /**
+   * Where an occupant is let go when the hold ends, or `undefined` to leave
+   * them standing at the anchor.
+   *
+   * A seat needs one because its anchor is inside the chair, which is solid:
+   * someone getting up has to be put down outside the chair's footprint, not
+   * left inside it for the resolver to argue with.
+   */
+  readonly exit: Vec2 | undefined;
 }
+
+/**
+ * The office chair every workstation is furnished with, in metres.
+ *
+ * Measured in the chair's own frame, which faces -Z like everything else in the
+ * layout, so its backrest is on the +Z side. The renderer stretches the chair
+ * model to exactly `width` x `depth` x `height`, the collision world blocks
+ * exactly `width` x `depth`, and a seated body is lifted to `seatHeight` and
+ * set back against `backrestOffset`. Those four agree because they all read this
+ * one record; `propKit.test.ts` measures the vendored model against it.
+ */
+export interface ChairSpec {
+  readonly width: number;
+  readonly depth: number;
+  readonly height: number;
+  /** Height of the top of the seat cushion above the floor. */
+  readonly seatHeight: number;
+  /** Distance from the chair's centre back to the front face of its backrest. */
+  readonly backrestOffset: number;
+}
+
+export const DESK_CHAIR: ChairSpec = {
+  width: 0.67,
+  depth: 0.63,
+  height: 1.215,
+  seatHeight: 0.467,
+  backrestOffset: 0.19,
+};
 
 /**
  * One place to sit at a desk: where along the desk it is, and the pose of the
@@ -205,7 +243,12 @@ export interface InteractableSpec {
 export interface Workstation {
   /** Offset along the desk's own width, so a screen can be put in front of it. */
   readonly localX: number;
+  /** The pose of the occupant sitting there, which is also where the chair stands. */
   readonly seat: SpawnSpec;
+  /** The ground the chair blocks. */
+  readonly chair: Aabb2;
+  /** Where someone getting up from the chair is stood, just behind it. */
+  readonly exit: Vec2;
 }
 
 export interface OfficeLayout {
@@ -256,6 +299,14 @@ const READING_GAP = 1;
 
 /** The lobby board that shows this repository's own GitHub issues and pull requests. */
 export const PROJECT_BOARD_ID = "project-board";
+
+/**
+ * Gap between the back of a chair and the occupant who just got up from it.
+ *
+ * A margin on top of {@link OCCUPANT_RADIUS}, so the stand-up spot is clear of
+ * the chair by more than the resolver's own contact tolerance.
+ */
+const STAND_UP_GAP = 0.05;
 
 function rect(minX: number, minZ: number, maxX: number, maxZ: number): Aabb2 {
   return { minX, minZ, maxX, maxZ };
@@ -408,8 +459,12 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { id: "wp-ceo-door", x: -8.7, z: -4.85, links: ["wp-ceo-desk", "wp-corridor-ceo"] },
 
     // Meeting room.
-    { id: "wp-meeting-table", x: -2.85, z: -6.8, links: ["wp-meeting-door"] },
+    { id: "wp-meeting-table", x: -2.85, z: -6.4, links: ["wp-meeting-door", "wp-meeting-east"] },
     { id: "wp-meeting-door", x: -2.85, z: -4.85, links: ["wp-meeting-table", "wp-corridor-meeting"] },
+    // Round the table's east end to the whiteboard, which the table hides from
+    // the door.
+    { id: "wp-meeting-east", x: -0.6, z: -6.4, links: ["wp-meeting-table", "wp-meeting-whiteboard"] },
+    { id: "wp-meeting-whiteboard", x: -0.6, z: -10.7, links: ["wp-meeting-east"] },
 
     // Kitchen.
     { id: "wp-kitchen-coffee", x: 3.15, z: -10, links: ["wp-kitchen-door"] },
@@ -514,6 +569,7 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       kind: INTERACTION_KIND.whiteboard,
       anchor: { x: -2.85, z: -10.7, yaw: 0 },
       volume: box3(-4.35, 1, -11.7, -1.35, 2.1, -11.62),
+      exit: undefined,
     },
   ],
 };
@@ -551,7 +607,20 @@ export function workstations(spec: DeskSpec): readonly Workstation[] {
   for (let seat = 0; seat < seats; seat += 1) {
     const localX = (seat - (seats - 1) / 2) * pitch;
     const position = localToWorld(spec, spec.yaw, localX, spec.depth / 2 + CHAIR_GAP);
-    result.push({ localX, seat: { x: position.x, z: position.z, yaw: spec.yaw } });
+    // Straight back from the desk, so getting up never stands anyone inside the
+    // desk or the neighbouring chair.
+    const exit = localToWorld(
+      spec,
+      spec.yaw,
+      localX,
+      spec.depth / 2 + CHAIR_GAP + DESK_CHAIR.depth / 2 + OCCUPANT_RADIUS + STAND_UP_GAP,
+    );
+    result.push({
+      localX,
+      seat: { x: position.x, z: position.z, yaw: spec.yaw },
+      chair: footprintAabb(position, spec.yaw, DESK_CHAIR.width, DESK_CHAIR.depth),
+      exit,
+    });
   }
   return result;
 }
@@ -588,6 +657,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
         kind: INTERACTION_KIND.seat,
         anchor: workstation.seat,
         volume: undefined,
+        exit: workstation.exit,
       });
     });
   }
@@ -603,6 +673,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
       kind,
       anchor: { x: position.x, z: position.z, yaw: spec.yaw },
       volume: undefined,
+      exit: undefined,
     });
   }
   for (const board of layout.boards) {
@@ -613,6 +684,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
       kind: INTERACTION_KIND.board,
       anchor: { x: position.x, z: position.z, yaw: board.yaw - Math.PI },
       volume: undefined,
+      exit: undefined,
     });
   }
   all.push(...layout.fixtures);
@@ -628,18 +700,42 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
  * floor than the rendered desk covers.
  */
 export function deskAabb(spec: DeskSpec): Aabb2 {
-  const halfWidth = spec.width / 2;
-  const halfDepth = spec.depth / 2;
-  const cos = Math.abs(Math.cos(spec.yaw));
-  const sin = Math.abs(Math.sin(spec.yaw));
+  return footprintAabb(spec, spec.yaw, spec.width, spec.depth);
+}
+
+/** The axis-aligned box a `width` x `depth` footprint covers once turned by `yaw`. */
+function footprintAabb(centre: Vec2, yaw: number, width: number, depth: number): Aabb2 {
+  const halfWidth = width / 2;
+  const halfDepth = depth / 2;
+  const cos = Math.abs(Math.cos(yaw));
+  const sin = Math.abs(Math.sin(yaw));
   const extentX = halfWidth * cos + halfDepth * sin;
   const extentZ = halfWidth * sin + halfDepth * cos;
-  return rect(spec.x - extentX, spec.z - extentZ, spec.x + extentX, spec.z + extentZ);
+  return rect(centre.x - extentX, centre.z - extentZ, centre.x + extentX, centre.z + extentZ);
 }
 
 /** The ground footprint a prop blocks. Derived exactly as a desk's is. */
 export function propAabb(spec: PropSpec): Aabb2 {
   return deskAabb(spec);
+}
+
+/**
+ * The ground every chair in a layout blocks, one box per workstation.
+ *
+ * Chairs come out of the desks rather than out of {@link OfficeLayout.props},
+ * so a desk added to the plan brings a solid chair with it.
+ */
+export function chairBoxes(layout: OfficeLayout): readonly Aabb2[] {
+  return layout.desks.flatMap((spec) => workstations(spec).map((workstation) => workstation.chair));
+}
+
+/** Walls, desks and props: everything solid except the chairs. */
+function structureBoxes(layout: OfficeLayout): Aabb2[] {
+  return [
+    ...layout.walls.map((spec) => spec.footprint),
+    ...layout.desks.map(deskAabb),
+    ...layout.props.map(propAabb),
+  ];
 }
 
 const boxCache = new WeakMap<OfficeLayout, readonly Aabb2[]>();
@@ -655,16 +751,7 @@ export function collisionBoxes(layout: OfficeLayout): readonly Aabb2[] {
   if (cached !== undefined) {
     return cached;
   }
-  const boxes: Aabb2[] = [];
-  for (const spec of layout.walls) {
-    boxes.push(spec.footprint);
-  }
-  for (const spec of layout.desks) {
-    boxes.push(deskAabb(spec));
-  }
-  for (const spec of layout.props) {
-    boxes.push(propAabb(spec));
-  }
+  const boxes = [...structureBoxes(layout), ...chairBoxes(layout)];
   boxCache.set(layout, boxes);
   return boxes;
 }
@@ -758,12 +845,26 @@ export function describeLayoutProblems(layout: OfficeLayout): string[] {
         problems.push(`doorway ${door.id} does not have room ${id} on either side of it`);
       }
     }
-    if (overlapsObstacle(layout, door.centre)) {
+    if (overlapsObstacle(door.centre, collisionBoxes(layout))) {
       problems.push(`doorway ${door.id} is blocked by an obstacle`);
     }
   }
 
   problems.push(...describeBoardProblems(layout));
+
+  // A chair inside a desk or a wall is a seat nobody can get into, and one
+  // that blocks a neighbour's is a seat nobody can get out of.
+  const structure = structureBoxes(layout);
+  const chairs = chairBoxes(layout);
+  chairs.forEach((chair, index) => {
+    if (structure.some((box) => boxesOverlap(chair, box))) {
+      problems.push(`chair ${index + 1} overlaps a wall, desk or prop`);
+    }
+    if (chairs.some((other, otherIndex) => otherIndex !== index && boxesOverlap(chair, other))) {
+      problems.push(`chair ${index + 1} overlaps another chair`);
+    }
+  });
+
   problems.push(...describeWaypointProblems(layout));
 
   const interactableIds = new Set<string>();
@@ -774,13 +875,26 @@ export function describeLayoutProblems(layout: OfficeLayout): string[] {
     interactableIds.add(spec.id);
     // An anchor inside geometry is a prompt that appears and then strands the
     // occupant, so it is checked here rather than discovered by sitting down.
-    if (overlapsObstacle(layout, spec.anchor)) {
+    // A seat's anchor is inside its own chair by design, which is why chairs
+    // are left out of its test and its exit is held to the full one instead.
+    const anchorBlockers = spec.exit === undefined ? collisionBoxes(layout) : structure;
+    if (overlapsObstacle(spec.anchor, anchorBlockers)) {
       problems.push(`interactable ${spec.id} anchors inside an obstacle`);
+    }
+    if (spec.exit !== undefined) {
+      if (overlapsObstacle(spec.exit, collisionBoxes(layout))) {
+        problems.push(`interactable ${spec.id} lets go inside an obstacle`);
+      }
+      // Within reach of its own anchor, so whoever just stood up can sit
+      // straight back down without walking anywhere.
+      if (Math.hypot(spec.exit.x - spec.anchor.x, spec.exit.z - spec.anchor.z) > INTERACT_RANGE) {
+        problems.push(`interactable ${spec.id} lets go out of reach of its anchor`);
+      }
     }
   }
 
   for (const point of layout.spawnPoints) {
-    if (overlapsObstacle(layout, point)) {
+    if (overlapsObstacle(point, collisionBoxes(layout))) {
       problems.push(`spawn point (${point.x}, ${point.z}) overlaps an obstacle`);
     }
   }
@@ -788,14 +902,14 @@ export function describeLayoutProblems(layout: OfficeLayout): string[] {
 }
 
 /**
- * Whether an occupant standing at a point would be inside any obstacle.
+ * Whether an occupant standing at a point would be inside any of `boxes`.
  *
  * Deliberately not `isBlocked` from the collision module: that module imports
  * this one, and the floor plan must not depend on the resolver that consumes
  * it. The two agree because both grow every box by the occupant radius.
  */
-function overlapsObstacle(layout: OfficeLayout, point: Vec2): boolean {
-  for (const box of collisionBoxes(layout)) {
+function overlapsObstacle(point: Vec2, boxes: readonly Aabb2[]): boolean {
+  for (const box of boxes) {
     if (
       point.x > box.minX - OCCUPANT_RADIUS &&
       point.x < box.maxX + OCCUPANT_RADIUS &&
@@ -846,6 +960,11 @@ function describeBoardProblems(layout: OfficeLayout): string[] {
   return problems;
 }
 
+/** Whether two boxes share any area. Touching edges do not count. */
+function boxesOverlap(a: Aabb2, b: Aabb2): boolean {
+  return a.minX < b.maxX && b.minX < a.maxX && a.minZ < b.maxZ && b.minZ < a.maxZ;
+}
+
 /**
  * Checks the navigation graph on its own: ids resolve, links are mirrored, no
  * node stands inside geometry, every room holds a node, and the whole graph is
@@ -868,7 +987,7 @@ function describeWaypointProblems(layout: OfficeLayout): string[] {
         problems.push(`waypoint link ${node.id} -> ${link} is not mirrored`);
       }
     }
-    if (overlapsObstacle(layout, node)) {
+    if (overlapsObstacle(node, collisionBoxes(layout))) {
       problems.push(`waypoint ${node.id} stands inside an obstacle`);
     }
   }

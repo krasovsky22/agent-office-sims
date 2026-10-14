@@ -15,13 +15,13 @@
 
 import {
   ANIMATION_STATE,
+  type InteractableSpec,
   OCCUPANT_RADIUS,
   OFFICE_LAYOUT,
   RECONCILE_EASE_RATE,
   RECONCILE_SNAP_THRESHOLD,
   RECONCILE_THRESHOLD,
   type ReportedAnimation,
-  type SpawnSpec,
   WALK_SPEED,
   normalizeYaw,
   resolveMove,
@@ -170,8 +170,8 @@ export class PlayerController {
   private readonly cameraTarget = new THREE.Vector3();
   private disposers: Array<() => void> = [];
 
-  /** The anchor the player is being held at, or `undefined` when free. */
-  private anchor: SpawnSpec | undefined;
+  /** The interactable the player is being held at, or `undefined` when free. */
+  private hold: InteractableSpec | undefined;
 
   /**
    * Set between asking the server to let go and the server saying it has.
@@ -197,7 +197,7 @@ export class PlayerController {
     this.pose.animation = ANIMATION_STATE.idle;
     // A rejoin reuses this controller, and the player arrives standing however
     // they left.
-    this.anchor = undefined;
+    this.hold = undefined;
     this.releasePending = false;
     this.cameraYaw = this.pose.yaw;
     this.updateCamera();
@@ -287,20 +287,29 @@ export class PlayerController {
    * a hold that timed out on its own, and a hold released after a reconnect all
    * arrive through one path.
    *
-   * @param anchor the pose being held, or `undefined` when the player is free.
+   * @param hold the interactable being held at, or `undefined` when the player
+   * is free.
    */
-  public setHold(anchor: SpawnSpec | undefined): void {
-    if (anchor === undefined) {
-      this.anchor = undefined;
+  public setHold(hold: InteractableSpec | undefined): void {
+    if (hold === undefined) {
+      // A hold the server ended without being asked stands the player where
+      // it did, which for a chair is its exit rather than the seat.
+      const exit = this.releasePending ? undefined : this.hold?.exit;
+      if (exit !== undefined) {
+        this.pose.x = exit.x;
+        this.pose.z = exit.z;
+      }
+      this.hold = undefined;
       this.releasePending = false;
       return;
     }
-    if (this.releasePending || this.anchor === anchor) {
+    if (this.releasePending || this.hold === hold) {
       return;
     }
     // Snap onto the anchor rather than easing: the server derived it from the
     // same shared layout, so this is not a correction, it is the same answer.
-    this.anchor = anchor;
+    const { anchor } = hold;
+    this.hold = hold;
     this.pose.x = anchor.x;
     this.pose.z = anchor.z;
     this.pose.yaw = normalizeYaw(anchor.yaw);
@@ -309,7 +318,7 @@ export class PlayerController {
 
   /** Whether the player is standing in a held pose this frame. */
   public get held(): boolean {
-    return this.anchor !== undefined;
+    return this.hold !== undefined;
   }
 
   /**
@@ -334,7 +343,7 @@ export class PlayerController {
 
   /** Advances the local player by one frame and follows with the camera. */
   public update(deltaSeconds: number): void {
-    if (this.anchor !== undefined) {
+    if (this.hold !== undefined) {
       if (!this.movementPressed()) {
         // Held: the pose is the server's, so there is nothing to predict. The
         // camera still swings, which is what makes sitting feel like a place to
@@ -345,7 +354,14 @@ export class PlayerController {
       // Movement input is the only way out of a hold. Let go locally and walk
       // this same frame; the server frees the anchor when the request lands,
       // which is before any pose sent after it, because the socket is ordered.
-      this.anchor = undefined;
+      // The walk starts from where the server will stand the player: the exit
+      // of a chair, which is solid, or the anchor of anything else.
+      const exit = this.hold.exit;
+      if (exit !== undefined) {
+        this.pose.x = exit.x;
+        this.pose.z = exit.z;
+      }
+      this.hold = undefined;
       this.releasePending = true;
       this.releaseRequested = true;
     }
@@ -407,6 +423,9 @@ export class PlayerController {
    * stall — is snapped.
    */
   public applyCorrection(serverX: number, serverZ: number, deltaSeconds: number): void {
+    if (this.hold !== undefined || this.releasePending) {
+      return;
+    }
     const errorX = serverX - this.pose.x;
     const errorZ = serverZ - this.pose.z;
     const error = Math.hypot(errorX, errorZ);

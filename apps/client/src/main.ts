@@ -402,7 +402,7 @@ function start(): void {
 
     // Before the controller moves: a hold the server granted or let lapse has to
     // be in effect for this frame's prediction, not the next one's.
-    controller.setHold(interactableById(OFFICE_LAYOUT, engagedWith)?.anchor);
+    controller.setHold(interactableById(OFFICE_LAYOUT, engagedWith));
     controller.update(deltaSeconds);
 
     // What the controller is predicting, not what the last patch said: between
@@ -433,7 +433,7 @@ function start(): void {
     }
 
     room.sendPose(controller.pose, nowMs);
-    if (room.localServerPose.known && !controller.held) {
+    if (room.localServerPose.known) {
       controller.applyCorrection(
         room.localServerPose.x,
         room.localServerPose.z,

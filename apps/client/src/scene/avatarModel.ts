@@ -10,12 +10,13 @@
  * handle by leaving the avatar as the capsule it was built as.
  */
 
-import { OCCUPANT_HEIGHT } from "@sim/shared";
+import { DESK_CHAIR, OCCUPANT_HEIGHT } from "@sim/shared";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 
-import { type AvatarClips, buildAvatarClips } from "./avatarClips.js";
+import { type AvatarClips, buildAvatarClips, sourceSeatedClip } from "./avatarClips.js";
+import { measureSeatPlacement } from "./avatarSeat.js";
 
 /** Where the model lives, relative to the client's base URL. */
 export const AVATAR_MODEL_PATH = "models/RobotExpressive.glb";
@@ -36,6 +37,8 @@ const LOCAL_BODY_BRIGHTNESS = 1.35;
 export interface AvatarModelInstance {
   readonly root: THREE.Object3D;
   readonly clips: AvatarClips;
+  /** How far the crown sits below a standing one's once seated in a chair. */
+  readonly seatedHeadDrop: number;
   /** Releases only what this instance owns; the shared template is untouched. */
   dispose: () => void;
 }
@@ -54,7 +57,8 @@ export interface AvatarModel {
 export async function loadAvatarModel(baseUrl: string): Promise<AvatarModel> {
   const gltf = await new GLTFLoader().loadAsync(`${baseUrl}${AVATAR_MODEL_PATH}`);
   const template = standAtOrigin(gltf.scene);
-  const clips = buildAvatarClips(template, gltf.animations);
+  const seat = measureSeatPlacement(template, sourceSeatedClip(gltf.animations), DESK_CHAIR);
+  const clips = buildAvatarClips(template, gltf.animations, seat);
 
   return {
     createInstance: (brighten: boolean): AvatarModelInstance => {
@@ -63,6 +67,7 @@ export async function loadAvatarModel(baseUrl: string): Promise<AvatarModel> {
       return {
         root,
         clips,
+        seatedHeadDrop: seat.headDrop,
         dispose: () => {
           root.removeFromParent();
           for (const material of owned) {
@@ -83,7 +88,7 @@ export async function loadAvatarModel(baseUrl: string): Promise<AvatarModel> {
  * proportioned one does not need a number here changed. The clips drive bones
  * below this wrapper, so none of them fight it.
  */
-function standAtOrigin(model: THREE.Object3D): THREE.Object3D {
+export function standAtOrigin(model: THREE.Object3D): THREE.Object3D {
   model.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(model);
   const height = bounds.max.y - bounds.min.y;

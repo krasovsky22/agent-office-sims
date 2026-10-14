@@ -13,7 +13,7 @@ import { OFFICE_LAYOUT, describeLayoutProblems } from "./layout.js";
 
 const R = OCCUPANT_RADIUS;
 
-/** Contact faces of the walls, desks and props the cases below aim at. */
+/** Contact faces of the walls, desks, chairs and props the cases below aim at. */
 const SOUTH_WALL_FACE = 11.7;
 const EAST_WALL_FACE = 11.7;
 const NORTH_WALL_FACE = -11.7;
@@ -21,7 +21,8 @@ const PARTITION_NORTH_FACE = -2.7;
 const PARTITION_SOUTH_FACE = -2.4;
 const MEETING_EAST_WALL_FACE = 0;
 const DESK_ROW_SOUTH_FACE = 0.9;
-const CEO_DESK_SOUTH_FACE = -8.05;
+const DESK_ROW_CHAIR_SOUTH_FACE = 1.765;
+const CEO_CHAIR_SOUTH_FACE = -7.185;
 const COFFEE_MACHINE_SOUTH_FACE = -10.75;
 
 /** Start and travel of the diagonal that wedges into the meeting room corner. */
@@ -54,10 +55,17 @@ const cases: readonly Case[] = [
     expect: { x: 0, z: SOUTH_WALL_FACE - R },
   },
   {
+    // Beside the chair rather than behind it: the chair is solid too.
     name: "head-on into a desk stops a radius short",
+    from: { x: 2.55, z: 2.5 },
+    delta: { x: 0, z: -3 },
+    expect: { x: 2.55, z: DESK_ROW_SOUTH_FACE + R },
+  },
+  {
+    name: "head-on into a chair stops a radius short",
     from: { x: 1.8, z: 2.5 },
     delta: { x: 0, z: -3 },
-    expect: { x: 1.8, z: DESK_ROW_SOUTH_FACE + R },
+    expect: { x: 1.8, z: DESK_ROW_CHAIR_SOUTH_FACE + R },
   },
   {
     name: "oblique approach to the east wall keeps the along-wall component",
@@ -90,10 +98,12 @@ const cases: readonly Case[] = [
     expect: { x: -10.7, z: PARTITION_SOUTH_FACE + R },
   },
   {
+    // Through the doorway and on to the CEO's chair, which stands in the way
+    // of the desk behind it.
     name: "a doorway is passable",
     from: { x: -8.7, z: -3.7 },
     delta: { x: 0, z: -6 },
-    expect: { x: -8.7, z: CEO_DESK_SOUTH_FACE + R },
+    expect: { x: -8.7, z: CEO_CHAIR_SOUTH_FACE + R },
   },
   {
     name: "head-on into a prop stops a radius short",

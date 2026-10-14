@@ -14,14 +14,18 @@
  * Coordinates and yaw mean exactly what they mean in the layout: X east, Z
  * south, yaw a rotation about +Y where 0 faces -Z. Sizes are metres.
  *
- * Props do not collide. The collision world is still walls and desks only, which
- * is what keeps `collision.ts` and the server's validation untouched by this
- * module. A chair you can walk through is the deliberate trade; giving the decor
- * footprints is a follow-up that has to change both sides at once.
+ * Most props do not collide. The collision world is walls, desks, the layout's
+ * own props and the chairs, all of it built in `layout.ts`, which is what keeps
+ * `collision.ts` and the server's validation untouched by this module. Chairs
+ * are solid because they are workstation geometry: `layout.ts` derives their
+ * footprint from the same {@link DESK_CHAIR} the chair prop below is fitted to,
+ * so the chair you see and the chair you bump into are one shape. The decor —
+ * plants, door frames, screens — is still walk-through on purpose.
  */
 
 import {
   type Aabb2,
+  DESK_CHAIR,
   type DeskSpec,
   type OfficeLayout,
   type PropSpec,
@@ -80,9 +84,9 @@ export interface AssetPropSpec {
 /**
  * Floor a free-standing prop is assumed to occupy, as a radius.
  *
- * Not a collision radius — nothing collides with a prop. It is the spacing used
+ * Not a collision radius — nothing collides with a plant. It is the spacing used
  * when deriving placements, and the figure {@link describePropProblems} checks
- * them against, so a chair is never left standing inside a desk.
+ * them against, so a plant is never left standing inside a desk.
  */
 export const PROP_CLEARANCE = 0.4;
 
@@ -129,8 +133,9 @@ function nearBox(box: Aabb2, point: { x: number; z: number }, margin: number): b
  * The desk itself, plus a chair and a screen for every workstation along it.
  *
  * The workstations come from `layout.ts`, which is also where the seat
- * interactables come from, so each chair stands exactly where its occupant
- * sits. The desk prop
+ * interactables and the chairs' collision boxes come from, so each chair stands
+ * exactly where its occupant sits and is fitted to the box that blocks it. The
+ * desk prop
  * is fitted to the layout's own `width`/`depth`/`height`, which is the same box
  * `layout.ts`'s `deskAabb` hands the collision resolver — so the desk you can
  * see and the desk that stops you are one shape.
@@ -156,6 +161,7 @@ function deskProps(spec: DeskSpec): AssetPropSpec[] {
       y: 0,
       z: seat.z,
       yaw: seat.yaw,
+      fit: { width: DESK_CHAIR.width, depth: DESK_CHAIR.depth, height: DESK_CHAIR.height },
     });
 
     // The screen stands on the desktop at the far edge, turned to face the seat.
@@ -374,10 +380,11 @@ export function groupPropsByKind(
 /**
  * Checks the placement invariants, for the test suite rather than at runtime.
  *
- * Desks, monitors, and doors are excluded on purpose: a desk prop *is* its own
- * collision box, a monitor stands on one, and a door frame fills a wall gap. The
- * props worth checking are the free-standing ones, which should never be found
- * inside a desk or buried in a wall.
+ * Desks, chairs, monitors, and doors are excluded on purpose: a desk or a chair
+ * prop *is* its own collision box (`layout.ts` checks those), a monitor stands
+ * on a desk, and a door frame fills a wall gap. The props worth checking are the
+ * free-standing ones, which should never be found inside a desk or buried in a
+ * wall.
  */
 export function describePropProblems(
   layout: OfficeLayout,
@@ -386,8 +393,8 @@ export function describePropProblems(
   const problems: string[] = [];
   const boxes = collisionBoxes(layout);
   // A coffee machine stands against a wall by design — "coffee" is deliberately
-  // excluded, unlike a chair or a plant, which both need room to walk up to.
-  const freeStanding = new Set<AssetPropKind>(["chair", "plant"]);
+  // excluded, unlike a plant, which needs room to walk up to.
+  const freeStanding = new Set<AssetPropKind>(["plant"]);
   const seen = new Set<string>();
 
   for (const prop of props) {

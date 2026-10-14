@@ -7,7 +7,8 @@
  *
  * - **A clip per state.** The asset has no typing clip, so one is derived here
  *   from the seated pose. `sitting` is therefore a hard requirement of the
- *   asset and `typing` is not.
+ *   asset and `typing` is not. The seated pose is moved onto the office chair
+ *   first (see `avatarSeat.ts`), so typing happens in the chair too.
  * - **A common track set.** `Idle` drives nine channels and `Walking`
  *   twenty-two. A cross-fade only moves the channels the incoming clip actually
  *   drives, so a bone the outgoing clip animated and the incoming one does not
@@ -21,6 +22,8 @@
 
 import { ANIMATION_STATE, type AnimationState } from "@sim/shared";
 import * as THREE from "three";
+
+import { type SeatPlacement, placeOnSeat } from "./avatarSeat.js";
 
 /** A clip for every state the replicated `animation` field can carry. */
 export type AvatarClips = Readonly<Record<AnimationState, THREE.AnimationClip>>;
@@ -85,19 +88,36 @@ type KeyframeTrackConstructor = new (
 ) => THREE.KeyframeTrack;
 
 /**
+ * The asset's own clip that ends in the seated pose, before anything here
+ * changes it.
+ *
+ * @throws if the asset has none.
+ */
+export function sourceSeatedClip(source: readonly THREE.AnimationClip[]): THREE.AnimationClip {
+  return requireClip(
+    new Map(source.map((clip) => [clip.name, clip])),
+    CLIP_FOR_STATE[ANIMATION_STATE.sitting],
+  );
+}
+
+/**
  * Builds the clip set the animator plays.
  *
  * @param model the loaded model, in its bind pose, read for the values padded
  * tracks hold.
  * @param source every clip the asset carries.
+ * @param seat how far the seated pose is moved onto a chair, or `undefined` to
+ * play it where the asset authored it.
  * @throws if the asset is missing a clip that cannot be derived from another.
  */
 export function buildAvatarClips(
   model: THREE.Object3D,
   source: readonly THREE.AnimationClip[],
+  seat?: SeatPlacement,
 ): AvatarClips {
   const byName = new Map(source.map((clip) => [clip.name, clip]));
-  const seated = requireClip(byName, CLIP_FOR_STATE[ANIMATION_STATE.sitting]);
+  const authored = sourceSeatedClip(source);
+  const seated = seat === undefined ? authored : placeOnSeat(model, authored, seat);
 
   return padToCommonTracks(model, {
     [ANIMATION_STATE.idle]: requireClip(byName, CLIP_FOR_STATE[ANIMATION_STATE.idle]),

@@ -71,14 +71,6 @@ const CHAT_WORLD_HEIGHT = 0.62;
 const HEAD_ANCHOR_Y = OCCUPANT_HEIGHT;
 
 /**
- * How far the head drops when seated, measured off the model's seated pose.
- *
- * The anchor follows it so a nameplate still sits above the head of someone at a
- * desk instead of floating where they used to be standing.
- */
-const SEATED_HEAD_DROP = 0.18;
-
-/**
  * The capsule's seated pose, as a squash and a lift of the standing body.
  *
  * The capsule has no skeleton to pose, so sitting is a transform. The numbers
@@ -93,6 +85,17 @@ const CAPSULE_SEATED_HEAD_DROP =
 
 /** Fraction of the remaining gap the head anchor closes per second. */
 const HEAD_ANCHOR_EASE_RATE = 8;
+
+/**
+ * Fraction of the remaining gap the body closes per second when it moves
+ * between a chair and the floor beside it.
+ *
+ * Sitting down snaps the pose onto the seat and standing up onto the spot
+ * behind the chair, both from the shared layout; drawn as given, the body would
+ * jump. Easing it over about as long as the pose takes to blend is what makes
+ * getting up read as stepping back out of the chair.
+ */
+const SEAT_GLIDE_RATE = 10;
 
 /** Nameplate height above the head anchor. */
 const NAMEPLATE_OFFSET_Y = 0.42;
@@ -173,6 +176,13 @@ interface AvatarBody {
   /** Absent on the capsule, which has no clips to play. */
   readonly animator: AvatarAnimator | undefined;
   readonly isHumanoid: boolean;
+  /**
+   * How far the head drops when seated.
+   *
+   * The head anchor follows it so a nameplate still sits above the head of
+   * someone at a desk instead of floating where they used to be standing.
+   */
+  readonly seatedHeadDrop: number;
   dispose: () => void;
 }
 
@@ -219,6 +229,7 @@ function createHumanoidBody(
     root: instance.root,
     animator,
     isHumanoid: true,
+    seatedHeadDrop: instance.seatedHeadDrop,
     dispose: () => {
       animator.dispose();
       instance.dispose();
@@ -251,6 +262,7 @@ function createCapsuleBody(isLocal: boolean): AvatarBody {
     root,
     animator: undefined,
     isHumanoid: false,
+    seatedHeadDrop: CAPSULE_SEATED_HEAD_DROP,
     dispose: () => {
       root.removeFromParent();
       material.dispose();
@@ -304,6 +316,13 @@ export class Avatar {
   private previousZ = 0;
   private hasPreviousPose = false;
 
+  /** The pose as given, before the glide below is added to it. */
+  private poseX = 0;
+  private poseZ = 0;
+  /** How far the drawn body still is from the pose, after a sit or a stand. */
+  private glideX = 0;
+  private glideZ = 0;
+
   public constructor(options: AvatarOptions) {
     this.name = options.name;
     this.isCeo = options.isCeo;
@@ -350,7 +369,9 @@ export class Avatar {
   }
 
   public setPose(x: number, z: number, yaw: number): void {
-    this.group.position.set(x, 0, z);
+    this.poseX = x;
+    this.poseZ = z;
+    this.group.position.set(x + this.glideX, 0, z + this.glideZ);
     this.group.rotation.y = yaw;
     if (!this.hasPreviousPose) {
       // The first pose is a placement, not travel: crediting the distance from
@@ -366,6 +387,13 @@ export class Avatar {
     if (animation === this.animation) {
       return;
     }
+    if (isSeated(animation) !== isSeated(this.animation) && this.hasPreviousPose) {
+      // Carry on from where the body was drawn last frame, and ease from there
+      // to the pose it has just been given.
+      this.glideX = this.previousX - this.poseX;
+      this.glideZ = this.previousZ - this.poseZ;
+      this.group.position.set(this.previousX, 0, this.previousZ);
+    }
     this.animation = animation;
     this.body.animator?.setState(animation);
     this.applyCapsulePosture();
@@ -379,6 +407,11 @@ export class Avatar {
   /** Advances the animation and whatever follows the pose. */
   public update(deltaSeconds: number): void {
     if (deltaSeconds > 0) {
+      const settle = Math.exp(-SEAT_GLIDE_RATE * deltaSeconds);
+      this.glideX *= settle;
+      this.glideZ *= settle;
+      this.group.position.set(this.poseX + this.glideX, 0, this.poseZ + this.glideZ);
+
       const travelled = Math.hypot(
         this.group.position.x - this.previousX,
         this.group.position.z - this.previousZ,
@@ -389,8 +422,7 @@ export class Avatar {
       // played at the smoothed speed rather than the raw one.
       this.speed += (sampled - this.speed) * (1 - Math.exp(-SPEED_EASE_RATE * deltaSeconds));
 
-      const seatedDrop = this.body.isHumanoid ? SEATED_HEAD_DROP : CAPSULE_SEATED_HEAD_DROP;
-      const targetY = HEAD_ANCHOR_Y - (isSeated(this.animation) ? seatedDrop : 0);
+      const targetY = HEAD_ANCHOR_Y - (isSeated(this.animation) ? this.body.seatedHeadDrop : 0);
       const gap = targetY - this.headAnchor.position.y;
       this.headAnchor.position.y += gap * (1 - Math.exp(-HEAD_ANCHOR_EASE_RATE * deltaSeconds));
     }

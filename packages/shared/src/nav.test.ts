@@ -76,7 +76,7 @@ const FIXTURE_LAYOUT: OfficeLayout = {
     { id: "east", name: "East Room", bounds: { minX: 0.15, minZ: -5.7, maxX: 11.7, maxZ: 5.7 } },
   ],
   waypoints: [
-    { id: "wp-west-desk", x: -6, z: 1.2, links: ["wp-west-mid"] },
+    { id: "wp-west-desk", x: -6, z: 1.8, links: ["wp-west-mid"] },
     { id: "wp-west-mid", x: -3, z: 0, links: ["wp-west-desk", "wp-door"] },
     { id: "wp-door", x: 0, z: 0, links: ["wp-west-mid", "wp-east-mid"] },
     { id: "wp-east-mid", x: 3, z: 0, links: ["wp-door", "wp-east-far"] },
@@ -148,11 +148,11 @@ describe("findWaypointPath", () => {
 
 describe("nearestWaypoint", () => {
   it("picks the closest node when the line to it is clear", () => {
-    expect(nearestWaypoint({ x: -6, z: 1.6 }, FIXTURE_LAYOUT)?.id).toBe("wp-west-desk");
+    expect(nearestWaypoint({ x: -6, z: 2 }, FIXTURE_LAYOUT)?.id).toBe("wp-west-desk");
   });
 
   it("skips a closer node that is behind a desk", () => {
-    // wp-west-desk is 2.7m away but straight through desk-west; wp-west-mid is
+    // wp-west-desk is 3.3m away but straight through desk-west; wp-west-mid is
     // 3.35m away around it.
     expect(nearestWaypoint({ x: -6, z: -1.5 }, FIXTURE_LAYOUT)?.id).toBe("wp-west-mid");
   });
@@ -170,14 +170,14 @@ describe("nearestWaypoint", () => {
 
 describe("findPath", () => {
   it("routes between direct neighbours", () => {
-    expect(findPath({ x: -6, z: 1.6 }, { x: -3.2, z: 0 }, FIXTURE_LAYOUT)).toEqual([
+    expect(findPath({ x: -6, z: 2 }, { x: -3.2, z: 0 }, FIXTURE_LAYOUT)).toEqual([
       "wp-west-desk",
       "wp-west-mid",
     ]);
   });
 
   it("routes multiple hops from one room to the other", () => {
-    expect(findPath({ x: -6, z: 1.6 }, { x: 9, z: -3 }, FIXTURE_LAYOUT)).toEqual([
+    expect(findPath({ x: -6, z: 2 }, { x: 9, z: -3 }, FIXTURE_LAYOUT)).toEqual([
       "wp-west-desk",
       "wp-west-mid",
       "wp-door",
@@ -191,7 +191,7 @@ describe("findPath", () => {
   });
 
   it("routes within one room when the room holds more than one waypoint", () => {
-    expect(findPath({ x: -3, z: 0 }, { x: -6, z: 1.6 }, FIXTURE_LAYOUT)).toEqual([
+    expect(findPath({ x: -3, z: 0 }, { x: -6, z: 2 }, FIXTURE_LAYOUT)).toEqual([
       "wp-west-mid",
       "wp-west-desk",
     ]);
@@ -222,13 +222,13 @@ describe("findPath", () => {
   });
 
   it("is a pure function of its arguments", () => {
-    const from = { x: -6, z: 1.6 };
+    const from = { x: -6, z: 2 };
     const to = { x: 9, z: -3 };
     const first = findPath(from, to, FIXTURE_LAYOUT);
     findPath(to, from, FIXTURE_LAYOUT);
     findPath(IN_CLOSET, from, FIXTURE_LAYOUT);
     expect(findPath(from, to, FIXTURE_LAYOUT)).toEqual(first);
-    expect(from).toEqual({ x: -6, z: 1.6 });
+    expect(from).toEqual({ x: -6, z: 2 });
     expect(to).toEqual({ x: 9, z: -3 });
   });
 });
