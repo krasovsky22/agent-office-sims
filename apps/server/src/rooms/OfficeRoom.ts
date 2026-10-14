@@ -160,8 +160,8 @@ export class OfficeRoom extends Room<OfficeState> {
       );
       if (outcome.result === "used") {
         // An interaction that holds nothing has no state to change, so all it
-        // can do for now is leave a trace. The whiteboard is the only one, and
-        // it is a placeholder on purpose — see `sim/events.ts`.
+        // can do for now is leave a trace — see `sim/events.ts`. A wall board's
+        // close-up is the reading client's own view, so it changes nothing here.
         recordOfficeEvent("interact", {
           actor: this.state.occupants.get(client.sessionId)?.name ?? client.sessionId,
           target: outcome.target.id,

@@ -2,9 +2,9 @@
  * The lobby board's close-up view: the full lists, as readable HUD text.
  *
  * The wall board is sized to be read across the lobby, which means big type
- * and few rows. Walking up to it opens this panel, which shows everything the
- * snapshot carries. It closes again when the player steps away; `main.ts`
- * decides when with the shared range check, so there is no button to find.
+ * and few rows. Walking up to it and pressing `E` at the proximity prompt opens
+ * this panel, which shows everything the snapshot carries. `E` again, or
+ * stepping out of reach, closes it; `main.ts` decides both.
  *
  * Every string is a React text node, from a snapshot the server sanitized, so
  * an issue title containing markup is shown rather than interpreted.

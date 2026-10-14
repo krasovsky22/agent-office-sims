@@ -172,6 +172,7 @@ export const INTERACTION_KIND = {
   seat: "seat",
   coffee: "coffee",
   whiteboard: "whiteboard",
+  board: "board",
 } as const;
 
 export type InteractionKind = (typeof INTERACTION_KIND)[keyof typeof INTERACTION_KIND];
@@ -249,6 +250,9 @@ const CHAIR_GAP = 0.55;
 
 /** Gap between the front of a prop and the occupant standing at it. */
 const STANDING_GAP = 0.5;
+
+/** Gap between a wall board and the occupant standing to read it. */
+const READING_GAP = 1;
 
 /** The lobby board that shows this repository's own GitHub issues and pull requests. */
 export const PROJECT_BOARD_ID = "project-board";
@@ -565,7 +569,7 @@ const interactableCache = new WeakMap<OfficeLayout, readonly InteractableSpec[]>
 
 /**
  * Every interactable in a layout: a seat per workstation, one per usable prop,
- * then the hand-placed fixtures.
+ * one per wall board, then the hand-placed fixtures.
  *
  * Cached per layout, like {@link collisionBoxes}, because both sides query it
  * often — the client once a frame for its prompt — and the layout never changes
@@ -598,6 +602,16 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
       id: spec.id,
       kind,
       anchor: { x: position.x, z: position.z, yaw: spec.yaw },
+      volume: undefined,
+    });
+  }
+  for (const board of layout.boards) {
+    // Stood in front of the face and turned to look at it; a board draws itself.
+    const position = localToWorld(board, board.yaw, 0, -READING_GAP);
+    all.push({
+      id: board.id,
+      kind: INTERACTION_KIND.board,
+      anchor: { x: position.x, z: position.z, yaw: board.yaw - Math.PI },
       volume: undefined,
     });
   }

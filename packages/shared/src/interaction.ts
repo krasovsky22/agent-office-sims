@@ -39,6 +39,7 @@ const HOLDS_ANCHOR: Record<InteractionKind, boolean> = {
   [INTERACTION_KIND.seat]: true,
   [INTERACTION_KIND.coffee]: true,
   [INTERACTION_KIND.whiteboard]: false,
+  [INTERACTION_KIND.board]: false,
 };
 
 /** How long a hold lasts on its own; `0` means until the occupant releases it. */
@@ -46,6 +47,7 @@ const HOLD_MS: Record<InteractionKind, number> = {
   [INTERACTION_KIND.seat]: 0,
   [INTERACTION_KIND.coffee]: COFFEE_BREAK_MS,
   [INTERACTION_KIND.whiteboard]: 0,
+  [INTERACTION_KIND.board]: 0,
 };
 
 /**
@@ -59,6 +61,7 @@ const HELD_ANIMATION: Record<InteractionKind, AnimationState> = {
   [INTERACTION_KIND.seat]: ANIMATION_STATE.sitting,
   [INTERACTION_KIND.coffee]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.whiteboard]: ANIMATION_STATE.idle,
+  [INTERACTION_KIND.board]: ANIMATION_STATE.idle,
 };
 
 /** What the proximity prompt reads. Names the action, not the object. */
@@ -66,6 +69,7 @@ const PROMPT: Record<InteractionKind, string> = {
   [INTERACTION_KIND.seat]: "Sit down",
   [INTERACTION_KIND.coffee]: "Pour a coffee",
   [INTERACTION_KIND.whiteboard]: "Read the whiteboard",
+  [INTERACTION_KIND.board]: "Read the project board",
 };
 
 export function holdsAnchor(spec: InteractableSpec): boolean {

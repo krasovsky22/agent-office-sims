@@ -20,7 +20,6 @@ import {
   authorizeInteract,
   heldAnimationFor,
   interactableById,
-  isWithinBoardRange,
   nearestInteractable,
   promptFor,
   sanitizeName,
@@ -71,6 +70,9 @@ const NOTICE_DURATION_MS = 2500;
 
 /** How often the `?debug` readout is refreshed. Off the frame path otherwise. */
 const DEBUG_INTERVAL_MS = 500;
+
+/** What the prompt reads while the player is reading a wall board up close. */
+const CLOSE_BOARD_LABEL = "Close the board";
 
 /** The prompt shown while the player is sitting, so standing up is discoverable. */
 const STAND_UP_PROMPT: HudPrompt = { keys: "W A S D", label: "Stand up", blocked: false };
@@ -328,6 +330,10 @@ function start(): void {
   let promptLabel = "";
   let promptBlocked = false;
 
+  // The wall board whose close-up is open, or `""`. Local to this tab: reading
+  // a board holds nothing, so there is nothing for the server to know.
+  let readingBoard = "";
+
   /**
    * Works out what the player can do from where they are standing, and tells
    * React only when the answer changes.
@@ -363,7 +369,12 @@ function start(): void {
         );
         prompt = {
           keys: "E",
-          label: decision.allowed ? promptFor(target) : `${promptFor(target)} — taken`,
+          label:
+            target.id === readingBoard
+              ? CLOSE_BOARD_LABEL
+              : decision.allowed
+                ? promptFor(target)
+                : `${promptFor(target)} — taken`,
           blocked: !decision.allowed,
         };
       }
@@ -402,8 +413,23 @@ function start(): void {
     if (controller.takeReleaseRequest()) {
       room.sendRelease();
     }
+    // Stepping out of reach closes a close-up just as `E` does.
+    if (target?.id !== readingBoard) {
+      readingBoard = "";
+    }
     if (controller.takeInteractRequest() && target !== undefined) {
-      room.sendInteract(target.id);
+      if (target.id === readingBoard) {
+        readingBoard = "";
+      } else {
+        if (target.kind === INTERACTION_KIND.board) {
+          readingBoard = target.id;
+        }
+        room.sendInteract(target.id);
+      }
+    }
+    const closeUp = readingBoard === PROJECT_BOARD_ID;
+    if (closeUp !== hud.boardCloseUp) {
+      publishHud({ boardCloseUp: closeUp });
     }
 
     room.sendPose(controller.pose, nowMs);
@@ -441,15 +467,6 @@ function start(): void {
       // Overhead content is parented to the avatar, so it has already followed
       // the body; all that is left is retiring whatever has expired.
       avatar.updateExpressions(nowMs);
-    }
-
-    // A range check rather than an interaction prompt: walking up to the board
-    // opens its close-up and walking away closes it. Published only when it
-    // flips, so React hears about it a few times a visit, not every frame.
-    const closeUp =
-      boardSpec !== undefined && isWithinBoardRange(boardSpec, controller.pose);
-    if (closeUp !== hud.boardCloseUp) {
-      publishHud({ boardCloseUp: closeUp });
     }
 
     renderer.render(scene, camera);

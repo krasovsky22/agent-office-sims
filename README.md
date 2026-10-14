@@ -14,8 +14,8 @@ whole floor — desk rows in the open plan, a meeting room, a kitchen, the CEO's
 corner office and the lobby, joined by a corridor — and it is furnished now,
 with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
 one shadow-casting light. Some of it can be used: walk up to a desk chair, the
-kitchen's coffee machine or the meeting room's whiteboard and a prompt offers
-the action, which the server grants or refuses. On top of that, the ticket
+kitchen's coffee machine, the meeting room's whiteboard or the lobby board and a
+prompt offers the action, which the server grants or refuses. On top of that, the ticket
 board exists as replicated state with its rules enforced on the server — a
 board panel to see it in and the AI agent employees are later milestones. The
 lobby's north wall carries a different board: this repository's own GitHub
@@ -43,8 +43,8 @@ unless `PROJECT_BOARD_TOKEN` is set.
 
 Walk with `W A S D` or the arrow keys. Click the canvas to capture the mouse,
 then move it to swing the camera; `Esc` releases it. Walk up to a desk chair, the
-coffee machine or the whiteboard and a prompt appears; `E` uses it. Any movement
-key gets you out of a chair.
+coffee machine, the whiteboard or the lobby board and a prompt appears; `E` uses
+it. Any movement key gets you out of a chair.
 
 `1` to `5` fire the five emotes, which are also buttons in the chat panel.
 `Enter` moves focus to the chat box — and releases the mouse, since a captured
@@ -105,7 +105,8 @@ Then confirm all eleven:
     room in the north-east. Within one poll interval of the server starting, the
     wall board lists the repository's open, in-progress and recently closed
     issues and its open pull requests, with the time it last updated; walk up to
-    it and the full lists open as a panel, and close when you step back. Both
+    it and press `E` at the `Read the project board` prompt to open the full
+    lists as a panel; `E` again or stepping back closes it. Both
     tabs show the same thing. Start the server with
     `PROJECT_BOARD_REPO=krasovsky22/no-such-repo` and the board says it is
     stale, while walking and chat carry on as normal.
@@ -246,7 +247,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/state.ts        replicated Colyseus schema
   src/messages.ts     commands and events, with the parsers for the untrusted ones
   src/tickets.ts      the board's rules: transitions, authority, commands
-  src/projectBoard.ts the lobby board's GitHub snapshot and its range check
+  src/projectBoard.ts the lobby board's GitHub snapshot
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
   src/collision.ts    capsule-vs-AABB movement resolution

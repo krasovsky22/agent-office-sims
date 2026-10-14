@@ -1,6 +1,6 @@
 /**
  * The lobby board's contract: what the server tells every client about this
- * repository's own development, and where a player has to stand to read it.
+ * repository's own development.
  *
  * The board is not the in-game ticket board. That one is the simulated
  * company's work, held in replicated state and changed by commands; this one is
@@ -15,8 +15,6 @@
  * client as it joins and broadcasts every replacement, so every client in the
  * room holds the same one.
  */
-
-import type { Vec2, WallBoardSpec } from "./layout.js";
 
 /** How a pull request's checks stand, as far as the server could cheaply tell. */
 export const CHECK_STATUS = {
@@ -104,38 +102,3 @@ export const EMPTY_BOARD_LISTS: ProjectBoardLists = {
   pullRequests: [],
   counts: { open: 0, inProgress: 0, pullRequests: 0 },
 };
-
-/**
- * How far in front of a board a player can stand and get its close-up view.
- *
- * Shorter than the lobby is deep, so walking up to the board is a decision and
- * standing in the middle of the room is not; the wall board itself is sized to
- * be read from there.
- */
-export const BOARD_CLOSE_UP_RANGE = 2.6;
-
-/** Slack either side of a board's width that still counts as standing in front of it. */
-const BOARD_CLOSE_UP_SIDE_MARGIN = 0.5;
-
-/**
- * Whether a point stands in front of a board and close enough to read it up
- * close.
- *
- * A range check against the board's face rather than a distance to its centre,
- * so standing behind the wall it hangs on does not count. This is the simple
- * check the interaction prompt work can replace; it reads nothing but the
- * floor plan, so client and server would agree on it if both ever asked.
- */
-export function isWithinBoardRange(
-  board: WallBoardSpec,
-  point: Vec2,
-  range: number = BOARD_CLOSE_UP_RANGE,
-): boolean {
-  const dx = point.x - board.x;
-  const dz = point.z - board.z;
-  // Yaw 0 faces -Z, so the face looks along (-sin, -cos) and its width runs
-  // along the perpendicular (cos, -sin).
-  const ahead = -dx * Math.sin(board.yaw) - dz * Math.cos(board.yaw);
-  const across = dx * Math.cos(board.yaw) - dz * Math.sin(board.yaw);
-  return ahead > 0 && ahead <= range && Math.abs(across) <= board.width / 2 + BOARD_CLOSE_UP_SIDE_MARGIN;
-}
