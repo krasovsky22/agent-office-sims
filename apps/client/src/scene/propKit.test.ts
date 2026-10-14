@@ -36,9 +36,14 @@ async function screenNormal(): Promise<THREE.Vector3> {
   }
 
   const normals = screen.geometry.getAttribute("normal");
+  const index = screen.geometry.getIndex();
+  const vertices =
+    index === null
+      ? Array.from({ length: normals.count }, (_, i) => i)
+      : new Set(Array.from({ length: index.count }, (_, i) => index.getX(i)));
   const sum = new THREE.Vector3();
-  for (let i = 0; i < normals.count; i += 1) {
-    sum.add(new THREE.Vector3().fromBufferAttribute(normals, i));
+  for (const vertex of vertices) {
+    sum.add(new THREE.Vector3().fromBufferAttribute(normals, vertex));
   }
   return sum.normalize();
 }
