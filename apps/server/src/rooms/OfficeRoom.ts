@@ -97,6 +97,7 @@ export class OfficeRoom extends Room<OfficeState> {
       occupants: this.state.occupants,
       motions: this.motions,
       holds: this.holds,
+      lastUsedAt: new Map(),
     };
 
     // `Date.now()` rather than `this.clock`, because a ticket timestamp is read
@@ -204,6 +205,7 @@ export class OfficeRoom extends Room<OfficeState> {
     // Before the occupant goes, so a closed tab does not leave its chair
     // reserved for the rest of the session.
     this.holds.release(client.sessionId);
+    this.interaction.lastUsedAt.delete(client.sessionId);
     this.state.occupants.delete(client.sessionId);
     this.motions.delete(client.sessionId);
     this.budgets.delete(client.sessionId);

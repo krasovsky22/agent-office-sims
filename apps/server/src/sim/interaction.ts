@@ -41,6 +41,16 @@ import { type OccupantMotion, discardPending } from "./movement.js";
  */
 export const SERVER_INTERACT_RANGE = INTERACT_RANGE * INTERACT_RANGE_TOLERANCE;
 
+/**
+ * Shortest gap between two uses of an interaction that holds nothing.
+ *
+ * Such a use changes no state and only leaves a trace in the event sink, so
+ * without a floor a client in reach of the whiteboard could write log lines as
+ * fast as it can send messages. Server-only: an honest client never presses
+ * the key this often, and the protocol does not need to know.
+ */
+export const USE_COOLDOWN_MS = 1000;
+
 export interface Hold {
   readonly interactableId: string;
   /**
@@ -113,18 +123,22 @@ export interface InteractionHost {
   readonly occupants: { get(sessionId: string): Occupant | undefined };
   readonly motions: { get(sessionId: string): OccupantMotion | undefined };
   readonly holds: HoldRegistry;
+  /** Room clock time each session last used an interaction that holds nothing. */
+  readonly lastUsedAt: Map<string, number>;
 }
 
 /**
  * What came of an interact request.
  *
  * `used` is an interaction that holds nothing — the whiteboard — and so changes
- * no state; the room decides what trace, if any, it leaves.
+ * no state; the room decides what trace, if any, it leaves. `cooling` is the
+ * same request arriving inside {@link USE_COOLDOWN_MS}, dropped with no trace.
  */
 export type InteractOutcome =
   | { readonly result: "refused"; readonly decision: InteractDecision }
   | { readonly result: "held"; readonly target: InteractableSpec }
-  | { readonly result: "used"; readonly target: InteractableSpec };
+  | { readonly result: "used"; readonly target: InteractableSpec }
+  | { readonly result: "cooling" };
 
 /**
  * Decides a client's interact request and applies it, or does nothing at all.
@@ -162,6 +176,11 @@ export function requestInteract(
   }
 
   if (!holdsAnchor(decision.target)) {
+    const lastUsedAt = host.lastUsedAt.get(sessionId);
+    if (lastUsedAt !== undefined && now - lastUsedAt < USE_COOLDOWN_MS) {
+      return { result: "cooling" };
+    }
+    host.lastUsedAt.set(sessionId, now);
     return { result: "used", target: decision.target };
   }
 

@@ -25,6 +25,7 @@ import {
   HoldRegistry,
   type InteractionHost,
   SERVER_INTERACT_RANGE,
+  USE_COOLDOWN_MS,
   holdTick,
   releaseHold,
   requestInteract,
@@ -55,6 +56,7 @@ function createRoom(): Room {
     occupants: new Map(),
     motions: new Map(),
     holds: new HoldRegistry(),
+    lastUsedAt: new Map(),
   };
 }
 
@@ -199,6 +201,33 @@ describe("requestInteract", () => {
     expect(outcome.result).toBe("used");
     expect(snapshot(alice)).toEqual(before);
     expect(room.holds.heldBy("alice")).toBeUndefined();
+  });
+
+  it("drops repeat whiteboard uses inside the cooldown, per session, with no state change", () => {
+    const room = createRoom();
+    const alice = join(room, "alice", WHITEBOARD);
+    const bob = join(room, "bob", WHITEBOARD, 0.5);
+    expect(requestInteract(room, "alice", WHITEBOARD, 0).result).toBe("used");
+    const before = snapshot(alice);
+
+    for (let at = 1; at < USE_COOLDOWN_MS; at += 100) {
+      expect(requestInteract(room, "alice", WHITEBOARD, at).result).toBe("cooling");
+    }
+    expect(snapshot(alice)).toEqual(before);
+    expect(room.holds.heldBy("alice")).toBeUndefined();
+
+    expect(requestInteract(room, "bob", WHITEBOARD, 10).result).toBe("used");
+    expect(bob.interactableId).toBe("");
+    expect(requestInteract(room, "alice", WHITEBOARD, USE_COOLDOWN_MS).result).toBe("used");
+  });
+
+  it("does not put desks or the coffee machine behind the whiteboard cooldown", () => {
+    const room = createRoom();
+    join(room, "alice", SEAT);
+
+    expect(requestInteract(room, "alice", SEAT, 0).result).toBe("held");
+    releaseHold(room, "alice", 10);
+    expect(requestInteract(room, "alice", SEAT, 20).result).toBe("held");
   });
 });
 

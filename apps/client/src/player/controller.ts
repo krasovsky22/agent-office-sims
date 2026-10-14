@@ -312,9 +312,15 @@ export class PlayerController {
     return this.anchor !== undefined;
   }
 
-  /** Takes a pending interact keypress, if there is one. */
+  /**
+   * Takes a pending interact keypress, if there is one.
+   *
+   * Swallowed while a release is pending: the replicated hold is still the old
+   * one, so the request would pass the client's check, re-seat the player in
+   * the same server tick as the release, and the release would never be seen.
+   */
   public takeInteractRequest(): boolean {
-    const requested = this.interactRequested;
+    const requested = this.interactRequested && !this.releasePending;
     this.interactRequested = false;
     return requested;
   }
