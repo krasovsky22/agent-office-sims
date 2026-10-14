@@ -111,7 +111,7 @@ Then confirm all eleven:
     cursor in its search box, which matches numbers, titles, labels and people,
     and the label toggles narrow it to cards carrying every selected label;
     neither touches the wall board or the other tab. `E` again or stepping back
-    closes it, and the search is still there when you come back. Both tabs show
+    closes it. Both tabs show
     the same board. Start the server with
     `PROJECT_BOARD_REPO=krasovsky22/no-such-repo` and the board says it is
     stale, while walking and chat carry on as normal.

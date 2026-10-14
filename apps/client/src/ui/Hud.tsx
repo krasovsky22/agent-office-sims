@@ -19,7 +19,6 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ConnectionStatus } from "../net/room.js";
-import { type BoardFilter, NO_BOARD_FILTER } from "../projectBoard.js";
 import { ProjectBoardPanel } from "./ProjectBoardPanel.js";
 
 import "./hud.css";
@@ -338,8 +337,6 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     boardCloseUp,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
-  // Held here rather than in the panel, so a search outlives closing the board.
-  const [boardFilter, setBoardFilter] = useState<BoardFilter>(NO_BOARD_FILTER);
 
   return (
     <div className="hud">
@@ -388,7 +385,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       </div>
 
       {boardCloseUp ? (
-        <ProjectBoardPanel snapshot={projectBoard} filter={boardFilter} onFilterChange={setBoardFilter} />
+        <ProjectBoardPanel snapshot={projectBoard} />
       ) : null}
 
       <div className="hud__column hud__column--right">

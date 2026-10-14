@@ -8,16 +8,16 @@
  * snapshot carries and narrows it by text or by label. `E` again, or stepping
  * out of reach, closes it; `main.ts` decides both.
  *
- * The filter is the caller's, not this panel's, so a search survives closing
- * the board and walking back to it. It narrows only this tab's view: the wall
- * board everyone sees stays whole.
+ * The filter lives and dies with this panel, so every visit to the board starts
+ * unfiltered. It narrows only this tab's view: the wall board everyone sees
+ * stays whole.
  *
  * Every string is a React text node, from a snapshot the server sanitized, so
  * an issue title containing markup is shown rather than interpreted.
  */
 
 import type { BoardLabel, ProjectBoardSnapshot } from "@sim/shared";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { isTypingTarget } from "../keys.js";
 import {
@@ -46,15 +46,8 @@ function LabelChip({ label }: { label: BoardLabel }) {
   );
 }
 
-export function ProjectBoardPanel({
-  snapshot,
-  filter,
-  onFilterChange,
-}: {
-  snapshot: ProjectBoardSnapshot | undefined;
-  filter: BoardFilter;
-  onFilterChange: (next: BoardFilter) => void;
-}) {
+export function ProjectBoardPanel({ snapshot }: { snapshot: ProjectBoardSnapshot | undefined }) {
+  const [filter, setFilter] = useState<BoardFilter>(NO_BOARD_FILTER);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -75,7 +68,7 @@ export function ProjectBoardPanel({
   }, []);
 
   const status = boardStatus(snapshot, formatClockTime);
-  const labels = snapshot === undefined ? [] : boardLabels(snapshot);
+  const labels = snapshot === undefined ? [] : boardLabels(snapshot, filter.labels);
   const filtering = isFiltering(filter);
   const columns =
     snapshot === undefined ? [] : filterBoardColumns(boardColumns(snapshot, formatShortDate), filter);
@@ -85,7 +78,7 @@ export function ProjectBoardPanel({
     if (!next.delete(name)) {
       next.add(name);
     }
-    onFilterChange({ ...filter, labels: next });
+    setFilter({ ...filter, labels: next });
   };
 
   return (
@@ -107,7 +100,7 @@ export function ProjectBoardPanel({
           placeholder="Search tickets — number, title, label, person…"
           aria-label="Search tickets"
           autoComplete="off"
-          onChange={(event) => onFilterChange({ ...filter, query: event.target.value })}
+          onChange={(event) => setFilter({ ...filter, query: event.target.value })}
           onKeyDown={(event) => {
             // Either key hands the keyboard back to walking; the search stays.
             if (event.key === "Enter" || event.key === "Escape") {
@@ -148,7 +141,7 @@ export function ProjectBoardPanel({
             type="button"
             onClick={(event) => {
               event.currentTarget.blur();
-              onFilterChange(NO_BOARD_FILTER);
+              setFilter(NO_BOARD_FILTER);
             }}
           >
             Clear

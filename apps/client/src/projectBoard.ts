@@ -171,15 +171,22 @@ export function filterBoardColumns(columns: readonly BoardColumn[], filter: Boar
  *
  * Sorted by name with numbers compared as numbers, so `wave-2` comes before
  * `wave-10`. A label's colour is the first one seen; GitHub gives a label one
- * colour per repository, so they agree anyway.
+ * colour per repository, so they agree anyway. A selected label is listed even
+ * after a poll takes its last card away, so it can still be seen and turned off
+ * rather than silently matching nothing.
  */
-export function boardLabels(snapshot: ProjectBoardSnapshot): BoardLabel[] {
+export function boardLabels(snapshot: ProjectBoardSnapshot, selected: ReadonlySet<string> = new Set()): BoardLabel[] {
   const byName = new Map<string, BoardLabel>();
   for (const item of [...snapshot.open, ...snapshot.inProgress, ...snapshot.closed, ...snapshot.pullRequests]) {
     for (const label of item.labels) {
       if (!byName.has(label.name)) {
         byName.set(label.name, label);
       }
+    }
+  }
+  for (const name of selected) {
+    if (!byName.has(name)) {
+      byName.set(name, { name, color: "" });
     }
   }
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));

@@ -148,6 +148,16 @@ describe("boardLabels", () => {
   it("lists each label once, numbers sorted as numbers", () => {
     expect(boardLabels(SNAPSHOT).map((label) => label.name)).toEqual(["client", "wave-1", "wave-2", "wave-10"]);
   });
+
+  it("keeps a selected label no card carries any more, so it can be turned off", () => {
+    expect(boardLabels(SNAPSHOT, new Set(["wave-3", "client"])).map((label) => label.name)).toEqual([
+      "client",
+      "wave-1",
+      "wave-2",
+      "wave-3",
+      "wave-10",
+    ]);
+  });
 });
 
 describe("labelColours", () => {
