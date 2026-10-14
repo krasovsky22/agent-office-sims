@@ -400,7 +400,12 @@ function start(): void {
     }
 
     for (const [id, avatar] of avatars) {
-      const held = interactableById(OFFICE_LAYOUT, room.viewOf(id)?.interactableId ?? "");
+      // The local player is drawn from the predicted hold, so standing up shows
+      // on the frame the key goes down rather than a round trip later.
+      const held = interactableById(
+        OFFICE_LAYOUT,
+        id === localId ? locallyHeldWith : room.viewOf(id)?.interactableId ?? "",
+      );
       avatar.setHoldingCup(held?.kind === INTERACTION_KIND.coffee);
 
       if (held !== undefined) {
