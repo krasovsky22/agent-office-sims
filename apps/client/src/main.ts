@@ -378,7 +378,11 @@ function start(): void {
     controller.setHold(interactableById(OFFICE_LAYOUT, engagedWith)?.anchor);
     controller.update(deltaSeconds);
 
-    const target = refreshPrompt(engagedWith);
+    // What the controller is predicting, not what the last patch said: between
+    // a movement key standing the player up and the server confirming it, the
+    // replicated hold is stale and would keep offering "Stand up".
+    const locallyHeldWith = controller.held ? engagedWith : "";
+    const target = refreshPrompt(locallyHeldWith);
     if (controller.takeReleaseRequest()) {
       room.sendRelease();
     }
