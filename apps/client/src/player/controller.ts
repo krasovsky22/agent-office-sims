@@ -423,6 +423,9 @@ export class PlayerController {
    * stall — is snapped.
    */
   public applyCorrection(serverX: number, serverZ: number, deltaSeconds: number): void {
+    if (this.hold !== undefined || this.releasePending) {
+      return;
+    }
     const errorX = serverX - this.pose.x;
     const errorZ = serverZ - this.pose.z;
     const error = Math.hypot(errorX, errorZ);

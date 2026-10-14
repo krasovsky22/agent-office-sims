@@ -433,7 +433,7 @@ function start(): void {
     }
 
     room.sendPose(controller.pose, nowMs);
-    if (room.localServerPose.known && !controller.held) {
+    if (room.localServerPose.known) {
       controller.applyCorrection(
         room.localServerPose.x,
         room.localServerPose.z,
