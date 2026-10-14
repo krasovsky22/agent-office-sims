@@ -59,6 +59,12 @@ export const SERVER_MESSAGE = {
   chat: "chat",
   /** Sent only to the client whose message was dropped by a rate limit. */
   throttled: "throttled",
+  /**
+   * The lobby board's GitHub snapshot, a `ProjectBoardSnapshot` from
+   * `projectBoard.ts`. Sent to each client as it joins and broadcast whenever
+   * the server's feed replaces it.
+   */
+  projectBoard: "project-board",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];

@@ -63,9 +63,10 @@ const FIXTURE_LAYOUT: OfficeLayout = {
     wall("closet-east", 9.7, 1, 10, 5.7),
   ],
   desks: [{ id: "desk-west", x: -6, z: 0, yaw: 0, width: 1.6, depth: 0.8, height: 0.75 }],
-  // Nav never reads props or doorways; they are empty so the fixture is a
-  // complete layout without stating anything nav would never look at.
+  // Nav never reads props, boards or doorways; they are empty so the fixture is
+  // a complete layout without stating anything nav would never look at.
   props: [],
+  boards: [],
   doorways: [],
   // Nav never reads rooms; they are here so the fixture is a complete layout
   // and so the "outside every room" case can be stated with `roomAt`.

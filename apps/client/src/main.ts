@@ -16,9 +16,11 @@ import {
   OFFICE_LAYOUT,
   OFFICE_PROPS,
   type OfficeLayout,
+  PROJECT_BOARD_ID,
   authorizeInteract,
   heldAnimationFor,
   interactableById,
+  isWithinBoardRange,
   nearestInteractable,
   promptFor,
   sanitizeName,
@@ -32,6 +34,7 @@ import { resolveServerUrl } from "./net/serverUrl.js";
 import { PlayerController } from "./player/controller.js";
 import { Avatar } from "./scene/avatar.js";
 import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
+import { buildLobbyBoard } from "./scene/lobbyBoard.js";
 import { buildOffice } from "./scene/office.js";
 import { loadPropKit } from "./scene/propKit.js";
 import { buildProps } from "./scene/props.js";
@@ -139,6 +142,12 @@ function start(): void {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BACKGROUND_COLOUR);
   const office = buildOffice(scene, OFFICE_LAYOUT);
+
+  const boardSpec = OFFICE_LAYOUT.boards.find((spec) => spec.id === PROJECT_BOARD_ID);
+  const lobbyBoard =
+    boardSpec === undefined
+      ? undefined
+      : buildLobbyBoard(scene, boardSpec, renderer.capabilities.getMaxAnisotropy());
 
   const camera = createCamera(canvas, OFFICE_LAYOUT);
   const controller = new PlayerController(camera, canvas);
@@ -286,6 +295,13 @@ function start(): void {
           : "Too many emotes — that one was dropped.",
       );
     },
+
+    // The same snapshot goes to the wall and to the close-up panel, so what
+    // the board shows at a distance and up close cannot disagree.
+    onProjectBoard: (snapshot) => {
+      lobbyBoard?.show(snapshot);
+      publishHud({ projectBoard: snapshot });
+    },
   });
 
   createRoot(requireHudMount()).render(
@@ -425,6 +441,15 @@ function start(): void {
       // Overhead content is parented to the avatar, so it has already followed
       // the body; all that is left is retiring whatever has expired.
       avatar.updateExpressions(nowMs);
+    }
+
+    // A range check rather than an interaction prompt: walking up to the board
+    // opens its close-up and walking away closes it. Published only when it
+    // flips, so React hears about it a few times a visit, not every frame.
+    const closeUp =
+      boardSpec !== undefined && isWithinBoardRange(boardSpec, controller.pose);
+    if (closeUp !== hud.boardCloseUp) {
+      publishHud({ boardCloseUp: closeUp });
     }
 
     renderer.render(scene, camera);

@@ -308,3 +308,137 @@
   background: rgba(255, 255, 255, 0.06);
   color: #9aa0aa;
 }
+
+/* The lobby board's close-up view. Centred between the two HUD columns and
+   scrollable on its own, so a long issue list never pushes the chat off the
+   screen. It takes pointer events only so the wheel can scroll it. */
+
+.board {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(880px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(18, 18, 22, 0.92);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+  user-select: text;
+  z-index: 1;
+}
+
+.board__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.board__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.board__repo {
+  margin-left: 8px;
+  font-weight: 400;
+  color: #9aa0aa;
+}
+
+.board__status {
+  flex: none;
+  margin: 0;
+  color: #9aa0aa;
+}
+
+.board__status--stale {
+  color: #f0a35a;
+  font-weight: 600;
+}
+
+/* minmax(0, 1fr) rather than 1fr, so a long unbroken title cannot widen its
+   column past a quarter of the panel. */
+.board__columns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.board__column {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.board__columnTitle {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #9aa0aa;
+}
+
+.board__count {
+  margin-left: 4px;
+  color: #f3cf6a;
+}
+
+.board__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.board__row {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.board__label {
+  font-weight: 700;
+  color: #f3cf6a;
+}
+
+.board__detail {
+  display: block;
+  font-size: 11px;
+  color: #9aa0aa;
+}
+
+.board__detail--good {
+  color: #7fd18b;
+}
+
+.board__detail--bad {
+  color: #f08a7a;
+}
+
+.board__detail--pending {
+  color: #f0c650;
+}
+
+.board__empty,
+.board__more,
+.board__hint {
+  margin: 0;
+  color: #9aa0aa;
+  font-size: 12px;
+}

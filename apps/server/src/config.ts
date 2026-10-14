@@ -31,17 +31,90 @@ const DEV_ORIGINS: readonly string[] = ["http://localhost:5173", "http://127.0.0
  */
 export const DISALLOWED_ORIGIN = "https://disallowed.invalid";
 
+/** The repository whose issues the lobby board shows when none is configured: this one. */
+const DEFAULT_PROJECT_REPOSITORY = "krasovsky22/agent-office-sims";
+
+/**
+ * Seconds between polls when no interval is configured.
+ *
+ * Anonymous REST requests get 60 an hour per address, a `304` included, and a
+ * poll costs at least two, so three minutes spends two thirds of that and
+ * leaves the rest for a second page or a restart; a token raises the budget to
+ * 5000 an hour, which a minute's interval does not come close to.
+ */
+const DEFAULT_POLL_SECONDS_ANONYMOUS = 180;
+const DEFAULT_POLL_SECONDS_WITH_TOKEN = 60;
+
+/** Below this a poll interval is hammering GitHub for news that changes in minutes. */
+const MIN_POLL_SECONDS = 15;
+
+/** `owner/name`, in the characters GitHub allows in each. */
+const REPOSITORY_PATTERN = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+
+/** Where the lobby board reads its issues from. */
+export interface ProjectBoardConfig {
+  /** `owner/name`. */
+  readonly repository: string;
+  /**
+   * Optional, and server-side only: it is read here, used in request headers
+   * by the GitHub client, and never sent to a browser.
+   */
+  readonly token: string | undefined;
+  readonly pollIntervalMs: number;
+}
+
 export interface ServerConfig {
   readonly port: number;
   /** Origins permitted to matchmake and open a socket, already normalized. */
   readonly allowedOrigins: readonly string[];
+  /** `undefined` when `PROJECT_BOARD_REPO=off` switched the lobby board's feed off. */
+  readonly projectBoard: ProjectBoardConfig | undefined;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
     port: readPort(env),
     allowedOrigins: readAllowedOrigins(env),
+    projectBoard: readProjectBoardConfig(env),
   };
+}
+
+/**
+ * Reads the lobby board's feed settings.
+ *
+ * - `PROJECT_BOARD_REPO`: `owner/name`, defaulting to this repository, or `off`
+ *   to make no GitHub requests at all — for working offline.
+ * - `PROJECT_BOARD_TOKEN`: optional. Raises the rate limit and turns on check
+ *   status and sidebar-linked pull requests, which only GraphQL can answer.
+ * - `PROJECT_BOARD_POLL_SECONDS`: optional, at least {@link MIN_POLL_SECONDS}.
+ */
+export function readProjectBoardConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): ProjectBoardConfig | undefined {
+  const rawRepository = env["PROJECT_BOARD_REPO"]?.trim() ?? "";
+  if (rawRepository.toLowerCase() === "off") {
+    return undefined;
+  }
+  const repository = rawRepository === "" ? DEFAULT_PROJECT_REPOSITORY : rawRepository;
+  if (!REPOSITORY_PATTERN.test(repository)) {
+    throw new Error(`PROJECT_BOARD_REPO must be owner/name or "off", got "${rawRepository}"`);
+  }
+
+  const rawToken = env["PROJECT_BOARD_TOKEN"]?.trim() ?? "";
+  const token = rawToken === "" ? undefined : rawToken;
+
+  const rawSeconds = env["PROJECT_BOARD_POLL_SECONDS"]?.trim() ?? "";
+  let seconds = token === undefined ? DEFAULT_POLL_SECONDS_ANONYMOUS : DEFAULT_POLL_SECONDS_WITH_TOKEN;
+  if (rawSeconds !== "") {
+    seconds = Number(rawSeconds);
+    if (!Number.isInteger(seconds) || seconds < MIN_POLL_SECONDS) {
+      throw new Error(
+        `PROJECT_BOARD_POLL_SECONDS must be a whole number of seconds, at least ${MIN_POLL_SECONDS}, got "${rawSeconds}"`,
+      );
+    }
+  }
+
+  return { repository, token, pollIntervalMs: seconds * 1000 };
 }
 
 export function readPort(env: NodeJS.ProcessEnv = process.env): number {

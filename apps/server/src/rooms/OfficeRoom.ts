@@ -21,6 +21,10 @@
  *
  * The board's rules are not here. `ticketHandlers.ts` wires the five commands
  * up and `@sim/shared`'s `tickets.ts` decides what each one is allowed to do.
+ *
+ * Nor is the lobby's GitHub board, beyond passing it on. The server's one feed
+ * polls GitHub on its own timer and is handed to every room as a room option;
+ * `projectBoardDelivery.ts` relays what it publishes. The tick never reads it.
  */
 
 import { type Client, Room } from "@colyseus/core";
@@ -45,6 +49,7 @@ import {
   parsePoseMessage,
 } from "@sim/shared";
 
+import type { ProjectBoardSource } from "../github/feed.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import { type ExpressionBudget, createExpressionBudget, tryConsume } from "../sim/expression.js";
 import {
@@ -55,6 +60,11 @@ import {
   requestInteract,
 } from "../sim/interaction.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
+import {
+  isProjectBoardSource,
+  relayProjectBoard,
+  sendProjectBoard,
+} from "./projectBoardDelivery.js";
 import {
   type TicketHost,
   createTicketIdFactory,
@@ -70,6 +80,12 @@ import {
  * player is not left walking on the spot in everyone else's view.
  */
 const IDLE_AFTER_MS = 400;
+
+/** What `index.ts` hands the room type when it defines it. */
+export interface OfficeRoomOptions {
+  /** `null` when the lobby board's feed is switched off. */
+  readonly projectBoard: ProjectBoardSource | null;
+}
 
 export class OfficeRoom extends Room<OfficeState> {
   public override maxClients = 16;
@@ -89,7 +105,10 @@ export class OfficeRoom extends Room<OfficeState> {
   private spawnCursor = 0;
   private hireCount = 0;
 
-  public override onCreate(): void {
+  private projectBoard: ProjectBoardSource | undefined;
+  private stopRelayingProjectBoard: (() => void) | undefined;
+
+  public override onCreate(options?: unknown): void {
     this.state = new OfficeState();
     this.patchRate = TICK_INTERVAL_MS;
     this.interaction = {
@@ -99,6 +118,12 @@ export class OfficeRoom extends Room<OfficeState> {
       holds: this.holds,
       lastUsedAt: new Map(),
     };
+
+    const source = (options as Partial<OfficeRoomOptions> | undefined)?.projectBoard;
+    if (isProjectBoardSource(source)) {
+      this.projectBoard = source;
+      this.stopRelayingProjectBoard = relayProjectBoard(this, source);
+    }
 
     // `Date.now()` rather than `this.clock`, because a ticket timestamp is read
     // as a wall-clock date in a panel, not as an offset from this room's start.
@@ -198,6 +223,14 @@ export class OfficeRoom extends Room<OfficeState> {
     this.state.occupants.set(client.sessionId, player);
     this.motions.set(client.sessionId, createMotion(spawn.x, spawn.z, spawn.yaw, now));
     this.budgets.set(client.sessionId, createExpressionBudget(now));
+
+    if (this.projectBoard !== undefined) {
+      sendProjectBoard(client, this.projectBoard);
+    }
+  }
+
+  public override onDispose(): void {
+    this.stopRelayingProjectBoard?.();
   }
 
   public override onLeave(client: Client): void {
