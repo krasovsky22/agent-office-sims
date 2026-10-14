@@ -17,7 +17,7 @@ const INTERVAL = 60_000;
 
 const LISTS: ProjectBoardLists = {
   ...EMPTY_BOARD_LISTS,
-  open: [{ number: 32, title: "Lobby board", assignees: [], pullRequests: [], closedAt: null }],
+  open: [{ number: 32, title: "Project board", labels: [], assignees: [], pullRequests: [], closedAt: null }],
   counts: { open: 1, inProgress: 0, pullRequests: 0 },
 };
 

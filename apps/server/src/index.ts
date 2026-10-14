@@ -12,7 +12,7 @@
  * configuration: the one thing that does change is the URL the client is built
  * with.
  *
- * The lobby board's GitHub feed is made here, once, rather than per room: one
+ * The project board's GitHub feed is made here, once, rather than per room: one
  * poll loop serves every room, and its token stays in this process.
  */
 

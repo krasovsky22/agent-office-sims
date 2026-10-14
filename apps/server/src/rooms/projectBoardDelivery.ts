@@ -1,5 +1,5 @@
 /**
- * Gets the lobby board's snapshot from the feed to every client in a room.
+ * Gets the project board's snapshot from the feed to every client in a room.
  *
  * Two paths, and both are needed. A client joining gets the current snapshot
  * on its own, because a broadcast it was not there for will not be repeated;

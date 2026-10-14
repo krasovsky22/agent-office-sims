@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MAX_CLOSED_ISSUES } from "@sim/shared";
+import { MAX_CLOSED_ISSUES, MAX_ITEM_LABELS } from "@sim/shared";
 
 import {
   type GithubIssueItem,
@@ -23,6 +23,7 @@ function issue(number: number, extra: Partial<GithubIssueItem> = {}): GithubIssu
   return {
     number,
     title: `Issue ${number}`,
+    labels: [],
     open: true,
     author: "dana",
     assignees: [],
@@ -60,7 +61,7 @@ describe("bucketIssues", () => {
     const lists = bucketIssues([issue(7, { assignees: ["milo"] })], [], REPO);
     expect(numbers(lists.open)).toEqual([]);
     expect(lists.inProgress).toEqual([
-      { number: 7, title: "Issue 7", assignees: ["milo"], pullRequests: [], closedAt: null },
+      { number: 7, title: "Issue 7", labels: [], assignees: ["milo"], pullRequests: [], closedAt: null },
     ]);
   });
 
@@ -75,6 +76,19 @@ describe("bucketIssues", () => {
     const lists = bucketIssues([issue(5), pull(6, "fixes #5", { pullRequest: { draft: true, body: "fixes #5" } })], [], REPO);
     expect(numbers(lists.inProgress)).toEqual([5]);
     expect(lists.pullRequests[0]?.draft).toBe(true);
+  });
+
+  it("carries each issue's and pull request's labels onto its card", () => {
+    const wave = { name: "wave-1", color: "#0e8a16" };
+    const client = { name: "client", color: "#1d76db" };
+    const lists = bucketIssues(
+      [issue(7, { labels: [wave] }), pull(8, "", { labels: [client, wave] })],
+      [{ ...closed(3, 10), labels: [client] }],
+      REPO,
+    );
+    expect(lists.open[0]?.labels).toEqual([wave]);
+    expect(lists.pullRequests[0]?.labels).toEqual([client, wave]);
+    expect(lists.closed[0]?.labels).toEqual([client]);
   });
 
   it("lets go of an issue once its pull request is closed or merged", () => {
@@ -92,6 +106,7 @@ describe("bucketIssues", () => {
     expect(lists.pullRequests[0]).toEqual({
       number: 40,
       title: "PR 40",
+      labels: [],
       author: "dana",
       draft: false,
       checks: "passing",
@@ -154,6 +169,7 @@ describe("parseIssueItem", () => {
     number: 32,
     title: "Lobby project board:\nlive GitHub issues",
     state: "open",
+    labels: [{ name: "wave-1", color: "0E8A16" }, { name: "client", color: "1d76db" }],
     user: { login: "krasovsky22" },
     assignees: [{ login: "milo" }, { nope: true }],
     closed_at: null,
@@ -164,12 +180,37 @@ describe("parseIssueItem", () => {
     expect(parseIssueItem(raw)).toEqual({
       number: 32,
       title: "Lobby project board: live GitHub issues",
+      labels: [
+        { name: "wave-1", color: "#0e8a16" },
+        { name: "client", color: "#1d76db" },
+      ],
       open: true,
       author: "krasovsky22",
       assignees: ["milo"],
       closedAt: null,
       pullRequest: null,
     });
+  });
+
+  it("reads a label given as a bare name, with no colour", () => {
+    expect(parseIssueItem({ ...raw, labels: ["wave-2"] })?.labels).toEqual([{ name: "wave-2", color: "" }]);
+  });
+
+  it("drops a colour that is not six hex digits, since a client styles with it", () => {
+    const labels = [{ name: "bug", color: "red;background:url(x)" }];
+    expect(parseIssueItem({ ...raw, labels })?.labels).toEqual([{ name: "bug", color: "" }]);
+  });
+
+  it("drops blank and repeated labels, sanitizes names, and keeps a card's worth", () => {
+    const many = Array.from({ length: MAX_ITEM_LABELS + 4 }, (_, index) => ({ name: `tag-${index}`, color: "ffffff" }));
+    const labels = [{ name: " \n " }, { name: "wave\n1" }, { name: "wave 1" }, null, ...many];
+    const parsed = parseIssueItem({ ...raw, labels })?.labels ?? [];
+    expect(parsed.map((label) => label.name).slice(0, 3)).toEqual(["wave 1", "tag-0", "tag-1"]);
+    expect(parsed).toHaveLength(MAX_ITEM_LABELS);
+  });
+
+  it("reads an item with no labels field as unlabelled", () => {
+    expect(parseIssueItem({ ...raw, labels: undefined })?.labels).toEqual([]);
   });
 
   it("recognises a pull request by its pull_request field", () => {

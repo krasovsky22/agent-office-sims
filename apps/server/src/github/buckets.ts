@@ -1,5 +1,5 @@
 /**
- * GitHub's issue list, sorted into the lobby board's columns.
+ * GitHub's issue list, sorted into the project board's columns.
  *
  * Pure, and kept apart from the HTTP in `client.ts`, because the rules are the
  * part with opinions in them — what counts as being worked on, which pull
@@ -15,11 +15,14 @@
 
 import {
   type BoardIssue,
+  type BoardLabel,
   type BoardPullRequest,
   CHECK_STATUS,
   type CheckStatus,
   MAX_BOARD_ITEMS,
   MAX_CLOSED_ISSUES,
+  MAX_ITEM_LABELS,
+  MAX_LABEL_LENGTH,
   type ProjectBoardLists,
   sanitizeTicketTitle,
 } from "@sim/shared";
@@ -33,6 +36,7 @@ import {
 export interface GithubIssueItem {
   readonly number: number;
   readonly title: string;
+  readonly labels: readonly BoardLabel[];
   readonly open: boolean;
   readonly author: string;
   readonly assignees: readonly string[];
@@ -66,6 +70,46 @@ function loginOf(raw: unknown): string | undefined {
   }
   const clean = sanitizeTicketTitle(login);
   return clean === "" ? undefined : clean;
+}
+
+/** GitHub's label colour: six hex digits, no `#`. */
+const LABEL_COLOUR = /^[0-9a-f]{6}$/i;
+
+/**
+ * Reads one label off an issue.
+ *
+ * The REST API gives a label as an object, but its schema also allows a bare
+ * name; both are accepted. A colour that is not six hex digits is dropped
+ * rather than passed on, because a client puts it straight into a style.
+ */
+function labelOf(raw: unknown): BoardLabel | undefined {
+  const record = asRecord(raw);
+  const name = sanitizeTicketTitle(record === undefined ? raw : record["name"]).slice(0, MAX_LABEL_LENGTH).trim();
+  if (name === "") {
+    return undefined;
+  }
+  const colour = record?.["color"];
+  return {
+    name,
+    color: typeof colour === "string" && LABEL_COLOUR.test(colour) ? `#${colour.toLowerCase()}` : "",
+  };
+}
+
+function labelsOf(raw: unknown): BoardLabel[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const labels: BoardLabel[] = [];
+  for (const entry of raw) {
+    const label = labelOf(entry);
+    if (label !== undefined && !labels.some((kept) => kept.name === label.name)) {
+      labels.push(label);
+    }
+    if (labels.length === MAX_ITEM_LABELS) {
+      break;
+    }
+  }
+  return labels;
 }
 
 function timestampOf(raw: unknown): number | null {
@@ -104,6 +148,7 @@ export function parseIssueItem(raw: unknown): GithubIssueItem | undefined {
   return {
     number: item["number"],
     title,
+    labels: labelsOf(item["labels"]),
     open: state === "open",
     author: loginOf(item["user"]) ?? "unknown",
     assignees,
@@ -161,6 +206,7 @@ function toBoardIssue(item: GithubIssueItem, pullRequests: readonly number[]): B
   return {
     number: item.number,
     title: item.title,
+    labels: item.labels,
     assignees: item.assignees,
     pullRequests,
     closedAt: item.open ? null : item.closedAt,
@@ -233,6 +279,7 @@ export function bucketIssues(
     .map((item) => ({
       number: item.number,
       title: item.title,
+      labels: item.labels,
       author: item.author,
       draft: item.pullRequest?.draft ?? false,
       checks: details.get(item.number)?.checks ?? CHECK_STATUS.unknown,

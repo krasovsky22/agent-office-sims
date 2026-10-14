@@ -1,5 +1,5 @@
 /**
- * The lobby board's contract: what the server tells every client about this
+ * The project board's contract: what the server tells every client about this
  * repository's own development.
  *
  * The board is not the in-game ticket board. That one is the simulated
@@ -29,11 +29,24 @@ export const CHECK_STATUS = {
 
 export type CheckStatus = (typeof CHECK_STATUS)[keyof typeof CHECK_STATUS];
 
+/**
+ * One GitHub label, as a board chip shows it: the `wave-1`, `client` or `bug`
+ * a card is tagged with, which is also what the close-up filters by.
+ */
+export interface BoardLabel {
+  /** Sanitized and length-capped by the server. Safe to render as text. */
+  readonly name: string;
+  /** `#rrggbb`, lower case, or `""` when GitHub gave no usable colour. */
+  readonly color: string;
+}
+
 /** One issue, reduced to what a board card shows. */
 export interface BoardIssue {
   readonly number: number;
   /** Sanitized and length-capped by the server. Safe to render as text. */
   readonly title: string;
+  /** In the order GitHub lists them, capped at {@link MAX_ITEM_LABELS}. */
+  readonly labels: readonly BoardLabel[];
   readonly assignees: readonly string[];
   /** Open pull requests that say they close this issue. */
   readonly pullRequests: readonly number[];
@@ -45,6 +58,8 @@ export interface BoardIssue {
 export interface BoardPullRequest {
   readonly number: number;
   readonly title: string;
+  /** In the order GitHub lists them, capped at {@link MAX_ITEM_LABELS}. */
+  readonly labels: readonly BoardLabel[];
   readonly author: string;
   readonly draft: boolean;
   readonly checks: CheckStatus;
@@ -90,6 +105,12 @@ export interface ProjectBoardSnapshot extends ProjectBoardLists {
 
 /** Longest list a snapshot carries, so one busy repository cannot flood the socket. */
 export const MAX_BOARD_ITEMS = 40;
+
+/** Labels kept per card; GitHub allows many more than a card has room to show. */
+export const MAX_ITEM_LABELS = 8;
+
+/** Longest label name a snapshot carries, which is also GitHub's own limit. */
+export const MAX_LABEL_LENGTH = 50;
 
 /** Recently closed issues kept on the board. Enough to show momentum, not a history. */
 export const MAX_CLOSED_ISSUES = 10;

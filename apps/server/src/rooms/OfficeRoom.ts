@@ -22,8 +22,8 @@
  * The board's rules are not here. `ticketHandlers.ts` wires the five commands
  * up and `@sim/shared`'s `tickets.ts` decides what each one is allowed to do.
  *
- * Nor is the lobby's GitHub board, beyond passing it on. The server's one feed
- * polls GitHub on its own timer and is handed to every room as a room option;
+ * Nor is the project board's GitHub feed, beyond passing it on. The server's
+ * one feed polls GitHub on its own timer and is handed to every room as a room option;
  * `projectBoardDelivery.ts` relays what it publishes. The tick never reads it.
  */
 

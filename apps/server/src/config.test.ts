@@ -1,7 +1,7 @@
 /**
  * The origin allowlist is the piece of deployment configuration that is a
  * security boundary rather than a convenience. Each case below is a claim the
- * README makes about `ALLOWED_ORIGINS`, or about the lobby board's
+ * README makes about `ALLOWED_ORIGINS`, or about the project board's
  * `PROJECT_BOARD_*` variables, which refuse to start the server when they are
  * wrong rather than polling a repository nobody meant.
  */

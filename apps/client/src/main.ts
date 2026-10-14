@@ -33,7 +33,7 @@ import { resolveServerUrl } from "./net/serverUrl.js";
 import { PlayerController } from "./player/controller.js";
 import { Avatar } from "./scene/avatar.js";
 import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
-import { buildLobbyBoard } from "./scene/lobbyBoard.js";
+import { buildWallBoard } from "./scene/wallBoard.js";
 import { buildOffice } from "./scene/office.js";
 import { loadPropKit } from "./scene/propKit.js";
 import { buildProps } from "./scene/props.js";
@@ -146,10 +146,10 @@ function start(): void {
   const office = buildOffice(scene, OFFICE_LAYOUT);
 
   const boardSpec = OFFICE_LAYOUT.boards.find((spec) => spec.id === PROJECT_BOARD_ID);
-  const lobbyBoard =
+  const wallBoard =
     boardSpec === undefined
       ? undefined
-      : buildLobbyBoard(scene, boardSpec, renderer.capabilities.getMaxAnisotropy());
+      : buildWallBoard(scene, boardSpec, renderer.capabilities.getMaxAnisotropy());
 
   const camera = createCamera(canvas, OFFICE_LAYOUT);
   const controller = new PlayerController(camera, canvas);
@@ -301,7 +301,7 @@ function start(): void {
     // The same snapshot goes to the wall and to the close-up panel, so what
     // the board shows at a distance and up close cannot disagree.
     onProjectBoard: (snapshot) => {
-      lobbyBoard?.show(snapshot);
+      wallBoard?.show(snapshot);
       publishHud({ projectBoard: snapshot });
     },
   });
