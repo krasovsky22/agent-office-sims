@@ -34,7 +34,6 @@ import {
   applyFiringMorale,
   isDueToQuit,
   isTrading,
-  recruitingFee,
 } from "./company.js";
 import { MAX_TICKET_COMMENTS } from "./constants.js";
 import type { OfficeLayout } from "./layout.js";
@@ -83,8 +82,6 @@ export const STAFF_REJECTION = {
   noFreeDesk: "no-free-desk",
   /** The only desks without an agent have somebody sitting at them. */
   deskInUse: "desk-in-use",
-  /** The company cannot pay the recruiting fee out of the cash it has. */
-  cannotAfford: "cannot-afford",
   /** The fire named someone who is not an agent employee in the office. */
   unknownAgent: "unknown-agent",
 } as const;
@@ -124,8 +121,6 @@ export type StaffCommandResult =
       readonly ok: true;
       readonly action: typeof STAFF_ACTION.hire;
       readonly agent: AgentEmployee;
-      /** What the hire cost on the spot. */
-      readonly fee: number;
     }
   | {
       readonly ok: true;
@@ -166,12 +161,10 @@ export function applyStaffCommand(
 }
 
 /**
- * Puts a new agent at the first free agent desk and pays the recruiting fee.
+ * Puts a new agent at the first free agent desk.
  *
- * The desk is checked before the cash, so a CEO with a full office is told it
- * is full rather than that they cannot afford a desk that does not exist. The
- * salary itself is first drawn at the next midnight, which reads it off the
- * agent now on the floor.
+ * The hire costs nothing on the spot: the salary is first drawn at the next
+ * midnight, which reads it off the agent now on the floor.
  */
 function hire(payload: StaffHireMessage, context: StaffCommandContext): StaffCommandResult {
   const candidate: HiringCandidate | undefined = hiringCandidateById(payload.candidateId);
@@ -181,10 +174,6 @@ function hire(payload: StaffHireMessage, context: StaffCommandContext): StaffCom
   const desk = freeAgentDesk(context.layout, context.occupants.values());
   if (desk.deskId === undefined) {
     return reject(desk.reason === "full" ? STAFF_REJECTION.noFreeDesk : STAFF_REJECTION.deskInUse);
-  }
-  const fee = recruitingFee(candidate.salary);
-  if (context.company.cash < fee) {
-    return reject(STAFF_REJECTION.cannotAfford);
   }
 
   const agent = employAgent(
@@ -197,8 +186,7 @@ function hire(payload: StaffHireMessage, context: StaffCommandContext): StaffCom
     ),
   );
   context.occupants.set(agent.id, agent);
-  context.company.cash -= fee;
-  return { ok: true, action: STAFF_ACTION.hire, agent, fee };
+  return { ok: true, action: STAFF_ACTION.hire, agent };
 }
 
 /** Lets an agent go: their work goes back on the board, and morale takes the hit. */

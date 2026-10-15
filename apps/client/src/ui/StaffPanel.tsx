@@ -114,9 +114,7 @@ export function StaffPanel({
                 <li className="staff__row staff__row--candidate" key={candidate.id}>
                   <span className="staff__job">
                     <span className="hud__name">{candidate.jobTitle}</span>
-                    <span className="staff__salary">
-                      {candidate.salary} · {candidate.fee}
-                    </span>
+                    <span className="staff__salary">{candidate.salary}</span>
                   </span>
                   <button
                     className="staff__button"

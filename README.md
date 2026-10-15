@@ -204,9 +204,9 @@ Then confirm all seventeen:
     with their salaries, the desks filled and the payroll; Milo's shows the
     same figures and says only the CEO hires and fires. Dana opens `Hire
     someone…` and hires a QA Engineer: a new agent appears at the next free
-    agent desk in both tabs, the chat log announces the hire and its recruiting
-    fee, cash drops by the fee, and the payroll line rises by the salary — which
-    the next midnight draws. Hire until all eight desks are filled and the panel
+    agent desk in both tabs, the chat log announces the hire and its salary,
+    cash is unchanged, and the payroll line rises by the salary — which the
+    next midnight draws. Hire until all eight desks are filled and the panel
     says so instead of offering more. `Fire`, then `Let go`, on an agent: they
     leave both tabs, morale falls with a red `−8` beside it, and the chat log
     says what it cost and how many of their tickets went back to the backlog.

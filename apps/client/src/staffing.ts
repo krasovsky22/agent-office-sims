@@ -19,7 +19,6 @@ import {
   type TicketActor,
   dailyPayroll,
   mayManageStaff,
-  recruitingFee,
 } from "@sim/shared";
 
 import { formatCash } from "./companyReadout.js";
@@ -30,8 +29,6 @@ export interface CandidateReadout {
   readonly jobTitle: string;
   /** e.g. `$600/day`. */
   readonly salary: string;
-  /** e.g. `$1,200 to hire`. */
-  readonly fee: string;
 }
 
 /** The staff as the HUD shows them. */
@@ -42,7 +39,7 @@ export interface StaffReadout {
   readonly desks: string;
   /** Whether every agent desk is taken, so the hire buttons can say so. */
   readonly full: boolean;
-  /** What the next midnight will draw, e.g. `$2,500/day`. */
+  /** What the next midnight will draw, e.g. `$2,200/day`. */
   readonly payroll: string;
   readonly candidates: readonly CandidateReadout[];
 }
@@ -51,7 +48,6 @@ const CANDIDATES: readonly CandidateReadout[] = HIRING_CANDIDATES.map((candidate
   id: candidate.id,
   jobTitle: candidate.jobTitle,
   salary: `${formatCash(candidate.salary)}/day`,
-  fee: `${formatCash(recruitingFee(candidate.salary))} to hire`,
 }));
 
 /**
@@ -88,7 +84,6 @@ const REJECTION_TEXT: Readonly<Record<StaffRejection, string>> = {
     "Every agent desk is taken. Fire someone before hiring: the office has no room for more.",
   [STAFF_REJECTION.deskInUse]:
     "The only free desk has someone sitting at it. Hire again once they stand up.",
-  [STAFF_REJECTION.cannotAfford]: "There is not enough cash to pay the recruiting fee.",
   [STAFF_REJECTION.unknownAgent]: "That agent is no longer on the staff.",
 };
 
@@ -111,10 +106,7 @@ export function staffChangeText(event: StaffChangedEvent): string {
   const who = `${event.name} (${event.jobTitle})`;
   switch (event.change) {
     case STAFF_CHANGE.hired:
-      return (
-        `${who} was hired at ${formatCash(event.salary)}/day, ` +
-        `for a ${formatCash(event.fee)} recruiting fee.`
-      );
+      return `${who} was hired at ${formatCash(event.salary)}/day.`;
     case STAFF_CHANGE.fired:
       return (
         `${who} was let go. Morale fell ${Math.round(event.moraleLost)} points.` +

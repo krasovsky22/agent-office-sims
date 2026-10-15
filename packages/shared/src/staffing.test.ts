@@ -26,7 +26,6 @@ import {
   STARTING_CASH,
   STARTING_MORALE,
   dailyPayroll,
-  recruitingFee,
 } from "./company.js";
 import { OFFICE_LAYOUT, interactables } from "./layout.js";
 import { parseStaffFireMessage, parseStaffHireMessage } from "./messages.js";
@@ -163,11 +162,11 @@ describe("hiring", () => {
     expect(agent.name).toBe(AGENT_NAMES[DEFAULT_AGENT_COUNT]);
   });
 
-  it("charges the recruiting fee now and adds the salary to the payroll", () => {
+  it("costs no cash now and adds the salary to the payroll", () => {
     const office = openOffice();
     const before = payroll(office);
     run(office, hire(DESIGNER.id));
-    expect(office.state.company.cash).toBe(STARTING_CASH - recruitingFee(DESIGNER.salary));
+    expect(office.state.company.cash).toBe(STARTING_CASH);
     expect(payroll(office)).toBe(before + DESIGNER.salary);
   });
 
@@ -207,16 +206,6 @@ describe("hiring", () => {
 
     exec.interactableId = "";
     expect(run(office, hire(DESIGNER.id)).ok).toBe(true);
-  });
-
-  it("refuses a hire the company cannot pay the fee for", () => {
-    const office = openOffice();
-    office.state.company.cash = recruitingFee(DESIGNER.salary) - 1;
-    expect(run(office, hire(DESIGNER.id))).toEqual({
-      ok: false,
-      rejection: STAFF_REJECTION.cannotAfford,
-    });
-    expect(agents(office)).toHaveLength(DEFAULT_AGENT_COUNT);
   });
 
   it("refuses a job the office does not offer", () => {

@@ -4,7 +4,6 @@
  */
 
 import {
-  DAILY_OVERHEAD,
   HIRING_CANDIDATES,
   OCCUPANT_KIND,
   OFFICE_LAYOUT,
@@ -12,7 +11,6 @@ import {
   STAFF_CHANGE,
   STAFF_REJECTION,
   type TicketActor,
-  recruitingFee,
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
@@ -29,8 +27,8 @@ describe("readStaff", () => {
     expect(readStaff(undefined, []).canManage).toBe(false);
   });
 
-  it("adds the salaries to the overhead, the figure midnight draws", () => {
-    expect(readStaff(DANA, [600, 550]).payroll).toBe(`${formatCash(DAILY_OVERHEAD + 1150)}/day`);
+  it("adds up the salaries, the figure midnight draws", () => {
+    expect(readStaff(DANA, [600, 550]).payroll).toBe(`${formatCash(1150)}/day`);
   });
 
   it("counts desks against the floor plan and says when it is full", () => {
@@ -40,13 +38,13 @@ describe("readStaff", () => {
     expect(readStaff(DANA, Array.from({ length: capacity }, () => 1)).full).toBe(true);
   });
 
-  it("lists every candidate with its salary and fee", () => {
+  it("lists every candidate with its salary", () => {
     const { candidates } = readStaff(DANA, []);
     expect(candidates.map((candidate) => candidate.id)).toEqual(
       HIRING_CANDIDATES.map((candidate) => candidate.id),
     );
     const first = HIRING_CANDIDATES[0];
-    expect(candidates[0]?.fee).toBe(`${formatCash(recruitingFee(first?.salary ?? 0))} to hire`);
+    expect(candidates[0]?.salary).toBe(`${formatCash(first?.salary ?? 0)}/day`);
   });
 
   it("notices a hire, and nothing else", () => {
@@ -67,9 +65,9 @@ describe("staff wording", () => {
 
   const ada = { agentId: "agent-1", name: "Ada Byrne", jobTitle: "Backend Engineer", salary: 600 };
 
-  it("announces a hire with its cost", () => {
-    expect(staffChangeText({ ...ada, change: STAFF_CHANGE.hired, fee: 1200 })).toBe(
-      "Ada Byrne (Backend Engineer) was hired at $600/day, for a $1,200 recruiting fee.",
+  it("announces a hire with its salary", () => {
+    expect(staffChangeText({ ...ada, change: STAFF_CHANGE.hired })).toBe(
+      "Ada Byrne (Backend Engineer) was hired at $600/day.",
     );
   });
 

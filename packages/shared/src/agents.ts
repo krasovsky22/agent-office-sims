@@ -58,8 +58,7 @@ export interface HiringCandidate {
  * Every job the CEO can hire for, in the order the HUD lists them.
  *
  * Also the starting staff's jobs, in hiring order: the roster pairs the first
- * names with these titles. The first four add up, with the office overhead, to
- * the 2,500 a day the default office has always cost.
+ * names with these titles.
  */
 export const HIRING_CANDIDATES: readonly HiringCandidate[] = [
   { id: "backend-engineer", jobTitle: "Backend Engineer", salary: 600 },
