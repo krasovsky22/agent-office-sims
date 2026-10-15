@@ -13,7 +13,8 @@ above the speaker's head and relayed through the server. The floor plan is a
 whole floor — desk rows in the open plan, a meeting room, a kitchen, the CEO's
 corner office and the lobby, joined by a corridor — and it is furnished now,
 with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
-one shadow-casting light. Some of it can be used: walk up to a desk chair, the
+one shadow-casting light that follows the in-game clock from dawn to dusk, with
+the interior lights coming up at night. Some of it can be used: walk up to a desk chair, the
 kitchen's coffee machine, the meeting room's whiteboard or the project board and a
 prompt offers the action, which the server grants or refuses. On top of that, the ticket
 board exists as replicated state with its rules enforced on the server, and the
@@ -449,7 +450,10 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do at the ticket board, and why
+  src/dayClock.ts         the replicated clock, run on smoothly between patches
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
+  src/scene/daylight.ts   the day's light curve: sun, sky and interior by the minute
+  src/scene/lighting.ts   the office's lights, set from that curve every frame
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
