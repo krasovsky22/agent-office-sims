@@ -422,9 +422,9 @@ Eleven things are worth knowing before changing anything:
   commenting is open to everyone. The client asks the same predicate, through
   `client/boardAccess.ts`, to disable a control and say why — never to decide.
   Hiring and firing have the same shape: `shared/staffing.ts` holds
-  `mayManageStaff`, the one staffing gate, and the rules for what a hire costs
-  and what a departing agent's tickets do — they go back to the backlog, never
-  left pointing at someone who has gone.
+  `mayManageStaff`, the one staffing gate, and the rules for what firing costs
+  in morale and what a departing agent's tickets do — they go back to the
+  backlog, never left pointing at someone who has gone.
   Exactly one player holds the CEO role while anyone is in the office;
   `server/sim/roles.ts` assigns it on arrival and passes it on, in the same
   patch as the departure, when its holder leaves.
