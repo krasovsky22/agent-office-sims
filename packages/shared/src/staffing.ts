@@ -10,8 +10,8 @@
  *
  * An agent leaving — fired, or quitting — goes through {@link removeAgent}
  * either way, so the two departures treat the board identically: every ticket
- * the agent still had open is returned to the backlog with a note saying why,
- * so the work is waiting for the CEO to hand on rather than pointing at
+ * the agent was still working is returned to the backlog with a note saying
+ * why, so the work is waiting for the CEO to hand on rather than pointing at
  * somebody who is no longer there.
  *
  * Everything is synchronous and allocation-light: the room calls the applier
@@ -203,16 +203,17 @@ function fire(payload: StaffFireMessage, context: StaffCommandContext): StaffCom
 /**
  * Takes an agent off the floor and hands their unfinished work back.
  *
- * Every ticket the agent is assigned that is not `done` goes to `backlog` with
- * no assignee, whatever column it was in, and gets a system comment saying why
- * — so it is never left pointing at someone who has gone, and the reason is on
- * the card for whoever picks it up. Its deliverable, if it has one, stays on
- * it. This deliberately steps outside the transition table, which only walks
- * `in_progress` back a column at a time: that rule is for a player's command,
- * and the person whose work it was is no longer there to walk it.
+ * Every ticket the agent is still working — `assigned` or `in_progress` —
+ * goes to `backlog` with no assignee and gets a system comment saying why, so
+ * it is never left waiting on someone who has gone, and the reason is on the
+ * card for whoever picks it up. This deliberately steps outside the transition
+ * table, which only walks `in_progress` back a column at a time: that rule is
+ * for a player's command, and the person whose work it was is no longer there
+ * to walk it.
  *
- * A `done` ticket keeps the agent as its assignee, which is the record of who
- * finished it.
+ * A `review` or `done` ticket keeps the agent as its assignee, which is the
+ * record of who did the work: a review is already handed in with its
+ * deliverable, so the CEO can still approve it after the agent has left.
  */
 export function removeAgent(
   agent: AgentEmployee,
@@ -221,7 +222,10 @@ export function removeAgent(
 ): Departure {
   const releasedTicketIds: string[] = [];
   for (const ticket of context.board.values()) {
-    if (ticket.assigneeId !== agent.id || ticket.status === TICKET_STATUS.done) {
+    if (
+      ticket.assigneeId !== agent.id ||
+      (ticket.status !== TICKET_STATUS.assigned && ticket.status !== TICKET_STATUS.in_progress)
+    ) {
       continue;
     }
     ticket.status = TICKET_STATUS.backlog;
