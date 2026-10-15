@@ -411,7 +411,7 @@ thing the page talks to is the WebSocket.
   platform probes, and with `POST /agents/report` when `LIVE_AGENTS_SECRET` is
   set, the only HTTP the server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same sixteen things.
+  [The two-tab check](#the-two-tab-check), and confirm the same seventeen things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
