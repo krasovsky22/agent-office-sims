@@ -31,7 +31,7 @@ const DEV_ORIGINS: readonly string[] = ["http://localhost:5173", "http://127.0.0
  */
 export const DISALLOWED_ORIGIN = "https://disallowed.invalid";
 
-/** The repository whose issues the lobby board shows when none is configured: this one. */
+/** The repository whose issues the project board shows when none is configured: this one. */
 const DEFAULT_PROJECT_REPOSITORY = "krasovsky22/agent-office-sims";
 
 /**
@@ -51,7 +51,7 @@ const MIN_POLL_SECONDS = 15;
 /** `owner/name`, in the characters GitHub allows in each. */
 const REPOSITORY_PATTERN = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
-/** Where the lobby board reads its issues from. */
+/** Where the project board reads its issues from. */
 export interface ProjectBoardConfig {
   /** `owner/name`. */
   readonly repository: string;
@@ -79,7 +79,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
 }
 
 /**
- * Reads the lobby board's feed settings.
+ * Reads the project board's feed settings.
  *
  * - `PROJECT_BOARD_REPO`: `owner/name`, defaulting to this repository.
  * - `PROJECT_BOARD_TOKEN`: optional. Raises the rate limit and turns on check

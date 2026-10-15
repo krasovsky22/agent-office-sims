@@ -1,5 +1,5 @@
 /**
- * The lobby board's poll loop, and the last snapshot it got right.
+ * The project board's poll loop, and the last snapshot it got right.
  *
  * This runs on its own timer, outside every room's simulation tick, and that
  * separation is the point of the module. A GitHub request takes hundreds of

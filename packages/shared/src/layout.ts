@@ -297,7 +297,7 @@ const STANDING_GAP = 0.5;
 /** Gap between a wall board and the occupant standing to read it. */
 const READING_GAP = 1;
 
-/** The lobby board that shows this repository's own GitHub issues and pull requests. */
+/** The open floor's wall board that shows this repository's own GitHub issues and pull requests. */
 export const PROJECT_BOARD_ID = "project-board";
 
 /**
@@ -422,17 +422,20 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { id: "coffee-machine", kind: "coffee", x: 3.15, z: -11.1, yaw: 0, width: 0.9, depth: 0.7, height: 1.5 },
   ],
   boards: [
-    // The lobby's north wall, facing the way in: the first thing an arriving
-    // player sees, and wide enough to read from the middle of the room.
+    // The open floor's partition, between its two doorways and facing south
+    // down the desk rows: the north and south rows look straight at it from
+    // their seats, and an arriving player spawns facing it. As wide as the
+    // partition allows with a clear metre either side to the door frames, so
+    // it reads from the back row.
     {
       id: PROJECT_BOARD_ID,
-      roomId: "lobby",
-      x: 9,
-      z: -11.7,
+      roomId: "open-floor",
+      x: 0,
+      z: -2.4,
       yaw: Math.PI,
-      width: 5,
-      height: 2.5,
-      elevation: 0.35,
+      width: 8.4,
+      height: 2.6,
+      elevation: 0.3,
     },
   ],
   rooms: [

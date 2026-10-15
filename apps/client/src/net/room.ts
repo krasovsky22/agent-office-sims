@@ -18,7 +18,7 @@
  * server events and is handed straight to the caller, including the local
  * player's own: everything renders on the path the server published it on, so
  * what you see above your own head is what everyone else sees above it. The
- * lobby board's GitHub snapshot arrives the same way, whole, on joining and on
+ * project board's GitHub snapshot arrives the same way, whole, on joining and on
  * every change.
  */
 
@@ -107,7 +107,7 @@ export interface RoomConnectionEvents {
   onChat?: (event: ChatEvent) => void;
   /** The local client's own emote or chat was dropped by the rate limiter. */
   onThrottled?: (event: ThrottledEvent) => void;
-  /** The lobby board's snapshot, on joining and whenever the server's feed replaces it. */
+  /** The project board's snapshot, on joining and whenever the server's feed replaces it. */
   onProjectBoard?: (snapshot: ProjectBoardSnapshot) => void;
 }
 

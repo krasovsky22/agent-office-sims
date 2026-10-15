@@ -1,5 +1,5 @@
 /**
- * What the lobby board says, decided once for both of the places it is said.
+ * What the project board says, decided once for both of the places it is said.
  *
  * The wall board in the scene and the close-up panel in the HUD show the same
  * snapshot, one painted onto a canvas and one as React text. Both read their
@@ -10,7 +10,13 @@
  * it; both renderers take text rather than markup.
  */
 
-import { type BoardIssue, type BoardPullRequest, type CheckStatus, type ProjectBoardSnapshot } from "@sim/shared";
+import {
+  type BoardIssue,
+  type BoardLabel,
+  type BoardPullRequest,
+  type CheckStatus,
+  type ProjectBoardSnapshot,
+} from "@sim/shared";
 
 export type BoardColumnKey = "open" | "inProgress" | "closed" | "pullRequests";
 
@@ -25,6 +31,10 @@ export interface BoardRow {
   /** Who and what, in a few words. Empty when there is nothing to add. */
   readonly detail: string;
   readonly tone: BoardTone;
+  /** The card's GitHub labels, drawn as chips and filtered by. */
+  readonly labels: readonly BoardLabel[];
+  /** Everything a search looks through, lower case: number, title, labels, detail. */
+  readonly searchText: string;
 }
 
 export interface BoardColumn {
@@ -52,6 +62,10 @@ const CHECK_TEXT: Record<CheckStatus, { text: string; tone: BoardTone }> = {
   unknown: { text: "", tone: "plain" },
 };
 
+function searchTextOf(label: string, title: string, labels: readonly BoardLabel[], detail: string): string {
+  return [label, title, ...labels.map((tag) => tag.name), detail].join(" ").toLowerCase();
+}
+
 function issueRow(issue: BoardIssue, formatDate: TimeFormatter): BoardRow {
   const parts = [
     ...issue.assignees.map((login) => `@${login}`),
@@ -60,24 +74,32 @@ function issueRow(issue: BoardIssue, formatDate: TimeFormatter): BoardRow {
   if (issue.closedAt !== null) {
     parts.push(`closed ${formatDate(issue.closedAt)}`);
   }
+  const label = `#${issue.number}`;
+  const detail = parts.join(" · ");
   return {
     key: `issue-${issue.number}`,
-    label: `#${issue.number}`,
+    label,
     title: issue.title,
-    detail: parts.join(" · "),
+    detail,
     tone: "plain",
+    labels: issue.labels,
+    searchText: searchTextOf(label, issue.title, issue.labels, detail),
   };
 }
 
 function pullRequestRow(pull: BoardPullRequest): BoardRow {
   const checks = CHECK_TEXT[pull.checks];
   const parts = [`@${pull.author}`, ...(pull.draft ? ["draft"] : []), ...(checks.text === "" ? [] : [checks.text])];
+  const label = `#${pull.number}`;
+  const detail = parts.join(" · ");
   return {
     key: `pull-${pull.number}`,
-    label: `#${pull.number}`,
+    label,
     title: pull.title,
-    detail: parts.join(" · "),
+    detail,
     tone: checks.tone,
+    labels: pull.labels,
+    searchText: searchTextOf(label, pull.title, pull.labels, detail),
   };
 }
 
@@ -109,6 +131,86 @@ export function boardColumns(snapshot: ProjectBoardSnapshot, formatDate: TimeFor
       rows: snapshot.pullRequests.map(pullRequestRow),
     },
   ];
+}
+
+/** What the close-up is narrowed to: free text, and labels a card must all carry. */
+export interface BoardFilter {
+  readonly query: string;
+  readonly labels: ReadonlySet<string>;
+}
+
+export const NO_BOARD_FILTER: BoardFilter = { query: "", labels: new Set() };
+
+/** Whether a filter narrows anything, so a view can say it is showing matches. */
+export function isFiltering(filter: BoardFilter): boolean {
+  return filter.query.trim() !== "" || filter.labels.size > 0;
+}
+
+/**
+ * The columns with only the rows a filter lets through.
+ *
+ * Every word of the query has to appear somewhere in a row, and the row has to
+ * carry every selected label: the same "and" GitHub's own label filter means,
+ * so `wave-1` plus `client` narrows rather than widens. A column keeps its
+ * GitHub total, since that is still how many there are; what matched is the
+ * length of its rows.
+ */
+export function filterBoardColumns(columns: readonly BoardColumn[], filter: BoardFilter): BoardColumn[] {
+  if (!isFiltering(filter)) {
+    return [...columns];
+  }
+  const terms = filter.query.toLowerCase().split(/\s+/).filter((term) => term !== "");
+  const matches = (row: BoardRow) =>
+    terms.every((term) => row.searchText.includes(term)) &&
+    [...filter.labels].every((name) => row.labels.some((label) => label.name === name));
+  return columns.map((column) => ({ ...column, rows: column.rows.filter(matches) }));
+}
+
+/**
+ * Every label on the board, once each, for the close-up's filter chips.
+ *
+ * Sorted by name with numbers compared as numbers, so `wave-2` comes before
+ * `wave-10`. A label's colour is the first one seen; GitHub gives a label one
+ * colour per repository, so they agree anyway. A selected label is listed even
+ * after a poll takes its last card away, so it can still be seen and turned off
+ * rather than silently matching nothing.
+ */
+export function boardLabels(snapshot: ProjectBoardSnapshot, selected: ReadonlySet<string> = new Set()): BoardLabel[] {
+  const byName = new Map<string, BoardLabel>();
+  for (const item of [...snapshot.open, ...snapshot.inProgress, ...snapshot.closed, ...snapshot.pullRequests]) {
+    for (const label of item.labels) {
+      if (!byName.has(label.name)) {
+        byName.set(label.name, label);
+      }
+    }
+  }
+  for (const name of selected) {
+    if (!byName.has(name)) {
+      byName.set(name, { name, color: "" });
+    }
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+/** Chip colour for a label GitHub gave no usable colour. */
+const NEUTRAL_LABEL = "#5b606b";
+
+/**
+ * A label chip's fill and the text colour that reads on it.
+ *
+ * GitHub label colours run from near-white to near-black, so the text flips
+ * between dark and light on the fill's relative luminance rather than being
+ * one colour that some labels swallow.
+ */
+export function labelColours(label: BoardLabel): { fill: string; text: string } {
+  const fill = /^#[0-9a-f]{6}$/.test(label.color) ? label.color : NEUTRAL_LABEL;
+  const channel = (offset: number) => {
+    const value = Number.parseInt(fill.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+  // 0.179 is where black and white text have equal contrast against the fill.
+  return { fill, text: luminance > 0.179 ? "#000000" : "#ffffff" };
 }
 
 /**

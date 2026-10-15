@@ -14,13 +14,14 @@ whole floor — desk rows in the open plan, a meeting room, a kitchen, the CEO's
 corner office and the lobby, joined by a corridor — and it is furnished now,
 with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
 one shadow-casting light. Some of it can be used: walk up to a desk chair, the
-kitchen's coffee machine, the meeting room's whiteboard or the lobby board and a
+kitchen's coffee machine, the meeting room's whiteboard or the project board and a
 prompt offers the action, which the server grants or refuses. On top of that, the ticket
 board exists as replicated state with its rules enforced on the server — a
 board panel to see it in and the AI agent employees are later milestones. The
-lobby's north wall carries a different board: this repository's own GitHub
-issues, grouped open, in progress and recently closed, beside its open pull
-requests, polled by the server and shown to everyone the same.
+open floor's north wall, facing the desk rows, carries a different board: this
+repository's own GitHub issues, grouped open, in progress and recently closed,
+beside its open pull requests, each with its labels (`wave-1`, `client`…),
+polled by the server and shown to everyone the same.
 
 ## Running it
 
@@ -34,16 +35,16 @@ pnpm dev
 That starts both halves: the Colyseus server on `ws://localhost:2567` and the
 Vite client on `http://localhost:5173`. Both have working defaults, so no
 configuration is required; `.env.example` lists the variables (`PORT`,
-`ALLOWED_ORIGINS`, and `VITE_SERVER_URL`, plus the lobby board's
+`ALLOWED_ORIGINS`, and `VITE_SERVER_URL`, plus the project board's
 `PROJECT_BOARD_*`) if you need to point the client somewhere else. A deployment
 has to set the first three — see [Deploying it](#deploying-it).
 
-The server polls GitHub for the lobby board as soon as it starts, anonymously
+The server polls GitHub for the project board as soon as it starts, anonymously
 unless `PROJECT_BOARD_TOKEN` is set.
 
 Walk with `W A S D` or the arrow keys. Click the canvas to capture the mouse,
 then move it to swing the camera; `Esc` releases it. Walk up to a desk chair, the
-coffee machine, the whiteboard or the lobby board and a prompt appears; `E` uses
+coffee machine, the whiteboard or the project board and a prompt appears; `E` uses
 it. Any movement key gets you out of a chair.
 
 `1` to `5` fire the five emotes, which are also buttons in the chat panel.
@@ -101,13 +102,17 @@ Then confirm all eleven:
 9. **A chair holds one person.** With Dana sitting, walk Milo to the same
    chair: the prompt reads `Sit down — taken` and `E` does nothing. The chair
    frees up when Dana stands, and also if Dana's tab is simply closed.
-10. **The lobby board matches GitHub, in both tabs.** Walk into the lobby, the
-    room in the north-east. Within one poll interval of the server starting, the
-    wall board lists the repository's open, in-progress and recently closed
-    issues and its open pull requests, with the time it last updated; walk up to
-    it and press `E` at the `Read the project board` prompt to open the full
-    lists as a panel; `E` again or stepping back closes it. Both
-    tabs show the same thing. Start the server with
+10. **The project board matches GitHub, in both tabs.** It hangs on the open
+    floor's north wall, straight ahead as you spawn. Within one poll interval of
+    the server starting, the wall board lists the repository's open,
+    in-progress and recently closed issues and its open pull requests, each with
+    its label chips, and the time it last updated; walk up to it and press `E`
+    at the `Read the project board` prompt to open the full view. `/` puts the
+    cursor in its search box, which matches numbers, titles, labels and people,
+    and the label toggles narrow it to cards carrying every selected label;
+    neither touches the wall board or the other tab. `E` again or stepping back
+    closes it. Both tabs show
+    the same board. Start the server with
     `PROJECT_BOARD_REPO=krasovsky22/no-such-repo` and the board says it is
     stale, while walking and chat carry on as normal.
 11. **`pnpm typecheck` passes** across the whole repository.
@@ -116,7 +121,7 @@ Then confirm all eleven:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets, messages, expression limits, server origins, avatar animation, the lobby board's GitHub feed
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets, messages, expression limits, server origins, avatar animation, the project board's GitHub feed and filters
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -147,7 +152,7 @@ public.
 | `PORT` | server | runtime | No — most platforms assign it. Defaults to `2567`. |
 | `ALLOWED_ORIGINS` | server | runtime | **Yes.** Comma-separated origins allowed to join. Defaults to the local dev server, which no deployed page is served from. |
 | `VITE_SERVER_URL` | client | **build** | **Yes.** The server's WebSocket URL, e.g. `wss://office-server.fly.dev`. |
-| `PROJECT_BOARD_REPO` | server | runtime | No. The `owner/name` the lobby board shows. Defaults to this repository. |
+| `PROJECT_BOARD_REPO` | server | runtime | No. The `owner/name` the project board shows. Defaults to this repository. |
 | `PROJECT_BOARD_TOKEN` | server | runtime | No, but recommended. A read-only GitHub token; see below. |
 | `PROJECT_BOARD_POLL_SECONDS` | server | runtime | No. Seconds between polls, at least 15. Defaults to 180, or 60 with a token. |
 
@@ -247,7 +252,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/state.ts        replicated Colyseus schema
   src/messages.ts     commands and events, with the parsers for the untrusted ones
   src/tickets.ts      the board's rules: transitions, authority, commands
-  src/projectBoard.ts the lobby board's GitHub snapshot
+  src/projectBoard.ts the project board's GitHub snapshot
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
   src/collision.ts    capsule-vs-AABB movement resolution
@@ -256,12 +261,12 @@ packages/shared/   @sim/shared   the contract both sides import
   src/constants.ts    tick rate, speeds, radii, ranges, expression limits
 apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/expression.ts   per-occupant emote and chat budgets
-  src/github/             the lobby board's feed: fetch, bucket, poll
+  src/github/             the project board's feed: fetch, bucket, poll
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
-  src/scene/lobbyBoard.ts the lobby's GitHub board, painted on a canvas
+  src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
   src/assets/office-kit/ the vendored models, and their licence
 ```
 
@@ -307,7 +312,7 @@ Seven things are worth knowing before changing anything:
   message. The client runs the same `shared/interaction.ts` rule before showing
   its prompt, so what it offers is what the server will grant — but the offer is
   not the decision.
-- **The lobby board reads GitHub on its own clock.** One feed per server process
+- **The project board reads GitHub on its own clock.** One feed per server process
   polls on its own timer and keeps the last good snapshot; rooms send it to each
   client on join and broadcast each replacement. Nothing awaits inside the
   simulation tick, so a slow or unreachable GitHub costs a stale board, never a

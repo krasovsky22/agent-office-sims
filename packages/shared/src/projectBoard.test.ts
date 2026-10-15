@@ -1,8 +1,8 @@
 /**
- * The lobby board is placed by hand, so these pin the two things a hand can get
- * wrong: that it hangs where a player can walk up to it and faces the right
- * way, and that the proximity prompt offers its close-up in front of it and
- * nowhere else.
+ * The project board is placed by hand, so these pin the things a hand can get
+ * wrong: that it hangs on the open floor where the desk rows can read it,
+ * faces the right way and clears the doorways beside it, and that the
+ * proximity prompt offers its close-up in front of it and nowhere else.
  */
 
 import { describe, expect, it } from "vitest";
@@ -42,22 +42,51 @@ function withBoard(board: WallBoardSpec): OfficeLayout {
   return { ...OFFICE_LAYOUT, boards: [board] };
 }
 
-const LOBBY_CENTRE = { x: 9, z: -8 };
+/** The aisle between the first two desk rows, where players spawn facing north. */
+const FLOOR_AISLE = { x: 0, z: 2.5 };
 
-describe("the lobby's project board", () => {
-  it("hangs in the lobby, on a wall, facing into the room", () => {
+describe("the open floor's project board", () => {
+  it("hangs on the open floor, on a wall, facing into the room", () => {
     const board = projectBoard();
-    expect(board.roomId).toBe("lobby");
+    expect(board.roomId).toBe("open-floor");
     expect(describeLayoutProblems(OFFICE_LAYOUT)).toEqual([]);
   });
 
-  it("faces the lobby centre, so it can be read from the middle of the room", () => {
+  it("faces down the desk rows, so it can be read from the aisle between them", () => {
     const board = projectBoard();
-    expect(roomAt(OFFICE_LAYOUT, LOBBY_CENTRE)?.id).toBe("lobby");
+    expect(roomAt(OFFICE_LAYOUT, FLOOR_AISLE)?.id).toBe("open-floor");
     // Yaw 0 faces -Z, so a board facing +Z is read from the south of it.
     expect(Math.cos(board.yaw)).toBeCloseTo(-1);
-    expect(LOBBY_CENTRE.z).toBeGreaterThan(board.z);
-    expect(Math.abs(LOBBY_CENTRE.x - board.x)).toBeLessThanOrEqual(board.width / 2);
+    expect(FLOOR_AISLE.z).toBeGreaterThan(board.z);
+    expect(Math.abs(FLOOR_AISLE.x - board.x)).toBeLessThanOrEqual(board.width / 2);
+  });
+
+  it("is in sight of a seat in every north-facing desk row", () => {
+    const board = projectBoard();
+    const facingIt = interactables(OFFICE_LAYOUT).filter(
+      (spec) =>
+        spec.kind === INTERACTION_KIND.seat &&
+        roomAt(OFFICE_LAYOUT, spec.anchor)?.id === "open-floor" &&
+        Math.cos(spec.anchor.yaw) > 0.99 &&
+        spec.anchor.z > board.z &&
+        Math.abs(spec.anchor.x - board.x) <= board.width / 2,
+    );
+    const rows = new Set(facingIt.map((spec) => spec.anchor.z.toFixed(2)));
+    expect(rows.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it("stays clear of the doorways in the wall it hangs on", () => {
+    const board = projectBoard();
+    const left = board.x - board.width / 2;
+    const right = board.x + board.width / 2;
+    for (const doorway of OFFICE_LAYOUT.doorways) {
+      if (doorway.axis !== "x" || Math.abs(doorway.centre.z - board.z) > 0.5) {
+        continue;
+      }
+      const doorLeft = doorway.centre.x - doorway.width / 2;
+      const doorRight = doorway.centre.x + doorway.width / 2;
+      expect(right <= doorLeft || left >= doorRight, `overlaps ${doorway.id}`).toBe(true);
+    }
   });
 
   it("fits under the ceiling the walls give it", () => {
@@ -77,8 +106,8 @@ describe("the lobby's project board", () => {
     expect(nearestInteractable(OFFICE_LAYOUT, spec.anchor, INTERACT_RANGE)?.id).toBe(PROJECT_BOARD_ID);
   });
 
-  it("is not offered from the lobby centre, so reading it up close is a decision", () => {
-    expect(nearestInteractable(OFFICE_LAYOUT, LOBBY_CENTRE, INTERACT_RANGE)).toBeUndefined();
+  it("is not offered from the aisle, so reading it up close is a decision", () => {
+    expect(nearestInteractable(OFFICE_LAYOUT, FLOOR_AISLE, INTERACT_RANGE)).toBeUndefined();
   });
 
   it("holds nobody, so any number of players can read it at once", () => {
@@ -89,11 +118,11 @@ describe("the lobby's project board", () => {
   });
 
   it("follows the board's yaw rather than assuming a north wall", () => {
-    // The same board hung on the lobby's east wall, facing west.
-    const east: WallBoardSpec = { ...projectBoard(), x: 11.7, z: -8, yaw: Math.PI / 2 };
+    // The same board hung on the open floor's east wall, facing west.
+    const east: WallBoardSpec = { ...projectBoard(), x: 11.7, z: 3, yaw: Math.PI / 2 };
     const spec = boardInteractable({ ...OFFICE_LAYOUT, boards: [east] });
     expect(spec.anchor.x).toBeCloseTo(10.7);
-    expect(spec.anchor.z).toBeCloseTo(-8);
+    expect(spec.anchor.z).toBeCloseTo(3);
   });
 });
 
@@ -102,13 +131,13 @@ describe("board placement checks", () => {
     const board = projectBoard();
     expect(describeLayoutProblems(withBoard({ ...board, yaw: 0 }))).toEqual([
       `board ${board.id} is not hung on a wall`,
-      `board ${board.id} does not face into room lobby`,
+      `board ${board.id} does not face into room open-floor`,
     ]);
   });
 
   it("report a board left hanging in the middle of a room", () => {
     const board = projectBoard();
-    expect(describeLayoutProblems(withBoard({ ...board, z: -8 }))).toEqual([
+    expect(describeLayoutProblems(withBoard({ ...board, z: 3 }))).toEqual([
       `board ${board.id} is not hung on a wall`,
     ]);
   });

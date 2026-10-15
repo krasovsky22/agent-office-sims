@@ -1,5 +1,5 @@
 /**
- * The lobby's wall board: the repository's GitHub issues and open pull
+ * The open floor's wall board: the repository's GitHub issues and open pull
  * requests, painted onto a canvas and hung where the shared layout says.
  *
  * Where it hangs and how big it is come from `@sim/shared`'s
@@ -12,9 +12,10 @@
  * snapshot arrives, which is every poll interval at most, so the canvas upload
  * never touches the frame budget.
  *
- * The type is large on purpose. From the middle of the lobby, with the camera
- * behind the player, the wall board is read for its column counts and the top
- * few titles; the close-up panel is where the full lists are read.
+ * The type is large on purpose. From the desk rows, with the camera behind
+ * the player, the wall board is read for its column counts, the top few
+ * titles and the colour of their label chips; the close-up panel is where the
+ * full lists are read, searched and filtered.
  */
 
 import type { ProjectBoardSnapshot, WallBoardSpec } from "@sim/shared";
@@ -22,15 +23,21 @@ import * as THREE from "three";
 
 import {
   type BoardColumn,
+  type BoardRow,
   type BoardTone,
   boardColumns,
   boardStatus,
   formatClockTime,
   formatShortDate,
+  labelColours,
 } from "../projectBoard.js";
 
-/** Texture size. Sized once: see the note on canvas resizing in `billboard.ts`. */
-const CANVAS_WIDTH = 2048;
+/**
+ * Texture size. Sized once: see the note on canvas resizing in `billboard.ts`.
+ * Wide enough that the board's type stays about 12cm tall on its open-floor
+ * wall, which is what reads from the back desk row.
+ */
+const CANVAS_WIDTH = 3072;
 
 /** Depth of the frame the face is set into, standing proud of the wall. */
 const FRAME_DEPTH = 0.06;
@@ -72,6 +79,43 @@ function fitText(context: CanvasRenderingContext2D, text: string, maxWidth: numb
   return `${characters.join("")}…`;
 }
 
+const CHIP_SIZE = 26;
+const CHIP_HEIGHT = 36;
+const CHIP_PADDING = 12;
+const CHIP_GAP = 8;
+
+/**
+ * Paints a row's label chips from `left`, as many as fit in `maxWidth`.
+ *
+ * @returns where the next thing on the line can start.
+ */
+function paintChips(
+  context: CanvasRenderingContext2D,
+  row: BoardRow,
+  left: number,
+  baseline: number,
+  maxWidth: number,
+): number {
+  context.font = `600 ${CHIP_SIZE}px ${FONT_STACK}`;
+  let x = left;
+  for (const label of row.labels) {
+    const name = fitText(context, label.name, maxWidth - CHIP_PADDING * 2);
+    const width = context.measureText(name).width + CHIP_PADDING * 2;
+    if (x + width > left + maxWidth) {
+      break;
+    }
+    const colours = labelColours(label);
+    context.fillStyle = colours.fill;
+    context.beginPath();
+    context.roundRect(x, baseline - CHIP_HEIGHT + 8, width, CHIP_HEIGHT, CHIP_HEIGHT / 2);
+    context.fill();
+    context.fillStyle = colours.text;
+    context.fillText(name, x + CHIP_PADDING, baseline);
+    x += width + CHIP_GAP;
+  }
+  return x;
+}
+
 /** Paints one column: its title and count, then rows until it runs out of room. */
 function paintColumn(
   context: CanvasRenderingContext2D,
@@ -110,7 +154,8 @@ function paintColumn(
 
   context.textAlign = "left";
   for (const row of column.rows) {
-    const rowHeight = titleSize + 14 + (row.detail === "" ? 0 : detailSize + 8);
+    const secondLine = row.detail !== "" || row.labels.length > 0;
+    const rowHeight = titleSize + 14 + (secondLine ? CHIP_HEIGHT + 8 : 0);
     // Keep room for the "+N more" footer unless this row is the column's last.
     const reserve = shown + 1 < column.total ? footerHeight : 0;
     if (y + rowHeight + reserve > bottom) {
@@ -130,10 +175,15 @@ function paintColumn(
       y + titleSize,
     );
 
-    if (row.detail !== "") {
-      context.font = `500 ${detailSize}px ${FONT_STACK}`;
-      context.fillStyle = TONE_COLOUR[row.tone];
-      context.fillText(fitText(context, row.detail, innerWidth), left + padding, y + titleSize + 8 + detailSize);
+    if (secondLine) {
+      const baseline = y + titleSize + 8 + detailSize;
+      const after = paintChips(context, row, left + padding, baseline, innerWidth);
+      const remaining = left + padding + innerWidth - after;
+      if (row.detail !== "" && remaining > detailSize * 2) {
+        context.font = `500 ${detailSize}px ${FONT_STACK}`;
+        context.fillStyle = TONE_COLOUR[row.tone];
+        context.fillText(fitText(context, row.detail, remaining), after, baseline);
+      }
     }
 
     y += rowHeight;
@@ -200,7 +250,7 @@ function paintBoard(
 }
 
 /** The board in the scene, and the one thing a caller does to it afterwards. */
-export interface LobbyBoardView {
+export interface WallBoardView {
   readonly group: THREE.Group;
   /** Repaints the face. `undefined` shows the board waiting for its first snapshot. */
   show(snapshot: ProjectBoardSnapshot | undefined): void;
@@ -210,13 +260,13 @@ export interface LobbyBoardView {
  * Hangs a board in the scene.
  *
  * @param maxAnisotropy the renderer's, so the text stays sharp when the board
- * is seen at an angle across the lobby rather than square on.
+ * is seen at an angle across the open floor rather than square on.
  */
-export function buildLobbyBoard(
+export function buildWallBoard(
   scene: THREE.Scene,
   spec: WallBoardSpec,
   maxAnisotropy: number,
-): LobbyBoardView {
+): WallBoardView {
   const canvas = document.createElement("canvas");
   canvas.width = CANVAS_WIDTH;
   canvas.height = Math.round((CANVAS_WIDTH * spec.height) / spec.width);

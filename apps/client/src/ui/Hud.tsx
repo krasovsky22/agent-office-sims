@@ -85,7 +85,7 @@ export interface HudSnapshot {
   readonly prompt?: HudPrompt | undefined;
   readonly assets: AssetState;
   readonly debug?: DebugReadout;
-  /** The lobby board's latest snapshot; absent until the server sends one. */
+  /** The project board's latest snapshot; absent until the server sends one. */
   readonly projectBoard?: ProjectBoardSnapshot;
   /** Whether the local player opened the board's close-up with `E` at its prompt. */
   readonly boardCloseUp: boolean;
@@ -384,7 +384,9 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
         </div>
       </div>
 
-      {boardCloseUp ? <ProjectBoardPanel snapshot={projectBoard} /> : null}
+      {boardCloseUp ? (
+        <ProjectBoardPanel snapshot={projectBoard} />
+      ) : null}
 
       <div className="hud__column hud__column--right">
         <div className="hud__panel hud__panel--chat">

@@ -1,5 +1,5 @@
 /**
- * The HTTP half of the lobby board's GitHub feed: one call that fetches a
+ * The HTTP half of the project board's GitHub feed: one call that fetches a
  * repository's issues and open pull requests and hands back the board's lists.
  *
  * It reads and never writes. Every request is a GET against the REST API,
