@@ -506,9 +506,9 @@ Twelve things are worth knowing before changing anything:
   The board panel asks it, through `ticketMoves` beside it, which moves to
   offer, so what the panel shows and what the server accepts change together.
   Hiring and firing have the same shape: `shared/staffing.ts` holds
-  `mayManageStaff`, the one staffing gate, and the rules for what a hire costs
-  and what a departing agent's tickets do — they go back to the backlog, never
-  left pointing at someone who has gone.
+  `mayManageStaff`, the one staffing gate, and the rules for what firing costs
+  in morale and what a departing agent's tickets do — they go back to the
+  backlog, never left pointing at someone who has gone.
   Exactly one player holds the CEO role while anyone is in the office;
   `server/sim/roles.ts` assigns it on arrival and passes it on, in the same
   patch as the departure, when its holder leaves.

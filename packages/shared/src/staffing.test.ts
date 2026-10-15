@@ -1,7 +1,7 @@
 /**
  * Hiring, firing and quitting, against the real schema and the shipped floor
- * plan: who may do it, what it costs, where a hire is put, what a departure
- * does to the board, and that a refusal changes nothing.
+ * plan: who may do it, what firing costs in morale, where a hire is put, what a
+ * departure does to the board, and that a refusal changes nothing.
  *
  * Written against the tunables rather than literal numbers, like the company
  * tests, so a rebalance does not have to be repeated here.
