@@ -40,7 +40,6 @@ import {
   type BoardPerson,
   TICKET_COLUMN_TITLES,
   assigneeLabel,
-  authorLabel,
   moveLabel,
   panelPermissions,
   ticketColumns,
@@ -287,8 +286,6 @@ function TicketDetail({
         <dd>{TICKET_COLUMN_TITLES[ticket.status]}</dd>
         <dt>Assignee</dt>
         <dd>{assigneeLabel(ticket, people)}</dd>
-        <dt>Filed by</dt>
-        <dd>{authorLabel(ticket, people)}</dd>
       </dl>
       {ticket.body === "" ? (
         <p className="board__empty">No description.</p>

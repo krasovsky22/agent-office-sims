@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 import {
   type BoardPerson,
   assigneeLabel,
-  authorLabel,
   moveLabel,
   panelPermissions,
   ticketColumns,
@@ -67,12 +66,6 @@ describe("card labels", () => {
     expect(assigneeLabel(ticket({ id: "t" }), people)).toBe("Unassigned");
     expect(assigneeLabel(ticket({ id: "t", assigneeId: MILO.id }), people)).toBe("Milo");
     expect(assigneeLabel(ticket({ id: "t", assigneeId: "s-gone" }), people)).toBe("Left the office");
-  });
-
-  it("credits a seeded ticket to the office rather than to a person", () => {
-    expect(authorLabel(ticket({ id: "t" }), [DANA])).toBe("The office");
-    expect(authorLabel(ticket({ id: "t", createdById: DANA.id }), [DANA])).toBe("Dana");
-    expect(authorLabel(ticket({ id: "t", createdById: "s-gone" }), [DANA])).toBe("Someone who left");
   });
 
   it("asks who before leaving the backlog, and names the column otherwise", () => {

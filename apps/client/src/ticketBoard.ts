@@ -16,7 +16,6 @@
 
 import {
   OCCUPANT_KIND,
-  SYSTEM_AUTHOR_ID,
   TICKET_ACTION,
   TICKET_STATUS,
   TICKET_STATUSES,
@@ -79,14 +78,6 @@ export function assigneeLabel(ticket: TicketData, people: readonly BoardPerson[]
     return "Unassigned";
   }
   return people.find((person) => person.id === ticket.assigneeId)?.name ?? "Left the office";
-}
-
-/** Who filed a ticket, for its detail view. */
-export function authorLabel(ticket: TicketData, people: readonly BoardPerson[]): string {
-  if (ticket.createdById === SYSTEM_AUTHOR_ID) {
-    return "The office";
-  }
-  return people.find((person) => person.id === ticket.createdById)?.name ?? "Someone who left";
 }
 
 /** What the button for a move reads. */
