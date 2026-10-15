@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ManagerRequest } from "./advisor.js";
 import type { OfficeView, TicketView } from "./officeView.js";
-import { HELP_TEXT, planFromRules } from "./rulePlanner.js";
+import { HELP_TEXT, REPHRASE_TEXT, planFromRules } from "./rulePlanner.js";
 
 function ticket(overrides: Partial<TicketView> & Pick<TicketView, "id" | "title">): TicketView {
   return {
@@ -156,14 +156,15 @@ describe("planFromRules: assignments", () => {
     ["put someone on #39", [{ work: "issue #39", agent: "" }]],
     ["put someone who's free on #39", [{ work: "issue #39", agent: "" }]],
     ["assign #39 to someone who is idle", [{ work: "issue #39", agent: "" }]],
-    ["assign the login redirect to anyone", [{ work: "ticket-1", agent: "" }]],
     ["can you put Bo on ticket-1?", [{ work: "ticket-1", agent: "agent-2" }]],
     ["Firstmate, put Ada Byrne on ticket-5", [{ work: "ticket-5", agent: "agent-1" }]],
     ["have someone take #39", [{ work: "issue #39", agent: "" }]],
     ["have someone who's free take #39", [{ work: "issue #39", agent: "" }]],
-    ["reassign ticket-1 from Bo to Ada", [{ work: "ticket-1", agent: "agent-1" }]],
     ["give Bo's ticket-1 to Ada", [{ work: "ticket-1", agent: "agent-1" }]],
-    ["put Ada on ticket-2 instead of Bo", [{ work: "ticket-2", agent: "agent-1" }]],
+    ["reassign ticket-1 to Ada", [{ work: "ticket-1", agent: "agent-1" }]],
+    ["give ticket-1 and ticket-5 to Bo", [{ work: "ticket-1", agent: "agent-2" }, { work: "ticket-5", agent: "agent-2" }]],
+    ["put Bo on the Draft the Q3 roadmap", []],
+    ["put Bo on Draft the Q3 roadmap", [{ work: "ticket-5", agent: "agent-2" }]],
     ["assign #39 to Bo today", [{ work: "issue #39", agent: "agent-2" }]],
     ["give ticket-1 to Bo please", [{ work: "ticket-1", agent: "agent-2" }]],
     ["assign the backlog to Bo", [{ work: "ticket-1", agent: "agent-2" }, { work: "ticket-5", agent: "agent-2" }]],
@@ -184,6 +185,23 @@ describe("planFromRules: assignments", () => {
     ],
   ])("%s", (message, assignments) => {
     expect(ask(message).assignments).toEqual(assignments);
+  });
+
+  it.each([
+    "send the ticket-1 notes to Ada",
+    "give the ticket-3 summary to Bo",
+    "put Ada on ticket-2 instead of ticket-5",
+    "hand out the backlog except ticket-1",
+    "assign the backlog to Bo except ticket-5",
+    "reassign ticket-1 from Bo to Ada",
+    "put Ada on ticket-2 instead of Bo",
+    "have someone who's done with ticket-1 take #39",
+    "assign the login redirect to anyone",
+    "give an update on ticket-3",
+    "put together a summary of ticket-2",
+    "send a summary of ticket-3 to me",
+  ])("does nothing with %s, and asks to rephrase", (message) => {
+    expect(ask(message)).toEqual({ reply: REPHRASE_TEXT, assignments: [], tokensUsed: 0 });
   });
 
   it("says the backlog is empty when there is nothing to hand out", () => {

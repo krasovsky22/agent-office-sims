@@ -8,9 +8,10 @@
  * CEO asks a manager most:
  *
  * - **"Put Ada on ticket-3"**, "put someone on #39", "hand out the backlog":
- *   an instruction to assign some work, with or without a name, becomes a plan
- *   to assign — carried out afterwards through the board's rules, like a
- *   model's plan.
+ *   an instruction in one of a few exact shapes becomes a plan to assign —
+ *   carried out afterwards through the board's rules, like a model's plan. One
+ *   that starts like an instruction and is not exactly one of them is not
+ *   guessed at: nothing is done, and the CEO is asked to rephrase.
  * - **"What's the status of #12?"**: any work it can find in the message is
  *   described — a ticket's column and assignee, an issue's column, labels and
  *   pull requests, and which agent is on it.
@@ -24,7 +25,7 @@
 
 import { AGENT_ACTIVITY, TICKET_PRIORITY, TICKET_STATUS, TICKET_STATUSES, type TicketStatus } from "@sim/shared";
 
-import type { ManagerPlan, ManagerRequest, PlannedAssignment } from "./advisor.js";
+import type { ManagerPlan, ManagerRequest } from "./advisor.js";
 import type { AgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, TicketView } from "./officeView.js";
 import {
   type AgentRef,
@@ -44,24 +45,31 @@ const LEAD_IN = /^(?:(?:please|ok(?:ay)?|(?:can|could|would|will) you|firstmate)
 /** A question is answered and never acted on: it is told by how it starts. */
 const QUESTION_START =
   /^(what|what's|whats|how|how's|hows|who|who's|which|where|why|when|is|are|was|were|do|does|did|has|had|should|any|status|have you)\b/;
-/** "put Bo on ticket-1", "move someone who's free onto #39". */
-const AGENT_FIRST_VERBS = new Set(["put", "assign", "reassign", "give", "hand", "move"]);
-const AGENT_FIRST_LINKS = new Set(["on", "onto", "to", "with"]);
-/** "give ticket-1 to Bo", "assign #39 to someone who is idle". */
-const WORK_FIRST_VERBS = new Set(["assign", "reassign", "give", "hand", "send"]);
-/** "have Ada take ticket-3", "have anyone pick up #39". */
-const HAVE_TAKE = /^(take|pick up|do|handle|work on|look at|start on)\b/;
-/** "hand out the backlog", "assign the backlog to Bo". */
-const WHOLE_BACKLOG = /^(hand out|give out|assign|distribute|clear) the backlog\b/;
-const ANYONE = /^(someone|somebody|anyone|anybody|whoever)$/;
-/** Never someone to hand work to, whatever the office calls its agents. */
-const NOT_AN_AGENT = /^(me|us|you|myself|ourselves)$/;
-/** "someone who's free": a clause that says which someone. */
-const RELATIVE = /^(who|who's|that|that's|which)$/;
-/** "have someone who's free take #39": where the clause ends. */
-const HAVE_TAKE_STARTS: ReadonlySet<string> = new Set(["take", "pick", "do", "handle", "work", "look", "start"]);
 /** Words that can close an instruction without changing it. */
 const FILLER = /^(please|now|today|asap|thanks)$/;
+/** A message starting with one of these is an instruction, or an attempt at one. */
+const INSTRUCTION_VERBS: ReadonlySet<string> = new Set(["put", "assign", "reassign", "give", "hand", "move", "send", "have", "distribute"]);
+/** "give me…", "send us…": asking for something, not handing work out. */
+const NOT_AN_AGENT = /^(me|us|you|myself)$/;
+/** VERB AGENT (on|onto|to) WORK: "put Bo on ticket-1". */
+const AGENT_FIRST_VERBS: ReadonlySet<string> = new Set(["put", "assign", "reassign", "give", "hand", "move"]);
+const AGENT_FIRST_LINKS: ReadonlySet<string> = new Set(["on", "onto", "to"]);
+/** VERB WORK to AGENT [and WORK to AGENT]*: "give ticket-1 to Bo and ticket-5 to Ada". */
+const WORK_FIRST_VERBS: ReadonlySet<string> = new Set(["assign", "reassign", "give", "hand", "send"]);
+/** have AGENT TAKE WORK: "have someone take #39". */
+const TAKE_VERBS: readonly string[] = ["take", "pick up", "do", "handle", "work on", "start on"];
+/** VERB the backlog [to AGENT]: "hand out the backlog". */
+const BACKLOG_VERBS: readonly string[] = ["hand out", "give out", "assign", "distribute"];
+const ANYONE = /^(someone|anyone|whoever)$/;
+/** The one clause an AGENT may carry: "someone who's free". */
+const AGENT_CLAUSES: readonly string[] = ["who's free", "who is free", "who's idle", "who is idle"];
+/** What may sit between work references in the WORK slot. */
+const WORK_CONNECTORS: ReadonlySet<string> = new Set(["the", "and", ",", "#"]);
+const NUMBER = /^#?\d+$/;
+
+export const REPHRASE_TEXT =
+  "I couldn't tell exactly what to hand out, so I haven't changed anything. Say it like “assign ticket-3 to Ada” or “put someone on #39”.";
+
 /** "who should I give #39 to?" asks for advice rather than an assignment. */
 const ASKING_ADVICE = /\b(should i|who should|who would|who could|who can)\b/i;
 const GREETING = /^\s*(hi|hello|hey|morning|good (morning|afternoon|evening)|help|\?)\b/i;
@@ -104,28 +112,35 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   const agents = findAgents(message, view);
 
   const instruction = readInstruction(message, view);
-  if (instruction !== undefined) {
-    const backlog = work.length === 0 && instruction.kind === "backlog";
-    const targets: WorkRef[] = backlog
-      ? view.tickets
-          .filter((ticket) => ticket.status === TICKET_STATUS.backlog)
-          .map((ticket): WorkRef => ({ kind: "ticket", ticket }))
-      : work;
-    if (targets.length > 0) {
-      return {
-        reply: backlog ? "Handing out the backlog:" : "Here's how that went:",
-        assignments: pair(targets, instruction.agents),
-      };
-    }
-    if (backlog) {
+  if (instruction?.kind === "unclear") {
+    return { reply: REPHRASE_TEXT, assignments: [] };
+  }
+  if (instruction?.kind === "backlog") {
+    const backlog = view.tickets.filter((ticket) => ticket.status === TICKET_STATUS.backlog);
+    if (backlog.length === 0) {
       return { reply: "The backlog is empty, so there is nothing to hand out.", assignments: [] };
     }
+    return {
+      reply: "Handing out the backlog:",
+      assignments: backlog.map((ticket) => ({ work: ticket.id, agent: instruction.agent?.agent.id ?? "" })),
+    };
+  }
+  if (instruction?.kind === "work") {
+    const unknown = instruction.pairs.flatMap((entry) => entry.slot.unknown);
+    if (unknown.length > 0) {
+      return { reply: cannotFind(unknown, view), assignments: [] };
+    }
+    return {
+      reply: "Here's how that went:",
+      assignments: instruction.pairs.flatMap((entry) =>
+        entry.slot.work.map((ref) => ({ work: workId(ref), agent: entry.agent?.agent.id ?? "" })),
+      ),
+    };
   }
 
   const unknown = findUnknownWork(message, view);
   if (work.length === 0 && unknown.length > 0) {
-    const where = view.project === undefined ? "the ticket board (and the project board hasn't loaded yet)" : "the ticket board or the project board";
-    return { reply: `I can't find ${unknown.join(" or ")} on ${where}.`, assignments: [] };
+    return { reply: cannotFind(unknown, view), assignments: [] };
   }
 
   if (work.length > 0) {
@@ -156,111 +171,197 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
 /** `undefined` for "someone": whoever is free, chosen against the live office. */
 type Assignee = AgentRef | undefined;
 
-interface Instruction {
-  readonly kind: "work" | "backlog";
-  /** Who the instruction names, in the order it names them, each for its own work. */
-  readonly agents: readonly Assignee[];
+/** Work read from a WORK slot: what it names, and what it names that is on neither board. */
+interface WorkSlot {
+  readonly work: readonly WorkRef[];
+  readonly unknown: readonly string[];
 }
 
-/**
- * What a message instructs, read by a small grammar over its words, or
- * `undefined` for anything that is not one of its whole shapes: a question, a
- * request for information, or an instruction about someone who is not an agent.
- */
-function readInstruction(message: string, view: OfficeView): Instruction | undefined {
-  const lower = message.toLowerCase().trim();
-  const rest = lower.slice(LEAD_IN.exec(lower)?.[0].length ?? 0);
-  if (QUESTION_START.test(rest)) {
-    return undefined;
-  }
-  const backlog = WHOLE_BACKLOG.exec(rest);
-  const words = rest
-    .slice(backlog?.[0].length ?? 0)
+type Instruction =
+  | { readonly kind: "work"; readonly pairs: readonly { readonly slot: WorkSlot; readonly agent: Assignee }[] }
+  | { readonly kind: "backlog"; readonly agent: Assignee }
+  /** It starts like an instruction but is not exactly one of its shapes: nothing is done. */
+  | { readonly kind: "unclear" };
+
+/** The message as words: lower case, the lead-in, a trailing "?" and closing filler gone. */
+function wordsOf(message: string): string[] {
+  const lower = message.toLowerCase().replace(/’/g, "'").trim();
+  const words = lower
+    .slice(LEAD_IN.exec(lower)?.[0].length ?? 0)
+    .replace(/,/g, " , ")
     .split(/\s+/)
-    .map((word) => word.replace(/[.,;:!?]+$/, ""))
+    .map((word) => word.replace(/[.!?;:]+$/, ""))
     .filter((word) => word !== "");
   while (words.length > 0 && FILLER.test(words[words.length - 1] ?? "")) {
     words.pop();
   }
+  return words;
+}
 
-  /** The agent, or someone, named by the words from `at`, and how many words that takes. */
-  const agentAt = (at: number): { readonly length: number; readonly agent: Assignee } | undefined => {
-    for (const length of [2, 1]) {
-      const phrase = words.slice(at, at + length).join(" ");
-      if (at + length > words.length || NOT_AN_AGENT.test(phrase)) {
-        continue;
-      }
-      if (length === 1 && ANYONE.test(phrase)) {
-        return { length, agent: undefined };
-      }
-      const agent = resolveAgent(phrase, view);
-      if (agent !== undefined) {
-        return { length, agent };
-      }
-    }
-    return undefined;
-  };
-  /** Past a "who's free" after someone, to the first of `stops`, or `at` when there is none. */
-  const pastClause = (at: number, someone: boolean, stops: ReadonlySet<string>): number => {
-    if (!someone || !RELATIVE.test(words[at] ?? "")) {
-      return at;
-    }
-    const stop = words.findIndex((word, index) => index > at && stops.has(word));
-    return stop === -1 ? words.length : stop;
-  };
-
-  if (backlog !== null) {
-    const found = words[0] === "to" ? agentAt(1) : undefined;
-    return { kind: "backlog", agents: found === undefined ? [] : [found.agent] };
-  }
-  const [verb = ""] = words;
-  if (verb === "have") {
-    const found = agentAt(1);
-    if (found === undefined) {
-      return undefined;
-    }
-    const next = pastClause(1 + found.length, found.agent === undefined, HAVE_TAKE_STARTS);
-    return HAVE_TAKE.test(words.slice(next).join(" ")) ? { kind: "work", agents: [found.agent] } : undefined;
-  }
-  if (AGENT_FIRST_VERBS.has(verb)) {
-    const found = agentAt(1);
-    const link = found === undefined ? -1 : pastClause(1 + found.length, found.agent === undefined, AGENT_FIRST_LINKS);
-    if (found !== undefined && AGENT_FIRST_LINKS.has(words[link] ?? "")) {
-      return { kind: "work", agents: [found.agent] };
-    }
-  }
-  if (WORK_FIRST_VERBS.has(verb)) {
-    // "give ticket-1 to Bo and ticket-5 to Ada": each "to AGENT" closes the work before it.
-    const agents: Assignee[] = [];
-    let from = 1;
-    let someone = false;
-    for (let at = 1; at < words.length; at += 1) {
-      const found = words[at] === "to" ? agentAt(at + 1) : undefined;
-      if (found === undefined || findWork(words.slice(from, at).join(" "), view).length === 0) {
-        continue;
-      }
-      agents.push(found.agent);
-      someone = found.agent === undefined;
-      from = at + 1 + found.length;
-      at = from - 1;
-    }
-    if (agents.length > 0 && pastClause(from, someone, new Set()) === words.length) {
-      return { kind: "work", agents };
-    }
-  }
-  return undefined;
+function startsWith(words: readonly string[], phrase: string): boolean {
+  const parts = phrase.split(" ");
+  return parts.every((part, index) => words[index] === part);
 }
 
 /**
- * Who gets what: one agent named takes everything, as many as pieces of work
- * pair up in order, and otherwise whoever is free, decided later against the
- * live office.
+ * The AGENT slot, when these words are exactly one: an agent's name, first
+ * name or id, or someone/anyone/whoever, with at most one "who's free"-style
+ * clause. `null` when they are not.
  */
-function pair(work: readonly WorkRef[], agents: readonly Assignee[]): PlannedAssignment[] {
-  return work.map((ref, index) => {
-    const agent = agents.length === 1 ? agents[0] : agents.length === work.length ? agents[index] : undefined;
-    return { work: workId(ref), agent: agent?.agent.id ?? "" };
-  });
+function readAgent(words: readonly string[], view: OfficeView): { readonly agent: Assignee } | null {
+  for (const clause of ["", ...AGENT_CLAUSES]) {
+    const clauseWords = clause === "" ? [] : clause.split(" ");
+    const tail = words.slice(words.length - clauseWords.length);
+    if (clauseWords.length > words.length || tail.join(" ") !== clauseWords.join(" ")) {
+      continue;
+    }
+    const name = words.slice(0, words.length - clauseWords.length).join(" ");
+    if (ANYONE.test(name)) {
+      return { agent: undefined };
+    }
+    if (clause !== "" || name === "" || NOT_AN_AGENT.test(name)) {
+      continue;
+    }
+    const agent = resolveAgent(name, view);
+    if (agent !== undefined) {
+      return { agent };
+    }
+  }
+  return null;
+}
+
+/**
+ * The WORK slot, when these words are exactly one: work references joined by
+ * "the", "and", commas and possessives such as "Bo's", or exactly one
+ * ticket's full title. `null` when they are not.
+ */
+function readWork(words: readonly string[], view: OfficeView): WorkSlot | null {
+  const plain = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const said = plain(words.join(" "));
+  const titled = view.tickets.find((ticket) => said !== "" && plain(ticket.title) === said);
+  if (titled !== undefined) {
+    return { work: [{ kind: "ticket", ticket: titled }], unknown: [] };
+  }
+
+  const references: string[] = [];
+  for (let at = 0; at < words.length; at += 1) {
+    const word = words[at] ?? "";
+    const next = words[at + 1] ?? "";
+    if (/^ticket-#?\d+$/.test(word) || /^#\d+$/.test(word)) {
+      references.push(word);
+    } else if ((word === "ticket" || word === "issue" || word === "pr") && NUMBER.test(next)) {
+      references.push(`${word} ${next}`);
+      at += 1;
+    } else if (WORK_CONNECTORS.has(word)) {
+      continue;
+    } else if (!(word.endsWith("'s") && resolveAgent(word.slice(0, -2), view) !== undefined)) {
+      return null;
+    }
+  }
+  if (references.length === 0) {
+    return null;
+  }
+  const work: WorkRef[] = [];
+  const unknown: string[] = [];
+  for (const reference of references) {
+    const found = findWork(reference, view)[0];
+    if (found === undefined) {
+      unknown.push(...findUnknownWork(reference, view));
+    } else {
+      work.push(found);
+    }
+  }
+  return { work, unknown };
+}
+
+/** VERB WORK to AGENT [and WORK to AGENT]*, every way the words can split, first that fits. */
+function readPairs(words: readonly string[], view: OfficeView): { slot: WorkSlot; agent: Assignee }[] | null {
+  for (let to = 1; to < words.length; to += 1) {
+    if (words[to] !== "to") {
+      continue;
+    }
+    const slot = readWork(words.slice(0, to), view);
+    if (slot === null) {
+      continue;
+    }
+    const rest = words.slice(to + 1);
+    const whole = readAgent(rest, view);
+    if (whole !== null) {
+      return [{ slot, agent: whole.agent }];
+    }
+    for (let and = 1; and < rest.length; and += 1) {
+      if (rest[and] !== "and") {
+        continue;
+      }
+      const agent = readAgent(rest.slice(0, and), view);
+      const more = agent === null ? null : readPairs(rest.slice(and + 1), view);
+      if (agent !== null && more !== null) {
+        return [{ slot, agent: agent.agent }, ...more];
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * What a message instructs, by a strict grammar: the whole message, less a
+ * lead-in, a trailing "?" and closing filler, must be exactly one of
+ *
+ * 1. VERB AGENT (on|onto|to) WORK — "put Bo on ticket-1"
+ * 2. VERB WORK to AGENT [and WORK to AGENT]* — "give ticket-1 to Bo"
+ * 3. have AGENT (take|pick up|do|handle|work on|start on) WORK — "have someone take #39"
+ * 4. (hand out|give out|assign|distribute) the backlog [to AGENT]
+ *
+ * A message that starts like one and is not exactly one is `unclear`, and
+ * nothing is acted on. `undefined` for anything else: a question, or a
+ * request such as "give me the status of ticket-3".
+ */
+function readInstruction(message: string, view: OfficeView): Instruction | undefined {
+  const words = wordsOf(message);
+  const [verb = "", object = ""] = words;
+  if (QUESTION_START.test(words.join(" ")) || !INSTRUCTION_VERBS.has(verb) || NOT_AN_AGENT.test(object)) {
+    return undefined;
+  }
+
+  for (const phrase of BACKLOG_VERBS) {
+    const length = phrase.split(" ").length;
+    if (!startsWith(words, phrase) || words[length] !== "the" || words[length + 1] !== "backlog") {
+      continue;
+    }
+    const rest = words.slice(length + 2);
+    if (rest.length === 0) {
+      return { kind: "backlog", agent: undefined };
+    }
+    const agent = rest[0] === "to" ? readAgent(rest.slice(1), view) : null;
+    return agent === null ? { kind: "unclear" } : { kind: "backlog", agent: agent.agent };
+  }
+
+  for (let at = 2; at < words.length; at += 1) {
+    const agent = () => readAgent(words.slice(1, at), view);
+    if (AGENT_FIRST_VERBS.has(verb) && AGENT_FIRST_LINKS.has(words[at] ?? "")) {
+      const found = agent();
+      const slot = found === null ? null : readWork(words.slice(at + 1), view);
+      if (found !== null && slot !== null) {
+        return { kind: "work", pairs: [{ slot, agent: found.agent }] };
+      }
+    }
+    if (verb === "have") {
+      const take = TAKE_VERBS.find((phrase) => startsWith(words.slice(at), phrase));
+      const found = take === undefined ? null : agent();
+      const slot = take === undefined || found === null ? null : readWork(words.slice(at + take.split(" ").length), view);
+      if (found !== null && slot !== null) {
+        return { kind: "work", pairs: [{ slot, agent: found.agent }] };
+      }
+    }
+  }
+
+  const pairs = WORK_FIRST_VERBS.has(verb) ? readPairs(words.slice(1), view) : null;
+  return pairs === null ? { kind: "unclear" } : { kind: "work", pairs };
+}
+
+function cannotFind(unknown: readonly string[], view: OfficeView): string {
+  const where = view.project === undefined ? "the ticket board (and the project board hasn't loaded yet)" : "the ticket board or the project board";
+  return `I can't find ${unknown.join(" or ")} on ${where}.`;
 }
 
 function workId(ref: WorkRef): string {
