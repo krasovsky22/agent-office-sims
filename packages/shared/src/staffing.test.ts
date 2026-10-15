@@ -267,10 +267,18 @@ describe("firing", () => {
     expect(office.state.company.morale).toBe(STARTING_MORALE - MORALE_LOSS_PER_FIRING);
   });
 
-  it("returns the agent's unfinished work to the backlog, with a note, whatever its column", () => {
+  it("returns the agent's in-flight work to the backlog with a note, and keeps handed-in work", () => {
     const office = openOffice();
-    const statuses = [TICKET_STATUS.assigned, TICKET_STATUS.in_progress, TICKET_STATUS.review];
+    const statuses = [
+      TICKET_STATUS.assigned,
+      TICKET_STATUS.in_progress,
+      TICKET_STATUS.review,
+      TICKET_STATUS.done,
+    ];
     const tickets = [...office.state.tickets.values()];
+    if (tickets.length < statuses.length) {
+      throw new Error("the starter board is too small");
+    }
     statuses.forEach((status, index) => {
       const ticket = tickets[index];
       if (ticket !== undefined) {
@@ -278,27 +286,29 @@ describe("firing", () => {
         ticket.status = status;
       }
     });
-    const finished = tickets[3];
-    if (finished === undefined) {
-      throw new Error("the starter board is too small");
+    const [, , inReview, finished] = tickets;
+    if (inReview === undefined || finished === undefined) {
+      return;
     }
-    finished.assigneeId = "agent-1";
-    finished.status = TICKET_STATUS.done;
+    inReview.outputArtifact = "the finished work";
 
     const result = run(office, fire("agent-1"));
     expect(result.ok && result.action === STAFF_ACTION.fire).toBe(true);
     if (!result.ok || result.action !== STAFF_ACTION.fire) {
       return;
     }
-    expect(result.departure.releasedTicketIds).toEqual(tickets.slice(0, 3).map((t) => t.id));
-    for (const ticket of tickets.slice(0, 3)) {
+    expect(result.departure.releasedTicketIds).toEqual(tickets.slice(0, 2).map((t) => t.id));
+    for (const ticket of tickets.slice(0, 2)) {
       expect(ticket.status).toBe(TICKET_STATUS.backlog);
       expect(ticket.assigneeId).toBe("");
       const note = ticket.comments.at(-1);
       expect(note?.authorId).toBe(SYSTEM_AUTHOR_ID);
       expect(note?.text).toContain("Ada Byrne was let go");
     }
-    // Finished work keeps the record of who did it.
+    // Handed-in and finished work keep the record of who did it.
+    expect(inReview.status).toBe(TICKET_STATUS.review);
+    expect(inReview.assigneeId).toBe("agent-1");
+    expect(inReview.outputArtifact).toBe("the finished work");
     expect(finished.assigneeId).toBe("agent-1");
     expect(finished.status).toBe(TICKET_STATUS.done);
     expect(describeBoardProblems(office.state.tickets)).toEqual([]);
@@ -339,6 +349,12 @@ describe("quitting", () => {
     const newest = `agent-${DEFAULT_AGENT_COUNT}`;
     ticket.assigneeId = newest;
     ticket.status = TICKET_STATUS.in_progress;
+    const inReview = office.state.tickets.get("ticket-2");
+    if (inReview === undefined) {
+      throw new Error("the starter board is too small");
+    }
+    inReview.assigneeId = newest;
+    inReview.status = TICKET_STATUS.review;
     office.state.company.lowMoraleDays = QUIT_AFTER_LOW_MORALE_DAYS;
 
     const departure = resolveQuitting(context(office));
@@ -347,6 +363,8 @@ describe("quitting", () => {
     expect(office.state.occupants.has(newest)).toBe(false);
     expect(ticket.status).toBe(TICKET_STATUS.backlog);
     expect(ticket.comments.at(-1)?.text).toContain(QUIT_REASON);
+    expect(inReview.status).toBe(TICKET_STATUS.review);
+    expect(inReview.assigneeId).toBe(newest);
     expect(office.state.company.lowMoraleDays).toBe(0);
     // Quitting is its own cost; it does not also take the firing's morale.
     expect(office.state.company.morale).toBe(STARTING_MORALE);
