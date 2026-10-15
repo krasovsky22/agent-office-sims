@@ -30,6 +30,10 @@
  * The ticket board is state too, and is handed on as a fresh plain copy whenever
  * any ticket changes, so the panel re-renders from a value rather than holding
  * a schema object that mutates under it.
+ *
+ * The conversation with the AI manager is not: like chat it arrives as events —
+ * the lines so far on joining, then each new one — and the manager's own badge
+ * is read off its occupant like an agent's activity.
  */
 
 import {
@@ -50,6 +54,11 @@ import {
   INTERPOLATION_DELAY_MS,
   type InteractMessage,
   type LiveAgentStatus,
+  type ManagerEntry,
+  type ManagerHistoryEvent,
+  type ManagerRejectedEvent,
+  type ManagerSayMessage,
+  type ManagerStatus,
   OFFICE_ROOM_NAME,
   type Occupant,
   type OccupantKind,
@@ -69,6 +78,7 @@ import {
   type TicketRejectedEvent,
   agentAtDesk,
   isAgentEmployee,
+  isAiManager,
   isCeo,
   isLiveAgent,
   type Ticket,
@@ -116,9 +126,9 @@ interface PoseSample {
  * trigger an `onOccupantsChanged`; `interactableId` and `animation` change far
  * too often for that and are read from the loop instead.
  *
- * `jobTitle`, `activity` and `salary` are an agent employee's: `""`,
- * `undefined` and `0` for a player, so a consumer can branch on `kind` and
- * never meet a half-agent.
+ * `activity` and `salary` are an agent employee's: `undefined` and `0` for
+ * anyone else, so a consumer can branch on `kind` and never meet a half-agent.
+ * `jobTitle` is an agent's or the manager's, `""` for anyone else.
  */
 export interface OccupantView {
   readonly id: string;
@@ -139,6 +149,11 @@ export interface OccupantView {
   /** A live agent's task title and link, `""` when it has none. */
   taskTitle: string;
   taskUrl: string;
+  /** What the manager has assigned a live agent next, `""` when nothing. */
+  assignedTitle: string;
+  assignedUrl: string;
+  /** The AI manager's status, or `undefined` for anyone else. */
+  managerStatus: ManagerStatus | undefined;
 }
 
 /**
@@ -204,6 +219,12 @@ export interface RoomConnectionEvents {
   onStaffChanged?: (event: StaffChangedEvent) => void;
   /** The office refused one of the local client's own hire or fire commands. */
   onStaffRejected?: (event: StaffRejectedEvent) => void;
+  /** The conversation with the manager so far, on joining and on every reconnection. */
+  onManagerHistory?: (entries: readonly ManagerEntry[]) => void;
+  /** One new line in that conversation, from the CEO or the manager. */
+  onManagerEntry?: (entry: ManagerEntry) => void;
+  /** The manager did not take one of the local client's own messages. */
+  onManagerRejected?: (event: ManagerRejectedEvent) => void;
 }
 
 export class RoomConnection {
@@ -381,6 +402,11 @@ export class RoomConnection {
     this.room?.send(CLIENT_MESSAGE.staffFire, { agentId } satisfies StaffFireMessage);
   }
 
+  /** Tells the AI manager something. The conversation broadcast is the reply. */
+  public sendManagerSay(text: string): void {
+    this.room?.send(CLIENT_MESSAGE.managerSay, { text } satisfies ManagerSayMessage);
+  }
+
   /** Says something out loud. Echoed back by the server, like an emote. */
   public sendChat(text: string): void {
     this.room?.send(CLIENT_MESSAGE.chat, { text } satisfies ChatMessage);
@@ -488,7 +514,7 @@ export class RoomConnection {
         name: occupant.name,
         kind: occupant.kind,
         isCeo: isCeo(occupant),
-        jobTitle: isAgentEmployee(occupant) ? occupant.jobTitle : "",
+        jobTitle: jobTitleOf(occupant),
         activity: isAgentEmployee(occupant) ? occupant.activity : undefined,
         salary: isAgentEmployee(occupant) ? occupant.salary : 0,
         isLocal,
@@ -497,6 +523,9 @@ export class RoomConnection {
         agentStatus: isLiveAgent(occupant) ? occupant.status : undefined,
         taskTitle: isLiveAgent(occupant) ? occupant.taskTitle : "",
         taskUrl: isLiveAgent(occupant) ? occupant.taskUrl : "",
+        assignedTitle: isLiveAgent(occupant) ? occupant.assignedTitle : "",
+        assignedUrl: isLiveAgent(occupant) ? occupant.assignedUrl : "",
+        managerStatus: isAiManager(occupant) ? occupant.status : undefined,
       };
       this.views.set(sessionId, view);
 
@@ -576,6 +605,18 @@ export class RoomConnection {
       this.events.onStaffRejected?.(event);
     });
 
+    room.onMessage<ManagerHistoryEvent>(SERVER_MESSAGE.managerHistory, (event) => {
+      this.events.onManagerHistory?.(event.entries);
+    });
+
+    room.onMessage<ManagerEntry>(SERVER_MESSAGE.managerEntry, (entry) => {
+      this.events.onManagerEntry?.(entry);
+    });
+
+    room.onMessage<ManagerRejectedEvent>(SERVER_MESSAGE.managerRejected, (event) => {
+      this.events.onManagerRejected?.(event);
+    });
+
     room.onError((code, message) => {
       this.events.onStatusChanged?.("failed", message ?? `error ${code}`);
     });
@@ -607,12 +648,15 @@ export class RoomConnection {
     view: OccupantView,
   ): void {
     const ceo = isCeo(occupant);
-    const jobTitle = isAgentEmployee(occupant) ? occupant.jobTitle : "";
+    const jobTitle = jobTitleOf(occupant);
     const activity = isAgentEmployee(occupant) ? occupant.activity : undefined;
     const agent = isLiveAgent(occupant) ? occupant : undefined;
     const agentStatus = agent?.status;
     const taskTitle = agent?.taskTitle ?? "";
     const taskUrl = agent?.taskUrl ?? "";
+    const assignedTitle = agent?.assignedTitle ?? "";
+    const assignedUrl = agent?.assignedUrl ?? "";
+    const managerStatus = isAiManager(occupant) ? occupant.status : undefined;
     if (
       view.name !== occupant.name ||
       view.isCeo !== ceo ||
@@ -621,7 +665,10 @@ export class RoomConnection {
       view.activity !== activity ||
       view.agentStatus !== agentStatus ||
       view.taskTitle !== taskTitle ||
-      view.taskUrl !== taskUrl
+      view.taskUrl !== taskUrl ||
+      view.assignedTitle !== assignedTitle ||
+      view.assignedUrl !== assignedUrl ||
+      view.managerStatus !== managerStatus
     ) {
       view.name = occupant.name;
       view.kind = occupant.kind;
@@ -631,6 +678,9 @@ export class RoomConnection {
       view.agentStatus = agentStatus;
       view.taskTitle = taskTitle;
       view.taskUrl = taskUrl;
+      view.assignedTitle = assignedTitle;
+      view.assignedUrl = assignedUrl;
+      view.managerStatus = managerStatus;
       this.events.onOccupantsChanged?.();
     }
 
@@ -705,6 +755,11 @@ function describeError(error: unknown): string {
   }
   const described = String(error);
   return described === "" || described.startsWith("[object ") ? "unknown error" : described;
+}
+
+/** An agent's job title or the manager's, `""` for anyone else. */
+function jobTitleOf(occupant: Occupant): string {
+  return isAgentEmployee(occupant) || isAiManager(occupant) ? occupant.jobTitle : "";
 }
 
 function companyViewOf(company: Company): CompanyView {

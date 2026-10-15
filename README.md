@@ -45,7 +45,16 @@ all three with the day and the time, and when cash runs out the clock stops and
 every tab shows the company has folded. And the coding agents building this
 repository can be on the floor too: an orchestrator reports each one to the
 server, and it walks in, sits at a free desk and types while it has a task, and
-gets up to wander and chat with the other idle agents while it has none.
+gets up to wander and chat with the other idle agents while it has none. And
+someone is in charge of all of them: Firstmate, the AI manager, a crimson body
+at its own desk in the lobby. The CEO walks up and talks to it — "what is
+everyone working on?", "what's the status of #12?", "put Ada on ticket-2",
+"put someone on #39" — and it answers from the office's live state, assigns
+in-game tickets to the agent employees through the board's own rules, and queues
+GitHub issues for the live coding agents, which their orchestrator collects. It
+posts updates of its own to the same conversation when work is handed in, an
+agent gets stuck, or a live agent starts or stops. Everyone can read the
+conversation; only the CEO can instruct it.
 
 ## Running it
 
@@ -61,8 +70,9 @@ Vite client on `http://localhost:5173`. Both have working defaults, so no
 configuration is required; `.env.example` lists the variables (`PORT`,
 `ALLOWED_ORIGINS`, and `VITE_SERVER_URL`, plus the project board's
 `PROJECT_BOARD_*`, the agents' `MOCK_AGENTS`, `ANTHROPIC_API_KEY` and
-`AGENT_*`, the staff size, `AGENT_COUNT`, `AGENT_DEBUG`, and the live agents'
-`LIVE_AGENTS_*`) if you need to point the client somewhere else. A deployment
+`AGENT_*`, the manager's `MOCK_MANAGER` and `MANAGER_*`, the staff size,
+`AGENT_COUNT`, `AGENT_DEBUG`, and the live agents' `LIVE_AGENTS_*`) if you need
+to point the client somewhere else. A deployment
 has to set the first three — see [Deploying it](#deploying-it).
 
 The server polls GitHub for the project board as soon as it starts, anonymously
@@ -70,12 +80,19 @@ unless `PROJECT_BOARD_TOKEN` is set.
 
 Agents do their ticket work with canned text by default (`MOCK_AGENTS` is on), so
 nothing in development calls a model or spends anything. `MOCK_AGENTS=off` with
-`ANTHROPIC_API_KEY` set switches to a real model.
+`ANTHROPIC_API_KEY` set switches to a real model. The AI manager is the same:
+by default (`MOCK_MANAGER` is on) it answers by rule from live state, and
+`MOCK_MANAGER=off` gives it a model, on a call budget of its own.
 
 Walk with `W A S D` or the arrow keys. Click the canvas to capture the mouse,
 then move it to swing the camera; `Esc` releases it. Walk up to a desk chair, the
-coffee machine, the whiteboard or the project board and a prompt appears; `E` uses
-it. Any movement key gets you out of a chair.
+coffee machine, the whiteboard, the project board or the manager's desk and a
+prompt appears; `E` uses it. Any movement key gets you out of a chair.
+
+At the manager's desk in the lobby, `E` opens the conversation with Firstmate
+and puts the keyboard in its message box: `Enter` sends, `Esc` closes, and
+stepping away closes it too. Only the CEO's messages are taken; anyone else's
+panel says who can, and the server refuses theirs with that reason.
 
 At the whiteboard, `E` opens the ticket board and puts the keyboard in it, so
 movement keys, emotes and chat stay quiet while it has focus. Moving is
@@ -127,6 +144,24 @@ stop, face each other and trade a few canned lines in speech bubbles. The
 roster lists them under **Live agents** with an `Agent` badge and a link to the
 issue or pull request.
 
+When the CEO tells the manager to put a live agent on an issue or pull request,
+the manager queues an assignment for the orchestrator, which collects it with
+the same secret:
+
+```sh
+curl -X POST localhost:2567/agents/assignments -H "Authorization: Bearer $LIVE_AGENTS_SECRET"
+# {"assignments":[{"id":"assignment-1","agentId":"w2-live-agents-33","kind":"issue","number":39,
+#   "title":"…","url":"https://github.com/…/issues/39","requestedBy":"Dana",
+#   "note":"put someone on #39","assignedAt":1792048401635}]}
+```
+
+Each assignment is handed out by exactly one collection and never again, so an
+orchestrator polls every few seconds and starts what it is given; the `id` lets
+one that retries a request tell what it has already seen. Until the agent
+reports working on that issue, its nameplate and roster line say `next #39`; its
+own task still comes only from its reports. The manager says in the conversation
+when the orchestrator picks an assignment up and when the agent starts on it.
+
 Two query parameters are useful while developing. `?props=off` renders the
 grey-box office instead of the asset kit, and `?debug` puts the draw-call count
 and the number of placed props on the HUD.
@@ -140,7 +175,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all nineteen:
+Then confirm all twenty:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -285,13 +320,27 @@ Then confirm all nineteen:
     have closed; after three in a row the newest agent quits, and the chat log
     says why. `apps/server/src/rooms/staffHandlers.test.ts` drives all of it
     against a live room.
-19. **`pnpm typecheck` passes** across the whole repository.
+19. **The manager answers the CEO, and only the CEO.** Both tabs show
+    Firstmate, a crimson body seated at its desk in the lobby, with `AI Manager`
+    under its name and a `Ready` badge, listed under **Manager** in the roster.
+    Walk Dana into the lobby to the desk, press `E` at `Talk to the manager`, and
+    ask `what is everyone working on?`: the badge turns `Thinking…` for a moment
+    and the answer lists every agent and what it is doing, from the live office.
+    Ask `what's the status of ticket-1?` and then `put Ada on ticket-1`: the
+    reply says it went to Ada, Ada's badge turns `Working` and the ticket moves
+    on the board as if Dana had assigned it. Milo's roster line for the
+    manager counts the new lines; his panel at the desk shows the same
+    conversation, no message box, and says only Dana can instruct it — a
+    `manager:say` he sends down the socket is refused with that reason.
+    `apps/server/src/rooms/managerHandlers.test.ts` checks all of it against a
+    live room, including that the room keeps ticking while the manager thinks.
+20. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the AI manager's answers, assignments, updates and orchestrator queue
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -329,9 +378,12 @@ public.
 | `ANTHROPIC_API_KEY` | server | runtime | Only with `MOCK_AGENTS=off`, when the server refuses to start without it. A secret. |
 | `AGENT_MODEL` | server | runtime | No. The model agents use. Defaults to `claude-opus-5-5`. |
 | `AGENT_CALLS_PER_DAY` / `AGENT_CALLS_PER_RUN` | server | runtime | No. Model call ceilings per UTC day and per server process. Default 200 and 1000. |
+| `MOCK_MANAGER` | server | runtime | No. `on` (the default) for the AI manager to answer by rule from live state, `off` for a real model, which needs `ANTHROPIC_API_KEY`. |
+| `MANAGER_MODEL` | server | runtime | No. The model the manager uses. Defaults to `claude-opus-5-5`. |
+| `MANAGER_CALLS_PER_DAY` / `MANAGER_CALLS_PER_RUN` | server | runtime | No. The manager's own model call ceilings per UTC day and per server process. Default 150 and 1000. |
 | `AGENT_COUNT` | server | runtime | No. Agent employees each room hires, from 0 to 8. Defaults to 4. |
 | `AGENT_DEBUG` | server | runtime | No, and leave it off. `on` lets any connected client send agents walking with `/goto`; defaults to `off`. |
-| `LIVE_AGENTS_SECRET` | server | runtime | No. The shared secret an agent orchestrator reports with, at least 16 characters; without it no live agents appear. |
+| `LIVE_AGENTS_SECRET` | server | runtime | No. The shared secret an agent orchestrator reports with and collects the manager's assignments with, at least 16 characters; without it no live agents appear. |
 | `LIVE_AGENTS_TIMEOUT_SECONDS` | server | runtime | No. Silence after which a live agent leaves, at least 5. Defaults to 60. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
@@ -362,7 +414,10 @@ limit resets.
 With `MOCK_AGENTS=off`, every model call an agent makes is counted against the
 two `AGENT_CALLS_*` ceilings, retries included, and a ticket that would pass one
 fails with a budget message instead of being worked. The counters live in memory,
-so a restart resets them. The key is sent only to the model API.
+so a restart resets them. The key is sent only to the model API. With
+`MOCK_MANAGER=off`, each message the CEO sends the manager is one call against
+the separate `MANAGER_CALLS_*` ceilings; once those are spent, or the model
+fails, the manager answers by rule from live state and says so.
 
 `LIVE_AGENTS_SECRET` is the other secret, and is set the same way. It is compared
 against the report route's `Authorization` header in constant time and never
@@ -425,10 +480,11 @@ thing the page talks to is the WebSocket.
 ### Checking a deployment
 
 - `GET /health` on the server returns `{"status":"ok"}`. This is what the
-  platform probes, and with `POST /agents/report` when `LIVE_AGENTS_SECRET` is
-  set, the only HTTP the server serves; everything else is 404.
+  platform probes, and with `POST /agents/report` and `POST /agents/assignments`
+  when `LIVE_AGENTS_SECRET` is set, the only HTTP the server serves; everything
+  else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same eighteen things.
+  [The two-tab check](#the-two-tab-check), and confirm the same twenty things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -447,6 +503,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/company.ts      the company's tunables, clock ratio, and daily formulas
   src/projectBoard.ts the project board's GitHub snapshot
   src/liveAgents.ts   a live agent's report, its label, and the chairs it may take
+  src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
   src/collision.ts    capsule-vs-AABB movement resolution
@@ -464,7 +521,9 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/agentDebug.ts the `/goto` debug command
   src/github/             the project board's feed: fetch, bucket, poll
   src/work/               ticket work: the executor, its budget, mock and model providers
-  src/agents/             the live agents' feed: the report route and the registry
+  src/agents/             the live agents' feed: the report and assignment routes, and the registry
+  src/manager/            the AI manager: its view of the office, rule and model planners, assignments, updates
+  src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do at the ticket board, and why
@@ -478,10 +537,12 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
   src/ticketBoard.ts     the ticket board panel's columns and labels
   src/ui/TicketBoardPanel.tsx  the ticket board, opened at the whiteboard
+  src/managerAccess.ts    what the local player may say to the manager, and why
+  src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/assets/office-kit/ the vendored models, and their licence
 ```
 
-Twelve things are worth knowing before changing anything:
+Thirteen things are worth knowing before changing anything:
 
 - **The floor plan is data.** `shared/layout.ts` is the only place a wall
   position exists. The client builds meshes from it and the server collides
@@ -579,6 +640,18 @@ Twelve things are worth knowing before changing anything:
   small interface, `LiveAgentSource`, so another source — open pull requests
   with recent pushes, say — can stand in for the orchestrator without the
   world side changing.
+- **The manager decides; the rules and the orchestrator act.** A message to
+  the manager is taken synchronously — checked against `mayInstructManager`,
+  the CEO-only gate in `shared/manager.ts`, recorded and queued — and answered
+  on the manager's own loop in `server/manager/officeManager.ts`, so the tick
+  never waits on a model. A planner, by rule or by model, only proposes: what
+  it names is resolved against the live office afterwards, in-game tickets are
+  assigned through `applyTicketCommand` with the CEO as the actor, so the
+  manager can never do what the CEO who asked could not, and GitHub work goes
+  to the orchestrator's queue, which wraps the live agents' registry as their
+  `LiveAgentSource` so an assignment shows on its agent until the agent starts
+  it. The model call sits behind its own call budget, timeout and retry in
+  `server/manager/advisor.ts`, modelled on the work executor.
 
 ## Assets
 

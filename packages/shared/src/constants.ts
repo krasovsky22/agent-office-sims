@@ -193,10 +193,10 @@ export const MAX_MANAGER_REPLY_LENGTH = 1500;
  * Messages the CEO may send the manager back to back before the server starts
  * dropping them. Lower than chat, because each one may become a model call.
  */
-export const MANAGER_BURST_ALLOWANCE = 3;
+export const MANAGER_BURST_ALLOWANCE = 4;
 
-/** Rate at which that allowance is restored, in messages/second. */
-export const MANAGER_REFILL_PER_SECOND = 0.1;
+/** Rate at which that allowance is restored, in messages/second: one every four seconds. */
+export const MANAGER_REFILL_PER_SECOND = 0.25;
 
 /**
  * How long the server holds a dropped player's place, in seconds.

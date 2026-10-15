@@ -13,6 +13,8 @@ import {
   INTERACT_RANGE,
   INTERACTION_KIND,
   type InteractableSpec,
+  MANAGER_INTERACTABLE_ID,
+  type ManagerEntry,
   OCCUPANT_KIND,
   OFFICE_LAYOUT,
   OFFICE_PROPS,
@@ -28,6 +30,7 @@ import {
   nearestInteractable,
   promptFor,
   sanitizeName,
+  taskReference,
 } from "@sim/shared";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -37,6 +40,7 @@ import { boardAccessFor, rejectionText } from "./boardAccess.js";
 import { readCompany, sameReadout } from "./companyReadout.js";
 import { DayClock } from "./dayClock.js";
 import { parseDebugCommand } from "./debugCommand.js";
+import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
 import { readStaff, sameStaff, staffChangeText, staffRejectionText } from "./staffing.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
@@ -74,6 +78,12 @@ const MAX_FRAME_SECONDS = 0.1;
  */
 const CHAT_LOG_LIMIT = 50;
 
+/**
+ * Lines of the conversation with the manager kept on the client: the server
+ * keeps fewer than this, so it is only ever a guard against a runaway session.
+ */
+const MANAGER_LOG_LIMIT = 200;
+
 /** How long a "you are going too fast" notice stays on the HUD. */
 const NOTICE_DURATION_MS = 2500;
 
@@ -82,6 +92,9 @@ const DEBUG_INTERVAL_MS = 500;
 
 /** What the prompt reads while the player is reading a wall board up close. */
 const CLOSE_BOARD_LABEL = "Close the board";
+
+/** What it reads while the player is talking to the manager. */
+const CLOSE_CONVERSATION_LABEL = "Close the conversation";
 
 /** The prompt shown while the player is sitting, so standing up is discoverable. */
 const STAND_UP_PROMPT: HudPrompt = { keys: "W A S D", label: "Stand up", blocked: false };
@@ -135,11 +148,25 @@ function readDebugEnabled(): boolean {
   return new URLSearchParams(window.location.search).has("debug");
 }
 
-/** The second line of a live agent's nameplate and roster entry; `""` for anyone else. */
+/**
+ * The second line of a live agent's nameplate and roster entry, with what the
+ * manager has assigned it next; `""` for anyone else.
+ */
 function captionOf(view: OccupantView): string {
-  return view.agentStatus === undefined
-    ? ""
-    : describeLiveAgentTask(view.agentStatus, view.taskTitle, view.taskUrl);
+  if (view.agentStatus === undefined) {
+    return "";
+  }
+  const task = describeLiveAgentTask(view.agentStatus, view.taskTitle, view.taskUrl);
+  if (view.assignedUrl === "") {
+    return task;
+  }
+  const reference = taskReference(view.assignedUrl);
+  return `${task} · next ${reference === "" ? view.assignedTitle : reference}`;
+}
+
+/** Whether a panel takes the keyboard, and so is closed with `Esc` rather than `E`. */
+function closesWithEscape(interactableId: string): boolean {
+  return interactableId === TICKET_BOARD_ID || interactableId === MANAGER_INTERACTABLE_ID;
 }
 
 function createCamera(canvas: HTMLCanvasElement, layout: OfficeLayout): THREE.PerspectiveCamera {
@@ -274,6 +301,7 @@ function start(): void {
             activity: view.activity,
             isLocal: view.isLocal,
             caption,
+            managerStatus: view.managerStatus,
             model: avatarModel,
           });
           scene.add(avatar.group);
@@ -281,6 +309,7 @@ function start(): void {
         } else {
           existing.setLabel(view.name, view.isCeo, view.agentStatus === undefined ? view.jobTitle : caption);
           existing.setActivity(view.activity);
+          existing.setManagerStatus(view.managerStatus);
         }
       }
 
@@ -309,8 +338,11 @@ function start(): void {
           isLocal: view.isLocal,
           caption: captionOf(view),
           taskUrl: view.taskUrl,
+          assignedUrl: view.assignedUrl,
+          managerStatus: view.managerStatus,
         })),
         boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name),
+        managerAccess: local === undefined ? undefined : managerAccessFor(local, ceo?.name),
         ...(local === undefined
           ? { staff: undefined }
           : sameStaff(hud.staff, staff)
@@ -344,7 +376,9 @@ function start(): void {
           ? "Too many messages — that one was dropped."
           : event.command === CLIENT_MESSAGE.ticketComment
             ? "Too many comments — that one was dropped."
-            : "Too many emotes — that one was dropped.",
+            : event.command === CLIENT_MESSAGE.managerSay
+              ? "Too many messages to the manager — that one was dropped."
+              : "Too many emotes — that one was dropped.",
       );
     },
 
@@ -414,11 +448,29 @@ function start(): void {
     onTicketsChanged: (tickets) => {
       publishHud({ tickets });
     },
+
+    // Handed over whole on every join, a reconnection included, so it replaces
+    // what this tab had rather than adding to it.
+    onManagerHistory: (entries) => {
+      publishHud({ managerLog: entries.slice(-MANAGER_LOG_LIMIT), managerUnread: 0 });
+    },
+
+    onManagerEntry: (entry) => {
+      if (hud.managerLog.some((line) => line.id === entry.id)) {
+        return;
+      }
+      const managerLog: readonly ManagerEntry[] = [...hud.managerLog, entry].slice(-MANAGER_LOG_LIMIT);
+      publishHud({ managerLog, managerUnread: hud.managerOpen ? 0 : hud.managerUnread + 1 });
+    },
+
+    onManagerRejected: (event) => {
+      showNotice(managerRejectionText(event.rejection));
+    },
   });
 
-  // The wall board or whiteboard whose close-up is open, or `""`. Local to this
-  // tab: reading a board holds nothing, so there is nothing for the server to
-  // know.
+  // The wall board, whiteboard or manager's desk whose panel is open, or `""`.
+  // Local to this tab: reading a board or talking to the manager holds
+  // nothing, so there is nothing for the server to know.
   let readingBoard = "";
 
   createRoot(requireHudMount()).render(
@@ -446,6 +498,12 @@ function start(): void {
         },
         hire: (candidateId) => room.sendHire(candidateId),
         fire: (agentId) => room.sendFire(agentId),
+        manager: {
+          say: (text) => room.sendManagerSay(text),
+          close: () => {
+            readingBoard = "";
+          },
+        },
       },
     }),
   );
@@ -499,10 +557,12 @@ function start(): void {
           (deskId) => room.agentAtDesk(deskId),
         );
         prompt = {
-          keys: target.id === readingBoard && readingBoard === TICKET_BOARD_ID ? "Esc" : "E",
+          keys: target.id === readingBoard && closesWithEscape(readingBoard) ? "Esc" : "E",
           label:
             target.id === readingBoard
-              ? CLOSE_BOARD_LABEL
+              ? readingBoard === MANAGER_INTERACTABLE_ID
+                ? CLOSE_CONVERSATION_LABEL
+                : CLOSE_BOARD_LABEL
               : decision.allowed
                 ? promptFor(target)
                 : `${promptFor(target)} — taken`,
@@ -548,15 +608,20 @@ function start(): void {
     if (target?.id !== readingBoard) {
       readingBoard = "";
     }
-    if (controller.takeCloseRequest() && readingBoard === TICKET_BOARD_ID) {
+    if (controller.takeCloseRequest() && closesWithEscape(readingBoard)) {
       readingBoard = "";
     }
     if (controller.takeInteractRequest() && target !== undefined) {
       if (target.id === readingBoard) {
         readingBoard = "";
       } else {
-        // The whiteboard is the ticket board, read up close like a wall board.
-        if (target.kind === INTERACTION_KIND.board || target.kind === INTERACTION_KIND.whiteboard) {
+        // The whiteboard is the ticket board, read up close like a wall board,
+        // and the manager's desk opens the conversation the same way.
+        if (
+          target.kind === INTERACTION_KIND.board ||
+          target.kind === INTERACTION_KIND.whiteboard ||
+          target.kind === INTERACTION_KIND.manager
+        ) {
           readingBoard = target.id;
         }
         room.sendInteract(target.id);
@@ -569,6 +634,10 @@ function start(): void {
     const ticketBoardOpen = readingBoard === TICKET_BOARD_ID;
     if (ticketBoardOpen !== hud.ticketBoardOpen) {
       publishHud({ ticketBoardOpen });
+    }
+    const managerOpen = readingBoard === MANAGER_INTERACTABLE_ID;
+    if (managerOpen !== hud.managerOpen) {
+      publishHud(managerOpen ? { managerOpen, managerUnread: 0 } : { managerOpen });
     }
 
     room.sendPose(controller.pose, nowMs);

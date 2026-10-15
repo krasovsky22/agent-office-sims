@@ -1,5 +1,5 @@
 /**
- * How each agent activity looks.
+ * How each agent activity looks, and the AI manager's status beside them.
  *
  * Presentation, so it lives on the client, as the emote table does. The badge
  * above an agent's head and the chip beside its name in the roster read this
@@ -14,9 +14,19 @@
  * says. The nameplate and the roster both say so with {@link SIMULATED_LABEL},
  * keyed on {@link isSimulated} rather than on being an agent, so no one
  * mistakes one for a live coding agent and a live one is never tagged.
+ *
+ * The manager wears a badge in the same slot, read the same way: whether it is
+ * free to answer, or thinking about the last thing the CEO said.
  */
 
-import { AGENT_ACTIVITY, type AgentActivity, OCCUPANT_KIND, type OccupantKind } from "@sim/shared";
+import {
+  AGENT_ACTIVITY,
+  type AgentActivity,
+  MANAGER_STATUS,
+  type ManagerStatus,
+  OCCUPANT_KIND,
+  type OccupantKind,
+} from "@sim/shared";
 
 export interface AgentActivityAppearance {
   readonly label: string;
@@ -32,6 +42,11 @@ export const AGENT_ACTIVITY_APPEARANCE: Readonly<Record<AgentActivity, AgentActi
     [AGENT_ACTIVITY.meeting]: { label: "In a meeting", colour: "#b994ff" },
     [AGENT_ACTIVITY.blocked]: { label: "Blocked", colour: "#ff7a66" },
   };
+
+export const MANAGER_STATUS_APPEARANCE: Readonly<Record<ManagerStatus, AgentActivityAppearance>> = {
+  [MANAGER_STATUS.idle]: { label: "Ready", colour: "#ff8a96" },
+  [MANAGER_STATUS.thinking]: { label: "Thinking…", colour: "#ffd166" },
+};
 
 /** The tag every simulated agent employee carries on its nameplate and roster line. */
 export const SIMULATED_LABEL = "Simulated";

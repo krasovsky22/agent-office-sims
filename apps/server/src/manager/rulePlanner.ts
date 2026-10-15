@@ -83,7 +83,7 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
       : work;
     if (targets.length > 0) {
       return {
-        reply: backlog ? "Handing out the backlog:" : "On it:",
+        reply: backlog ? "Handing out the backlog:" : "Here's how that went:",
         assignments: pair(targets, agents),
       };
     }

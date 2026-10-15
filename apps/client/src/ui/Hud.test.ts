@@ -3,12 +3,12 @@
  * agent, and the only one that is text, so its grouping is pinned here.
  */
 
-import { AGENT_ACTIVITY, OCCUPANT_KIND } from "@sim/shared";
+import { AGENT_ACTIVITY, MANAGER_STATUS, OCCUPANT_KIND } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { AGENT_ACTIVITY_APPEARANCE } from "../agentActivity.js";
+import { AGENT_ACTIVITY_APPEARANCE, MANAGER_STATUS_APPEARANCE } from "../agentActivity.js";
 
-import { type RosterEntry, groupRoster } from "./Hud.js";
+import { type RosterEntry, assignableRoster, groupRoster } from "./Hud.js";
 
 function person(id: string, isCeo = false): RosterEntry {
   return {
@@ -22,6 +22,8 @@ function person(id: string, isCeo = false): RosterEntry {
     isLocal: false,
     caption: "",
     taskUrl: "",
+    assignedUrl: "",
+    managerStatus: undefined,
   };
 }
 
@@ -37,6 +39,8 @@ function agent(id: string): RosterEntry {
     isLocal: false,
     caption: "",
     taskUrl: "",
+    assignedUrl: "",
+    managerStatus: undefined,
   };
 }
 
@@ -52,6 +56,17 @@ function liveAgent(id: string): RosterEntry {
     isLocal: false,
     caption: "Working on #33",
     taskUrl: "https://github.com/krasovsky22/agent-office-sims/issues/33",
+    assignedUrl: "",
+    managerStatus: undefined,
+  };
+}
+
+function manager(): RosterEntry {
+  return {
+    ...person("manager:firstmate"),
+    kind: OCCUPANT_KIND.manager,
+    jobTitle: "AI Manager",
+    managerStatus: MANAGER_STATUS.idle,
   };
 }
 
@@ -80,6 +95,30 @@ describe("groupRoster", () => {
 
   it("leaves the agents group empty in a room with no staff", () => {
     expect(groupRoster([person("Dana")]).agents).toEqual([]);
+  });
+
+  it("lists the AI manager under a heading of its own", () => {
+    const { people, agents, managers } = groupRoster([manager(), person("Dana", true), agent("agent-1")]);
+    expect(managers.map((entry) => entry.id)).toEqual(["manager:firstmate"]);
+    expect(people.map((entry) => entry.id)).toEqual(["Dana"]);
+    expect(agents.map((entry) => entry.id)).toEqual(["agent-1"]);
+  });
+});
+
+describe("assignableRoster", () => {
+  it("offers everyone a ticket can go to, and never the manager", () => {
+    expect(assignableRoster([manager(), person("Dana", true), agent("agent-1")]).map((entry) => entry.id)).toEqual([
+      "Dana",
+      "agent-1",
+    ]);
+  });
+});
+
+describe("MANAGER_STATUS_APPEARANCE", () => {
+  it("names every status, and tells thinking from ready by colour", () => {
+    const appearances = Object.values(MANAGER_STATUS).map((status) => MANAGER_STATUS_APPEARANCE[status]);
+    expect(appearances.every((appearance) => appearance.label !== "")).toBe(true);
+    expect(new Set(appearances.map((appearance) => appearance.colour)).size).toBe(appearances.length);
   });
 });
 

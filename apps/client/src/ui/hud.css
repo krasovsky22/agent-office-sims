@@ -966,3 +966,91 @@
   gap: 6px;
   min-width: 0;
 }
+
+/* The conversation with the AI manager: one column of text, so narrower than a
+   board, and its log scrolls by itself while the composer stays put. */
+.manager {
+  width: min(720px, calc(100vw - 32px));
+}
+
+/* Holds the log's place before anything is said, so the composer stays at the foot. */
+.manager > .board__empty {
+  flex: 1;
+}
+
+.manager__log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.manager__line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.manager__line--ceo {
+  background: rgba(243, 207, 106, 0.08);
+}
+
+.manager__line--update {
+  border-left: 2px solid rgba(255, 138, 150, 0.6);
+  background: rgba(255, 138, 150, 0.06);
+}
+
+.manager__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  color: #9aa0aa;
+}
+
+.manager__author {
+  font-weight: 600;
+  color: #ff9aa5;
+}
+
+.manager__line--ceo .manager__author {
+  color: #f3cf6a;
+}
+
+.manager__tag {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.manager__time {
+  margin-left: auto;
+}
+
+/* A reply's line breaks are its list; kept here rather than turned into markup. */
+.manager__text {
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.manager__thinking {
+  margin: 0;
+  color: #ffd166;
+  font-style: italic;
+  font-size: 12px;
+}
+
+.hud__title-of--manager {
+  color: #ff9aa5;
+}

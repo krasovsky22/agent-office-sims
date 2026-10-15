@@ -140,7 +140,7 @@ describe("OfficeManager", () => {
     const { dana, state, office, published } = setUp(rules());
     office.instruct(dana, "put Ada on ticket-1");
     await until(() => published.length === 2);
-    expect(published[1]?.text).toBe("On it:\n✓ ticket-1 “Fix the login redirect loop” → Ada Byrne, Backend Engineer.");
+    expect(published[1]?.text).toBe("Here's how that went:\n✓ ticket-1 “Fix the login redirect loop” → Ada Byrne, Backend Engineer.");
     expect(state.tickets.get("ticket-1")).toMatchObject({ status: TICKET_STATUS.assigned, assigneeId: "agent-1" });
   });
 
