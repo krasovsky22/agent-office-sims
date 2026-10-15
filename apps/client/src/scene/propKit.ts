@@ -2,7 +2,7 @@
  * The prop asset kit: one model per {@link AssetPropKind}, loaded and normalised.
  *
  * This module is the whole of what the client knows about the asset pack — the
- * six files, which kind each one draws, and which way round each one happens to
+ * ten files, which kind each one draws, and which way round each one happens to
  * have been authored. Everything downstream works in metres with the prop's
  * footprint centred on its position, because models arrive here in neither of
  * those conventions and leave in both.
@@ -21,12 +21,16 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
+import cabinetUrl from "../assets/office-kit/kitchenCabinet.glb?url";
+import diningChairUrl from "../assets/office-kit/chair.glb?url";
 import chairUrl from "../assets/office-kit/chairDesk.glb?url";
 import monitorUrl from "../assets/office-kit/computerScreen.glb?url";
 import deskUrl from "../assets/office-kit/desk.glb?url";
 import doorUrl from "../assets/office-kit/doorwayOpen.glb?url";
 import coffeeUrl from "../assets/office-kit/kitchenCoffeeMachine.glb?url";
+import microwaveUrl from "../assets/office-kit/kitchenMicrowave.glb?url";
 import plantUrl from "../assets/office-kit/pottedPlant.glb?url";
+import tableUrl from "../assets/office-kit/table.glb?url";
 
 /**
  * Metres per kit unit.
@@ -85,6 +89,10 @@ const KIT: Readonly<Record<AssetPropKind, KitEntry>> = {
   plant: { url: plantUrl, yawOffset: 0 },
   door: { url: doorUrl, yawOffset: 0 },
   coffee: { url: coffeeUrl, yawOffset: HALF_TURN },
+  cabinet: { url: cabinetUrl, yawOffset: HALF_TURN },
+  microwave: { url: microwaveUrl, yawOffset: HALF_TURN },
+  table: { url: tableUrl, yawOffset: HALF_TURN },
+  diningChair: { url: diningChairUrl, yawOffset: HALF_TURN },
 };
 
 /** Every kind the kit supplies, for callers that want to preload or report. */
@@ -212,9 +220,9 @@ export function modelFromScene(kind: AssetPropKind, root: THREE.Object3D): PropM
 /**
  * Loads every model in the registry.
  *
- * All six at once and all-or-nothing: the caller shows one loading state and then
+ * All ten at once and all-or-nothing: the caller shows one loading state and then
  * furnishes the office in a single frame, rather than watching it assemble. The
- * whole kit is 85 KB of untextured geometry, so there is nothing to gain from
+ * whole kit is 125 KB of untextured geometry, so there is nothing to gain from
  * streaming it and a half-built office to lose.
  *
  * Rejects if any model fails, which is the signal to fall back to grey boxes.

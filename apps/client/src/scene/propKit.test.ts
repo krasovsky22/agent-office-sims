@@ -24,6 +24,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { describe, expect, it } from "vitest";
 
+import diningChairData from "../assets/office-kit/chair.glb?inline";
 import chairData from "../assets/office-kit/chairDesk.glb?inline";
 import monitorData from "../assets/office-kit/computerScreen.glb?inline";
 import { modelFromScene } from "./propKit.js";
@@ -108,11 +109,13 @@ describe("monitor facing", () => {
   });
 });
 
-/** The chair model as the renderer draws it, as one raycastable object. */
-async function chairModel(): Promise<{ object: THREE.Object3D; size: THREE.Vector3 }> {
-  const buffer = await (await fetch(chairData)).arrayBuffer();
+/** A chair model as the renderer draws it, as one raycastable object. */
+async function chairModel(
+  kind: "chair" | "diningChair" = "chair",
+): Promise<{ object: THREE.Object3D; size: THREE.Vector3 }> {
+  const buffer = await (await fetch(kind === "chair" ? chairData : diningChairData)).arrayBuffer();
   const gltf = await new GLTFLoader().parseAsync(buffer, "");
-  const model = modelFromScene("chair", gltf.scene);
+  const model = modelFromScene(kind, gltf.scene);
   const object = new THREE.Group();
   for (const part of model.parts) {
     object.add(new THREE.Mesh(part.geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })));
@@ -149,5 +152,21 @@ describe("the desk chair", () => {
     // From in front of the chair, toward its back, between cushion and top.
     const backrest = firstHit(object, new THREE.Vector3(0, 0.75, -2), new THREE.Vector3(0, 0, 1));
     expect(backrest?.z).toBeCloseTo(DESK_CHAIR.backrestOffset, PLACES);
+  });
+});
+
+describe("the kitchen chair", () => {
+  /**
+   * The layout turns each kitchen chair to face the table, trusting the kit
+   * table's turn to put the backrest behind the sitter. A chair whose backrest
+   * ended up on the table side would read as turned away from it.
+   */
+  it("has its backrest on the +Z side, behind whoever faces -Z on it", async () => {
+    const { object, size } = await chairModel("diningChair");
+    // Across the backrest's top rail, the one part of it that spans the chair:
+    // the rest is slats a ray down the middle slips between.
+    const fromFront = firstHit(object, new THREE.Vector3(0, size.y * 0.95, -2), new THREE.Vector3(0, 0, 1));
+    expect(fromFront).toBeDefined();
+    expect(fromFront?.z).toBeGreaterThan(0);
   });
 });

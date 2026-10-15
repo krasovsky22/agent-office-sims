@@ -66,6 +66,7 @@ const FIXTURE_LAYOUT: OfficeLayout = {
   // Nav never reads props, boards or doorways; they are empty so the fixture is
   // a complete layout without stating anything nav would never look at.
   props: [],
+  tabletop: [],
   boards: [],
   doorways: [],
   // Nav never reads rooms; they are here so the fixture is a complete layout

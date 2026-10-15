@@ -76,7 +76,7 @@ export interface DeskSpec {
  * Desks have their own spec because the rows of them are the floor plan's main
  * structure; everything else solid that is not a wall or a desk is a prop.
  */
-export type PropKind = "coffee";
+export type PropKind = "coffee" | "cabinet" | "table" | "diningChair";
 
 /**
  * A solid furnishing other than a desk, positioned the same way a desk is.
@@ -88,6 +88,31 @@ export type PropKind = "coffee";
 export interface PropSpec {
   readonly id: string;
   readonly kind: PropKind;
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+  readonly width: number;
+  readonly depth: number;
+  readonly height: number;
+}
+
+/** What a piece of tabletop set dressing is. */
+export type TabletopKind = "microwave";
+
+/**
+ * Set dressing stood on top of a prop rather than on the floor.
+ *
+ * Nothing collides with it, because the prop it stands on already does; that
+ * is why it is not a {@link PropSpec}. It is positioned like one, by the centre
+ * of its footprint and a yaw, and `on` names the prop whose top it sits on, so
+ * the renderer lifts it to that prop's height instead of trusting a number of
+ * its own.
+ */
+export interface TabletopSpec {
+  readonly id: string;
+  readonly kind: TabletopKind;
+  /** Id of the {@link PropSpec} it stands on. */
+  readonly on: string;
   readonly x: number;
   readonly z: number;
   readonly yaw: number;
@@ -258,6 +283,7 @@ export interface OfficeLayout {
   readonly walls: readonly WallSpec[];
   readonly desks: readonly DeskSpec[];
   readonly props: readonly PropSpec[];
+  readonly tabletop: readonly TabletopSpec[];
   readonly boards: readonly WallBoardSpec[];
   readonly rooms: readonly RoomSpec[];
   readonly doorways: readonly DoorwaySpec[];
@@ -278,6 +304,12 @@ const DESK_HEIGHT = 0.75;
 
 /** Quarter turn, the only yaw granularity the shipped layout uses. */
 const QUARTER_TURN = Math.PI / 2;
+
+/** One base cabinet of a kitchen counter, in its own frame: its front faces -Z. */
+const KITCHEN_CABINET = { width: 0.75, depth: 0.6, height: 0.9 } as const;
+
+/** The chairs round the kitchen table: lighter than a desk chair, and solid all the same. */
+const DINING_CHAIR = { width: 0.45, depth: 0.45, height: 0.9 } as const;
 
 /** Floor space allowed per seat along a desk's width. */
 const SEAT_PITCH = 1.6;
@@ -318,6 +350,32 @@ function wall(id: string, minX: number, minZ: number, maxX: number, maxZ: number
 
 function desk(id: string, x: number, z: number, yaw: number, width = 1.6, depth = 0.8): DeskSpec {
   return { id, x, z, yaw, width, depth, height: DESK_HEIGHT };
+}
+
+function prop(
+  id: string,
+  kind: PropKind,
+  x: number,
+  z: number,
+  yaw: number,
+  size: { readonly width: number; readonly depth: number; readonly height: number },
+): PropSpec {
+  return { id, kind, x, z, yaw, width: size.width, depth: size.depth, height: size.height };
+}
+
+/**
+ * A straight run of base cabinets, side by side along their own width.
+ *
+ * Generated for the same reason a desk row is: cabinets placed one by one are
+ * cabinets that end up with a gap or an overlap between two of them. `first` is
+ * the centre of the first cabinet and the run continues along the cabinets' own
+ * width, so the whole run faces one way and its fronts stay flush.
+ */
+function counterRun(prefix: string, first: Vec2, yaw: number, count: number): PropSpec[] {
+  return Array.from({ length: count }, (_, index) => {
+    const centre = localToWorld(first, yaw, index * KITCHEN_CABINET.width, 0);
+    return prop(`${prefix}-${index + 1}`, "cabinet", centre.x, centre.z, yaw, KITCHEN_CABINET);
+  });
 }
 
 function box3(
@@ -418,8 +476,47 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     desk("table-meeting", -2.85, -8.5, 0, 3.2, 1.4),
   ],
   props: [
-    // Against the kitchen's north wall, with room to stand in front of it.
-    { id: "coffee-machine", kind: "coffee", x: 3.15, z: -11.1, yaw: 0, width: 0.9, depth: 0.7, height: 1.5 },
+    // Against the kitchen's north wall, facing south into the room and straight
+    // down the walk from the door, with room to stand in front of it.
+    {
+      id: "coffee-machine",
+      kind: "coffee",
+      x: 3.15,
+      z: -11.1,
+      yaw: Math.PI,
+      width: 0.9,
+      depth: 0.7,
+      height: 1.5,
+    },
+
+    // The kitchen counter: an L of base cabinets in the north-west corner,
+    // backed onto the north wall west of the coffee machine and then down the
+    // west wall, both legs facing into the room. The door-to-machine walk runs
+    // east of all of it.
+    ...counterRun("kitchen-cabinet-north", { x: 2.175, z: -11.4 }, Math.PI, 3),
+    ...counterRun("kitchen-cabinet-west", { x: 0.6, z: -10.725 }, -QUARTER_TURN, 3),
+
+    // A table for four in the kitchen's east half, a clear body's width east
+    // of the walk from the door to the coffee machine.
+    prop("kitchen-table", "table", 4.9, -8, 0, { width: 1.2, depth: 0.8, height: 0.75 }),
+    prop("kitchen-chair-1", "diningChair", 4.6, -8.65, Math.PI, DINING_CHAIR),
+    prop("kitchen-chair-2", "diningChair", 5.2, -8.65, Math.PI, DINING_CHAIR),
+    prop("kitchen-chair-3", "diningChair", 4.6, -7.35, 0, DINING_CHAIR),
+    prop("kitchen-chair-4", "diningChair", 5.2, -7.35, 0, DINING_CHAIR),
+  ],
+  tabletop: [
+    // On the middle of the counter's north leg, pushed back against the wall.
+    {
+      id: "kitchen-microwave",
+      kind: "microwave",
+      on: "kitchen-cabinet-north-2",
+      x: 1.425,
+      z: -11.45,
+      yaw: Math.PI,
+      width: 0.55,
+      depth: 0.4,
+      height: 0.33,
+    },
   ],
   boards: [
     // The open floor's partition, between its two doorways and facing south
@@ -635,6 +732,9 @@ export function workstations(spec: DeskSpec): readonly Workstation[] {
  */
 const PROP_INTERACTION: Record<PropKind, InteractionKind | undefined> = {
   coffee: INTERACTION_KIND.coffee,
+  cabinet: undefined,
+  table: undefined,
+  diningChair: undefined,
 };
 
 const interactableCache = new WeakMap<OfficeLayout, readonly InteractableSpec[]>();
@@ -669,12 +769,13 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
     if (kind === undefined) {
       continue;
     }
-    // Stood at the prop's +Z side and facing it, the same convention a seat uses.
-    const position = localToWorld(spec, spec.yaw, 0, spec.depth / 2 + STANDING_GAP);
+    // Stood in front of the prop and turned to face it. A prop's front is its
+    // -Z side, so a prop backed onto a wall is used from the room.
+    const position = localToWorld(spec, spec.yaw, 0, -(spec.depth / 2 + STANDING_GAP));
     all.push({
       id: spec.id,
       kind,
-      anchor: { x: position.x, z: position.z, yaw: spec.yaw },
+      anchor: { x: position.x, z: position.z, yaw: spec.yaw - Math.PI },
       volume: undefined,
       exit: undefined,
     });
@@ -854,6 +955,7 @@ export function describeLayoutProblems(layout: OfficeLayout): string[] {
   }
 
   problems.push(...describeBoardProblems(layout));
+  problems.push(...describeFurnishingProblems(layout));
 
   // A chair inside a desk or a wall is a seat nobody can get into, and one
   // that blocks a neighbour's is a seat nobody can get out of.
@@ -961,6 +1063,97 @@ function describeBoardProblems(layout: OfficeLayout): string[] {
     }
   }
   return problems;
+}
+
+/**
+ * How far two boxes may share an edge before it counts as an overlap.
+ *
+ * A cabinet backed onto a wall is meant to touch it, and a footprint derived
+ * through a yaw lands a rounding error either side of the face it was placed
+ * against.
+ */
+const CONTACT_TOLERANCE = 1e-9;
+
+/** A box shrunk by `margin` on every side. */
+function inset(box: Aabb2, margin: number): Aabb2 {
+  return rect(box.minX + margin, box.minZ + margin, box.maxX - margin, box.maxZ - margin);
+}
+
+/**
+ * The floor a doorway needs kept clear: its gap, plus a body's width of
+ * approach on either side of the wall line, so nobody has to squeeze past a
+ * cabinet to get through.
+ */
+function doorwayApron(door: DoorwaySpec): Aabb2 {
+  const halfWidth = door.width / 2;
+  const halfDepth = MIN_OBSTACLE_THICKNESS / 2 + OCCUPANT_RADIUS * 2;
+  const [halfX, halfZ] = door.axis === "x" ? [halfWidth, halfDepth] : [halfDepth, halfWidth];
+  return rect(door.centre.x - halfX, door.centre.z - halfZ, door.centre.x + halfX, door.centre.z + halfZ);
+}
+
+/**
+ * Checks that every prop stands clear of everything else solid and of every
+ * doorway, and that every piece of tabletop dressing stands on the prop it
+ * names.
+ *
+ * A prop is placed by hand, so the mistakes to catch are one pushed into a wall
+ * or a neighbour, one left standing in a doorway, and a microwave left floating
+ * where a cabinet used to be.
+ */
+function describeFurnishingProblems(layout: OfficeLayout): string[] {
+  const problems: string[] = [];
+  const solid = [
+    ...layout.walls.map((spec) => ({ id: `wall ${spec.id}`, box: spec.footprint })),
+    ...layout.desks.map((spec) => ({ id: `desk ${spec.id}`, box: deskAabb(spec) })),
+    ...chairBoxes(layout).map((box, index) => ({ id: `chair ${index + 1}`, box })),
+    ...layout.props.map((spec) => ({ id: `prop ${spec.id}`, box: propAabb(spec) })),
+  ];
+
+  for (const spec of layout.props) {
+    const box = inset(propAabb(spec), CONTACT_TOLERANCE);
+    for (const other of solid) {
+      if (other.id !== `prop ${spec.id}` && boxesOverlap(box, other.box)) {
+        problems.push(`prop ${spec.id} overlaps ${other.id}`);
+      }
+    }
+    for (const door of layout.doorways) {
+      if (boxesOverlap(box, doorwayApron(door))) {
+        problems.push(`prop ${spec.id} stands in doorway ${door.id}`);
+      }
+    }
+    if (!containsBox(layout.floor, box)) {
+      problems.push(`prop ${spec.id} stands off the floor`);
+    }
+  }
+
+  const propsById = new Map(layout.props.map((spec) => [spec.id, spec]));
+  const tabletopIds = new Set<string>();
+  for (const item of layout.tabletop) {
+    if (tabletopIds.has(item.id)) {
+      problems.push(`tabletop item id ${item.id} is used twice`);
+    }
+    tabletopIds.add(item.id);
+    const base = propsById.get(item.on);
+    if (base === undefined) {
+      problems.push(`tabletop item ${item.id} stands on unknown prop ${item.on}`);
+      continue;
+    }
+    const footprint = inset(footprintAabb(item, item.yaw, item.width, item.depth), CONTACT_TOLERANCE);
+    if (!containsBox(propAabb(base), footprint)) {
+      problems.push(`tabletop item ${item.id} overhangs prop ${base.id}`);
+    }
+  }
+  return problems;
+}
+
+/** Whether `inner` lies wholly within `outer`. */
+function containsBox(outer: Aabb2, inner: Aabb2): boolean {
+  return (
+    inner.minX >= outer.minX &&
+    inner.maxX <= outer.maxX &&
+    inner.minZ >= outer.minZ &&
+    inner.maxZ <= outer.maxZ
+  );
 }
 
 /** Whether two boxes share any area. Touching edges do not count. */

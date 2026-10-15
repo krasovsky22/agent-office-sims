@@ -41,13 +41,28 @@ describe("the shipped office's props", () => {
 
   it("covers every kind the asset kit has to supply", () => {
     expect([...kinds(OFFICE_PROPS)].sort()).toEqual([
+      "cabinet",
       "chair",
       "coffee",
       "desk",
+      "diningChair",
       "door",
+      "microwave",
       "monitor",
       "plant",
+      "table",
     ]);
+  });
+
+  it("stands each piece of tabletop dressing on top of the prop it names", () => {
+    expect(OFFICE_LAYOUT.tabletop.length).toBeGreaterThan(0);
+    for (const item of OFFICE_LAYOUT.tabletop) {
+      const base = OFFICE_LAYOUT.props.find((spec) => spec.id === item.on);
+      const prop = OFFICE_PROPS.find((candidate) => candidate.id === `prop-${item.id}`);
+      expect(base, item.id).toBeDefined();
+      expect(prop?.kind).toBe(item.kind);
+      expect(prop?.y).toBe(base?.height);
+    }
   });
 
   it("gives every desk in the layout a desk prop fitted to its collision box", () => {
