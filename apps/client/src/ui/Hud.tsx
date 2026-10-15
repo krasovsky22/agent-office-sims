@@ -507,7 +507,12 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
 
       {company?.bankrupt === true ? <CompanyEndState readout={company} /> : null}
       {ticketBoardOpen ? (
-        <TicketBoardPanel tickets={tickets} people={roster} actions={actions.ticketBoard} />
+        <TicketBoardPanel
+          tickets={tickets}
+          people={roster}
+          access={boardAccess}
+          actions={actions.ticketBoard}
+        />
       ) : null}
 
       <div className="hud__column hud__column--right">

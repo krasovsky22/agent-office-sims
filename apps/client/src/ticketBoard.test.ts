@@ -1,8 +1,6 @@
 /**
  * The ticket board panel's view of the board: which column a ticket lands in,
- * whose name each card carries, and which moves the local player is offered.
- * Whether an offered move is one the server accepts is the shared planner's
- * test; this checks the panel asks it on behalf of the right player.
+ * whose name each card carries, and what each move button says.
  */
 
 import { SYSTEM_AUTHOR_ID, TICKET_ACTION, TICKET_STATUS, type TicketData } from "@sim/shared";
@@ -12,12 +10,11 @@ import {
   type BoardPerson,
   assigneeLabel,
   moveLabel,
-  panelPermissions,
   ticketColumns,
 } from "./ticketBoard.js";
 
-const DANA: BoardPerson = { id: "s-dana", name: "Dana", isCeo: true, isLocal: true };
-const MILO: BoardPerson = { id: "s-milo", name: "Milo", isCeo: false, isLocal: false };
+const DANA: BoardPerson = { id: "s-dana", name: "Dana", isLocal: true };
+const MILO: BoardPerson = { id: "s-milo", name: "Milo", isLocal: false };
 
 function ticket(overrides: Partial<TicketData> & Pick<TicketData, "id">): TicketData {
   return {
@@ -73,24 +70,5 @@ describe("card labels", () => {
     expect(moveLabel({ action: TICKET_ACTION.moveStatus, to: TICKET_STATUS.in_progress })).toBe(
       "Move to In progress",
     );
-  });
-});
-
-describe("panelPermissions", () => {
-  it("offers nothing before the local player has joined", () => {
-    const permissions = panelPermissions([MILO]);
-    expect(permissions.mayCreate).toBe(false);
-    expect(permissions.movesFor(ticket({ id: "t" }))).toEqual([]);
-  });
-
-  it("follows the shared planner once the local player is on the roster", () => {
-    const permissions = panelPermissions([DANA, MILO]);
-    expect(permissions.mayCreate).toBe(true);
-    expect(
-      permissions.movesFor(ticket({ id: "t", status: TICKET_STATUS.in_progress, assigneeId: MILO.id })),
-    ).toEqual([
-      { action: TICKET_ACTION.moveStatus, to: TICKET_STATUS.assigned },
-      { action: TICKET_ACTION.moveStatus, to: TICKET_STATUS.review },
-    ]);
   });
 });

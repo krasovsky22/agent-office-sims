@@ -440,7 +440,7 @@ function start(): void {
           (deskId) => room.agentAtDesk(deskId),
         );
         prompt = {
-          keys: "E",
+          keys: target.id === readingBoard && readingBoard === TICKET_BOARD_ID ? "Esc" : "E",
           label:
             target.id === readingBoard
               ? CLOSE_BOARD_LABEL

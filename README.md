@@ -393,7 +393,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
-  src/ticketBoard.ts     the ticket board panel's columns, labels and permissions
+  src/ticketBoard.ts     the ticket board panel's columns and labels
   src/ui/TicketBoardPanel.tsx  the ticket board, opened at the whiteboard
   src/assets/office-kit/ the vendored models, and their licence
 ```

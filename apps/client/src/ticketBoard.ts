@@ -3,35 +3,24 @@
  *
  * The panel renders whatever these functions hand it, so the parts worth
  * testing — which column a ticket lands in, whose name goes on a card, and
- * which moves are on offer — are plain functions of the replicated board and
- * the roster.
- *
- * This is also the panel's single door to the authority rules. Every "may this
- * player do that" the panel asks goes through {@link panelPermissions}, which
- * defers to the shared `ticketMoves` and `mayCreateTicket`, which defer in turn
- * to `mayActOnTicket` — the one predicate the server judges by. Tightening who
- * may act on the board is an edit there, and this panel follows it without
- * being touched.
+ * what a move button says — are plain functions of the replicated board and
+ * the roster. What the local player may do is not decided here: the panel
+ * gates on `boardAccess.ts`, the client's one door to the authority rules.
  */
 
 import {
-  OCCUPANT_KIND,
   TICKET_ACTION,
   TICKET_STATUS,
   TICKET_STATUSES,
-  type TicketActor,
   type TicketData,
   type TicketMove,
   type TicketStatus,
-  mayCreateTicket,
-  ticketMoves,
 } from "@sim/shared";
 
 /** The roster fields the board reads; `Hud.tsx`'s entries satisfy it. */
 export interface BoardPerson {
   readonly id: string;
   readonly name: string;
-  readonly isCeo: boolean;
   readonly isLocal: boolean;
 }
 
@@ -85,30 +74,4 @@ export function moveLabel(move: TicketMove): string {
   return move.action === TICKET_ACTION.assign
     ? "Assign to…"
     : `Move to ${TICKET_COLUMN_TITLES[move.to]}`;
-}
-
-/** What the local player may do on the board. */
-export interface PanelPermissions {
-  readonly mayCreate: boolean;
-  readonly movesFor: (ticket: TicketData) => TicketMove[];
-}
-
-/** Offered while there is no local player to judge, i.e. before joining. */
-const NO_PERMISSIONS: PanelPermissions = { mayCreate: false, movesFor: () => [] };
-
-/**
- * The local player's permissions, from the roster.
- *
- * The local player is always a human: an agent is not driven by a browser.
- */
-export function panelPermissions(people: readonly BoardPerson[]): PanelPermissions {
-  const self = people.find((person) => person.isLocal);
-  if (self === undefined) {
-    return NO_PERMISSIONS;
-  }
-  const actor: TicketActor = { id: self.id, kind: OCCUPANT_KIND.human, isCeo: self.isCeo };
-  return {
-    mayCreate: mayCreateTicket(actor),
-    movesFor: (ticket) => ticketMoves(ticket, actor),
-  };
 }

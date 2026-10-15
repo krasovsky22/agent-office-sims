@@ -5,7 +5,7 @@
  * Moving is click-to-move rather than drag and drop: open a card and its
  * detail lists a button for each column the ticket can go to. That is quicker
  * to build, works from the keyboard, and leaves no drop target to grey out —
- * the buttons on offer *are* the legal moves, from `ticketBoard.ts`, so the
+ * the buttons on offer *are* the legal moves, from `boardAccess.ts`, so the
  * panel never shows a move the server will refuse.
  *
  * The panel takes the keyboard while it has focus. It is marked as a keyboard
@@ -35,13 +35,13 @@ import {
 } from "@sim/shared";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import type { BoardAccess } from "../boardAccess.js";
 import { KEYBOARD_OWNER_ATTRIBUTE } from "../keys.js";
 import {
   type BoardPerson,
   TICKET_COLUMN_TITLES,
   assigneeLabel,
   moveLabel,
-  panelPermissions,
   ticketColumns,
 } from "../ticketBoard.js";
 
@@ -56,10 +56,12 @@ export interface TicketBoardActions {
 interface TicketBoardPanelProps {
   readonly tickets: readonly TicketData[];
   readonly people: readonly BoardPerson[];
+  /** `undefined` before the local player has joined, when nothing is offered. */
+  readonly access: BoardAccess | undefined;
   readonly actions: TicketBoardActions;
 }
 
-export function TicketBoardPanel({ tickets, people, actions }: TicketBoardPanelProps) {
+export function TicketBoardPanel({ tickets, people, access, actions }: TicketBoardPanelProps) {
   const rootRef = useRef<HTMLElement>(null);
   const lastFocused = useRef<HTMLElement | null>(null);
   const [openId, setOpenId] = useState<string | undefined>(undefined);
@@ -83,7 +85,6 @@ export function TicketBoardPanel({ tickets, people, actions }: TicketBoardPanelP
     }
   });
 
-  const permissions = panelPermissions(people);
   const columns = ticketColumns(tickets);
   // Looked up by id on every render, so the detail tracks the live ticket.
   const open = openId === undefined ? undefined : tickets.find((ticket) => ticket.id === openId);
@@ -123,7 +124,7 @@ export function TicketBoardPanel({ tickets, people, actions }: TicketBoardPanelP
       <header className="board__header">
         <h2 className="board__title">Ticket board</h2>
         <div className="tickets__toolbar">
-          {permissions.mayCreate && !composing ? (
+          {access?.mayCreate === true && !composing ? (
             <button className="tickets__button" type="button" onClick={() => setComposing(true)}>
               New ticket
             </button>
@@ -179,7 +180,7 @@ export function TicketBoardPanel({ tickets, people, actions }: TicketBoardPanelP
             key={open.id}
             ticket={open}
             people={people}
-            moves={permissions.movesFor(open)}
+            moves={access?.movesFor(open) ?? []}
             actions={actions}
             onClose={() => setOpenId(undefined)}
           />
