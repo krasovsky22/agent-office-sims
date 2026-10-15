@@ -54,4 +54,12 @@ describe("describeChanges", () => {
     expect(describeChanges(observe(agents, []), collected)).toEqual([line]);
     expect(describeChanges(collected, collected)).toEqual([]);
   });
+
+  it("says when an agent did not pick up what it was handed", () => {
+    const agents = view([crewmate("idle")]);
+    const collected = observe(agents, [assignment(LIVE_ASSIGNMENT_STATUS.collected)]);
+    const dropped = observe(agents, [assignment(LIVE_ASSIGNMENT_STATUS.dropped)]);
+    expect(describeChanges(collected, dropped)).toEqual(["Crewmate did not pick up #39 “Night shift”."]);
+    expect(describeChanges(dropped, dropped)).toEqual([]);
+  });
 });

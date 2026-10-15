@@ -89,7 +89,7 @@ describe("LiveAssignmentQueue", () => {
     expect(queue.madeBy("room-a")[0]?.status).toBe(LIVE_ASSIGNMENT_STATUS.started);
   });
 
-  it("keeps showing it while the agent works on something else", () => {
+  it("keeps showing it, while it waits to be collected, whatever the agent reports", () => {
     queue.assign(request());
     registry.report({
       id: "crew-1",
@@ -98,6 +98,52 @@ describe("LiveAssignmentQueue", () => {
       task: { title: "Other", url: "https://github.com/o/r/issues/12" },
     });
     expect(queue.current()[0]?.assignment?.url).toBe(ISSUE_39);
+  });
+
+  it("settles a collected assignment on the agent's next report, even one that changes nothing", () => {
+    queue.assign(request());
+    queue.collect();
+    let changes = 0;
+    queue.subscribe(() => {
+      changes += 1;
+    });
+    registry.report({ id: "crew-1", name: "Crewmate", status: LIVE_AGENT_REPORT_STATUS.idle, task: undefined });
+    expect(changes).toBe(1);
+    expect(queue.current()[0]?.assignment).toBeUndefined();
+    expect(queue.madeBy("room-a")[0]?.status).toBe(LIVE_ASSIGNMENT_STATUS.dropped);
+  });
+
+  it("drops a collected assignment when the agent reports working on something else", () => {
+    queue.assign(request());
+    queue.collect();
+    registry.report({
+      id: "crew-1",
+      name: "Crewmate",
+      status: LIVE_AGENT_REPORT_STATUS.working,
+      task: { title: "Other", url: "https://github.com/o/r/pull/41" },
+    });
+    expect(queue.current()[0]?.assignment).toBeUndefined();
+    expect(queue.madeBy("room-a")[0]?.status).toBe(LIVE_ASSIGNMENT_STATUS.dropped);
+  });
+
+  it("drops a collected assignment when the agent stops", () => {
+    queue.assign(request());
+    queue.collect();
+    registry.report({ id: "crew-1", name: "Crewmate", status: LIVE_AGENT_REPORT_STATUS.stopped, task: undefined });
+    expect(queue.madeBy("room-a")[0]?.status).toBe(LIVE_ASSIGNMENT_STATUS.dropped);
+  });
+
+  it("drops a collected assignment when the agent falls out of the registry", () => {
+    let now = 0;
+    const silent = new LiveAgentRegistry({ timeoutMs: 1000, maxAgents: 5, now: () => now });
+    silent.report({ id: "crew-1", name: "Crewmate", status: LIVE_AGENT_REPORT_STATUS.idle, task: undefined });
+    const watching = new LiveAssignmentQueue({ agents: silent });
+    watching.assign(request());
+    watching.collect();
+    expect(watching.madeBy("room-a")[0]?.status).toBe(LIVE_ASSIGNMENT_STATUS.collected);
+    now = 5000;
+    silent.sweep();
+    expect(watching.madeBy("room-a")[0]?.status).toBe(LIVE_ASSIGNMENT_STATUS.dropped);
   });
 
   it("refuses more once the orchestrator has fallen behind", () => {

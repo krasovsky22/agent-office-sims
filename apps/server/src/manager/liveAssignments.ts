@@ -11,8 +11,10 @@
  * the price of never starting the same work twice; each assignment carries an
  * id, so one that retries can tell what it has already seen.
  *
- * Until the agent reports working on what it was given, the assignment is
- * shown on it. That is done by wrapping the registry: this class is a
+ * Once collected, the agent's next report settles it: working on what it was
+ * given means it started; idle, stopped, gone from the registry, or working
+ * on anything else means it did not pick it up, and it stops being
+ * outstanding. Until then the assignment is shown on it. That is done by wrapping the registry: this class is a
  * {@link LiveAgentSource} whose records are the registry's with the
  * outstanding assignment added, so the room and the crew that walks the bodies
  * need no second feed. The agent's own task still comes only from its reports.
@@ -27,7 +29,7 @@
 
 import type { LiveAgentTask } from "@sim/shared";
 
-import type { LiveAgentRecord, LiveAgentSource } from "../agents/registry.js";
+import type { LiveAgentRecord, LiveAgentRegistry, LiveAgentSource } from "../agents/registry.js";
 
 /** Where an assignment has got to. */
 export const LIVE_ASSIGNMENT_STATUS = {
@@ -37,6 +39,8 @@ export const LIVE_ASSIGNMENT_STATUS = {
   collected: "collected",
   /** The agent has reported working on it. */
   started: "started",
+  /** Collected, and the agent's next report showed it had not taken it. */
+  dropped: "dropped",
 } as const;
 
 export type LiveAssignmentStatus = (typeof LIVE_ASSIGNMENT_STATUS)[keyof typeof LIVE_ASSIGNMENT_STATUS];
@@ -108,8 +112,8 @@ export function isLiveAssignmentQueue(value: unknown): value is LiveAssignmentQu
 }
 
 export interface LiveAssignmentQueueOptions {
-  /** The registry, or anything else the live agents come from. */
-  readonly agents: LiveAgentSource;
+  /** The registry the live agents report to. */
+  readonly agents: LiveAgentSource & Pick<LiveAgentRegistry, "subscribeReports">;
   /**
    * Most assignments waiting to be collected; one more is refused. An
    * orchestrator that has stopped collecting should not let the queue grow.
@@ -147,7 +151,7 @@ function isWorkingOn(record: LiveAgentRecord, item: AssignedItem): boolean {
 }
 
 function isOutstanding(assignment: LiveAssignment): boolean {
-  return assignment.status !== LIVE_ASSIGNMENT_STATUS.started;
+  return assignment.status === LIVE_ASSIGNMENT_STATUS.pending || assignment.status === LIVE_ASSIGNMENT_STATUS.collected;
 }
 
 export class LiveAssignmentQueue implements LiveAgentSource {
@@ -158,6 +162,7 @@ export class LiveAssignmentQueue implements LiveAgentSource {
   private readonly maxPending: number;
   private readonly maxKept: number;
   private readonly unsubscribe: () => void;
+  private readonly unsubscribeReports: () => void;
   private snapshot: readonly LiveAgentRecord[] = [];
   private nextId = 1;
 
@@ -166,6 +171,7 @@ export class LiveAssignmentQueue implements LiveAgentSource {
     this.maxPending = options.maxPending ?? DEFAULT_MAX_PENDING;
     this.maxKept = options.maxKept ?? DEFAULT_MAX_KEPT;
     this.unsubscribe = options.agents.subscribe(() => this.reconcile());
+    this.unsubscribeReports = options.agents.subscribeReports((id) => this.heard(id));
     this.reconcile();
   }
 
@@ -224,6 +230,7 @@ export class LiveAssignmentQueue implements LiveAgentSource {
   /** Stops listening to the agents' source. */
   public stop(): void {
     this.unsubscribe();
+    this.unsubscribeReports();
   }
 
   private pending(): LiveAssignment[] {
@@ -237,9 +244,25 @@ export class LiveAssignmentQueue implements LiveAgentSource {
   }
 
   /**
-   * Marks what agents have started, rebuilds the records the room reads, and
-   * tells the rooms. An agent that has left keeps its assignment outstanding:
-   * the orchestrator may bring it back to do it.
+   * One report from an agent, changed or not, settles what it has collected:
+   * {@link reconcile} has already marked it started if the agent is on it.
+   */
+  private heard(agentId: string): void {
+    let settled = false;
+    for (const assignment of this.kept.values()) {
+      if (assignment.agentId === agentId && assignment.status === LIVE_ASSIGNMENT_STATUS.collected) {
+        this.settle(assignment, LIVE_ASSIGNMENT_STATUS.dropped);
+        settled = true;
+      }
+    }
+    if (settled) {
+      this.reconcile();
+    }
+  }
+
+  /**
+   * Marks what agents have started, drops what was collected for an agent
+   * that has left, rebuilds the records the room reads, and tells the rooms.
    */
   private reconcile(): void {
     const agents = this.options.agents.current();
@@ -252,6 +275,10 @@ export class LiveAssignmentQueue implements LiveAgentSource {
       const record = byId.get(assignment.agentId);
       if (record !== undefined && isWorkingOn(record, assignment.item)) {
         this.settle(assignment, LIVE_ASSIGNMENT_STATUS.started);
+        continue;
+      }
+      if (record === undefined && assignment.status === LIVE_ASSIGNMENT_STATUS.collected) {
+        this.settle(assignment, LIVE_ASSIGNMENT_STATUS.dropped);
         continue;
       }
       // Oldest first, so the newest outstanding one is what the agent shows.

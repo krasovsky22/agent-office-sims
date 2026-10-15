@@ -100,6 +100,7 @@ function sameTask(a: LiveAgentTask | undefined, b: LiveAgentTask | undefined): b
 export class LiveAgentRegistry implements LiveAgentSource {
   private readonly entries = new Map<string, Entry>();
   private readonly listeners = new Set<() => void>();
+  private readonly reportListeners = new Set<(id: string) => void>();
   private readonly now: () => number;
   private snapshot: readonly LiveAgentRecord[] = [];
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -120,6 +121,20 @@ export class LiveAgentRegistry implements LiveAgentSource {
   }
 
   /**
+   * Told of every report the registry takes, by agent id, after
+   * {@link subscribe}'s listeners — including a heartbeat that changes
+   * nothing, which they never hear of.
+   *
+   * @returns a function that unsubscribes.
+   */
+  public subscribeReports(listener: (id: string) => void): () => void {
+    this.reportListeners.add(listener);
+    return () => {
+      this.reportListeners.delete(listener);
+    };
+  }
+
+  /**
    * Applies one report.
    *
    * A report that repeats what the registry already holds refreshes the
@@ -127,6 +142,20 @@ export class LiveAgentRegistry implements LiveAgentSource {
    * orchestrator's steady heartbeats free for every room.
    */
   public report(report: LiveAgentReport): ReportOutcome {
+    const outcome = this.record(report);
+    if (outcome !== "full") {
+      for (const listener of this.reportListeners) {
+        try {
+          listener(report.id);
+        } catch {
+          // One listener failing must not stop the others hearing.
+        }
+      }
+    }
+    return outcome;
+  }
+
+  private record(report: LiveAgentReport): ReportOutcome {
     if (report.status === LIVE_AGENT_REPORT_STATUS.stopped) {
       if (this.entries.delete(report.id)) {
         this.changed();

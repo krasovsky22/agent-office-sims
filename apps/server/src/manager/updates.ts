@@ -1,6 +1,7 @@
 /**
  * What the AI manager says without being asked: work handed in, an agent stuck,
- * a live agent starting or stopping, an assignment picked up by the orchestrator.
+ * a live agent starting or stopping, an assignment picked up by the orchestrator
+ * or not taken by its agent.
  *
  * The manager looks at the office on its own timer and compares what it sees
  * with what it saw last time; this module is that comparison, as two pure
@@ -122,6 +123,9 @@ export function describeChanges(before: Observation, after: Observation): string
     const wasPending = previous === undefined || previous.status === LIVE_ASSIGNMENT_STATUS.pending;
     if (wasPending && assignment.status !== LIVE_ASSIGNMENT_STATUS.pending) {
       lines.push(`The orchestrator picked up ${assignment.label} for ${assignment.agent}.`);
+    }
+    if (assignment.status === LIVE_ASSIGNMENT_STATUS.dropped && previous?.status !== LIVE_ASSIGNMENT_STATUS.dropped) {
+      lines.push(`${assignment.agent} did not pick up ${assignment.label}.`);
     }
   }
   return lines;

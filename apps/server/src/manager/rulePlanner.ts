@@ -8,7 +8,7 @@
  * CEO asks a manager most:
  *
  * - **"Put Ada on ticket-3"**, "put someone on #39", "hand out the backlog":
- *   an assignment verb and some work, with or without a name, becomes a plan
+ *   an instruction to assign some work, with or without a name, becomes a plan
  *   to assign — carried out afterwards through the board's rules, like a
  *   model's plan.
  * - **"What's the status of #12?"**: any work it can find in the message is
@@ -26,12 +26,37 @@ import { AGENT_ACTIVITY, TICKET_PRIORITY, TICKET_STATUS, TICKET_STATUSES, type T
 
 import type { ManagerPlan, ManagerRequest, PlannedAssignment } from "./advisor.js";
 import type { AgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, TicketView } from "./officeView.js";
-import { type AgentRef, type WorkRef, describeWork, findAgents, findUnknownWork, findWork } from "./resolve.js";
+import {
+  type AgentRef,
+  type WorkRef,
+  describeWork,
+  findAgents,
+  findUnknownWork,
+  findWork,
+  resolveAgent,
+} from "./resolve.js";
 
 /** Most items one list in an answer names before saying how many more there are. */
 const LIST_LIMIT = 8;
 
-const ASSIGN_VERB = /\b(put|assign|reassign|give|hand|get|have|send|allocate|delegate)\b/i;
+/**
+ * A question, however it is worded, is answered and never acted on: "give me
+ * the status of ticket-3", "does anyone have #39?", "who should I give #39 to?".
+ */
+const QUESTION =
+  /\?|\b(what|what's|whats|how|how's|hows|where|who|who's|which|why|status)\b|^\s*(do|does|did|is|are|was|were|has|had|should|any|have\s+(you|we|they|i|anyone|someone))\b/i;
+/** "ok, please" and the like ahead of an instruction. */
+const LEAD_IN = String.raw`^\s*(?:(?:ok(?:ay)?|now|please|so|and|then|(?:can|could|would|will) you)[\s,]+)*`;
+/** An instruction: "put Bo on…", "give ticket-1 to…", "have Ada take…", but not "give me…". */
+const IMPERATIVE = new RegExp(
+  `${LEAD_IN}(?:(?:put|assign|reassign|hand|send|allocate|delegate)\\b|give\\b(?!\\s+(?:me|us)\\b)|have\\s+\\S+(?:\\s+\\S+)?\\s+(?:take|do|work|pick|handle|start|tackle)\\b)`,
+  "i",
+);
+/** "I'd like you to put someone on #39": an assignment verb with its "on" or "to". */
+const ASSIGN_PHRASE = /\b(put|assign|reassign|give|hand|send|allocate|delegate)\s+(?!(me|us)\b)[^.?!]*?\b(on|to)\b/i;
+/** "#39 to Deckhand": a work reference handed to whoever is named next. */
+const WORK_TO = /(?:\bticket[-\s]?#?\d+|#\d+|\b(?:issue|pr)\s*#?\d+)\s+to\s+([a-z][\w-]*)/gi;
+const ANYONE = /^(someone|somebody|anyone|anybody)$/i;
 /** "who should I give #39 to?" asks for advice rather than an assignment. */
 const ASKING_ADVICE = /\b(should i|who should|who would|who could|who can)\b/i;
 const WHOLE_BACKLOG = /\b(hand out|assign|give out|clear|distribute)\b.*\b(the )?backlog\b|\bbacklog\b.*\b(out|to everyone|to the team)\b/i;
@@ -74,7 +99,7 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   const work = findWork(message, view);
   const agents = findAgents(message, view);
 
-  if (ASSIGN_VERB.test(message) && !ASKING_ADVICE.test(message)) {
+  if (isAssignment(message, view)) {
     const backlog = work.length === 0 && WHOLE_BACKLOG.test(message);
     const targets: WorkRef[] = backlog
       ? view.tickets
@@ -121,6 +146,19 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     return { reply: `Hello${view.ceo === undefined ? "" : `, ${view.ceo}`}. ${HELP_TEXT}`, assignments: [] };
   }
   return { reply: `I didn't catch what you want me to look at. ${HELP_TEXT}`, assignments: [] };
+}
+
+function isAssignment(message: string, view: OfficeView): boolean {
+  if (QUESTION.test(message)) {
+    return false;
+  }
+  if (IMPERATIVE.test(message) || ASSIGN_PHRASE.test(message)) {
+    return true;
+  }
+  return [...message.matchAll(WORK_TO)].some((match) => {
+    const who = match[1] ?? "";
+    return ANYONE.test(who) || resolveAgent(who, view) !== undefined;
+  });
 }
 
 /**

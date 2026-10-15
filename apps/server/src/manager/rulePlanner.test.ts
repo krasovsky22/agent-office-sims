@@ -170,6 +170,23 @@ describe("planFromRules: assignments", () => {
     expect(plan.reply).toContain("Deckhand is free.");
   });
 
+  it("answers a question that uses an assignment word, and assigns nothing", () => {
+    expect(ask("give me the status of ticket-3")).toMatchObject({
+      assignments: [],
+      reply: expect.stringContaining("Cleo Hart is stuck on it"),
+    });
+    expect(ask("does anyone have #39?")).toMatchObject({ assignments: [], reply: expect.stringContaining("#39 “Night shift” is open") });
+    expect(ask("What does Ada have on ticket-2?").assignments).toEqual([]);
+    expect(ask("Did anyone get to #39?").assignments).toEqual([]);
+  });
+
+  it("takes an instruction however it starts, or work handed to a name", () => {
+    expect(ask("ok, please have Bo take ticket-1").assignments).toEqual([{ work: "ticket-1", agent: "agent-2" }]);
+    expect(ask("I'd like you to put Deckhand on #39").assignments).toEqual([{ work: "issue #39", agent: "crew-2" }]);
+    expect(ask("#39 to Deckhand").assignments).toEqual([{ work: "issue #39", agent: "crew-2" }]);
+    expect(ask("ticket-3 to review").assignments).toEqual([]);
+  });
+
   it("assigns nothing when the work named does not exist", () => {
     expect(ask("put Bo on #999")).toMatchObject({ assignments: [], reply: expect.stringContaining("can't find #999") });
   });

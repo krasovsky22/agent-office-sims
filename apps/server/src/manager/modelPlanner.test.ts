@@ -3,8 +3,7 @@
  * each attempt safe.
  *
  * The planner's claims: the request carries the office as data and the CEO's
- * message, asks for structured output, opts into the refusal fallback only on a
- * model that takes it, and a reply becomes a plan. The advisor's: a spent
+ * message, asks for structured output, and a reply becomes a plan. The advisor's: a spent
  * budget, a timeout, a failure and a withdrawn question all come back as
  * results, never as a rejection.
  */
@@ -19,7 +18,7 @@ import { type ManagerPlan, type ManagerRequest, createManagerAdvisor } from "./a
 import { type SendMessage, createModelPlanner, readReply, userPrompt } from "./modelPlanner.js";
 import type { OfficeView } from "./officeView.js";
 
-type ModelMessage = Anthropic.Beta.BetaMessage;
+type ModelMessage = Anthropic.Message;
 
 const VIEW: OfficeView = {
   ceo: "Dana",
@@ -55,7 +54,7 @@ function reply(text: string, stopReason: ModelMessage["stop_reason"] = "end_turn
 }
 
 describe("the request", () => {
-  it("sends the office as data, the conversation and the message, asks for JSON, and opts into the fallback", async () => {
+  it("sends the office as data, the conversation and the message, and asks for JSON", async () => {
     const sent: Parameters<SendMessage>[0][] = [];
     const send: SendMessage = async (params) => {
       sent.push(params);
@@ -67,29 +66,12 @@ describe("the request", () => {
     const params = sent[0];
     expect(params?.model).toBe("claude-opus-5-5");
     expect(params?.output_config).toMatchObject({ effort: "low", format: { type: "json_schema" } });
-    expect(params?.fallbacks).toBe("default");
-    expect(params?.betas).toEqual(["server-side-fallback-2026-07-01"]);
     expect(params?.messages).toHaveLength(1);
     const prompt = JSON.stringify(params?.messages);
     expect(prompt).toContain("Ada Byrne");
     expect(prompt).toContain("what is Ada doing?");
     expect(prompt).toContain("Ada handed in ticket-2.");
     expect(JSON.stringify(params)).not.toContain("test-key");
-  });
-
-  it("leaves the fallback off for a model that does not take it", async () => {
-    const sent: Parameters<SendMessage>[0][] = [];
-    const planner = createModelPlanner({
-      apiKey: "k",
-      model: "claude-haiku-4-5",
-      send: async (params) => {
-        sent.push(params);
-        return reply(JSON.stringify({ reply: "ok", assignments: [] }));
-      },
-    });
-    await planner(REQUEST, SIGNAL);
-    expect(sent[0]?.fallbacks).toBeUndefined();
-    expect(sent[0]?.betas).toBeUndefined();
   });
 
   it("frames what people typed as data, inside its own tags", () => {

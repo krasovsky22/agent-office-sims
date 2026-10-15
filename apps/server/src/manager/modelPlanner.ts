@@ -32,8 +32,8 @@ import { WorkProviderError } from "../work/executor.js";
 import { classifyError } from "../work/modelProvider.js";
 import type { ManagerPlan, ManagerPlanner, ManagerRequest, PlannedAssignment } from "./advisor.js";
 
-type CreateParams = Anthropic.Beta.MessageCreateParamsNonStreaming;
-type ModelMessage = Anthropic.Beta.BetaMessage;
+type CreateParams = Anthropic.MessageCreateParamsNonStreaming;
+type ModelMessage = Anthropic.Message;
 
 /** The one SDK call this module makes, so a test can stand in for it. */
 export type SendMessage = (params: CreateParams, options: { signal: AbortSignal }) => Promise<ModelMessage>;
@@ -50,19 +50,6 @@ const MAX_TOKENS = 8_000;
 
 /** Lines of the conversation the model is shown, newest last. */
 const HISTORY_LINES = 12;
-
-/**
- * Models that take the server-side refusal fallback. On these a declined
- * request is re-run on a fallback model inside the same call; any other model
- * is sent without it rather than refused for the parameter.
- */
-const FALLBACK_MODELS: ReadonlySet<string> = new Set([
-  "claude-opus-5-5",
-  "claude-opus-5",
-  "claude-fable-5-1",
-  "claude-sonnet-5-5",
-]);
-const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
 const OUTPUT_SCHEMA = {
   type: "object",
@@ -138,7 +125,6 @@ function requestFor(model: string, request: ManagerRequest): CreateParams {
     // Low: an answer is a lookup over a few kilobytes of state, and someone is
     // standing at the desk waiting for it.
     output_config: { effort: "low", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
-    ...(FALLBACK_MODELS.has(model) ? { betas: [FALLBACK_BETA], fallbacks: "default" as const } : {}),
   };
 }
 
@@ -196,7 +182,7 @@ export function createModelPlanner(options: ModelPlannerOptions): ManagerPlanner
   let send = options.send;
   if (send === undefined) {
     const client = new Anthropic({ apiKey: options.apiKey, maxRetries: 0 });
-    send = (params, requestOptions) => client.beta.messages.create(params, requestOptions);
+    send = (params, requestOptions) => client.messages.create(params, requestOptions);
   }
   const call = send;
 
