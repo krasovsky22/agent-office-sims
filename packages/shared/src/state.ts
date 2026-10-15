@@ -2,10 +2,11 @@
  * Replicated room state.
  *
  * {@link Occupant} is deliberately the base type for everyone who can stand in
- * the office, not just for players. The map holds three siblings of it:
+ * the office, not just for players. The map holds four siblings of it:
  * {@link HumanPlayer}, one per browser, {@link AgentEmployee}, the staff the
- * room hires itself, and {@link LiveAgent}, moved by the server on a real
- * coding agent's behalf. All are read through the same map, so anything that
+ * room hires itself, {@link LiveAgent}, moved by the server on a real coding
+ * agent's behalf, and {@link AiManager}, the one manager who hands the work out.
+ * All are read through the same map, so anything that
  * only needs a body and a name — the renderer, the board's assignee lookup —
  * treats them alike, and only what is particular to one kind narrows by `kind`.
  *
@@ -47,11 +48,13 @@ import {
  * `liveAgent` is one of the real coding agents working on this repository,
  * reported by its orchestrator. The two are different people with different
  * sources of truth, so they are different kinds rather than one kind with a flag.
+ * `manager` is the AI manager the CEO talks to, who assigns work to both.
  */
 export const OCCUPANT_KIND = {
   human: "human",
   agent: "agent",
   liveAgent: "live-agent",
+  manager: "manager",
 } as const;
 
 export type OccupantKind = (typeof OCCUPANT_KIND)[keyof typeof OCCUPANT_KIND];
@@ -286,6 +289,14 @@ export class LiveAgent extends Occupant {
   declare public taskTitle: string;
   /** The issue or pull request the task is, or `""` when not known. Always `https:`. */
   declare public taskUrl: string;
+  /**
+   * The issue or pull request the AI manager has handed this agent and it has
+   * not reported working on yet, or `""`. Its own task still comes only from
+   * the orchestrator's reports; this is what it has been asked to do next.
+   */
+  declare public assignedTitle: string;
+  /** The assignment's link, `""` with no assignment. Always `https:`. */
+  declare public assignedUrl: string;
 
   public constructor() {
     super();
@@ -293,10 +304,54 @@ export class LiveAgent extends Occupant {
     this.status = LIVE_AGENT_STATUS.idle;
     this.taskTitle = "";
     this.taskUrl = "";
+    this.assignedTitle = "";
+    this.assignedUrl = "";
   }
 }
 
-defineTypes(LiveAgent, { status: "string", taskTitle: "string", taskUrl: "string" });
+defineTypes(LiveAgent, {
+  status: "string",
+  taskTitle: "string",
+  taskUrl: "string",
+  assignedTitle: "string",
+  assignedUrl: "string",
+});
+
+/**
+ * What the AI manager is doing, for its badge.
+ *
+ * `thinking` while a question from the CEO is with its model, so a slow answer
+ * reads as a manager at work rather than one that did not hear.
+ */
+export const MANAGER_STATUS = {
+  idle: "idle",
+  thinking: "thinking",
+} as const;
+
+export type ManagerStatus = (typeof MANAGER_STATUS)[keyof typeof MANAGER_STATUS];
+
+/**
+ * The AI manager: the one occupant who takes the CEO's instructions and hands
+ * the work out to the agents, simulated and live.
+ *
+ * Seated at its own desk for good and moved by nobody, so nothing here is a
+ * position; what is replicated is what a client draws — a title under the name
+ * and a badge saying whether it is thinking. The conversation itself is not
+ * state: it is relayed as messages, like chat.
+ */
+export class AiManager extends Occupant {
+  declare public jobTitle: string;
+  declare public status: ManagerStatus;
+
+  public constructor() {
+    super();
+    this.kind = OCCUPANT_KIND.manager;
+    this.jobTitle = "";
+    this.status = MANAGER_STATUS.idle;
+  }
+}
+
+defineTypes(AiManager, { jobTitle: "string", status: "string" });
 
 /**
  * Where a ticket sits on the board.
@@ -563,4 +618,9 @@ export function isAgentEmployee(occupant: Occupant): occupant is AgentEmployee {
 /** Narrows an occupant to a live coding agent, by `kind` for the same reason. */
 export function isLiveAgent(occupant: Occupant): occupant is LiveAgent {
   return occupant.kind === OCCUPANT_KIND.liveAgent;
+}
+
+/** Narrows an occupant to the AI manager, by `kind` for the same reason. */
+export function isAiManager(occupant: Occupant): occupant is AiManager {
+  return occupant.kind === OCCUPANT_KIND.manager;
 }

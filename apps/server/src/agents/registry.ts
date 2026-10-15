@@ -32,6 +32,11 @@ export interface LiveAgentRecord {
   readonly name: string;
   readonly status: LiveAgentStatus;
   readonly task: LiveAgentTask | undefined;
+  /**
+   * What the AI manager has handed this agent and it has not yet reported
+   * working on, when a source knows; see `manager/liveAssignments.ts`.
+   */
+  readonly assignment?: LiveAgentTask | undefined;
 }
 
 /**

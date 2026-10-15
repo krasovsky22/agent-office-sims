@@ -247,7 +247,12 @@ describe("OFFICE_LAYOUT seats", () => {
 
     const others = interactables(OFFICE_LAYOUT).filter((spec) => spec.exit === undefined);
     expect(others.map((spec) => spec.kind).sort()).toEqual(
-      [INTERACTION_KIND.board, INTERACTION_KIND.coffee, INTERACTION_KIND.whiteboard].sort(),
+      [
+        INTERACTION_KIND.board,
+        INTERACTION_KIND.coffee,
+        INTERACTION_KIND.manager,
+        INTERACTION_KIND.whiteboard,
+      ].sort(),
     );
     for (const spec of others) {
       const node = nearestWaypoint(spec.anchor, OFFICE_LAYOUT);

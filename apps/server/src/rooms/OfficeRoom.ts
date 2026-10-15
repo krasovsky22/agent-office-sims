@@ -60,6 +60,11 @@
  * definition time. The room only marks itself dirty when the source changes;
  * the tick reads the source's finished list and hands it to the crew in
  * `sim/liveAgents.ts`, which walks, seats and talks the bodies on the floor.
+ *
+ * Nor is how the AI manager thinks. The room seats it at its desk, hands every
+ * message to it through `managerHandlers.ts`, and sends each joining client the
+ * conversation so far; the manager in `manager/officeManager.ts` answers on its
+ * own loop, and the tick never waits on it.
  */
 
 import { type Client, Room } from "@colyseus/core";
@@ -70,6 +75,8 @@ import {
   CLIENT_MESSAGE,
   type EmoteEvent,
   HumanPlayer,
+  type ManagerEntry,
+  type ManagerHistoryEvent,
   OCCUPANT_KIND,
   OFFICE_LAYOUT,
   OfficeState,
@@ -78,7 +85,9 @@ import {
   TICKET_ACTION,
   TICK_INTERVAL_MS,
   type ThrottledEvent,
+  employManager,
   isCeo,
+  managerSeat,
   normalizeYaw,
   parseChatMessage,
   parseEmoteMessage,
@@ -92,6 +101,9 @@ import type { ProjectBoardSource } from "../github/feed.js";
 import { AgentBrain, type AgentBrainHost } from "../sim/agentBrain.js";
 import { AgentMotion, type IntentReport } from "../sim/agentMotion.js";
 import { type CompanyClock, createCompanyClock, stepCompany } from "../sim/company.js";
+import { type ManagerAdvisor, isManagerAdvisor } from "../manager/advisor.js";
+import { type LiveAssignmentQueue, isLiveAssignmentQueue } from "../manager/liveAssignments.js";
+import { OfficeManager } from "../manager/officeManager.js";
 import { hireAgentEmployees } from "../sim/agents.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import { type ExpressionBudget, createExpressionBudget, tryConsume } from "../sim/expression.js";
@@ -107,6 +119,7 @@ import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
 import { type WorkExecutor, isWorkExecutor } from "../work/executor.js";
 import { registerAgentDebugHandlers } from "./agentDebug.js";
+import { registerManagerHandlers } from "./managerHandlers.js";
 import {
   isProjectBoardSource,
   relayProjectBoard,
@@ -165,6 +178,16 @@ export interface OfficeRoomOptions {
   readonly workExecutor: WorkExecutor;
   /** Absent when no orchestrator is configured, which leaves the floor to the players. */
   readonly liveAgents?: LiveAgentSource;
+  /**
+   * How the AI manager thinks, shared by every room so one call budget covers
+   * the server. A room given none has no manager.
+   */
+  readonly manager?: ManagerAdvisor;
+  /**
+   * Where the manager queues GitHub work for live agents, for the orchestrator
+   * to collect. Absent when no orchestrator is configured.
+   */
+  readonly liveAssignments?: LiveAssignmentQueue;
 }
 
 /**
@@ -230,6 +253,9 @@ export class OfficeRoom extends Room<OfficeState> {
   /** Set by the source, cleared by the tick that reads it. */
   private liveAgentsChanged = true;
 
+  /** The AI manager's mind; unset in a room given no advisor. */
+  private manager: OfficeManager | undefined;
+
   public override onCreate(options?: unknown): void {
     this.state = new OfficeState();
     this.patchRate = TICK_INTERVAL_MS;
@@ -282,6 +308,7 @@ export class OfficeRoom extends Room<OfficeState> {
     };
     seedTicketBoard(ticketHost);
     registerTicketHandlers(this, ticketHost);
+    this.openManagersDesk(ticketHost, roomOptions);
 
     // Before anyone can join, so nobody's first patch is an empty office.
     const agentCount = roomOptions?.agentCount;
@@ -409,13 +436,19 @@ export class OfficeRoom extends Room<OfficeState> {
     if (this.projectBoard !== undefined) {
       sendProjectBoard(client, this.projectBoard);
     }
+    if (this.manager !== undefined) {
+      client.send(SERVER_MESSAGE.managerHistory, {
+        entries: this.manager.history(),
+      } satisfies ManagerHistoryEvent);
+    }
   }
 
   public override onDispose(): void {
-    // First, so no brain is left writing to a room that is closing.
+    // First, so no brain or manager is left writing to a room that is closing.
     for (const brain of this.brains) {
       brain.stop();
     }
+    this.manager?.stop();
     this.stopRelayingProjectBoard?.();
     this.stopWatchingLiveAgents?.();
   }
@@ -518,6 +551,43 @@ export class OfficeRoom extends Room<OfficeState> {
     }
     client.send(SERVER_MESSAGE.throttled, { command } satisfies ThrottledEvent);
     return false;
+  }
+
+  /**
+   * Seats the AI manager at its desk and starts it listening, if this room was
+   * given an advisor and its floor plan has the desk.
+   *
+   * The chair is held from the start, through the same registry players use,
+   * so nobody can sit in it and every client sees it taken.
+   */
+  private openManagersDesk(tickets: TicketHost, options: Partial<OfficeRoomOptions> | undefined): void {
+    const advisor = options?.manager;
+    const manager = employManager(OFFICE_LAYOUT);
+    const seat = managerSeat(OFFICE_LAYOUT);
+    if (!isManagerAdvisor(advisor) || manager === undefined || seat === undefined) {
+      return;
+    }
+    this.state.occupants.set(manager.id, manager);
+    this.holds.take(manager.id, seat, this.clock.currentTime);
+
+    const assignments = isLiveAssignmentQueue(options?.liveAssignments) ? options.liveAssignments : undefined;
+    this.manager = new OfficeManager({
+      tickets,
+      advisor,
+      projectBoard: () => this.projectBoard?.current(),
+      liveAgents: this.liveAgents,
+      assignments,
+      origin: this.roomId,
+      publish: (entry) => {
+        this.broadcast(SERVER_MESSAGE.managerEntry, entry satisfies ManagerEntry);
+      },
+    });
+    registerManagerHandlers(this, {
+      state: this.state,
+      manager: this.manager,
+      allow: (client) => this.spend(client, CLIENT_MESSAGE.managerSay),
+    });
+    this.manager.start();
   }
 
   /** Gives an agent on the floor a brain, if this room's agents work at all. */

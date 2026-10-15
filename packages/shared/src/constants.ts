@@ -176,6 +176,29 @@ export const COMMENT_BURST_ALLOWANCE = 3;
 export const COMMENT_REFILL_PER_SECOND = 0.2;
 
 /**
+ * Longest message to the AI manager the server will accept, in characters.
+ *
+ * Truncated rather than rejected, like chat. Room for an instruction with its
+ * reasons, which is longer than anything said across the office.
+ */
+export const MAX_MANAGER_MESSAGE_LENGTH = 400;
+
+/**
+ * Longest line the manager posts, in characters: a status report over the
+ * whole board fits, a model that runs on does not fill the panel.
+ */
+export const MAX_MANAGER_REPLY_LENGTH = 1500;
+
+/**
+ * Messages the CEO may send the manager back to back before the server starts
+ * dropping them. Lower than chat, because each one may become a model call.
+ */
+export const MANAGER_BURST_ALLOWANCE = 3;
+
+/** Rate at which that allowance is restored, in messages/second. */
+export const MANAGER_REFILL_PER_SECOND = 0.1;
+
+/**
  * How long the server holds a dropped player's place, in seconds.
  *
  * A socket that closes without the player leaving — a network blip, a laptop

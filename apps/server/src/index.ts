@@ -18,24 +18,34 @@
  * only attached when a secret is configured.
  *
  * How agents do ticket work is read here too, so a model mode with no API key
- * stops the server at boot rather than failing the first ticket an agent takes.
+ * stops the server at boot rather than failing the first ticket an agent takes,
+ * and how the AI manager answers, for the same reason. The manager's queue of
+ * work for the live agents is made beside the registry it wraps, and its
+ * collection route is attached with the report route.
  */
 
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { OFFICE_ROOM_NAME, RECONNECT_GRACE_SECONDS, TICK_RATE_HZ } from "@sim/shared";
 
-import { LIVE_AGENT_REPORT_PATH, createLiveAgentEndpoint } from "./agents/endpoint.js";
+import {
+  LIVE_AGENT_ASSIGNMENTS_PATH,
+  LIVE_AGENT_REPORT_PATH,
+  createAssignmentEndpoint,
+  createLiveAgentEndpoint,
+} from "./agents/endpoint.js";
 import { LiveAgentRegistry } from "./agents/registry.js";
 import { readConfig } from "./config.js";
 import { createGithubLoader } from "./github/client.js";
+import { createConfiguredManager, describeManager } from "./manager/fromConfig.js";
+import { LiveAssignmentQueue } from "./manager/liveAssignments.js";
 import { ProjectFeed } from "./github/feed.js";
 import { type RouteHandler, createHealthServer } from "./http.js";
 import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
 import { createConfiguredExecutor, describeAgentWork } from "./work/fromConfig.js";
 
-const { port, allowedOrigins, projectBoard, agentWork, agentCount, agentDebug, liveAgents } =
+const { port, allowedOrigins, projectBoard, agentWork, agentCount, agentDebug, liveAgents, manager } =
   readConfig();
 
 const projectFeed = new ProjectFeed({
@@ -54,11 +64,20 @@ const liveAgentRegistry =
     ? undefined
     : new LiveAgentRegistry({ timeoutMs: liveAgents.timeoutMs, maxAgents: MAX_LIVE_AGENTS });
 
+// The live agents as rooms read them: the registry's, with what the manager
+// has handed each one and it has not started yet.
+const liveAssignments =
+  liveAgentRegistry === undefined ? undefined : new LiveAssignmentQueue({ agents: liveAgentRegistry });
+
 const routes = new Map<string, RouteHandler>();
-if (liveAgentRegistry !== undefined && liveAgents.secret !== undefined) {
+if (liveAgentRegistry !== undefined && liveAssignments !== undefined && liveAgents.secret !== undefined) {
   routes.set(
     LIVE_AGENT_REPORT_PATH,
     createLiveAgentEndpoint({ secret: liveAgents.secret, registry: liveAgentRegistry }),
+  );
+  routes.set(
+    LIVE_AGENT_ASSIGNMENTS_PATH,
+    createAssignmentEndpoint({ secret: liveAgents.secret, queue: liveAssignments }),
   );
 }
 
@@ -73,21 +92,24 @@ const server = new Server({
 
 // Colyseus lets these server options win a collision with a client's join
 // options, so a client can never supply the feed, the size of the staff, the
-// way the staff work, or its own permission to send debug commands. The
-// executor is made once, so its call budget is the whole server's.
+// way the staff work or the manager thinks, or its own permission to send
+// debug commands. The executor and the manager's advisor are made once, so
+// each call budget is the whole server's.
 server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   projectBoard: projectFeed,
   agentCount,
   reconnectGraceSeconds: RECONNECT_GRACE_SECONDS,
   agentDebug,
   workExecutor: createConfiguredExecutor(agentWork),
-  ...(liveAgentRegistry === undefined ? {} : { liveAgents: liveAgentRegistry }),
+  manager: createConfiguredManager(manager),
+  ...(liveAssignments === undefined ? {} : { liveAgents: liveAssignments, liveAssignments }),
 } satisfies OfficeRoomOptions);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     projectFeed.stop();
     liveAgentRegistry?.stop();
+    liveAssignments?.stop();
     void server.gracefullyShutdown();
   });
 }
@@ -103,6 +125,7 @@ console.log(
     (projectBoard.token === undefined ? "anonymous" : "with a token"),
 );
 console.log(describeAgentWork(agentWork));
+console.log(describeManager(manager));
 console.log(`agent employees per room: ${agentCount}`);
 console.log(`agent debug commands: ${agentDebug ? "on" : "off"}`);
 
@@ -110,6 +133,7 @@ console.log(`agent debug commands: ${agentDebug ? "on" : "off"}`);
 console.log(
   liveAgents.secret === undefined
     ? "live agents: off (LIVE_AGENTS_SECRET is not set)"
-    : `live agents: POST ${LIVE_AGENT_REPORT_PATH}, leaving after ${liveAgents.timeoutMs / 1000}s of silence`,
+    : `live agents: POST ${LIVE_AGENT_REPORT_PATH}, leaving after ${liveAgents.timeoutMs / 1000}s of silence; ` +
+        `assignments collected from POST ${LIVE_AGENT_ASSIGNMENTS_PATH}`,
 );
 /* eslint-enable no-console */

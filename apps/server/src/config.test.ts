@@ -6,7 +6,8 @@
  * server when they are wrong rather than polling a repository nobody meant or
  * hiring a staff nobody asked for, or about the live agents' `LIVE_AGENTS_*`,
  * which refuse a secret too short to be one. The agent work variables follow
- * the same rule: a model mode with no key stops the boot, not a ticket.
+ * the same rule: a model mode with no key stops the boot, not a ticket, and so
+ * do the AI manager's `MOCK_MANAGER` and `MANAGER_*`.
  */
 
 import { describe, expect, it } from "vitest";
@@ -20,6 +21,7 @@ import {
   readAgentWorkConfig,
   readAllowedOrigins,
   readLiveAgentsConfig,
+  readManagerConfig,
   readPort,
   readProjectBoardConfig,
 } from "./config.js";
@@ -187,6 +189,47 @@ describe("readAgentWorkConfig", () => {
   it("never puts the key in an error", () => {
     expect(() =>
       readAgentWorkConfig({ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "sk-secret", AGENT_CALLS_PER_DAY: "x" }),
+    ).toThrow(expect.objectContaining({ message: expect.not.stringContaining("sk-secret") }));
+  });
+});
+
+describe("readManagerConfig", () => {
+  it("answers by rule unless told otherwise, even when the agents use a model", () => {
+    expect(readManagerConfig({})).toEqual({ mode: "mock" });
+    expect(readManagerConfig({ MOCK_MANAGER: " On " })).toEqual({ mode: "mock" });
+    expect(readManagerConfig({ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "k" })).toEqual({ mode: "mock" });
+  });
+
+  it("uses the model, with its own default budgets, when mock is off and a key is present", () => {
+    expect(readManagerConfig({ MOCK_MANAGER: "off", ANTHROPIC_API_KEY: " sk-test " })).toEqual({
+      mode: "model",
+      apiKey: "sk-test",
+      model: "claude-opus-5-5",
+      callsPerDay: 150,
+      callsPerRun: 1000,
+    });
+    expect(
+      readManagerConfig({
+        MOCK_MANAGER: "off",
+        ANTHROPIC_API_KEY: "k",
+        MANAGER_MODEL: "claude-sonnet-5-5",
+        MANAGER_CALLS_PER_DAY: "5",
+        MANAGER_CALLS_PER_RUN: "0",
+      }),
+    ).toMatchObject({ model: "claude-sonnet-5-5", callsPerDay: 5, callsPerRun: 0 });
+  });
+
+  it.each([
+    [{ MOCK_MANAGER: "off" }, /ANTHROPIC_API_KEY.*MOCK_MANAGER on/],
+    [{ MOCK_MANAGER: "sometimes" }, /MOCK_MANAGER/],
+    [{ MOCK_MANAGER: "off", ANTHROPIC_API_KEY: "k", MANAGER_CALLS_PER_DAY: "1.5" }, /MANAGER_CALLS_PER_DAY/],
+  ])("rejects %j", (env, pattern) => {
+    expect(() => readManagerConfig(env)).toThrow(pattern);
+  });
+
+  it("never puts the key in an error", () => {
+    expect(() =>
+      readManagerConfig({ MOCK_MANAGER: "off", ANTHROPIC_API_KEY: "sk-secret", MANAGER_CALLS_PER_RUN: "x" }),
     ).toThrow(expect.objectContaining({ message: expect.not.stringContaining("sk-secret") }));
   });
 });

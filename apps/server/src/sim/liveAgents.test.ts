@@ -443,4 +443,15 @@ describe("labels", () => {
     office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
     expect(body).toMatchObject({ status: LIVE_AGENT_STATUS.idle, taskTitle: "", taskUrl: "" });
   });
+
+  it("carry what the manager assigned it next, until the feed stops saying so", () => {
+    const office = createOffice();
+    const assignment = { title: "Night shift", url: "https://github.com/o/r/issues/39" };
+    office.crew.sync([{ ...record("alpha", LIVE_AGENT_STATUS.idle), assignment }], office.now);
+    const body = agent(office, "alpha");
+    expect(body).toMatchObject({ assignedTitle: "Night shift", assignedUrl: assignment.url });
+
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working, "Night shift")], office.now);
+    expect(body).toMatchObject({ assignedTitle: "", assignedUrl: "" });
+  });
 });
