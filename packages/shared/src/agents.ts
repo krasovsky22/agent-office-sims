@@ -11,8 +11,8 @@
  *
  * Hiring after the room opens draws on the same tables: the CEO picks one of
  * {@link HIRING_CANDIDATES}, and {@link planHire} decides who that is and
- * which desk they get. The rules around it — who may hire, what it costs —
- * are `staffing.ts`'s.
+ * which desk they get. The rules around it — who may hire, and when — are
+ * `staffing.ts`'s.
  *
  * The server is the only caller of the planners; the client sees agents
  * through replicated state, and reads only the candidate list, to offer it.
@@ -229,7 +229,7 @@ export function freeAgentDesk(
  * `hireNumber` is how many agents the room has ever hired, this one included;
  * it is what makes the id and the name move on after a firing instead of
  * reusing the fired agent's. An id or a name already on the floor is skipped.
- * Whether the hire is allowed at all — the role, the cash, a free desk — is
+ * Whether the hire is allowed at all — the role, a free desk — is
  * the caller's to have checked; `deskId` is the desk {@link freeAgentDesk}
  * found.
  */
