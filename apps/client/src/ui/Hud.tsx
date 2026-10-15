@@ -26,12 +26,14 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { BoardAccess } from "../boardAccess.js";
 import type { CompanyReadout } from "../companyReadout.js";
+import type { StaffReadout } from "../staffing.js";
 import { AGENT_ACTIVITY_APPEARANCE, SIMULATED_LABEL, isSimulated } from "../agentActivity.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ConnectionStatus } from "../net/room.js";
 import { CompanyEndState, CompanyPanel } from "./CompanyPanel.js";
 import { ProjectBoardPanel } from "./ProjectBoardPanel.js";
+import { StaffPanel } from "./StaffPanel.js";
 
 import "./hud.css";
 
@@ -44,6 +46,8 @@ export interface RosterEntry {
   readonly jobTitle: string;
   /** An agent's activity; `undefined` for a player. */
   readonly activity: AgentActivity | undefined;
+  /** An agent's daily salary; `0` for a player. */
+  readonly salary: number;
   readonly isLocal: boolean;
 }
 
@@ -123,12 +127,23 @@ export interface HudSnapshot {
   readonly company?: CompanyReadout;
   /** What the local player may do at the ticket board; absent until they are in the office. */
   readonly boardAccess?: BoardAccess | undefined;
+  /** The payroll, the desks, and whether the local player may hire; absent until they are in. */
+  readonly staff?: StaffReadout | undefined;
+  /**
+   * The morale a firing just cost, shown beside the metric until the next one.
+   * `id` changes with each firing so the same drop twice still animates.
+   */
+  readonly moraleHit?: { readonly id: number; readonly text: string } | undefined;
 }
 
 export interface HudActions {
   readonly sendEmote: (emote: Emote) => void;
   /** Called with the raw input text; the server sanitizes it. */
   readonly sendChat: (text: string) => void;
+  /** Asks the server to hire for a candidate job; it decides. */
+  readonly hire: (candidateId: string) => void;
+  /** Asks the server to let an agent go; it decides. */
+  readonly fire: (agentId: string) => void;
 }
 
 export interface HudStore {
@@ -454,6 +469,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     boardCloseUp,
     company,
     boardAccess,
+    staff,
+    moraleHit,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
 
@@ -465,7 +482,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       </div>
 
       <div className="hud__column">
-        <CompanyPanel readout={company} />
+        <CompanyPanel readout={company} moraleHit={moraleHit} />
 
         <Roster roster={roster} boardAccess={boardAccess} />
 
@@ -497,6 +514,15 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       {company?.bankrupt === true ? <CompanyEndState readout={company} /> : null}
 
       <div className="hud__column hud__column--right">
+        {staff === undefined ? null : (
+          <StaffPanel
+            staff={staff}
+            agents={groupRoster(roster).agents}
+            hire={actions.hire}
+            fire={actions.fire}
+          />
+        )}
+
         <div className="hud__panel hud__panel--chat">
           <h2 className="hud__title">Office chat</h2>
           <ChatLog entries={chatLog} />

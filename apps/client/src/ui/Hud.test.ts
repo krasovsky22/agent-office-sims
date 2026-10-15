@@ -18,6 +18,7 @@ function person(id: string, isCeo = false): RosterEntry {
     isCeo,
     jobTitle: "",
     activity: undefined,
+    salary: 0,
     isLocal: false,
   };
 }
@@ -30,6 +31,7 @@ function agent(id: string): RosterEntry {
     isCeo: false,
     jobTitle: "Backend Engineer",
     activity: AGENT_ACTIVITY.idle,
+    salary: 0,
     isLocal: false,
   };
 }

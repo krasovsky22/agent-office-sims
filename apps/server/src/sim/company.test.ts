@@ -10,9 +10,11 @@
 
 import {
   COMPANY_STATUS,
-  DAILY_PAYROLL,
+  DEFAULT_AGENT_COUNT,
+  HIRING_CANDIDATES,
   MAX_CLOCK_STEP_MS,
   MINUTES_PER_DAY,
+  OFFICE_LAYOUT,
   OfficeState,
   PRODUCTIVITY_DAILY_DECAY,
   PRODUCTIVITY_PER_COMPLETED_TICKET,
@@ -23,10 +25,15 @@ import {
   TICK_INTERVAL_MS,
   TICKET_STATUS,
   type Ticket,
+  employAgent,
+  freeAgentDesk,
+  payrollOf,
+  planHire,
   seedBoard,
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
+import { hireAgentEmployees } from "./agents.js";
 import { type CompanyClock, createCompanyClock, stepCompany } from "./company.js";
 
 /** Real milliseconds from the starting minute to the first midnight. */
@@ -46,7 +53,13 @@ function openOffice(): Office {
   const state = new OfficeState();
   let next = 1;
   seedBoard(state.tickets, 0, () => `ticket-${next++}`);
+  hireAgentEmployees(state.occupants, OFFICE_LAYOUT, DEFAULT_AGENT_COUNT);
   return { state, clock: createCompanyClock(state.company, 0), now: 0 };
+}
+
+/** What the office as it opens costs a day. */
+function payroll(office: Office): number {
+  return payrollOf(office.state.occupants.values());
 }
 
 /** Steps the clock at the room's tick rate for `ms` of real time. */
@@ -54,7 +67,7 @@ function run(office: Office, ms: number): void {
   const end = office.now + ms;
   while (office.now < end) {
     office.now = Math.min(office.now + TICK_INTERVAL_MS, end);
-    stepCompany(office.state.company, office.clock, office.state.tickets, office.now);
+    stepCompany(office.state, office.clock, office.now);
   }
 }
 
@@ -85,7 +98,26 @@ describe("stepCompany", () => {
     run(office, TICK_INTERVAL_MS);
     expect(office.state.company.day).toBe(2);
     expect(office.state.company.minuteOfDay).toBe(0);
-    expect(office.state.company.cash).toBe(STARTING_CASH - DAILY_PAYROLL);
+    expect(office.state.company.cash).toBe(STARTING_CASH - payroll(office));
+  });
+
+  it("pays an agent hired during the day from that day's midnight on", () => {
+    const office = openOffice();
+    const before = payroll(office);
+    run(office, FIRST_DAY_MS / 2);
+
+    const candidate = HIRING_CANDIDATES[0];
+    const desk = freeAgentDesk(OFFICE_LAYOUT, office.state.occupants.values()).deskId;
+    if (candidate === undefined || desk === undefined) {
+      throw new Error("no candidate or no free desk");
+    }
+    const hire = planHire(OFFICE_LAYOUT, office.state.occupants.values(), candidate, desk, 99);
+    office.state.occupants.set(hire.id, employAgent(hire));
+    expect(office.state.company.cash).toBe(STARTING_CASH);
+
+    run(office, FIRST_DAY_MS / 2);
+    expect(office.state.company.day).toBe(2);
+    expect(office.state.company.cash).toBe(STARTING_CASH - before - candidate.salary);
   });
 
   it("credits a finished ticket to the day it was finished, once", () => {
@@ -104,7 +136,7 @@ describe("stepCompany", () => {
   it("does not let a stalled process fast-forward through paydays", () => {
     const office = openOffice();
     office.now += 10 * DAY_MS;
-    stepCompany(office.state.company, office.clock, office.state.tickets, office.now);
+    stepCompany(office.state, office.clock, office.now);
     expect(office.state.company.day).toBe(1);
     expect(office.state.company.minuteOfDay).toBe(
       STARTING_MINUTE_OF_DAY + (MAX_CLOCK_STEP_MS / 1000) * SIM_MINUTES_PER_REAL_SECOND,
@@ -113,7 +145,7 @@ describe("stepCompany", () => {
 
   it("stops the clock at midnight when the company runs out of cash", () => {
     const office = openOffice();
-    office.state.company.cash = DAILY_PAYROLL;
+    office.state.company.cash = payroll(office);
 
     run(office, FIRST_DAY_MS);
     const { company } = office.state;

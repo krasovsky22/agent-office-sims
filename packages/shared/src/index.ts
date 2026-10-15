@@ -10,5 +10,6 @@ export * from "./state.js";
 export * from "./agents.js";
 export * from "./messages.js";
 export * from "./tickets.js";
+export * from "./staffing.js";
 export * from "./company.js";
 export * from "./projectBoard.js";
