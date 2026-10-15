@@ -53,6 +53,15 @@ export function ProjectBoardPanel({ snapshot }: { snapshot: ProjectBoardSnapshot
   const [filter, setFilter] = useState<BoardFilter>(NO_BOARD_FILTER);
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // The pointer lock swallows clicks, so a player who walked up while looking
+  // around could not reach the links or label toggles. Closing does not take the
+  // lock back: a click on the canvas does that, as it always has.
+  useEffect(() => {
+    if (document.pointerLockElement !== null) {
+      document.exitPointerLock();
+    }
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== SEARCH_KEY || isTypingTarget(event.target) || event.repeat) {
