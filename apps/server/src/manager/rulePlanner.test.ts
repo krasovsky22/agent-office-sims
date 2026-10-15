@@ -139,29 +139,54 @@ describe("planFromRules: status", () => {
 });
 
 describe("planFromRules: assignments", () => {
-  it("puts a named agent on a ticket", () => {
-    expect(ask("Put Bo on ticket-1")).toMatchObject({ assignments: [{ work: "ticket-1", agent: "agent-2" }] });
+  it.each<[string, { work: string; agent: string }[]]>([
+    ["give me the status of ticket-3", []],
+    ["does anyone have #39?", []],
+    ["What does Ada have on ticket-2?", []],
+    ["Did anyone get to #39?", []],
+    ["send me an update on #39", []],
+    ["hand me the notes on ticket-3", []],
+    ["give an update on ticket-3", []],
+    ["put together a summary of ticket-2", []],
+    ["send a summary of ticket-3 to me", []],
+    ["send me an update on Bo's progress with ticket-1", []],
+    ["give an update on Bo's ticket-1", []],
+    ["have you put someone on #39?", []],
+    ["Put Bo on ticket-1", [{ work: "ticket-1", agent: "agent-2" }]],
+    ["put someone on #39", [{ work: "issue #39", agent: "" }]],
+    ["put someone who's free on #39", [{ work: "issue #39", agent: "" }]],
+    ["assign #39 to someone who is idle", [{ work: "issue #39", agent: "" }]],
+    ["assign the login redirect to anyone", [{ work: "ticket-1", agent: "" }]],
+    ["can you put Bo on ticket-1?", [{ work: "ticket-1", agent: "agent-2" }]],
+    ["Firstmate, put Ada Byrne on ticket-5", [{ work: "ticket-5", agent: "agent-1" }]],
+    ["have someone take #39", [{ work: "issue #39", agent: "" }]],
+    ["please have anyone pick up ticket-1", [{ work: "ticket-1", agent: "" }]],
+    [
+      "give ticket-1 to Bo and ticket-5 to Ada",
+      [
+        { work: "ticket-1", agent: "agent-2" },
+        { work: "ticket-5", agent: "agent-1" },
+      ],
+    ],
+    [
+      "hand out the backlog",
+      [
+        { work: "ticket-1", agent: "" },
+        { work: "ticket-5", agent: "" },
+      ],
+    ],
+  ])("%s", (message, assignments) => {
+    expect(ask(message).assignments).toEqual(assignments);
   });
 
-  it("leaves the choice open for someone, to be made against the live office", () => {
-    expect(ask("put someone on #39").assignments).toEqual([{ work: "issue #39", agent: "" }]);
-    expect(ask("assign the login redirect to anyone").assignments).toEqual([{ work: "ticket-1", agent: "" }]);
-  });
-
-  it("pairs names with work in order when there are as many of each", () => {
-    expect(ask("give ticket-1 to Bo and ticket-5 to Ada").assignments).toEqual([
-      { work: "ticket-1", agent: "agent-2" },
-      { work: "ticket-5", agent: "agent-1" },
-    ]);
-  });
-
-  it("hands out the whole backlog", () => {
-    expect(ask("hand out the backlog").assignments).toEqual([
-      { work: "ticket-1", agent: "" },
-      { work: "ticket-5", agent: "" },
-    ]);
+  it("says the backlog is empty when there is nothing to hand out", () => {
     const empty = { ...VIEW, tickets: VIEW.tickets.filter((candidate) => candidate.status !== TICKET_STATUS.backlog) };
     expect(ask("hand out the backlog", empty)).toMatchObject({ reply: "The backlog is empty, so there is nothing to hand out.", assignments: [] });
+  });
+
+  it("answers a question that uses an assignment word", () => {
+    expect(ask("give me the status of ticket-3").reply).toContain("Cleo Hart is stuck on it");
+    expect(ask("does anyone have #39?").reply).toContain("#39 “Night shift” is open");
   });
 
   it("advises rather than assigns when asked who should do it", () => {

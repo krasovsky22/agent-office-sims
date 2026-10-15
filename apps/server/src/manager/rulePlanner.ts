@@ -39,27 +39,27 @@ import {
 /** Most items one list in an answer names before saying how many more there are. */
 const LIST_LIMIT = 8;
 
-/** "ok, please" and the like ahead of an instruction; "can you" makes a trailing "?" a courtesy. */
-const LEAD_IN = /^\s*(?:(?:ok(?:ay)?|now|please|so|and|then|(?:can|could|would|will) you)[\s,]+)*/i;
-const POLITE = /\b(can|could|would|will) you\b/i;
-/**
- * A question is answered and never acted on, however it is worded: "give me
- * the status of ticket-3", "does anyone have #39?", "who should I give #39 to?".
- */
+/** "please", "can you", "firstmate," and the like ahead of an instruction. */
+const LEAD_IN = /^(?:(?:please|ok(?:ay)?|(?:can|could|would|will) you|firstmate)[\s,]+)*/;
+/** A question is answered and never acted on: it is told by how it starts. */
 const QUESTION_START =
-  /^(what|what's|whats|how|how's|hows|who|who's|which|where|why|do|does|did|is|are|was|were|has|had|should|any|have\s+(you|we|they|i|anyone|someone))\b/i;
-const STATUS = /\bstatus\b/i;
-const TRAILING_QUESTION = /\?\s*$/;
-/** An instruction starts with one of these, followed by who or what it hands over. */
-const ASSIGN_VERB = /^(put|assign|reassign|give|hand|send|allocate|delegate)\s+(.*)$/is;
-/** "have Ada take ticket-3". */
-const HAVE_TAKE = /^have\s+([a-z][\w-]*)\s+(?:\S+\s+)?(?:take|do|work|pick|handle|start|tackle)\b/i;
-/** The agent an instruction hands work on or to: "…on Bo", "…to someone who is idle". */
-const ON_OR_TO = /\b(?:on|to)\s+([a-z][\w-]*)/gi;
-const ANYONE = /^(someone|somebody|anyone|anybody|whoever)$/i;
+  /^(what|what's|whats|how|how's|hows|who|who's|which|where|why|when|is|are|was|were|do|does|did|has|had|should|any|status|have you)\b/;
+/** "put Bo on ticket-1", "move someone who's free onto #39". */
+const AGENT_FIRST_VERBS = new Set(["put", "assign", "reassign", "give", "hand", "move"]);
+const AGENT_FIRST_LINKS = new Set(["on", "onto", "to", "with"]);
+/** "give ticket-1 to Bo", "assign #39 to someone who is idle". */
+const WORK_FIRST_VERBS = new Set(["assign", "reassign", "give", "hand", "send"]);
+/** "have Ada take ticket-3", "have anyone pick up #39". */
+const HAVE_TAKE = /^(take|pick up|do|handle|work on|look at|start on)\b/;
+/** "hand out the backlog", "assign the backlog to Bo". */
+const WHOLE_BACKLOG = /^(hand out|give out|assign|distribute|clear) the backlog\b/;
+const ANYONE = /^(someone|somebody|anyone|anybody|whoever)$/;
+/** Never someone to hand work to, whatever the office calls its agents. */
+const NOT_AN_AGENT = /^(me|us|you|myself|ourselves)$/;
+/** "someone who's free": a clause that says which someone. */
+const RELATIVE = /^(who|who's|that|that's|which)$/;
 /** "who should I give #39 to?" asks for advice rather than an assignment. */
 const ASKING_ADVICE = /\b(should i|who should|who would|who could|who can)\b/i;
-const WHOLE_BACKLOG = /\b(hand out|assign|give out|clear|distribute)\b.*\b(the )?backlog\b|\bbacklog\b.*\b(out|to everyone|to the team)\b/i;
 const GREETING = /^\s*(hi|hello|hey|morning|good (morning|afternoon|evening)|help|\?)\b/i;
 const BOARD_WORDS = /\b(board|tickets?|backlog|review|queue|blocked|stuck|done|approve)\b/i;
 const PROJECT_WORDS = /\b(issues?|prs?|pull requests?|github|repo|repository|checks?|ci)\b/i;
@@ -99,8 +99,9 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   const work = findWork(message, view);
   const agents = findAgents(message, view);
 
-  if (isAssignment(message, view)) {
-    const backlog = work.length === 0 && WHOLE_BACKLOG.test(message);
+  const instruction = readInstruction(message, view);
+  if (instruction !== undefined) {
+    const backlog = work.length === 0 && instruction === "backlog";
     const targets: WorkRef[] = backlog
       ? view.tickets
           .filter((ticket) => ticket.status === TICKET_STATUS.backlog)
@@ -148,33 +149,67 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   return { reply: `I didn't catch what you want me to look at. ${HELP_TEXT}`, assignments: [] };
 }
 
+type Instruction = "work" | "backlog";
+
 /**
- * Whether a message is an instruction to hand work out: an assignment verb at
- * its start, followed by an agent or someone, by work handed on or to one, or
- * by the backlog — and never when it reads as a question.
+ * What a message instructs, read by a small grammar over its words, or
+ * `undefined` for anything that is not one of its whole shapes: a question, a
+ * request for information, or an instruction about someone who is not an agent.
  */
-function isAssignment(message: string, view: OfficeView): boolean {
-  const lead = LEAD_IN.exec(message)?.[0] ?? "";
-  const rest = message.slice(lead.length).trim();
-  const polite = POLITE.test(lead);
-  if (QUESTION_START.test(rest) || STATUS.test(message) || (!polite && TRAILING_QUESTION.test(message))) {
-    return false;
+function readInstruction(message: string, view: OfficeView): Instruction | undefined {
+  const lower = message.toLowerCase().trim();
+  const rest = lower.slice(LEAD_IN.exec(lower)?.[0].length ?? 0);
+  if (QUESTION_START.test(rest)) {
+    return undefined;
   }
-  const isSomeone = (word: string) => ANYONE.test(word) || resolveAgent(word, view) !== undefined;
-  const have = HAVE_TAKE.exec(rest);
-  if (have !== null) {
-    return isSomeone(have[1] ?? "");
+  if (WHOLE_BACKLOG.test(rest)) {
+    return "backlog";
   }
-  const verb = ASSIGN_VERB.exec(rest);
-  if (verb === null) {
-    return false;
+  const words = rest.split(/\s+/).map((word) => word.replace(/[.,;:!?]+$/, "")).filter((word) => word !== "");
+  const [verb = ""] = words;
+
+  /** How many words from `at` name an agent or someone; 0 when they do not. */
+  const agentAt = (at: number): number => {
+    for (const length of [2, 1]) {
+      const phrase = words.slice(at, at + length).join(" ");
+      if (at + length > words.length || NOT_AN_AGENT.test(phrase)) {
+        continue;
+      }
+      if ((length === 1 && ANYONE.test(phrase)) || resolveAgent(phrase, view) !== undefined) {
+        return length;
+      }
+    }
+    return 0;
+  };
+  /** Past a "who's free" after someone, to the first of `stops`, or `at` when there is none. */
+  const pastClause = (at: number, someone: boolean, stops: ReadonlySet<string>): number => {
+    if (!someone || !RELATIVE.test(words[at] ?? "")) {
+      return at;
+    }
+    const stop = words.findIndex((word, index) => index > at && stops.has(word));
+    return stop === -1 ? words.length : stop;
+  };
+
+  if (verb === "have") {
+    const length = agentAt(1);
+    return length > 0 && HAVE_TAKE.test(words.slice(1 + length).join(" ")) ? "work" : undefined;
   }
-  const object = verb[2] ?? "";
-  return (
-    isSomeone(/^[a-z][\w-]*/i.exec(object)?.[0] ?? "") ||
-    [...object.matchAll(ON_OR_TO)].some((match) => isSomeone(match[1] ?? "")) ||
-    WHOLE_BACKLOG.test(rest)
-  );
+  if (AGENT_FIRST_VERBS.has(verb)) {
+    const length = agentAt(1);
+    const link = length === 0 ? -1 : pastClause(1 + length, ANYONE.test(words[1] ?? ""), AGENT_FIRST_LINKS);
+    if (link !== -1 && AGENT_FIRST_LINKS.has(words[link] ?? "")) {
+      return "work";
+    }
+  }
+  if (WORK_FIRST_VERBS.has(verb)) {
+    const to = words.lastIndexOf("to");
+    const length = to > 1 ? agentAt(to + 1) : 0;
+    const end = length === 0 ? -1 : pastClause(to + 1 + length, ANYONE.test(words[to + 1] ?? ""), new Set());
+    if (end === words.length && findWork(words.slice(1, to).join(" "), view).length > 0) {
+      return "work";
+    }
+  }
+  return undefined;
 }
 
 /**
