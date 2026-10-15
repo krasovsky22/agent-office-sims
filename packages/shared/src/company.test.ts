@@ -11,27 +11,44 @@ import { describe, expect, it } from "vitest";
 import {
   BACKLOG_TOLERANCE,
   COMPANY_STATUS,
-  DAILY_PAYROLL,
+  DAILY_OVERHEAD,
   MAX_CLOCK_STEP_MS,
   METRIC_MAX,
   METRIC_MIN,
   MORALE_DAILY_RECOVERY,
   MORALE_LOSS_PER_EXCESS_TICKET,
+  MORALE_LOSS_PER_FIRING,
   PRODUCTIVITY_DAILY_DECAY,
   PRODUCTIVITY_PER_COMPLETED_TICKET,
+  QUIT_AFTER_LOW_MORALE_DAYS,
+  QUIT_MORALE_THRESHOLD,
+  RECRUITING_FEE_DAYS,
   SIM_MINUTES_PER_REAL_SECOND,
   STARTING_CASH,
   STARTING_MINUTE_OF_DAY,
   STARTING_MORALE,
   STARTING_PRODUCTIVITY,
+  applyFiringMorale,
   closeDay,
+  dailyPayroll,
+  isDueToQuit,
   isTrading,
+  recruitingFee,
   simSecondsFor,
 } from "./company.js";
+import { AGENT_ROSTER, DEFAULT_AGENT_COUNT } from "./agents.js";
 import { TICK_INTERVAL_MS } from "./constants.js";
 import { Company, OfficeState } from "./state.js";
 
-const QUIET_DAY = { completedTickets: 0, openTickets: BACKLOG_TOLERANCE };
+/** What the default office of agents costs a day. */
+const PAYROLL = dailyPayroll(
+  AGENT_ROSTER.slice(0, DEFAULT_AGENT_COUNT).map((profile) => profile.salary),
+);
+
+const QUIET_DAY = { completedTickets: 0, openTickets: BACKLOG_TOLERANCE, payroll: PAYROLL };
+
+/** A day that ends with morale far under the quitting threshold. */
+const GRIM_DAY = { ...QUIET_DAY, openTickets: BACKLOG_TOLERANCE + 1_000 };
 
 describe("a new company", () => {
   it("starts from the tunables, trading, on the morning of day 1", () => {
@@ -65,7 +82,7 @@ describe("closeDay", () => {
     const company = new Company();
     closeDay(company, QUIET_DAY);
     expect(company.day).toBe(2);
-    expect(company.cash).toBe(STARTING_CASH - DAILY_PAYROLL);
+    expect(company.cash).toBe(STARTING_CASH - PAYROLL);
   });
 
   it("raises productivity for each completed ticket, net of the daily decay", () => {
@@ -84,7 +101,7 @@ describe("closeDay", () => {
 
   it("erodes morale for every open ticket beyond the tolerated backlog", () => {
     const company = new Company();
-    closeDay(company, { completedTickets: 0, openTickets: BACKLOG_TOLERANCE + 4 });
+    closeDay(company, { ...QUIET_DAY, openTickets: BACKLOG_TOLERANCE + 4 });
     expect(company.morale).toBe(STARTING_MORALE - 4 * MORALE_LOSS_PER_EXCESS_TICKET);
   });
 
@@ -96,14 +113,14 @@ describe("closeDay", () => {
 
   it("keeps morale and productivity inside their range", () => {
     const company = new Company();
-    closeDay(company, { completedTickets: 1_000, openTickets: BACKLOG_TOLERANCE + 1_000 });
+    closeDay(company, { ...GRIM_DAY, completedTickets: 1_000 });
     expect(company.productivity).toBe(METRIC_MAX);
     expect(company.morale).toBe(METRIC_MIN);
   });
 
   it("goes bankrupt at zero cash instead of running negative", () => {
     const company = new Company();
-    company.cash = DAILY_PAYROLL / 2;
+    company.cash = PAYROLL / 2;
     closeDay(company, QUIET_DAY);
     expect(company.cash).toBe(0);
     expect(company.status).toBe(COMPANY_STATUS.bankrupt);
@@ -112,7 +129,7 @@ describe("closeDay", () => {
 
   it("treats cash reaching exactly zero as bankrupt", () => {
     const company = new Company();
-    company.cash = DAILY_PAYROLL;
+    company.cash = PAYROLL;
     closeDay(company, QUIET_DAY);
     expect(company.cash).toBe(0);
     expect(company.status).toBe(COMPANY_STATUS.bankrupt);
@@ -120,10 +137,10 @@ describe("closeDay", () => {
 
   it("leaves a bankrupt company exactly as it ended", () => {
     const company = new Company();
-    company.cash = DAILY_PAYROLL;
+    company.cash = PAYROLL;
     closeDay(company, QUIET_DAY);
     const ended = company.toJSON();
-    closeDay(company, { completedTickets: 5, openTickets: 50 });
+    closeDay(company, { completedTickets: 5, openTickets: 50, payroll: PAYROLL });
     expect(company.toJSON()).toEqual(ended);
   });
 
@@ -134,6 +151,67 @@ describe("closeDay", () => {
       closeDay(company, QUIET_DAY);
       days += 1;
     }
-    expect(days).toBe(Math.ceil(STARTING_CASH / DAILY_PAYROLL));
+    expect(days).toBe(Math.ceil(STARTING_CASH / PAYROLL));
+  });
+
+  it("draws whatever the day's payroll is, so a bigger staff burns cash faster", () => {
+    const company = new Company();
+    closeDay(company, { ...QUIET_DAY, payroll: PAYROLL * 2 });
+    expect(company.cash).toBe(STARTING_CASH - PAYROLL * 2);
+  });
+
+  it("counts consecutive days that end with morale under the quitting threshold", () => {
+    const company = new Company();
+    closeDay(company, GRIM_DAY);
+    expect(company.morale).toBeLessThan(QUIT_MORALE_THRESHOLD);
+    expect(company.lowMoraleDays).toBe(1);
+    closeDay(company, GRIM_DAY);
+    expect(company.lowMoraleDays).toBe(2);
+  });
+
+  it("starts the count again after a day that ends at or above the threshold", () => {
+    const company = new Company();
+    company.morale = QUIT_MORALE_THRESHOLD - MORALE_DAILY_RECOVERY - 1;
+    company.lowMoraleDays = 2;
+    closeDay(company, QUIET_DAY);
+    expect(company.lowMoraleDays).toBe(3);
+    company.morale = QUIT_MORALE_THRESHOLD;
+    closeDay(company, QUIET_DAY);
+    expect(company.lowMoraleDays).toBe(0);
+  });
+});
+
+describe("staffing costs", () => {
+  it("adds every salary to the overhead", () => {
+    expect(dailyPayroll([])).toBe(DAILY_OVERHEAD);
+    expect(dailyPayroll([100, 250])).toBe(DAILY_OVERHEAD + 350);
+  });
+
+  it("keeps the default office at the 2,500 a day it cost before salaries", () => {
+    expect(PAYROLL).toBe(2_500);
+  });
+
+  it("charges a hire some days of their salary up front", () => {
+    expect(recruitingFee(500)).toBe(500 * RECRUITING_FEE_DAYS);
+  });
+
+  it("takes a firing's morale cost at once, and reports what it actually took", () => {
+    const company = new Company();
+    expect(applyFiringMorale(company)).toBe(MORALE_LOSS_PER_FIRING);
+    expect(company.morale).toBe(STARTING_MORALE - MORALE_LOSS_PER_FIRING);
+
+    company.morale = 3;
+    expect(applyFiringMorale(company)).toBe(3);
+    expect(company.morale).toBe(METRIC_MIN);
+  });
+
+  it("is due a quit once the streak reaches its length, and only while trading", () => {
+    const company = new Company();
+    company.lowMoraleDays = QUIT_AFTER_LOW_MORALE_DAYS - 1;
+    expect(isDueToQuit(company)).toBe(false);
+    company.lowMoraleDays = QUIT_AFTER_LOW_MORALE_DAYS;
+    expect(isDueToQuit(company)).toBe(true);
+    company.status = COMPANY_STATUS.bankrupt;
+    expect(isDueToQuit(company)).toBe(false);
   });
 });

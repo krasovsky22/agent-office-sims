@@ -29,6 +29,9 @@
  *
  * The board's rules are not here. `ticketHandlers.ts` wires the seven commands
  * up and `@sim/shared`'s `tickets.ts` decides what each one is allowed to do.
+ * Hiring and firing are wired the same way, by `staffHandlers.ts` against
+ * `staffing.ts`; the tick only asks `staffHandlers.ts`, after each step of the
+ * clock, whether a run of bad days has cost the office an agent.
  * Nor are the company's: the tick steps `sim/company.ts`'s clock, and every
  * number that clock moves is decided in `@sim/shared`'s `company.ts`.
  * Who holds the CEO role those rules turn on is `sim/roles.ts`'s call; this
@@ -45,9 +48,9 @@
  *
  * Nor is how an agent works. Each agent hired gets a brain, `sim/agentBrain.ts`,
  * on its own async loop and its own timers rather than the room clock's, which
- * Colyseus ticks from inside the simulation interval. The room starts the brains
- * when it hires the agents and stops them when it closes, and that is all it
- * does with them.
+ * Colyseus ticks from inside the simulation interval. The room starts a brain
+ * for every agent it hires, at opening or later, and stops it when the agent
+ * leaves or the room closes, and that is all it does with them.
  *
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
  * one feed polls GitHub on its own timer and is handed to every room as a room option;
@@ -86,7 +89,7 @@ import {
 
 import { type LiveAgentSource, isLiveAgentSource } from "../agents/registry.js";
 import type { ProjectBoardSource } from "../github/feed.js";
-import { AgentBrain } from "../sim/agentBrain.js";
+import { AgentBrain, type AgentBrainHost } from "../sim/agentBrain.js";
 import { AgentMotion, type IntentReport } from "../sim/agentMotion.js";
 import { type CompanyClock, createCompanyClock, stepCompany } from "../sim/company.js";
 import { hireAgentEmployees } from "../sim/agents.js";
@@ -109,6 +112,7 @@ import {
   relayProjectBoard,
   sendProjectBoard,
 } from "./projectBoardDelivery.js";
+import { type StaffHost, registerStaffHandlers, resolveStaffQuits } from "./staffHandlers.js";
 import {
   type TicketHost,
   createTicketIdFactory,
@@ -202,6 +206,12 @@ export class OfficeRoom extends Room<OfficeState> {
   /** One per agent hired, each on its own loop; stopped in `onDispose`. */
   private readonly brains: AgentBrain[] = [];
 
+  /** What every brain works through; unset in a room given no executor. */
+  private brainHost: AgentBrainHost | undefined;
+
+  /** What the staff handlers keep between commands; assigned in `onCreate`. */
+  private staff!: StaffHost;
+
   private spawnCursor = 0;
   private hireCount = 0;
 
@@ -281,19 +291,23 @@ export class OfficeRoom extends Room<OfficeState> {
         : [];
     const executor = roomOptions?.workExecutor;
     if (isWorkExecutor(executor)) {
-      const brainHost = {
+      this.brainHost = {
         tickets: ticketHost,
         layout: OFFICE_LAYOUT,
         motion: this.agentMotion,
         executor,
         clockNow: () => this.clock.currentTime,
       };
-      for (const agent of hired) {
-        const brain = new AgentBrain(brainHost, agent.id);
-        this.brains.push(brain);
-        brain.start();
-      }
     }
+    hired.forEach((agent) => this.startBrain(agent.id));
+    this.staff = {
+      state: this.state,
+      now: () => Date.now(),
+      hiresSoFar: hired.length,
+      hired: (agentId) => this.startBrain(agentId),
+      departed: (agentId) => this.dismissAgent(agentId),
+    };
+    registerStaffHandlers(this, this.staff);
     registerAgentDebugHandlers(this, {
       enabled: roomOptions?.agentDebug === true,
       motion: this.agentMotion,
@@ -477,7 +491,8 @@ export class OfficeRoom extends Room<OfficeState> {
     // many agents are walking a player's pose is validated exactly as before.
     this.agentMotion.step(now);
 
-    stepCompany(this.state.company, this.companyClock, this.state.tickets, now);
+    stepCompany(this.state, this.companyClock, now);
+    resolveStaffQuits(this, this.staff);
   }
 
   /**
@@ -503,6 +518,31 @@ export class OfficeRoom extends Room<OfficeState> {
     }
     client.send(SERVER_MESSAGE.throttled, { command } satisfies ThrottledEvent);
     return false;
+  }
+
+  /** Gives an agent on the floor a brain, if this room's agents work at all. */
+  private startBrain(agentId: string): void {
+    if (this.brainHost === undefined) {
+      return;
+    }
+    const brain = new AgentBrain(this.brainHost, agentId);
+    this.brains.push(brain);
+    brain.start();
+  }
+
+  /**
+   * Clears what the room kept for an agent the staffing rules have just taken
+   * off the floor, so a fired agent's chair is free for the next hire at once.
+   */
+  private dismissAgent(agentId: string): void {
+    const index = this.brains.findIndex((brain) => brain.agentId === agentId);
+    if (index !== -1) {
+      this.brains[index]?.stop();
+      this.brains.splice(index, 1);
+    }
+    this.agentMotion.clear(agentId, this.clock.currentTime);
+    this.holds.release(agentId);
+    this.interaction.lastUsedAt.delete(agentId);
   }
 
   /** Cycles the layout's spawn points so arrivals do not stack on one spot. */

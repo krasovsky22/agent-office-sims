@@ -138,7 +138,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all eighteen:
+Then confirm all nineteen:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -196,10 +196,11 @@ Then confirm all eighteen:
 11. **The company's numbers match in both tabs.** The Company panel shows the
     day and the clock, which moves a quarter hour every second or so, and both
     tabs read the same time. The first midnight comes a little over a minute
-    after the room opens: cash drops by one payroll and morale and productivity
-    move, in both tabs at once. Running out of cash takes about forty minutes at
-    the starting numbers, which live in `shared/company.ts`; set `STARTING_CASH`
-    there to one payroll to see the end state at the first midnight instead.
+    after the room opens: cash drops by the payroll the Staff panel shows and
+    morale and productivity move, in both tabs at once. Running out of cash
+    takes about forty minutes at the starting numbers, which live in
+    `shared/company.ts`; set `STARTING_CASH` there to one payroll to see the end
+    state at the first midnight instead.
 12. **The agents are at their desks, in both tabs.** Four agent employees
     stand behind the chairs of open-floor desks, the same four in the same
     places in both tabs: translucent teal bodies, a name over a job title
@@ -268,13 +269,27 @@ Then confirm all eighteen:
     the working one `idle` and it stands up and wanders; stop reporting one and
     it leaves after the timeout, its chair free again. The same report without
     the secret gets `401` and changes nothing.
-18. **`pnpm typecheck` passes** across the whole repository.
+18. **Only the CEO hires and fires.** Dana's Staff panel lists the agents
+    with their salaries, the desks filled and the payroll; Milo's shows the
+    same figures and says only the CEO hires and fires. Dana opens `Hire
+    someone…` and hires a QA Engineer: a new agent appears at the next free
+    agent desk in both tabs, the chat log announces the hire and its recruiting
+    fee, cash drops by the fee, and the payroll line rises by the salary — which
+    the next midnight draws. Hire until all eight desks are filled and the panel
+    says so instead of offering more. `Fire`, then `Let go`, on an agent: they
+    leave both tabs, morale falls with a red `−8` beside it, and the chat log
+    says what it cost and how many of their tickets went back to the backlog.
+    When morale ends a day under 30% the Company panel warns how many bad days
+    have closed; after three in a row the newest agent quits, and the chat log
+    says why. `apps/server/src/rooms/staffHandlers.test.ts` drives all of it
+    against a live room.
+19. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, hiring, firing and quitting, live agents' reports and bodies
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -411,7 +426,7 @@ thing the page talks to is the WebSocket.
   platform probes, and with `POST /agents/report` when `LIVE_AGENTS_SECRET` is
   set, the only HTTP the server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same seventeen things.
+  [The two-tab check](#the-two-tab-check), and confirm the same eighteen things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -423,9 +438,10 @@ thing the page talks to is the WebSocket.
 ```
 packages/shared/   @sim/shared   the contract both sides import
   src/state.ts        replicated Colyseus schema
-  src/agents.ts       the agent employees' roster, and which desk each one gets
+  src/agents.ts       the agent employees' roster, the hiring candidates and their salaries, and which desk each one gets
   src/messages.ts     commands and events, with the parsers for the untrusted ones
   src/tickets.ts      the board's rules: transitions, authority, commands
+  src/staffing.ts     hiring, firing and quitting: authority, costs, and handing back a leaver's tickets
   src/company.ts      the company's tunables, clock ratio, and daily formulas
   src/projectBoard.ts the project board's GitHub snapshot
   src/liveAgents.ts   a live agent's report, its label, and the chairs it may take
@@ -439,6 +455,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/expression.ts   per-occupant emote, chat and comment budgets
   src/sim/company.ts      the company clock, stepped by the simulation tick
   src/sim/agents.ts       hiring the agent employees when a room opens
+  src/rooms/staffHandlers.ts  the CEO's hire and fire commands, and staff announcements
   src/sim/roles.ts        who holds the CEO role, and who inherits it
   src/sim/agentMotion.ts  each agent's intent queue, and the steering that walks it
   src/sim/agentBrain.ts   each agent's work loop: claim a ticket, work it, hand it in
@@ -449,6 +466,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do at the ticket board, and why
+  src/staffing.ts         the staff panel's payroll, desks, and why a hire was refused
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
@@ -487,6 +505,10 @@ Twelve things are worth knowing before changing anything:
   `client/boardAccess.ts`, to disable a control and say why — never to decide.
   The board panel asks it, through `ticketMoves` beside it, which moves to
   offer, so what the panel shows and what the server accepts change together.
+  Hiring and firing have the same shape: `shared/staffing.ts` holds
+  `mayManageStaff`, the one staffing gate, and the rules for what a hire costs
+  and what a departing agent's tickets do — they go back to the backlog, never
+  left pointing at someone who has gone.
   Exactly one player holds the CEO role while anyone is in the office;
   `server/sim/roles.ts` assigns it on arrival and passes it on, in the same
   patch as the departure, when its holder leaves.

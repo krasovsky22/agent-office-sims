@@ -3,26 +3,36 @@
  *
  * This is the part of the company simulation that needs a room: it measures
  * real time against the room clock, keeps the seconds the schema does not
- * replicate, and summarises the ticket board when a day ends. What any
- * of that does to the numbers is `@sim/shared`'s `company.ts`, which is also
- * where every tunable lives; nothing here is one.
+ * replicate, and summarises the ticket board and the payroll when a day ends.
+ * What any of that does to the numbers is `@sim/shared`'s `company.ts`, which
+ * is also where every tunable lives; nothing here is one.
  *
  * It runs inside the tick, so it is synchronous and cheap by construction. An
- * ordinary step is an addition and a comparison. The board is read only at
- * midnight, once every in-game day, in a single pass that allocates nothing but
- * the day's two-number report and a set entry per newly finished ticket.
+ * ordinary step is an addition and a comparison. The board and the staff are
+ * read only at midnight, once every in-game day, in one pass each that
+ * allocates nothing but the day's report, the payroll's iterator, and a set
+ * entry per newly finished ticket.
  */
 
 import { type MapSchema } from "@colyseus/schema";
 import {
   type Company,
+  type Occupant,
   SECONDS_PER_DAY,
   TICKET_STATUS,
   type Ticket,
   closeDay,
   isTrading,
+  payrollOf,
   simSecondsFor,
 } from "@sim/shared";
+
+/** The parts of the room state a day's close reads and writes. */
+export interface CompanyOffice {
+  readonly company: Company;
+  readonly tickets: MapSchema<Ticket>;
+  readonly occupants: MapSchema<Occupant>;
+}
 
 /** The room's server-only half of the company clock. */
 export interface CompanyClock {
@@ -47,13 +57,12 @@ export function createCompanyClock(company: Company, now: number): CompanyClock 
  *
  * A company that has stopped trading still takes the step, so `lastStepAt` is
  * current, but its clock does not move: the end state is a stopped clock.
+ *
+ * Payroll is read off whoever is on staff at midnight, so an agent hired
+ * during a day is paid from that day's close onwards.
  */
-export function stepCompany(
-  company: Company,
-  clock: CompanyClock,
-  board: MapSchema<Ticket>,
-  now: number,
-): void {
+export function stepCompany(office: CompanyOffice, clock: CompanyClock, now: number): void {
+  const { company } = office;
   const elapsed = now - clock.lastStepAt;
   clock.lastStepAt = now;
   if (!isTrading(company)) {
@@ -65,7 +74,7 @@ export function stepCompany(
   // is ever raised past a whole day; at the current tunables it runs at most once.
   while (clock.seconds >= SECONDS_PER_DAY) {
     clock.seconds -= SECONDS_PER_DAY;
-    closeDay(company, reportDay(board, clock.credited));
+    closeDay(company, reportDay(office, clock.credited));
     if (!isTrading(company)) {
       clock.seconds = 0;
       break;
@@ -78,11 +87,11 @@ export function stepCompany(
   }
 }
 
-/** Counts the day's completions and the open work, in one pass over the board. */
-function reportDay(board: MapSchema<Ticket>, credited: Set<string>) {
+/** Counts the day's completions and the open work, in one pass over the board, and the payroll. */
+function reportDay(office: CompanyOffice, credited: Set<string>) {
   let completedTickets = 0;
   let openTickets = 0;
-  for (const ticket of board.values()) {
+  for (const ticket of office.tickets.values()) {
     if (ticket.status !== TICKET_STATUS.done) {
       openTickets += 1;
     } else if (!credited.has(ticket.id)) {
@@ -90,5 +99,5 @@ function reportDay(board: MapSchema<Ticket>, credited: Set<string>) {
       completedTickets += 1;
     }
   }
-  return { completedTickets, openTickets };
+  return { completedTickets, openTickets, payroll: payrollOf(office.occupants.values()) };
 }

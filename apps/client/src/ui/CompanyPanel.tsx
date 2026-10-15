@@ -6,11 +6,21 @@
  * screen, so neither does arithmetic and both re-render only when one of those
  * strings changes. The numbers are the server's: every client shows the same
  * day, clock and balance because each is copied off the same patch.
+ *
+ * Morale turns red under the quitting line, with a warning that counts the bad
+ * days, so an agent walking out is never a surprise; a firing's cost flashes
+ * beside it as it lands.
  */
 
 import type { CompanyReadout } from "../companyReadout.js";
 
-export function CompanyPanel({ readout }: { readout: CompanyReadout | undefined }) {
+export function CompanyPanel({
+  readout,
+  moraleHit,
+}: {
+  readout: CompanyReadout | undefined;
+  moraleHit?: { readonly id: number; readonly text: string } | undefined;
+}) {
   return (
     <div className="hud__panel">
       <h2 className="hud__title">Company</h2>
@@ -38,10 +48,27 @@ export function CompanyPanel({ readout }: { readout: CompanyReadout | undefined 
               {readout.cash}
             </dd>
             <dt>Morale</dt>
-            <dd className="company__value">{readout.morale}</dd>
+            <dd
+              className={
+                readout.moraleLow ? "company__value company__value--bad" : "company__value"
+              }
+            >
+              {/* Keyed by the firing, so each one replays the fade from the start. */}
+              {moraleHit === undefined ? null : (
+                <span className="company__delta" key={moraleHit.id}>
+                  {moraleHit.text}
+                </span>
+              )}
+              {readout.morale}
+            </dd>
             <dt>Productivity</dt>
             <dd className="company__value">{readout.productivity}</dd>
           </dl>
+          {readout.moraleWarning === "" ? null : (
+            <p className="company__warning" role="status">
+              {readout.moraleWarning}
+            </p>
+          )}
         </>
       )}
     </div>
