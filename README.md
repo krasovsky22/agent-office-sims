@@ -21,7 +21,12 @@ board panel to see it in and the AI agent employees are later milestones. The
 open floor's north wall, facing the desk rows, carries a different board: this
 repository's own GitHub issues, grouped open, in progress and recently closed,
 beside its open pull requests, each with its labels (`wave-1`, `client`…),
-polled by the server and shown to everyone the same.
+polled by the server and shown to everyone the same. The company has vital
+signs now too: cash, morale and productivity, moved once an in-game day by a
+server clock that runs two real minutes to the day. Payroll draws cash, finished
+tickets lift productivity and a growing backlog wears morale down; the HUD shows
+all three with the day and the time, and when cash runs out the clock stops and
+every tab shows the company has folded.
 
 ## Running it
 
@@ -72,7 +77,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all eleven:
+Then confirm all twelve:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -120,13 +125,20 @@ Then confirm all eleven:
     the same board. Start the server with
     `PROJECT_BOARD_REPO=krasovsky22/no-such-repo` and the board says it is
     stale, while walking and chat carry on as normal.
-11. **`pnpm typecheck` passes** across the whole repository.
+11. **The company's numbers match in both tabs.** The Company panel shows the
+    day and the clock, which moves a quarter hour every second or so, and both
+    tabs read the same time. The first midnight comes a little over a minute
+    after the room opens: cash drops by one payroll and morale and productivity
+    move, in both tabs at once. Running out of cash takes about forty minutes at
+    the starting numbers, which live in `shared/company.ts`; set `STARTING_CASH`
+    there to one payroll to see the end state at the first midnight instead.
+12. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets, messages, expression limits, server origins, avatar animation, the project board's GitHub feed and filters
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets, company metrics and clock, messages, expression limits, server origins, avatar animation, the project board's GitHub feed and filters
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -267,6 +279,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/state.ts        replicated Colyseus schema
   src/messages.ts     commands and events, with the parsers for the untrusted ones
   src/tickets.ts      the board's rules: transitions, authority, commands
+  src/company.ts      the company's tunables, clock ratio, and daily formulas
   src/projectBoard.ts the project board's GitHub snapshot
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
@@ -276,6 +289,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/constants.ts    tick rate, speeds, radii, ranges, expression limits
 apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/expression.ts   per-occupant emote and chat budgets
+  src/sim/company.ts      the company clock, stepped by the simulation tick
   src/github/             the project board's feed: fetch, bucket, poll
   src/work/               ticket work: the executor, its budget, mock and model providers
 apps/client/       @sim/client   Three.js scene, React HUD overlay
@@ -286,7 +300,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/assets/office-kit/ the vendored models, and their licence
 ```
 
-Seven things are worth knowing before changing anything:
+Nine things are worth knowing before changing anything:
 
 - **The floor plan is data.** `shared/layout.ts` is the only place a wall
   position exists. The client builds meshes from it and the server collides
@@ -334,6 +348,12 @@ Seven things are worth knowing before changing anything:
   simulation tick, so a slow or unreachable GitHub costs a stale board, never a
   stalled room. It is a broadcast rather than schema for the same reason chat is:
   it is replaced whole, and only the server writes it.
+- **The company's numbers have one home.** Every starting value, the clock's
+  ratio and each daily formula live in `shared/company.ts`, and rebalancing is
+  an edit there and nowhere else. The server's tick steps the clock and closes a
+  day at each midnight, synchronously, with the board read once a day rather
+  than every tick; the numbers replicate as schema, so every tab reads them off
+  the same patch.
 
 ## Assets
 

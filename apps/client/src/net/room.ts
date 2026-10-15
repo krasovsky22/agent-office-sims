@@ -19,7 +19,8 @@
  * player's own: everything renders on the path the server published it on, so
  * what you see above your own head is what everyone else sees above it. The
  * project board's GitHub snapshot arrives the same way, whole, on joining and on
- * every change.
+ * every change. The company's numbers do not: they are state, and are copied out
+ * of each patch.
  */
 
 import {
@@ -28,6 +29,8 @@ import {
   type ChatEvent,
   type ChatMessage,
   CLIENT_MESSAGE,
+  type Company,
+  type CompanyStatus,
   type Emote,
   type EmoteEvent,
   type EmoteMessage,
@@ -79,6 +82,21 @@ export interface OccupantView {
   interactableId: string;
 }
 
+/**
+ * The company's numbers as of the latest patch.
+ *
+ * A plain copy rather than the schema instance, so the HUD holds a value that
+ * cannot change underneath a render.
+ */
+export interface CompanyView {
+  readonly cash: number;
+  readonly morale: number;
+  readonly productivity: number;
+  readonly day: number;
+  readonly minuteOfDay: number;
+  readonly status: CompanyStatus;
+}
+
 /** The local pose as reported to the server: only states a client may claim. */
 export interface ReportedPose {
   readonly x: number;
@@ -109,6 +127,11 @@ export interface RoomConnectionEvents {
   onThrottled?: (event: ThrottledEvent) => void;
   /** The project board's snapshot, on joining and whenever the server's feed replaces it. */
   onProjectBoard?: (snapshot: ProjectBoardSnapshot) => void;
+  /**
+   * The company's numbers changed — which, with the clock among them, is several
+   * times a second. The caller decides what is worth re-rendering.
+   */
+  onCompanyChanged?: (company: CompanyView) => void;
 }
 
 export class RoomConnection {
@@ -328,6 +351,17 @@ export class RoomConnection {
       this.events.onOccupantsChanged?.();
     });
 
+    // Replicated like the occupants, so every client reads the same numbers off
+    // the same patch. The company instance is created once with the room, so a
+    // single change listener on it is enough; `listen` fires for the instance the
+    // first patch carries.
+    $(room.state).listen("company", (company) => {
+      this.events.onCompanyChanged?.(companyViewOf(company));
+      $(company).onChange(() => {
+        this.events.onCompanyChanged?.(companyViewOf(company));
+      });
+    });
+
     $(room.state).occupants.onRemove((_occupant, sessionId) => {
       this.views.delete(sessionId);
       this.buffers.delete(sessionId);
@@ -428,6 +462,17 @@ function describeError(error: unknown): string {
   }
   const described = String(error);
   return described === "" || described.startsWith("[object ") ? "unknown error" : described;
+}
+
+function companyViewOf(company: Company): CompanyView {
+  return {
+    cash: company.cash,
+    morale: company.morale,
+    productivity: company.productivity,
+    day: company.day,
+    minuteOfDay: company.minuteOfDay,
+    status: company.status,
+  };
 }
 
 function sampleOf(occupant: Occupant): PoseSample {

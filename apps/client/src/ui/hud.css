@@ -273,6 +273,76 @@
   font-size: 11px;
 }
 
+/* The company readout. Figures are tabular so a ticking clock or a payday does
+   not shift the text beside it. */
+.company__clock {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.company__time {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.company__time--stopped {
+  color: #9aa0aa;
+}
+
+.company__metrics {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  margin: 0;
+}
+
+.company__metrics dt {
+  color: #9aa0aa;
+}
+
+.company__value {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.company__value--bad {
+  color: #f08a7a;
+}
+
+/* The end state. Centred over the office so nobody misses it, and click-through
+   like the rest of the layer, because the office is still walkable behind it. */
+.company__end {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px 22px;
+  border: 1px solid rgba(240, 138, 122, 0.45);
+  border-radius: 10px;
+  background: rgba(18, 18, 22, 0.88);
+  backdrop-filter: blur(8px);
+  text-align: center;
+  z-index: 2;
+}
+
+.company__endTitle {
+  margin: 0 0 6px;
+  font-size: 20px;
+  color: #f08a7a;
+}
+
+.company__endText {
+  margin: 0;
+  color: #cfd3da;
+}
+
 /* The proximity prompt sits low and centred, under the avatar rather than off
    in a corner: it is about the thing the player is standing in front of. */
 .hud__prompt {
