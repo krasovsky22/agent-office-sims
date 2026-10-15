@@ -537,9 +537,8 @@ export const OFFICE_LAYOUT: OfficeLayout = {
   boards: [
     // The open floor's partition, between its two doorways and facing south
     // down the desk rows: every open-floor seat looks north at it, and an
-    // arriving player spawns facing it. As wide as the
-    // partition allows with a clear metre either side to the door frames, so
-    // it reads from the back row.
+    // arriving player spawns facing it. As wide as the partition allows with a
+    // clear metre either side to the door frames, so it reads from the back row.
     {
       id: PROJECT_BOARD_ID,
       roomId: "open-floor",
