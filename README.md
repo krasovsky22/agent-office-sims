@@ -13,7 +13,9 @@ above the speaker's head and relayed through the server. The floor plan is a
 whole floor — desk rows in the open plan, a meeting room, a kitchen, the CEO's
 corner office and the lobby, joined by a corridor — and it is furnished now,
 with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
-one shadow-casting light. Some of it can be used: walk up to a desk chair, the
+one shadow-casting light that follows the in-game clock, sun by day and moon by
+night, with the room light turning warmer and the desk screens glowing brighter
+as the outside light falls. Some of it can be used: walk up to a desk chair, the
 kitchen's coffee machine, the meeting room's whiteboard or the project board and a
 prompt offers the action, which the server grants or refuses. On top of that, the ticket
 board exists as replicated state with its rules enforced on the server, and the
@@ -289,7 +291,7 @@ Then confirm all nineteen:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, hiring, firing and quitting, live agents' reports and bodies
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -467,7 +469,10 @@ apps/server/       @sim/server   Colyseus room and simulation tick
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do at the ticket board, and why
   src/staffing.ts         the staff panel's payroll, desks, and why a hire was refused
+  src/dayClock.ts         the replicated clock, run on smoothly between patches
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
+  src/scene/daylight.ts   the day's light curve: sun, sky and interior by the minute
+  src/scene/lighting.ts   the office's lights, set from that curve every frame
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
