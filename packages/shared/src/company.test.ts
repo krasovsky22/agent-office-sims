@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 import {
   BACKLOG_TOLERANCE,
   COMPANY_STATUS,
-  DAILY_OVERHEAD,
   MAX_CLOCK_STEP_MS,
   METRIC_MAX,
   METRIC_MIN,
@@ -22,7 +21,6 @@ import {
   PRODUCTIVITY_PER_COMPLETED_TICKET,
   QUIT_AFTER_LOW_MORALE_DAYS,
   QUIT_MORALE_THRESHOLD,
-  RECRUITING_FEE_DAYS,
   SIM_MINUTES_PER_REAL_SECOND,
   STARTING_CASH,
   STARTING_MINUTE_OF_DAY,
@@ -33,7 +31,6 @@ import {
   dailyPayroll,
   isDueToQuit,
   isTrading,
-  recruitingFee,
   simSecondsFor,
 } from "./company.js";
 import { AGENT_ROSTER, DEFAULT_AGENT_COUNT } from "./agents.js";
@@ -182,17 +179,9 @@ describe("closeDay", () => {
 });
 
 describe("staffing costs", () => {
-  it("adds every salary to the overhead", () => {
-    expect(dailyPayroll([])).toBe(DAILY_OVERHEAD);
-    expect(dailyPayroll([100, 250])).toBe(DAILY_OVERHEAD + 350);
-  });
-
-  it("keeps the default office at the 2,500 a day it cost before salaries", () => {
-    expect(PAYROLL).toBe(2_500);
-  });
-
-  it("charges a hire some days of their salary up front", () => {
-    expect(recruitingFee(500)).toBe(500 * RECRUITING_FEE_DAYS);
+  it("adds up every salary, and costs nothing with nobody on staff", () => {
+    expect(dailyPayroll([])).toBe(0);
+    expect(dailyPayroll([100, 250])).toBe(350);
   });
 
   it("takes a firing's morale cost at once, and reports what it actually took", () => {

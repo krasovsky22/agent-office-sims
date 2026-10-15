@@ -254,11 +254,7 @@ export type StaffChangedEvent = {
   readonly jobTitle: string;
   readonly salary: number;
 } & (
-  | {
-      readonly change: typeof STAFF_CHANGE.hired;
-      /** The recruiting fee paid on the spot. */
-      readonly fee: number;
-    }
+  | { readonly change: typeof STAFF_CHANGE.hired }
   | {
       readonly change: typeof STAFF_CHANGE.fired;
       /** How far company morale fell, in points. */
