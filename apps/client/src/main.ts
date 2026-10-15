@@ -10,7 +10,6 @@
 import {
   ANIMATION_STATE,
   CLIENT_MESSAGE,
-  COMPANY_STATUS,
   INTERACT_RANGE,
   INTERACTION_KIND,
   type InteractableSpec,
@@ -369,7 +368,7 @@ function start(): void {
     // Arrives with nearly every patch, because the clock is in it; React only
     // hears about the ones that change what is on screen.
     onCompanyChanged: (view) => {
-      dayClock.observe(view.minuteOfDay, view.status === COMPANY_STATUS.operating, performance.now());
+      dayClock.observe(view.minuteOfDay, performance.now());
       const company = readCompany(view);
       if (!sameReadout(hud.company, company)) {
         publishHud({ company });

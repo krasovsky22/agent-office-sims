@@ -18,10 +18,11 @@
  * draws anyway.
  */
 
-import { type Aabb2, type OfficeLayout } from "@sim/shared";
+import { type OfficeLayout } from "@sim/shared";
 import * as THREE from "three";
 
 import { type Daylight, createDaylight, sampleDaylight } from "./daylight.js";
+import { centreOf } from "./office.js";
 
 /** Shadow map resolution. One light, one map, so this is the whole budget. */
 const SHADOW_MAP_SIZE = 2048;
@@ -71,15 +72,6 @@ export interface OfficeLighting {
    * the asset kit, and may never arrive at all.
    */
   lightScreens(screen: THREE.MeshStandardMaterial): void;
-}
-
-function centreOf(box: Aabb2): { x: number; z: number; width: number; depth: number } {
-  return {
-    x: (box.minX + box.maxX) / 2,
-    z: (box.minZ + box.maxZ) / 2,
-    width: box.maxX - box.minX,
-    depth: box.maxZ - box.minZ,
-  };
 }
 
 /**

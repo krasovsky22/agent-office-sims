@@ -44,7 +44,7 @@ export interface OfficeView {
   setGreyDesksVisible(visible: boolean): void;
 }
 
-function centreOf(box: { minX: number; minZ: number; maxX: number; maxZ: number }) {
+export function centreOf(box: { minX: number; minZ: number; maxX: number; maxZ: number }) {
   return {
     x: (box.minX + box.maxX) / 2,
     z: (box.minZ + box.maxZ) / 2,
