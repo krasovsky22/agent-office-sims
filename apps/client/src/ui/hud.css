@@ -402,6 +402,122 @@
   color: #f08a7a;
 }
 
+/* What a firing just cost morale. Fades out on its own, and is re-keyed per
+   firing so a second one replays it rather than leaving it faded. */
+.company__delta {
+  margin-right: 6px;
+  color: #f08a7a;
+  font-weight: 700;
+  animation: company-delta 4s ease-out forwards;
+}
+
+@keyframes company-delta {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.company__warning {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  border-left: 2px solid rgba(240, 138, 122, 0.6);
+  background: rgba(240, 138, 122, 0.08);
+  color: #f3c2b9;
+  font-size: 11px;
+}
+
+/* Hiring and firing. Clickable, unlike the panels around it, and capped in
+   height with its own scroll so a full office cannot push the chat off screen. */
+.staff {
+  pointer-events: auto;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.staff__summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: #cfd3da;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.staff__list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.staff__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  min-width: 0;
+}
+
+/* A job's title over its price, so the button stays on the row's right edge. */
+.staff__row--candidate {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.staff__job {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.staff__salary {
+  font-size: 11px;
+  color: #9aa0aa;
+  font-variant-numeric: tabular-nums;
+}
+
+.staff__confirm {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.staff__button {
+  margin-left: auto;
+  padding: 1px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(40, 40, 48, 0.8);
+  color: #eef0f4;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.staff__confirm .staff__button {
+  margin-left: 0;
+}
+
+.staff__button:hover {
+  background: rgba(58, 58, 68, 0.9);
+}
+
+.staff__button--danger {
+  border-color: rgba(240, 138, 122, 0.6);
+  color: #f3c2b9;
+}
+
+.staff__toggle {
+  margin: 8px 0 0;
+}
+
 /* The end state. Centred over the office so nobody misses it, and click-through
    like the rest of the layer, because the office is still walkable behind it. */
 .company__end {

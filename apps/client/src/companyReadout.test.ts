@@ -12,11 +12,19 @@ import {
   STARTING_CASH,
   STARTING_MINUTE_OF_DAY,
   STARTING_MORALE,
+  QUIT_AFTER_LOW_MORALE_DAYS,
+  QUIT_MORALE_THRESHOLD,
   STARTING_PRODUCTIVITY,
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { formatCash, formatClock, readCompany, sameReadout } from "./companyReadout.js";
+import {
+  formatCash,
+  formatClock,
+  moraleWarningFor,
+  readCompany,
+  sameReadout,
+} from "./companyReadout.js";
 import type { CompanyView } from "./net/room.js";
 
 const OPENING: CompanyView = {
@@ -26,6 +34,7 @@ const OPENING: CompanyView = {
   day: 1,
   minuteOfDay: STARTING_MINUTE_OF_DAY,
   status: COMPANY_STATUS.operating,
+  lowMoraleDays: 0,
 };
 
 describe("formatClock", () => {
@@ -63,6 +72,20 @@ describe("readCompany", () => {
   });
 });
 
+describe("moraleWarningFor", () => {
+  it("says nothing while morale is healthy", () => {
+    expect(moraleWarningFor(QUIT_MORALE_THRESHOLD, 0)).toBe("");
+  });
+
+  it("warns as soon as morale is low, and counts the bad days towards a quit", () => {
+    expect(moraleWarningFor(QUIT_MORALE_THRESHOLD - 1, 0)).toContain(
+      `${QUIT_AFTER_LOW_MORALE_DAYS} days in a row`,
+    );
+    expect(moraleWarningFor(QUIT_MORALE_THRESHOLD - 1, 1)).toContain("1 day running");
+    expect(moraleWarningFor(QUIT_MORALE_THRESHOLD - 1, 2)).toContain("2 days running");
+  });
+});
+
 describe("sameReadout", () => {
   it("ignores clock movement inside a display step", () => {
     const before = readCompany(OPENING);
@@ -74,5 +97,10 @@ describe("sameReadout", () => {
     const before = readCompany(OPENING);
     expect(sameReadout(before, readCompany({ ...OPENING, cash: OPENING.cash - 1 }))).toBe(false);
     expect(sameReadout(undefined, before)).toBe(false);
+  });
+
+  it("notices the low-morale streak moving", () => {
+    const low = { ...OPENING, morale: QUIT_MORALE_THRESHOLD - 5 };
+    expect(sameReadout(readCompany(low), readCompany({ ...low, lowMoraleDays: 1 }))).toBe(false);
   });
 });

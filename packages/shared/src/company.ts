@@ -3,10 +3,11 @@
  * and what one day does to them.
  *
  * Every tunable in the company simulation lives in this module, and so does
- * every formula that reads one. None of the values are balanced yet — that
- * waits until agents actually work the board — so the point is that rebalancing
- * is an edit to this file and to nothing else: not the room, not a handler, not
- * the HUD.
+ * every formula that reads one — with one exception: what each job pays is
+ * listed beside the job itself, in `agents.ts`'s hiring candidates. None of the
+ * values are balanced yet — that waits until agents actually work the board —
+ * so the point is that rebalancing is an edit to these two files and to nothing
+ * else: not the room, not a handler, not the HUD.
  *
  * `state.ts` says what the company *is*; this module says what a day *does* to
  * it, in the same split as `tickets.ts`. The formulas are pure functions of the
@@ -66,13 +67,24 @@ export const CLOCK_DISPLAY_STEP_MINUTES = 15;
 export const STARTING_CASH = 50_000;
 
 /**
- * Cash drawn at every midnight.
+ * Company morale lost, at once, when the CEO fires an agent.
  *
- * One flat figure for the whole office until hiring introduces per-employee
- * salaries. With nothing earning yet, {@link STARTING_CASH} over this is how
- * many days a company lasts.
+ * Applied the moment the agent is let go rather than at the day's close, so the
+ * office sees the cost land with the decision.
  */
-export const DAILY_PAYROLL = 2_500;
+export const MORALE_LOSS_PER_FIRING = 8;
+
+/** Company morale below which staff start counting days towards quitting. */
+export const QUIT_MORALE_THRESHOLD = 30;
+
+/**
+ * Consecutive day closes with morale under {@link QUIT_MORALE_THRESHOLD} after
+ * which an agent quits.
+ *
+ * The streak starts again after each departure, so a neglected office loses one
+ * agent every few days rather than all of them at one midnight.
+ */
+export const QUIT_AFTER_LOW_MORALE_DAYS = 3;
 
 /** Floor and ceiling for morale and productivity, which are both 0–100 scores. */
 export const METRIC_MIN = 0;
@@ -106,12 +118,14 @@ export const MORALE_LOSS_PER_EXCESS_TICKET = 2;
 /** Morale regained per day while the backlog is within {@link BACKLOG_TOLERANCE}. */
 export const MORALE_DAILY_RECOVERY = 1;
 
-/** What the board looked like when a day ended, which is all a day's close reads. */
+/** What the office looked like when a day ended, which is all a day's close reads. */
 export interface DayReport {
   /** Tickets that reached `done` since the previous close. */
   readonly completedTickets: number;
   /** Tickets on the board that are not `done`, whatever column they are in. */
   readonly openTickets: number;
+  /** What the day costs: the {@link dailyPayroll} of the staff on the floor at midnight. */
+  readonly payroll: number;
 }
 
 export const SECONDS_PER_DAY = MINUTES_PER_DAY * 60;
@@ -150,6 +164,43 @@ export function moraleChange(openTickets: number): number {
   return excess > 0 ? -excess * MORALE_LOSS_PER_EXCESS_TICKET : MORALE_DAILY_RECOVERY;
 }
 
+/**
+ * What one day of the office costs: the sum of every salary.
+ *
+ * Takes the salaries rather than the occupants, which `agents.ts`'s
+ * `payrollOf` reads them from; this module does not know what an agent is.
+ */
+export function dailyPayroll(salaries: Iterable<number>): number {
+  let total = 0;
+  for (const salary of salaries) {
+    total += salary;
+  }
+  return total;
+}
+
+/**
+ * Takes {@link MORALE_LOSS_PER_FIRING} off the company's morale.
+ *
+ * @returns how far morale actually fell, which is less than the tunable when it
+ * was already near the floor, so an announcement never claims a drop that did
+ * not happen.
+ */
+export function applyFiringMorale(company: Company): number {
+  const before = company.morale;
+  company.morale = clampMetric(before - MORALE_LOSS_PER_FIRING);
+  return before - company.morale;
+}
+
+/**
+ * Whether the low-morale streak has run long enough for somebody to quit.
+ *
+ * Read by the room straight after {@link closeDay}, which is what moves the
+ * streak; the room picks who goes and resets it.
+ */
+export function isDueToQuit(company: Company): boolean {
+  return isTrading(company) && company.lowMoraleDays >= QUIT_AFTER_LOW_MORALE_DAYS;
+}
+
 /** How much a day's finished work moves productivity. */
 export function productivityChange(completedTickets: number): number {
   return completedTickets * PRODUCTIVITY_PER_COMPLETED_TICKET - PRODUCTIVITY_DAILY_DECAY;
@@ -164,6 +215,10 @@ export function productivityChange(completedTickets: number): number {
  * scores still take the day's report first, so the last day's numbers are the
  * ones the end state shows.
  *
+ * The low-morale streak is counted against the morale the day ends on, so a
+ * day that dipped under {@link QUIT_MORALE_THRESHOLD} and recovered by midnight
+ * does not count, and a day that ends above it starts the count again.
+ *
  * Does nothing to a company that has already stopped trading.
  */
 export function closeDay(company: Company, report: DayReport): void {
@@ -174,8 +229,10 @@ export function closeDay(company: Company, report: DayReport): void {
     company.productivity + productivityChange(report.completedTickets),
   );
   company.morale = clampMetric(company.morale + moraleChange(report.openTickets));
+  company.lowMoraleDays =
+    company.morale < QUIT_MORALE_THRESHOLD ? company.lowMoraleDays + 1 : 0;
   company.day += 1;
-  company.cash = Math.max(company.cash - DAILY_PAYROLL, 0);
+  company.cash = Math.max(company.cash - report.payroll, 0);
   if (company.cash <= 0) {
     company.status = COMPANY_STATUS.bankrupt;
   }

@@ -95,6 +95,27 @@ export function assigneeInvariant(status: TicketStatus): boolean {
   return status !== TICKET_STATUS.backlog;
 }
 
+/**
+ * The columns this ticket can move to right now: {@link TICKET_TRANSITIONS},
+ * except for a `review` whose assignee has left the office.
+ *
+ * Such a review keeps its assignee as the record of who handed it in, but
+ * sending it back for rework cannot return it to them, so the rework edge goes
+ * to `backlog`, unassigned, for the CEO to hand on, instead of `in_progress`.
+ *
+ * @param isPresent Whether an occupant id is in the office.
+ */
+export function ticketTransitions(
+  ticket: TicketData,
+  isPresent: (occupantId: string) => boolean,
+): readonly TicketStatus[] {
+  const edges = TICKET_TRANSITIONS[ticket.status];
+  if (ticket.status !== TICKET_STATUS.review || isPresent(ticket.assigneeId)) {
+    return edges;
+  }
+  return edges.map((to) => (to === TICKET_STATUS.in_progress ? TICKET_STATUS.backlog : to));
+}
+
 /** What a command wants to do, for the authority check. */
 export const TICKET_ACTION = {
   create: "create",
@@ -264,18 +285,22 @@ export type TicketMove =
  * Every column a ticket can move to right now, in board order, for this actor.
  *
  * The client's mirror of {@link applyTicketCommand}, built from the same
- * transition table, assignee invariant and authority seam, so the panel never
+ * transitions, assignee invariant and authority seam, so the panel never
  * offers a move the server will refuse. An edge the table lists but the rules
  * cannot reach — a `move-status` into a column that needs an assignee the
  * ticket does not have — is left out rather than offered and then rejected.
+ *
+ * @param isPresent Whether an occupant id is in the office; see
+ *   {@link ticketTransitions}.
  */
 export function ticketMoves(
   ticket: TicketData,
   actor: TicketActor,
+  isPresent: (occupantId: string) => boolean,
   permit: TicketPermission = mayActOnTicket,
 ): TicketMove[] {
   const moves: TicketMove[] = [];
-  for (const to of TICKET_TRANSITIONS[ticket.status]) {
+  for (const to of ticketTransitions(ticket, isPresent)) {
     const needsOwner = assigneeInvariant(to) && ticket.assigneeId === "";
     let move: TicketMove;
     if (!needsOwner) {
@@ -534,7 +559,7 @@ function moveTicketStatus(
   payload: TicketMoveStatusMessage,
   context: TicketCommandContext,
 ): TicketCommandResult {
-  if (!isLegalTicketTransition(ticket.status, payload.status)) {
+  if (!ticketTransitions(ticket, (id) => context.occupants.has(id)).includes(payload.status)) {
     return reject(TICKET_REJECTION.illegalTransition);
   }
 
@@ -544,6 +569,9 @@ function moveTicketStatus(
     return reject(TICKET_REJECTION.missingAssignee);
   }
 
+  if (ticket.status === TICKET_STATUS.review && clearsAssignee) {
+    noteOnTicket(ticket, "Returned to the backlog: sent back for rework after its assignee left.", context.now);
+  }
   ticket.status = payload.status;
   if (clearsAssignee) {
     ticket.assigneeId = "";
@@ -619,6 +647,18 @@ function commentOnTicket(
   ticket.comments.push(comment);
   ticket.updatedAt = context.now;
   return { ok: true, ticket };
+}
+
+/** Appends a comment from the system, saying why the board changed a ticket. */
+export function noteOnTicket(ticket: Ticket, text: string, now: number): void {
+  const comment = new TicketComment();
+  comment.authorId = SYSTEM_AUTHOR_ID;
+  comment.text = text;
+  comment.createdAt = now;
+  while (ticket.comments.length >= MAX_TICKET_COMMENTS) {
+    ticket.comments.shift();
+  }
+  ticket.comments.push(comment);
 }
 
 /**

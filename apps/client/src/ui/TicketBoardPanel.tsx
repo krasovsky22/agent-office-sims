@@ -181,7 +181,7 @@ export function TicketBoardPanel({ tickets, people, access, actions }: TicketBoa
             key={open.id}
             ticket={open}
             people={people}
-            moves={access?.movesFor(open) ?? []}
+            moves={access?.movesFor(open, people) ?? []}
             actions={actions}
             onClose={() => setOpenId(undefined)}
           />
