@@ -77,8 +77,9 @@ movement keys, emotes and chat stay quiet while it has focus. Moving is
 click-to-move: open a card and it offers a button for each column it can go to,
 or an assignee picker to take it out of the backlog. `Esc` backs out of the
 new-ticket form, then the open card, then the board, and walking resumes.
-Clicking the office instead gives the keyboard back with the board left open,
-and stepping away closes it.
+Clicking the office instead gives the keyboard back with the board left open;
+then `Esc` or `E` closes it (if the click captured the mouse, the first `Esc`
+releases it), and stepping away closes it too.
 
 `1` to `5` fire the five emotes, which are also buttons in the chat panel.
 `Enter` moves focus to the chat box — and releases the mouse, since a captured
@@ -219,6 +220,7 @@ Then confirm all seventeen:
     Milo's tab shows it under Assigned with that name. Each step after that
     offers only the neighbouring columns, and `Done` offers nothing. `Esc`
     closes the card, then the board; `E` again reopens it with no card open.
+    Reopen it, click the office floor, and `Esc` still closes it.
 17. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks

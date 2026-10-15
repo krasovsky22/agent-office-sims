@@ -489,6 +489,9 @@ function start(): void {
     if (target?.id !== readingBoard) {
       readingBoard = "";
     }
+    if (controller.takeCloseRequest() && readingBoard === TICKET_BOARD_ID) {
+      readingBoard = "";
+    }
     if (controller.takeInteractRequest() && target !== undefined) {
       if (target.id === readingBoard) {
         readingBoard = "";

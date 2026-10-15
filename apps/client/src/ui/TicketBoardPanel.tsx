@@ -13,7 +13,8 @@
  * the focus is anywhere inside it, buttons included, and it pulls the focus in
  * when it opens. `Escape` backs out one layer — the new-ticket form, then the
  * open card, then the panel — and closing it hands the keyboard back to
- * walking. A button that vanishes under the focus, because a move it made or
+ * walking. With the focus out in the office, `Esc` still closes the panel,
+ * through the controller. A button that vanishes under the focus, because a move it made or
  * one from another tab took it away, returns the focus to the panel rather
  * than dropping it on the page, where the next `W` would walk.
  *

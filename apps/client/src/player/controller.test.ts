@@ -91,3 +91,41 @@ describe("PlayerController reconciliation around standing up", () => {
     expect(distanceFromAnchor()).toBeLessThan(before);
   });
 });
+
+describe("PlayerController close key", () => {
+  let controller: PlayerController;
+
+  beforeEach(() => {
+    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("HTMLElement", class {});
+    controller = new PlayerController(
+      new THREE.PerspectiveCamera(),
+      new EventTarget() as HTMLCanvasElement,
+    );
+    controller.attach();
+  });
+
+  afterEach(() => {
+    controller.detach();
+    vi.unstubAllGlobals();
+  });
+
+  it("asks to close once for an Esc pressed with focus outside any panel", () => {
+    expect(controller.takeCloseRequest()).toBe(false);
+    const press = keyDown("Escape");
+    window.dispatchEvent(press);
+
+    expect(press.defaultPrevented).toBe(false);
+    expect(controller.takeCloseRequest()).toBe(true);
+    expect(controller.takeCloseRequest()).toBe(false);
+  });
+
+  it("does not treat Esc as an interaction or a step", () => {
+    window.dispatchEvent(keyDown("Escape"));
+    controller.update(FRAME);
+
+    expect(controller.takeInteractRequest()).toBe(false);
+    expect(controller.pose.x).toBe(0);
+    expect(controller.pose.z).toBe(0);
+  });
+});
