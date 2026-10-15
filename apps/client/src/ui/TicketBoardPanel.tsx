@@ -99,6 +99,11 @@ export function TicketBoardPanel({ tickets, people, actions }: TicketBoardPanelP
       onFocus={(event) => {
         lastFocused.current = event.target;
       }}
+      onBlur={(event) => {
+        if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
+          lastFocused.current = null;
+        }
+      }}
       onKeyDown={(event) => {
         if (event.key !== "Escape") {
           return;
