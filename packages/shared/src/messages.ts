@@ -25,6 +25,7 @@ import {
   isTicketPriority,
   isTicketStatus,
 } from "./state.js";
+import type { StaffAction, StaffRejection } from "./staffing.js";
 import type { TicketAction, TicketRejection } from "./tickets.js";
 
 /** Matchmaking name of the only room type this milestone defines. */
@@ -60,6 +61,10 @@ export const CLIENT_MESSAGE = {
    * tool: the server only honours it when started with `AGENT_DEBUG=on`.
    */
   debugGoto: "debug:goto",
+  /** Hire an agent for one of the candidate jobs, at the first free desk. */
+  staffHire: "staff:hire",
+  /** Let an agent employee go. */
+  staffFire: "staff:fire",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -91,6 +96,17 @@ export const SERVER_MESSAGE = {
   ceoChanged: "ceo-changed",
   /** Sent only to the client whose debug command it answers. */
   debugReply: "debug:reply",
+  /**
+   * Sent only to the client whose hire or fire was refused, with the reason.
+   * Carries a {@link StaffRejectedEvent}.
+   */
+  staffRejected: "staff-rejected",
+  /**
+   * Someone joined or left the staff: hired, fired, or quit. Broadcast to every
+   * client as a {@link StaffChangedEvent}. The agent itself is replicated
+   * state; this is the announcement, carrying the why that state cannot.
+   */
+  staffChanged: "staff-changed",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];
@@ -210,6 +226,54 @@ export interface CeoChangedEvent {
   readonly previousCeoId: string;
 }
 
+/** The office refused one of this client's hire or fire commands and changed nothing. */
+export interface StaffRejectedEvent {
+  readonly action: StaffAction;
+  readonly rejection: StaffRejection;
+}
+
+/** How someone came to join or leave the staff. */
+export const STAFF_CHANGE = {
+  hired: "hired",
+  fired: "fired",
+  quit: "quit",
+} as const;
+
+export type StaffChange = (typeof STAFF_CHANGE)[keyof typeof STAFF_CHANGE];
+
+/**
+ * A change to the staff, as announced to every client.
+ *
+ * Carries the agent's name and title rather than only its id, because for a
+ * departure the agent is already gone from the occupants map by the time the
+ * announcement is read.
+ */
+export type StaffChangedEvent = {
+  readonly agentId: string;
+  readonly name: string;
+  readonly jobTitle: string;
+  readonly salary: number;
+} & (
+  | {
+      readonly change: typeof STAFF_CHANGE.hired;
+      /** The recruiting fee paid on the spot. */
+      readonly fee: number;
+    }
+  | {
+      readonly change: typeof STAFF_CHANGE.fired;
+      /** How far company morale fell, in points. */
+      readonly moraleLost: number;
+      /** Unfinished tickets returned to the backlog. */
+      readonly releasedTickets: number;
+    }
+  | {
+      readonly change: typeof STAFF_CHANGE.quit;
+      /** Why they went, in words, e.g. "morale stayed under 30% for 3 days". */
+      readonly reason: string;
+      readonly releasedTickets: number;
+    }
+);
+
 /** Options a client may supply when joining the office room. */
 export interface JoinOptions {
   readonly name?: string;
@@ -258,6 +322,16 @@ export interface TicketCommentMessage {
   readonly ticketId: string;
   /** Sanitized by {@link parseTicketCommentMessage}, and never empty. */
   readonly text: string;
+}
+
+/** Which job the CEO wants to hire for; one of `HIRING_CANDIDATES`. */
+export interface StaffHireMessage {
+  readonly candidateId: string;
+}
+
+/** Which agent employee the CEO wants to let go. */
+export interface StaffFireMessage {
+  readonly agentId: string;
 }
 
 const MAX_NAME_LENGTH = 18;
@@ -622,4 +696,27 @@ export function parseDebugGotoMessage(raw: unknown): DebugGotoMessage | undefine
     return undefined;
   }
   return { agent: candidate.agent, target: { x: position.x, z: position.z } };
+}
+
+/**
+ * Validates a raw `staff:hire` payload.
+ *
+ * Only the shape: whether the office offers that job is the staffing rules'
+ * call, as an unknown ticket id is the board's.
+ */
+export function parseStaffHireMessage(raw: unknown): StaffHireMessage | undefined {
+  const candidate = asRecord(raw);
+  if (candidate === undefined || !isId(candidate.candidateId)) {
+    return undefined;
+  }
+  return { candidateId: candidate.candidateId };
+}
+
+/** Validates a raw `staff:fire` payload. */
+export function parseStaffFireMessage(raw: unknown): StaffFireMessage | undefined {
+  const candidate = asRecord(raw);
+  if (candidate === undefined || !isId(candidate.agentId)) {
+    return undefined;
+  }
+  return { agentId: candidate.agentId };
 }

@@ -61,6 +61,10 @@ import {
   RECONNECT_GRACE_SECONDS,
   type ReportedAnimation,
   SERVER_MESSAGE,
+  type StaffChangedEvent,
+  type StaffFireMessage,
+  type StaffHireMessage,
+  type StaffRejectedEvent,
   type ThrottledEvent,
   type TicketRejectedEvent,
   agentAtDesk,
@@ -112,8 +116,9 @@ interface PoseSample {
  * trigger an `onOccupantsChanged`; `interactableId` and `animation` change far
  * too often for that and are read from the loop instead.
  *
- * `jobTitle` and `activity` are an agent employee's: `""` and `undefined` for a
- * player, so a consumer can branch on `kind` and never meet a half-agent.
+ * `jobTitle`, `activity` and `salary` are an agent employee's: `""`,
+ * `undefined` and `0` for a player, so a consumer can branch on `kind` and
+ * never meet a half-agent.
  */
 export interface OccupantView {
   readonly id: string;
@@ -122,6 +127,8 @@ export interface OccupantView {
   isCeo: boolean;
   jobTitle: string;
   activity: AgentActivity | undefined;
+  /** What an agent costs a day; fixed at hire, so never re-read. */
+  readonly salary: number;
   readonly isLocal: boolean;
   /** Interactable this occupant is engaged with, or `""` when free. */
   interactableId: string;
@@ -147,6 +154,7 @@ export interface CompanyView {
   readonly day: number;
   readonly minuteOfDay: number;
   readonly status: CompanyStatus;
+  readonly lowMoraleDays: number;
 }
 
 /** The local pose as reported to the server: only states a client may claim. */
@@ -192,6 +200,10 @@ export interface RoomConnectionEvents {
   onCeoChanged?: (event: CeoChangedEvent) => void;
   /** The whole ticket board, after any ticket is added, changed or removed. */
   onTicketsChanged?: (tickets: readonly TicketData[]) => void;
+  /** An agent was hired, fired, or quit. */
+  onStaffChanged?: (event: StaffChangedEvent) => void;
+  /** The office refused one of the local client's own hire or fire commands. */
+  onStaffRejected?: (event: StaffRejectedEvent) => void;
 }
 
 export class RoomConnection {
@@ -359,6 +371,16 @@ export class RoomConnection {
     this.room?.send(CLIENT_MESSAGE.emote, { emote } satisfies EmoteMessage);
   }
 
+  /** Asks to hire for one of the candidate jobs. The server decides. */
+  public sendHire(candidateId: string): void {
+    this.room?.send(CLIENT_MESSAGE.staffHire, { candidateId } satisfies StaffHireMessage);
+  }
+
+  /** Asks to let an agent go. The server decides. */
+  public sendFire(agentId: string): void {
+    this.room?.send(CLIENT_MESSAGE.staffFire, { agentId } satisfies StaffFireMessage);
+  }
+
   /** Says something out loud. Echoed back by the server, like an emote. */
   public sendChat(text: string): void {
     this.room?.send(CLIENT_MESSAGE.chat, { text } satisfies ChatMessage);
@@ -468,6 +490,7 @@ export class RoomConnection {
         isCeo: isCeo(occupant),
         jobTitle: isAgentEmployee(occupant) ? occupant.jobTitle : "",
         activity: isAgentEmployee(occupant) ? occupant.activity : undefined,
+        salary: isAgentEmployee(occupant) ? occupant.salary : 0,
         isLocal,
         interactableId: occupant.interactableId,
         animation: occupant.animation,
@@ -543,6 +566,14 @@ export class RoomConnection {
 
     room.onMessage<DebugReplyEvent>(SERVER_MESSAGE.debugReply, (event) => {
       this.events.onDebugReply?.(event);
+    });
+
+    room.onMessage<StaffChangedEvent>(SERVER_MESSAGE.staffChanged, (event) => {
+      this.events.onStaffChanged?.(event);
+    });
+
+    room.onMessage<StaffRejectedEvent>(SERVER_MESSAGE.staffRejected, (event) => {
+      this.events.onStaffRejected?.(event);
     });
 
     room.onError((code, message) => {
@@ -684,6 +715,7 @@ function companyViewOf(company: Company): CompanyView {
     day: company.day,
     minuteOfDay: company.minuteOfDay,
     status: company.status,
+    lowMoraleDays: company.lowMoraleDays,
   };
 }
 

@@ -221,6 +221,10 @@ export const AGENT_STAT_MAX = 100;
  *
  * Morale and energy are whole numbers out of {@link AGENT_STAT_MAX}, `uint8` on
  * the wire, because nothing reads them finer than a percentage.
+ *
+ * `salary` is what the agent costs each midnight, in whole currency units, and
+ * is replicated because the HUD shows the payroll it adds up to. It is fixed at
+ * hire: raises are not part of this office.
  */
 export class AgentEmployee extends Occupant {
   declare public jobTitle: string;
@@ -230,6 +234,7 @@ export class AgentEmployee extends Occupant {
   declare public activity: AgentActivity;
   declare public morale: number;
   declare public energy: number;
+  declare public salary: number;
 
   public constructor() {
     super();
@@ -240,6 +245,7 @@ export class AgentEmployee extends Occupant {
     this.activity = AGENT_ACTIVITY.idle;
     this.morale = AGENT_STAT_MAX;
     this.energy = AGENT_STAT_MAX;
+    this.salary = 0;
   }
 }
 
@@ -250,6 +256,7 @@ defineTypes(AgentEmployee, {
   activity: "string",
   morale: "uint8",
   energy: "uint8",
+  salary: "number",
 });
 
 /**
@@ -463,6 +470,11 @@ export class Company extends Schema {
   /** Minutes since midnight of {@link day}, 0 to 1439. */
   declare public minuteOfDay: number;
   declare public status: CompanyStatus;
+  /**
+   * Consecutive day closes that ended with morale below the quitting
+   * threshold. Replicated so the HUD can warn before anyone actually quits.
+   */
+  declare public lowMoraleDays: number;
 
   public constructor() {
     super();
@@ -472,6 +484,7 @@ export class Company extends Schema {
     this.day = 1;
     this.minuteOfDay = STARTING_MINUTE_OF_DAY;
     this.status = COMPANY_STATUS.operating;
+    this.lowMoraleDays = 0;
   }
 }
 
@@ -482,6 +495,7 @@ defineTypes(Company, {
   day: "uint16",
   minuteOfDay: "uint16",
   status: "string",
+  lowMoraleDays: "uint16",
 });
 
 export class OfficeState extends Schema {
