@@ -11,8 +11,8 @@
  *
  * The agents' brains are tested in `sim/agentBrain.test.ts`. What only a room
  * can show is that it starts them and stops them: that an assignment sent down
- * a socket comes back as a ticket in review, and that closing the room cancels
- * the work in flight.
+ * a socket comes back as a ticket in review, that an agent hired later works
+ * too, and that firing an agent or closing the room cancels the work in flight.
  */
 
 import { Server, matchMaker } from "@colyseus/core";
@@ -20,6 +20,7 @@ import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
   type CeoChangedEvent,
   CLIENT_MESSAGE,
+  HIRING_CANDIDATES,
   OFFICE_ROOM_NAME,
   type OfficeState,
   PLAYER_ROLE,
@@ -113,6 +114,7 @@ function listen(tab: Tab, room: Room<OfficeState>): void {
   });
   // Registered so the client library does not warn about them; unused here.
   room.onMessage(SERVER_MESSAGE.throttled, () => undefined);
+  room.onMessage(SERVER_MESSAGE.staffChanged, () => undefined);
 }
 
 /** Opens a fresh office as its first, and so CEO, occupant. */
@@ -426,5 +428,26 @@ describe("agents working the board", () => {
     await settled(() => slowWork[0]?.aborted === true);
     await new Promise((resolve) => setTimeout(resolve, 1_500));
     expect(room.state.tickets.toJSON()).toEqual(board);
+  }, 20_000);
+
+  it("works a hire's tickets, and frees its chair and its work when it is fired", async () => {
+    const dana = await openOffice("Dana", SLOW_AGENTS_ROOM);
+    const room = serverRoom(dana);
+    const startedBefore = slowWork.length;
+
+    dana.room.send(CLIENT_MESSAGE.staffHire, { candidateId: HIRING_CANDIDATES[0]?.id });
+    await settled(() => room.state.occupants.has("agent-2"));
+    dana.room.send(CLIENT_MESSAGE.ticketAssign, { ticketId: "ticket-1", assigneeId: "agent-2" });
+    await settled(() => slowWork.length === startedBefore + 1);
+    const seat = room.state.occupants.get("agent-2")?.interactableId ?? "";
+    expect(seat).not.toBe("");
+    expect(room["holds"].holderOf(seat)).toBe("agent-2");
+
+    dana.room.send(CLIENT_MESSAGE.staffFire, { agentId: "agent-2" });
+    await settled(() => slowWork[startedBefore]?.aborted === true);
+    expect(room.state.tickets.get("ticket-1")?.status).toBe(TICKET_STATUS.backlog);
+    expect(room["holds"].holderOf(seat)).toBeUndefined();
+
+    await dana.room.leave();
   }, 20_000);
 });
