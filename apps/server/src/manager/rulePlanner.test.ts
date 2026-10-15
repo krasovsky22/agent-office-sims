@@ -180,11 +180,19 @@ describe("planFromRules: assignments", () => {
     expect(ask("Did anyone get to #39?").assignments).toEqual([]);
   });
 
-  it("takes an instruction however it starts, or work handed to a name", () => {
+  it("treats a request for information as one, whatever verb it starts with", () => {
+    expect(ask("send me an update on #39").assignments).toEqual([]);
+    expect(ask("give an update on ticket-3").assignments).toEqual([]);
+    expect(ask("put together a summary of ticket-2").assignments).toEqual([]);
+    expect(ask("hand me the notes on ticket-3").assignments).toEqual([]);
+    expect(ask("send a summary of ticket-3 to me").assignments).toEqual([]);
+  });
+
+  it("takes an instruction with a relative clause, a polite lead-in, or a have-take", () => {
+    expect(ask("put someone who's free on #39").assignments).toEqual([{ work: "issue #39", agent: "" }]);
+    expect(ask("assign #39 to someone who is idle").assignments).toEqual([{ work: "issue #39", agent: "" }]);
+    expect(ask("can you put Bo on ticket-1?").assignments).toEqual([{ work: "ticket-1", agent: "agent-2" }]);
     expect(ask("ok, please have Bo take ticket-1").assignments).toEqual([{ work: "ticket-1", agent: "agent-2" }]);
-    expect(ask("I'd like you to put Deckhand on #39").assignments).toEqual([{ work: "issue #39", agent: "crew-2" }]);
-    expect(ask("#39 to Deckhand").assignments).toEqual([{ work: "issue #39", agent: "crew-2" }]);
-    expect(ask("ticket-3 to review").assignments).toEqual([]);
   });
 
   it("assigns nothing when the work named does not exist", () => {

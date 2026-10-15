@@ -39,24 +39,24 @@ import {
 /** Most items one list in an answer names before saying how many more there are. */
 const LIST_LIMIT = 8;
 
+/** "ok, please" and the like ahead of an instruction; "can you" makes a trailing "?" a courtesy. */
+const LEAD_IN = /^\s*(?:(?:ok(?:ay)?|now|please|so|and|then|(?:can|could|would|will) you)[\s,]+)*/i;
+const POLITE = /\b(can|could|would|will) you\b/i;
 /**
- * A question, however it is worded, is answered and never acted on: "give me
+ * A question is answered and never acted on, however it is worded: "give me
  * the status of ticket-3", "does anyone have #39?", "who should I give #39 to?".
  */
-const QUESTION =
-  /\?|\b(what|what's|whats|how|how's|hows|where|who|who's|which|why|status)\b|^\s*(do|does|did|is|are|was|were|has|had|should|any|have\s+(you|we|they|i|anyone|someone))\b/i;
-/** "ok, please" and the like ahead of an instruction. */
-const LEAD_IN = String.raw`^\s*(?:(?:ok(?:ay)?|now|please|so|and|then|(?:can|could|would|will) you)[\s,]+)*`;
-/** An instruction: "put Bo on…", "give ticket-1 to…", "have Ada take…", but not "give me…". */
-const IMPERATIVE = new RegExp(
-  `${LEAD_IN}(?:(?:put|assign|reassign|hand|send|allocate|delegate)\\b|give\\b(?!\\s+(?:me|us)\\b)|have\\s+\\S+(?:\\s+\\S+)?\\s+(?:take|do|work|pick|handle|start|tackle)\\b)`,
-  "i",
-);
-/** "I'd like you to put someone on #39": an assignment verb with its "on" or "to". */
-const ASSIGN_PHRASE = /\b(put|assign|reassign|give|hand|send|allocate|delegate)\s+(?!(me|us)\b)[^.?!]*?\b(on|to)\b/i;
-/** "#39 to Deckhand": a work reference handed to whoever is named next. */
-const WORK_TO = /(?:\bticket[-\s]?#?\d+|#\d+|\b(?:issue|pr)\s*#?\d+)\s+to\s+([a-z][\w-]*)/gi;
-const ANYONE = /^(someone|somebody|anyone|anybody)$/i;
+const QUESTION_START =
+  /^(what|what's|whats|how|how's|hows|who|who's|which|where|why|do|does|did|is|are|was|were|has|had|should|any|have\s+(you|we|they|i|anyone|someone))\b/i;
+const STATUS = /\bstatus\b/i;
+const TRAILING_QUESTION = /\?\s*$/;
+/** An instruction starts with one of these, followed by who or what it hands over. */
+const ASSIGN_VERB = /^(put|assign|reassign|give|hand|send|allocate|delegate)\s+(.*)$/is;
+/** "have Ada take ticket-3". */
+const HAVE_TAKE = /^have\s+([a-z][\w-]*)\s+(?:\S+\s+)?(?:take|do|work|pick|handle|start|tackle)\b/i;
+/** The agent an instruction hands work on or to: "…on Bo", "…to someone who is idle". */
+const ON_OR_TO = /\b(?:on|to)\s+([a-z][\w-]*)/gi;
+const ANYONE = /^(someone|somebody|anyone|anybody|whoever)$/i;
 /** "who should I give #39 to?" asks for advice rather than an assignment. */
 const ASKING_ADVICE = /\b(should i|who should|who would|who could|who can)\b/i;
 const WHOLE_BACKLOG = /\b(hand out|assign|give out|clear|distribute)\b.*\b(the )?backlog\b|\bbacklog\b.*\b(out|to everyone|to the team)\b/i;
@@ -148,17 +148,33 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   return { reply: `I didn't catch what you want me to look at. ${HELP_TEXT}`, assignments: [] };
 }
 
+/**
+ * Whether a message is an instruction to hand work out: an assignment verb at
+ * its start, followed by an agent or someone, by work handed on or to one, or
+ * by the backlog — and never when it reads as a question.
+ */
 function isAssignment(message: string, view: OfficeView): boolean {
-  if (QUESTION.test(message)) {
+  const lead = LEAD_IN.exec(message)?.[0] ?? "";
+  const rest = message.slice(lead.length).trim();
+  const polite = POLITE.test(lead);
+  if (QUESTION_START.test(rest) || STATUS.test(message) || (!polite && TRAILING_QUESTION.test(message))) {
     return false;
   }
-  if (IMPERATIVE.test(message) || ASSIGN_PHRASE.test(message)) {
-    return true;
+  const isSomeone = (word: string) => ANYONE.test(word) || resolveAgent(word, view) !== undefined;
+  const have = HAVE_TAKE.exec(rest);
+  if (have !== null) {
+    return isSomeone(have[1] ?? "");
   }
-  return [...message.matchAll(WORK_TO)].some((match) => {
-    const who = match[1] ?? "";
-    return ANYONE.test(who) || resolveAgent(who, view) !== undefined;
-  });
+  const verb = ASSIGN_VERB.exec(rest);
+  if (verb === null) {
+    return false;
+  }
+  const object = verb[2] ?? "";
+  return (
+    isSomeone(/^[a-z][\w-]*/i.exec(object)?.[0] ?? "") ||
+    [...object.matchAll(ON_OR_TO)].some((match) => isSomeone(match[1] ?? "")) ||
+    WHOLE_BACKLOG.test(rest)
+  );
 }
 
 /**

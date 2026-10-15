@@ -19,7 +19,9 @@
  * every assignment the AI manager has queued since the last collection, as
  * `{ "assignments": [{ "id", "agentId", "kind", "number", "title", "url",
  * "requestedBy", "note", "assignedAt" }] }`. Each is handed out by exactly one
- * collection; see `../manager/liveAssignments.ts`.
+ * collection. After collecting, the orchestrator's next report for that agent
+ * must already show it working on the item, or the assignment counts as not
+ * taken and the manager says so; see `../manager/liveAssignments.ts`.
  *
  * The secret is compared in constant time, and it is never echoed, logged, or
  * sent anywhere a client can read.

@@ -157,10 +157,13 @@ curl -X POST localhost:2567/agents/assignments -H "Authorization: Bearer $LIVE_A
 
 Each assignment is handed out by exactly one collection and never again, so an
 orchestrator polls every few seconds and starts what it is given; the `id` lets
-one that retries a request tell what it has already seen. Until the agent
-reports working on that issue, its nameplate and roster line say `next #39`; its
-own task still comes only from its reports. The manager says in the conversation
-when the orchestrator picks an assignment up and when the agent starts on it.
+one that retries a request tell what it has already seen. After collecting, the
+orchestrator's next report for that agent must already show it working on the
+item; any other report (idle, stopped, working on something else) or the agent
+leaving means the assignment counts as not taken, and the manager says so.
+Until then its nameplate and roster line say `next #39`; its own task still
+comes only from its reports. The manager says in the conversation when the
+orchestrator picks an assignment up, and when the agent starts on it or does not.
 
 Two query parameters are useful while developing. `?props=off` renders the
 grey-box office instead of the asset kit, and `?debug` puts the draw-call count
@@ -649,8 +652,8 @@ Thirteen things are worth knowing before changing anything:
   assigned through `applyTicketCommand` with the CEO as the actor, so the
   manager can never do what the CEO who asked could not, and GitHub work goes
   to the orchestrator's queue, which wraps the live agents' registry as their
-  `LiveAgentSource` so an assignment shows on its agent until the agent starts
-  it. The model call sits behind its own call budget, timeout and retry in
+  `LiveAgentSource` so an assignment shows on its agent until the agent's
+  next report after collection settles it, as started or not taken. The model call sits behind its own call budget, timeout and retry in
   `server/manager/advisor.ts`, modelled on the work executor.
 
 ## Assets
