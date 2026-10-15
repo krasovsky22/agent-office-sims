@@ -33,6 +33,10 @@
  * Expression is the same for every occupant, so an agent employee gets emotes
  * and chat bubbles by being given an {@link Avatar}, with no extra work here;
  * they only sit higher, above its badge and its title.
+ *
+ * A live coding agent is drawn differently on purpose too: its shell is a
+ * colour of its own, and its nameplate's second line says what it is working
+ * on, so nobody walks up to one expecting a colleague to answer.
  */
 
 import {
@@ -158,6 +162,16 @@ const NAMEPLATE_CANVAS_WIDTH = 640;
 const NAMEPLATE_CANVAS_HEIGHT = 64;
 const AGENT_NAMEPLATE_CANVAS_HEIGHT = 108;
 
+/**
+ * How much higher a live agent's emotes and bubbles sit over its two-line
+ * nameplate. It has no badge, so only the extra line has to be cleared; the
+ * plate itself grows upward by half of this, so its name line stays where a
+ * player's would be.
+ */
+const LIVE_AGENT_EXPRESSION_LIFT =
+  (NAMEPLATE_HEIGHT * (AGENT_NAMEPLATE_CANVAS_HEIGHT - NAMEPLATE_CANVAS_HEIGHT)) /
+  NAMEPLATE_CANVAS_HEIGHT;
+
 /** Lettering of each nameplate line, as a fraction of a one-line plate's height. */
 const NAME_FONT_SCALE = 0.52;
 const TITLE_FONT_SCALE = 0.42;
@@ -173,6 +187,10 @@ const AGENT_BODY_COLOUR = 0x2bb3a3;
 const JOB_TITLE_COLOUR = "#7fe3d6";
 /** The simulated tag after an agent's title: grey, so it reads as "not live". */
 const SIMULATED_TAG_COLOUR = "#b4b9c4";
+/** The fallback capsule's version of the live agents' violet shell in `avatarModel.ts`. */
+const LIVE_AGENT_BODY_COLOUR = 0x8a6cf0;
+/** A live agent's task line: the same violet, lifted to read on the dark pill. */
+const LIVE_AGENT_CAPTION_COLOUR = "#c9bcff";
 const FACING_COLOUR = 0x5e6470;
 const CEO_MARKER_COLOUR = 0xf0c650;
 const CUP_COLOUR = 0xe8dcc4;
@@ -215,6 +233,8 @@ export interface AvatarOptions {
   readonly jobTitle: string;
   /** An agent's activity, shown on its badge; `undefined` for a player. */
   readonly activity: AgentActivity | undefined;
+  /** A live coding agent's task, shown under its name; `""` for anyone else. */
+  readonly caption: string;
   /** The local player's body is lighter, so you can pick yourself out. */
   readonly isLocal: boolean;
   /**
@@ -242,17 +262,20 @@ interface AvatarBody {
 }
 
 /**
- * Paints a nameplate: the name, with a CEO suffix for the CEO, and an agent's
- * job title on a second line beneath it, tagged when the agent is simulated.
+ * Paints a nameplate: the name, with a CEO suffix for the CEO, and on a second
+ * line beneath it an agent employee's job title, tagged when the agent is
+ * simulated, or a live agent's task, cut short with an ellipsis rather than
+ * overflowing.
  */
 function drawNameplate(
   canvas: HTMLCanvasElement,
   name: string,
   isCeo: boolean,
-  jobTitle: string,
+  subtitle: string,
   simulated: boolean,
+  isLiveAgent: boolean,
 ): void {
-  const label = isCeo ? `${name}  ·  CEO` : name;
+  const label = isCeo ? `${name}  ·  CEO` : isLiveAgent ? `${name}  ·  agent` : name;
   const context = canvas.getContext("2d");
   if (context === null) {
     return;
@@ -267,14 +290,16 @@ function drawNameplate(
 
   const padding = NAMEPLATE_CANVAS_HEIGHT * 0.38;
   context.font = titleFont;
-  const hasTitleLine = jobTitle !== "" || simulated;
+  const hasTitleLine = subtitle !== "" || simulated;
   const tag = !simulated
     ? ""
-    : jobTitle === ""
+    : subtitle === ""
       ? SIMULATED_LABEL.toUpperCase()
       : `  ·  ${SIMULATED_LABEL.toUpperCase()}`;
-  const titleOnlyWidth = context.measureText(jobTitle).width;
-  const titleWidth = hasTitleLine ? titleOnlyWidth + context.measureText(tag).width : 0;
+  const tagWidth = context.measureText(tag).width;
+  const title = fitText(context, subtitle, canvas.width - padding * 2 - tagWidth);
+  const titleOnlyWidth = context.measureText(title).width;
+  const titleWidth = hasTitleLine ? titleOnlyWidth + tagWidth : 0;
   context.font = nameFont;
   const textWidth = Math.max(context.measureText(label).width, titleWidth);
   const pillWidth = Math.min(canvas.width, Math.ceil(textWidth + padding * 2));
@@ -306,10 +331,22 @@ function drawNameplate(
   context.font = titleFont;
   context.textAlign = "left";
   const titleLeft = centreX - titleWidth / 2;
-  context.fillStyle = JOB_TITLE_COLOUR;
-  context.fillText(jobTitle, titleLeft, titleY);
+  context.fillStyle = isLiveAgent ? LIVE_AGENT_CAPTION_COLOUR : JOB_TITLE_COLOUR;
+  context.fillText(title, titleLeft, titleY);
   context.fillStyle = SIMULATED_TAG_COLOUR;
   context.fillText(tag, titleLeft + titleOnlyWidth, titleY);
+}
+
+/** `text`, or as much of it as fits in `maxWidth` followed by an ellipsis. */
+function fitText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (context.measureText(text).width <= maxWidth) {
+    return text;
+  }
+  const characters = Array.from(text);
+  while (characters.length > 0 && context.measureText(`${characters.join("")}…`).width > maxWidth) {
+    characters.pop();
+  }
+  return `${characters.join("").trimEnd()}…`;
 }
 
 /** The humanoid body, built once a model is available. */
@@ -339,6 +376,7 @@ const CAPSULE_COLOUR: Record<AvatarLook, number> = {
   remote: REMOTE_BODY_COLOUR,
   agent: AGENT_BODY_COLOUR,
   "simulated-agent": AGENT_BODY_COLOUR,
+  liveAgent: LIVE_AGENT_BODY_COLOUR,
 };
 
 /** The capsule: the body an avatar has before the model arrives, or instead of it. */
@@ -415,10 +453,12 @@ export class Avatar {
   private body: AvatarBody;
   private readonly look: AvatarLook;
   private readonly simulated: boolean;
+  private readonly isLiveAgent: boolean;
 
   private name: string;
   private isCeo: boolean;
-  private jobTitle: string;
+  /** The nameplate's second line: an agent's job title or a live agent's task. */
+  private subtitle: string;
   private activity: AgentActivity | undefined;
   private animation: AnimationState = ANIMATION_STATE.idle;
 
@@ -436,12 +476,19 @@ export class Avatar {
 
   public constructor(options: AvatarOptions) {
     const isAgent = options.kind === OCCUPANT_KIND.agent;
+    this.isLiveAgent = options.kind === OCCUPANT_KIND.liveAgent;
     this.name = options.name;
     this.isCeo = options.isCeo;
-    this.jobTitle = options.jobTitle;
+    this.subtitle = this.isLiveAgent ? options.caption : options.jobTitle;
     this.activity = undefined;
     this.simulated = isSimulated(options.kind);
-    this.look = this.simulated ? "simulated-agent" : options.isLocal ? "local" : "remote";
+    this.look = this.simulated
+      ? "simulated-agent"
+      : this.isLiveAgent
+        ? "liveAgent"
+        : options.isLocal
+          ? "local"
+          : "remote";
 
     this.body =
       options.model !== undefined
@@ -460,7 +507,11 @@ export class Avatar {
     this.headAnchor.position.y = HEAD_ANCHOR_Y;
     this.group.add(this.headAnchor);
 
-    const lift = isAgent ? AGENT_EXPRESSION_LIFT : 0;
+    const lift = isAgent
+      ? AGENT_EXPRESSION_LIFT
+      : this.isLiveAgent
+        ? LIVE_AGENT_EXPRESSION_LIFT
+        : 0;
     this.emoteBillboard.sprite.position.y = EMOTE_OFFSET_Y + lift;
     this.headAnchor.add(this.emoteBillboard.sprite);
     this.chatBillboard.sprite.position.y = CHAT_OFFSET_Y + lift;
@@ -483,16 +534,24 @@ export class Avatar {
     this.headAnchor.add(this.ceoMarker);
 
     this.nameplateCanvas.width = NAMEPLATE_CANVAS_WIDTH;
-    this.nameplateCanvas.height = isAgent
-      ? AGENT_NAMEPLATE_CANVAS_HEIGHT
-      : NAMEPLATE_CANVAS_HEIGHT;
-    drawNameplate(this.nameplateCanvas, this.name, this.isCeo, this.jobTitle, this.simulated);
+    this.nameplateCanvas.height =
+      isAgent || this.isLiveAgent ? AGENT_NAMEPLATE_CANVAS_HEIGHT : NAMEPLATE_CANVAS_HEIGHT;
+    drawNameplate(
+      this.nameplateCanvas,
+      this.name,
+      this.isCeo,
+      this.subtitle,
+      this.simulated,
+      this.isLiveAgent,
+    );
     this.nameplateTexture = new THREE.CanvasTexture(this.nameplateCanvas);
     this.nameplateTexture.colorSpace = THREE.SRGBColorSpace;
     this.nameplate = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: this.nameplateTexture, transparent: true, depthTest: false }),
     );
-    this.nameplate.position.y = NAMEPLATE_OFFSET_Y + (isAgent ? AGENT_NAMEPLATE_LIFT : 0);
+    this.nameplate.position.y =
+      NAMEPLATE_OFFSET_Y +
+      (isAgent ? AGENT_NAMEPLATE_LIFT : this.isLiveAgent ? LIVE_AGENT_EXPRESSION_LIFT / 2 : 0);
     this.applyNameplateScale();
     this.headAnchor.add(this.nameplate);
   }
@@ -624,15 +683,15 @@ export class Avatar {
   }
 
   /** Re-renders the nameplate only when something it shows has changed. */
-  public setLabel(name: string, isCeo: boolean, jobTitle: string): void {
-    if (name === this.name && isCeo === this.isCeo && jobTitle === this.jobTitle) {
+  public setLabel(name: string, isCeo: boolean, subtitle: string): void {
+    if (name === this.name && isCeo === this.isCeo && subtitle === this.subtitle) {
       return;
     }
     this.name = name;
     this.isCeo = isCeo;
-    this.jobTitle = jobTitle;
+    this.subtitle = subtitle;
     this.ceoMarker.visible = isCeo;
-    drawNameplate(this.nameplateCanvas, name, isCeo, jobTitle, this.simulated);
+    drawNameplate(this.nameplateCanvas, name, isCeo, subtitle, this.simulated, this.isLiveAgent);
     this.nameplateTexture.needsUpdate = true;
   }
 

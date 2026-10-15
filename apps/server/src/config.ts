@@ -65,6 +65,33 @@ export interface ProjectBoardConfig {
   readonly pollIntervalMs: number;
 }
 
+/**
+ * Shortest secret the live agents' report route will accept.
+ *
+ * The route is reachable by anyone who can reach the server, so the secret is
+ * all that stands between a stranger and the people on the floor; a short one
+ * is a configuration mistake worth refusing to boot over.
+ */
+const MIN_LIVE_AGENTS_SECRET_LENGTH = 16;
+
+/** Silence after which a live agent leaves, when none is configured. */
+const DEFAULT_LIVE_AGENTS_TIMEOUT_SECONDS = 60;
+
+/** Below this, one late heartbeat takes an agent off the floor. */
+const MIN_LIVE_AGENTS_TIMEOUT_SECONDS = 5;
+
+/** The live agents' report route. */
+export interface LiveAgentsConfig {
+  /**
+   * The shared secret an orchestrator reports with, or `undefined` to leave the
+   * route switched off. Server-side only: it is compared against request
+   * headers and never sent to a browser.
+   */
+  readonly secret: string | undefined;
+  /** Silence after which an agent is taken off the floor. */
+  readonly timeoutMs: number;
+}
+
 export interface ServerConfig {
   readonly port: number;
   /** Origins permitted to matchmake and open a socket, already normalized. */
@@ -75,6 +102,7 @@ export interface ServerConfig {
   readonly agentCount: number;
   /** Whether the debug command that sends an agent walking is honoured. */
   readonly agentDebug: boolean;
+  readonly liveAgents: LiveAgentsConfig;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -85,6 +113,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     agentWork: readAgentWorkConfig(env),
     agentCount: readAgentCount(env),
     agentDebug: readAgentDebug(env),
+    liveAgents: readLiveAgentsConfig(env),
   };
 }
 
@@ -201,6 +230,39 @@ export function readAgentDebug(env: NodeJS.ProcessEnv = process.env): boolean {
     throw new Error(`AGENT_DEBUG must be on or off, got "${env["AGENT_DEBUG"]}"`);
   }
   return true;
+
+}
+
+/**
+ * Reads the live agents' report route settings.
+ *
+ * - `LIVE_AGENTS_SECRET`: optional, at least {@link MIN_LIVE_AGENTS_SECRET_LENGTH}
+ *   characters. Without it the route does not exist and no live agent appears.
+ * - `LIVE_AGENTS_TIMEOUT_SECONDS`: optional, at least
+ *   {@link MIN_LIVE_AGENTS_TIMEOUT_SECONDS}. Defaults to a minute.
+ */
+export function readLiveAgentsConfig(env: NodeJS.ProcessEnv = process.env): LiveAgentsConfig {
+  const rawSecret = env["LIVE_AGENTS_SECRET"]?.trim() ?? "";
+  const secret = rawSecret === "" ? undefined : rawSecret;
+  if (secret !== undefined && secret.length < MIN_LIVE_AGENTS_SECRET_LENGTH) {
+    // The value itself stays out of the message, which lands in a platform log.
+    throw new Error(
+      `LIVE_AGENTS_SECRET must be at least ${MIN_LIVE_AGENTS_SECRET_LENGTH} characters, got ${secret.length}`,
+    );
+  }
+
+  const rawSeconds = env["LIVE_AGENTS_TIMEOUT_SECONDS"]?.trim() ?? "";
+  let seconds = DEFAULT_LIVE_AGENTS_TIMEOUT_SECONDS;
+  if (rawSeconds !== "") {
+    seconds = Number(rawSeconds);
+    if (!Number.isInteger(seconds) || seconds < MIN_LIVE_AGENTS_TIMEOUT_SECONDS) {
+      throw new Error(
+        `LIVE_AGENTS_TIMEOUT_SECONDS must be a whole number of seconds, at least ${MIN_LIVE_AGENTS_TIMEOUT_SECONDS}, got "${rawSeconds}"`,
+      );
+    }
+  }
+
+  return { secret, timeoutMs: seconds * 1000 };
 }
 
 /**

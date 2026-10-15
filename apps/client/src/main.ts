@@ -19,6 +19,7 @@ import {
   PROJECT_BOARD_ID,
   TICKET_BOARD_ID,
   authorizeInteract,
+  describeLiveAgentTask,
   heldAnimationFor,
   interactableById,
   nearestInteractable,
@@ -32,7 +33,7 @@ import * as THREE from "three";
 import { boardAccessFor, rejectionText } from "./boardAccess.js";
 import { readCompany, sameReadout } from "./companyReadout.js";
 import { parseDebugCommand } from "./debugCommand.js";
-import { RoomConnection, type RemotePose } from "./net/room.js";
+import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
 import { PlayerController } from "./player/controller.js";
 import { Avatar } from "./scene/avatar.js";
@@ -128,6 +129,13 @@ function readPropsEnabled(): boolean {
 /** Whether `?debug` asked for the draw-call readout. */
 function readDebugEnabled(): boolean {
   return new URLSearchParams(window.location.search).has("debug");
+}
+
+/** The second line of a live agent's nameplate and roster entry; `""` for anyone else. */
+function captionOf(view: OccupantView): string {
+  return view.agentStatus === undefined
+    ? ""
+    : describeLiveAgentTask(view.agentStatus, view.taskTitle, view.taskUrl);
 }
 
 function createCamera(canvas: HTMLCanvasElement, layout: OfficeLayout): THREE.PerspectiveCamera {
@@ -243,6 +251,7 @@ function start(): void {
 
       for (const view of present) {
         ids.add(view.id);
+        const caption = captionOf(view);
         const existing = avatars.get(view.id);
         if (existing === undefined) {
           const avatar = new Avatar({
@@ -252,12 +261,13 @@ function start(): void {
             jobTitle: view.jobTitle,
             activity: view.activity,
             isLocal: view.isLocal,
+            caption,
             model: avatarModel,
           });
           scene.add(avatar.group);
           avatars.set(view.id, avatar);
         } else {
-          existing.setLabel(view.name, view.isCeo, view.jobTitle);
+          existing.setLabel(view.name, view.isCeo, view.agentStatus === undefined ? view.jobTitle : caption);
           existing.setActivity(view.activity);
         }
       }
@@ -280,6 +290,8 @@ function start(): void {
           jobTitle: view.jobTitle,
           activity: view.activity,
           isLocal: view.isLocal,
+          caption: captionOf(view),
+          taskUrl: view.taskUrl,
         })),
         boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name),
       });
@@ -533,9 +545,14 @@ function start(): void {
       if (held !== undefined) {
         // A held occupant's place comes straight from the layout, so a sitter
         // in the other tab is perfectly still in the chair instead of
-        // interpolating toward a position that is not changing.
+        // interpolating toward a position that is not changing. A working
+        // agent is the one sitter the server marks as typing.
         avatar.setPose(held.anchor.x, held.anchor.z, held.anchor.yaw);
-        avatar.setAnimation(heldAnimationFor(held));
+        avatar.setAnimation(
+          room.viewOf(id)?.animation === ANIMATION_STATE.typing
+            ? ANIMATION_STATE.typing
+            : heldAnimationFor(held),
+        );
       } else if (id === localId) {
         avatar.setPose(controller.pose.x, controller.pose.z, controller.pose.yaw);
         avatar.setAnimation(controller.pose.animation);

@@ -52,6 +52,11 @@
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
  * one feed polls GitHub on its own timer and is handed to every room as a room option;
  * `projectBoardDelivery.ts` relays what it publishes. The tick never reads it.
+ *
+ * The live coding agents arrive the same way, as a source handed over at
+ * definition time. The room only marks itself dirty when the source changes;
+ * the tick reads the source's finished list and hands it to the crew in
+ * `sim/liveAgents.ts`, which walks, seats and talks the bodies on the floor.
  */
 
 import { type Client, Room } from "@colyseus/core";
@@ -79,6 +84,7 @@ import {
   parsePoseMessage,
 } from "@sim/shared";
 
+import { type LiveAgentSource, isLiveAgentSource } from "../agents/registry.js";
 import type { ProjectBoardSource } from "../github/feed.js";
 import { AgentBrain } from "../sim/agentBrain.js";
 import { AgentMotion, type IntentReport } from "../sim/agentMotion.js";
@@ -93,6 +99,7 @@ import {
   releaseHold,
   requestInteract,
 } from "../sim/interaction.js";
+import { LiveAgentCrew } from "../sim/liveAgents.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
 import { type WorkExecutor, isWorkExecutor } from "../work/executor.js";
@@ -126,6 +133,14 @@ const IDLE_AFTER_MS = 400;
  */
 const AGENT_REPORT_INTERVAL_MS = 1000;
 
+/**
+ * Longest step the live agents are moved in one tick.
+ *
+ * A tick that runs late — a slow machine, a garbage collection — should not
+ * fling an agent further along its route than the collision substep was sized for.
+ */
+const MAX_AGENT_STEP_MS = TICK_INTERVAL_MS * 4;
+
 /** What `index.ts` hands the room type when it defines it. */
 export interface OfficeRoomOptions {
   readonly projectBoard: ProjectBoardSource;
@@ -144,6 +159,8 @@ export interface OfficeRoomOptions {
    * covers the server. A room given none hires agents that never pick up work.
    */
   readonly workExecutor: WorkExecutor;
+  /** Absent when no orchestrator is configured, which leaves the floor to the players. */
+  readonly liveAgents?: LiveAgentSource;
 }
 
 /**
@@ -196,6 +213,13 @@ export class OfficeRoom extends Room<OfficeState> {
   /** Session ids whose socket has dropped and whose place is being held. */
   private readonly held = new Set<string>();
 
+  /** Assigned in `onCreate`; the bodies of the live coding agents. */
+  private crew!: LiveAgentCrew;
+  private liveAgents: LiveAgentSource | undefined;
+  private stopWatchingLiveAgents: (() => void) | undefined;
+  /** Set by the source, cleared by the tick that reads it. */
+  private liveAgentsChanged = true;
+
   public override onCreate(options?: unknown): void {
     this.state = new OfficeState();
     this.patchRate = TICK_INTERVAL_MS;
@@ -216,6 +240,23 @@ export class OfficeRoom extends Room<OfficeState> {
     if (isProjectBoardSource(source)) {
       this.projectBoard = source;
       this.stopRelayingProjectBoard = relayProjectBoard(this, source);
+    }
+
+    this.crew = new LiveAgentCrew({
+      layout: OFFICE_LAYOUT,
+      occupants: this.state.occupants,
+      interaction: this.interaction,
+      say: (occupantId, text) => {
+        this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
+      },
+      random: Math.random,
+    });
+    const liveAgents = roomOptions?.liveAgents;
+    if (isLiveAgentSource(liveAgents)) {
+      this.liveAgents = liveAgents;
+      this.stopWatchingLiveAgents = liveAgents.subscribe(() => {
+        this.liveAgentsChanged = true;
+      });
     }
 
     // `Date.now()` rather than `this.clock`, because a ticket timestamp is read
@@ -326,8 +367,8 @@ export class OfficeRoom extends Room<OfficeState> {
       } satisfies ChatEvent);
     });
 
-    this.setSimulationInterval(() => {
-      this.simulate();
+    this.setSimulationInterval((deltaMs) => {
+      this.simulate(deltaMs);
     }, TICK_INTERVAL_MS);
   }
 
@@ -362,6 +403,7 @@ export class OfficeRoom extends Room<OfficeState> {
       brain.stop();
     }
     this.stopRelayingProjectBoard?.();
+    this.stopWatchingLiveAgents?.();
   }
 
   /**
@@ -398,9 +440,17 @@ export class OfficeRoom extends Room<OfficeState> {
    * without ever waiting on them. If the tick were allowed to await, a slow
    * model would stall every player in the room.
    */
-  private simulate(): void {
+  private simulate(deltaMs: number): void {
     const now = this.clock.currentTime;
     this.state.tick = (this.state.tick + 1) % 0xffffffff;
+
+    // However many reports arrived since the last tick, this reads the source
+    // once: the list it returns is already finished, so nothing here waits.
+    if (this.liveAgentsChanged && this.liveAgents !== undefined) {
+      this.liveAgentsChanged = false;
+      this.crew.sync(this.liveAgents.current(), now);
+    }
+    this.crew.step(now, Math.min(Math.max(deltaMs, 0), MAX_AGENT_STEP_MS) / 1000);
 
     for (const [sessionId, motion] of this.motions) {
       const occupant = this.state.occupants.get(sessionId);

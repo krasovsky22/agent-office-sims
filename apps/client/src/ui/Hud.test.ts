@@ -19,6 +19,8 @@ function person(id: string, isCeo = false): RosterEntry {
     jobTitle: "",
     activity: undefined,
     isLocal: false,
+    caption: "",
+    taskUrl: "",
   };
 }
 
@@ -31,6 +33,22 @@ function agent(id: string): RosterEntry {
     jobTitle: "Backend Engineer",
     activity: AGENT_ACTIVITY.idle,
     isLocal: false,
+    caption: "",
+    taskUrl: "",
+  };
+}
+
+function liveAgent(id: string): RosterEntry {
+  return {
+    id,
+    name: id,
+    kind: OCCUPANT_KIND.liveAgent,
+    isCeo: false,
+    jobTitle: "",
+    activity: undefined,
+    isLocal: false,
+    caption: "Working on #33",
+    taskUrl: "https://github.com/krasovsky22/agent-office-sims/issues/33",
   };
 }
 
@@ -44,6 +62,17 @@ describe("groupRoster", () => {
     ]);
     expect(people.map((entry) => entry.id)).toEqual(["Dana", "Milo"]);
     expect(agents.map((entry) => entry.id)).toEqual(["agent-1", "agent-2"]);
+  });
+
+  it("lists live coding agents apart from both people and agent employees", () => {
+    const { people, agents, liveAgents } = groupRoster([
+      liveAgent("live-1"),
+      person("Dana", true),
+      agent("agent-1"),
+    ]);
+    expect(people.map((entry) => entry.id)).toEqual(["Dana"]);
+    expect(agents.map((entry) => entry.id)).toEqual(["agent-1"]);
+    expect(liveAgents.map((entry) => entry.id)).toEqual(["live-1"]);
   });
 
   it("leaves the agents group empty in a room with no staff", () => {

@@ -4,8 +4,9 @@
  * README makes about `ALLOWED_ORIGINS`, or about the project board's
  * `PROJECT_BOARD_*` variables and `AGENT_COUNT`, which refuse to start the
  * server when they are wrong rather than polling a repository nobody meant or
- * hiring a staff nobody asked for. The agent work variables follow the same
- * rule: a model mode with no key stops the boot, not a ticket.
+ * hiring a staff nobody asked for, or about the live agents' `LIVE_AGENTS_*`,
+ * which refuse a secret too short to be one. The agent work variables follow
+ * the same rule: a model mode with no key stops the boot, not a ticket.
  */
 
 import { describe, expect, it } from "vitest";
@@ -18,6 +19,7 @@ import {
   readAgentDebug,
   readAgentWorkConfig,
   readAllowedOrigins,
+  readLiveAgentsConfig,
   readPort,
   readProjectBoardConfig,
 } from "./config.js";
@@ -220,5 +222,33 @@ describe("readAgentDebug", () => {
 
   it.each(["yes", "1", "true"])("rejects %j rather than guessing", (value) => {
     expect(() => readAgentDebug({ AGENT_DEBUG: value })).toThrow(/AGENT_DEBUG/);
+  });
+});
+
+describe("readLiveAgentsConfig", () => {
+  it("leaves the report route off without a secret, and times out after a minute", () => {
+    expect(readLiveAgentsConfig({})).toEqual({ secret: undefined, timeoutMs: 60_000 });
+    expect(readLiveAgentsConfig({ LIVE_AGENTS_SECRET: "  " }).secret).toBeUndefined();
+  });
+
+  it("reads a secret and a timeout", () => {
+    expect(
+      readLiveAgentsConfig({
+        LIVE_AGENTS_SECRET: " 0123456789abcdef ",
+        LIVE_AGENTS_TIMEOUT_SECONDS: "15",
+      }),
+    ).toEqual({ secret: "0123456789abcdef", timeoutMs: 15_000 });
+  });
+
+  it("refuses a short secret without printing it", () => {
+    expect(() => readLiveAgentsConfig({ LIVE_AGENTS_SECRET: "hunter2" })).toThrow(
+      /LIVE_AGENTS_SECRET must be at least 16 characters, got 7$/,
+    );
+  });
+
+  it.each(["4", "1.5", "soon", "-30"])("refuses a timeout of %j", (value) => {
+    expect(() => readLiveAgentsConfig({ LIVE_AGENTS_TIMEOUT_SECONDS: value })).toThrow(
+      /LIVE_AGENTS_TIMEOUT_SECONDS/,
+    );
   });
 });

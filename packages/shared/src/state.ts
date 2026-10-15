@@ -2,11 +2,12 @@
  * Replicated room state.
  *
  * {@link Occupant} is deliberately the base type for everyone who can stand in
- * the office, not just for players. The map holds two siblings of it:
- * {@link HumanPlayer}, one per browser, and {@link AgentEmployee}, the staff the
- * room hires itself. Both are read through the same map, so anything that only
- * needs a body and a name — the renderer, the board's assignee lookup — treats
- * them alike, and only what is particular to one kind narrows by `kind`.
+ * the office, not just for players. The map holds three siblings of it:
+ * {@link HumanPlayer}, one per browser, {@link AgentEmployee}, the staff the
+ * room hires itself, and {@link LiveAgent}, moved by the server on a real
+ * coding agent's behalf. All are read through the same map, so anything that
+ * only needs a body and a name — the renderer, the board's assignee lookup —
+ * treats them alike, and only what is particular to one kind narrows by `kind`.
  *
  * Positions are `float32`: the wire stays small and the rounding is far below
  * the drift the client tolerates before it corrects itself.
@@ -39,10 +40,18 @@ import {
   STARTING_PRODUCTIVITY,
 } from "./company.js";
 
-/** What sort of thing an occupant is. */
+/**
+ * What sort of thing an occupant is.
+ *
+ * `agent` is the simulated agent employee who works the in-game ticket board;
+ * `liveAgent` is one of the real coding agents working on this repository,
+ * reported by its orchestrator. The two are different people with different
+ * sources of truth, so they are different kinds rather than one kind with a flag.
+ */
 export const OCCUPANT_KIND = {
   human: "human",
   agent: "agent",
+  liveAgent: "live-agent",
 } as const;
 
 export type OccupantKind = (typeof OCCUPANT_KIND)[keyof typeof OCCUPANT_KIND];
@@ -88,7 +97,7 @@ export function isAnimationState(value: unknown): value is AnimationState {
  */
 export type ReportedAnimation = typeof ANIMATION_STATE.idle | typeof ANIMATION_STATE.walking;
 
-/** Anyone standing in the office: a player or an agent employee. */
+/** Anyone standing in the office: a player, an agent employee or a live coding agent. */
 export class Occupant extends Schema {
   declare public id: string;
   declare public name: string;
@@ -242,6 +251,45 @@ defineTypes(AgentEmployee, {
   morale: "uint8",
   energy: "uint8",
 });
+
+/**
+ * What a live coding agent is doing, as its orchestrator last reported it.
+ *
+ * Only these two are bodies in the office. An agent that stops is removed, so
+ * "stopped" is a report, never a state anyone is replicated in.
+ */
+export const LIVE_AGENT_STATUS = {
+  working: "working",
+  idle: "idle",
+} as const;
+
+export type LiveAgentStatus = (typeof LIVE_AGENT_STATUS)[keyof typeof LIVE_AGENT_STATUS];
+
+/**
+ * A real coding agent working on this repository, shown as a person on the floor.
+ *
+ * The server moves it, not a browser: it walks the waypoint graph to a free
+ * workstation while it has a task and wanders while it has none. What is
+ * replicated is only what a client draws — the body through {@link Occupant}'s
+ * fields and the label through these.
+ */
+export class LiveAgent extends Occupant {
+  declare public status: LiveAgentStatus;
+  /** What it is working on, or `""` when idle or unknown. */
+  declare public taskTitle: string;
+  /** The issue or pull request the task is, or `""` when not known. Always `https:`. */
+  declare public taskUrl: string;
+
+  public constructor() {
+    super();
+    this.kind = OCCUPANT_KIND.liveAgent;
+    this.status = LIVE_AGENT_STATUS.idle;
+    this.taskTitle = "";
+    this.taskUrl = "";
+  }
+}
+
+defineTypes(LiveAgent, { status: "string", taskTitle: "string", taskUrl: "string" });
 
 /**
  * Where a ticket sits on the board.
@@ -496,4 +544,9 @@ export function isHumanPlayer(occupant: Occupant): occupant is HumanPlayer {
 /** Narrows an occupant to an agent employee, by `kind` as {@link isHumanPlayer} does. */
 export function isAgentEmployee(occupant: Occupant): occupant is AgentEmployee {
   return occupant.kind === OCCUPANT_KIND.agent;
+}
+
+/** Narrows an occupant to a live coding agent, by `kind` for the same reason. */
+export function isLiveAgent(occupant: Occupant): occupant is LiveAgent {
+  return occupant.kind === OCCUPANT_KIND.liveAgent;
 }

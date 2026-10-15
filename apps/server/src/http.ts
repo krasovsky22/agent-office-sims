@@ -3,9 +3,10 @@
  *
  * The WebSocket transport and the matchmaking endpoint already share one port,
  * and a hosting platform needs a plain HTTP URL it can probe to decide whether
- * this process is alive. That is the whole HTTP surface: a health check, and a
- * 404 for everything else. The client bundle is served as static files from
- * somewhere else entirely.
+ * this process is alive. That and whatever routes the caller adds — the live
+ * agents' report route, when a secret is configured — is the whole HTTP
+ * surface, with a 404 for everything else. The client bundle is served as
+ * static files from somewhere else entirely.
  *
  * **Order matters.** `new Server({ transport })` takes over the transport's
  * `request` event and re-dispatches anything that is not a matchmaking URL to
@@ -17,13 +18,25 @@ import { type Server as HttpServer, type IncomingMessage, type ServerResponse, c
 
 export const HEALTH_PATH = "/health";
 
+/** A route's handler, keyed by its exact path in {@link createHealthServer}. */
+export type RouteHandler = (req: IncomingMessage, res: ServerResponse) => void;
+
 /**
  * Creates the HTTP server the transport will listen on, with the health route
- * already attached.
+ * and any extra routes already attached.
  */
-export function createHealthServer(): HttpServer {
+export function createHealthServer(
+  routes: ReadonlyMap<string, RouteHandler> = new Map(),
+): HttpServer {
   const server = createServer();
-  server.on("request", handleRequest);
+  server.on("request", (req: IncomingMessage, res: ServerResponse) => {
+    const route = routes.get(pathOf(req.url));
+    if (route !== undefined) {
+      route(req, res);
+      return;
+    }
+    handleRequest(req, res);
+  });
   return server;
 }
 

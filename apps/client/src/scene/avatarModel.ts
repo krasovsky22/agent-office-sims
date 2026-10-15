@@ -10,9 +10,10 @@
  * local player gets a lighter copy of its materials, so you can spot yourself;
  * every agent shares one recoloured copy of the shell, so an agent is never
  * mistaken for a person and a floor of them costs one extra material, not one
- * per agent; and a simulated agent employee wears that shell over one shared
+ * per agent; a simulated agent employee wears that shell over one shared
  * translucent copy of every material, so it reads as a ghost of an agent that
- * is doing nothing real while a live one keeps the agents' look.
+ * is doing nothing real; and every live coding agent shares another shell, in
+ * a colour of its own, so a real agent is told apart from a simulated one too.
  *
  * The load is allowed to fail. Nothing here throws anything the caller cannot
  * handle by leaving the avatar as the capsule it was built as.
@@ -62,8 +63,11 @@ const AGENT_SHELL_COLOUR = 0x2bb3a3;
  */
 export const SIMULATED_BODY_OPACITY = 0.45;
 
+/** A live coding agent's shell: violet, clear of both the players and the agent employees. */
+const LIVE_AGENT_SHELL_COLOUR = 0x8a6cf0;
+
 /** Which coat of paint a body is stamped out with. */
-export type AvatarLook = "local" | "remote" | "agent" | "simulated-agent";
+export type AvatarLook = "local" | "remote" | "agent" | "simulated-agent" | "liveAgent";
 
 /** A body ready to be added to an avatar's group, with the clips that drive it. */
 export interface AvatarModelInstance {
@@ -99,6 +103,7 @@ export function prepareAvatarModel(gltf: GLTF): AvatarModel {
   // the life of the page, like the template's own materials.
   const agentPaint = new Map<THREE.Material, THREE.Material>();
   const simulatedAgentPaint = new Map<THREE.Material, THREE.Material>();
+  const liveAgentPaint = new Map<THREE.Material, THREE.Material>();
 
   return {
     createInstance: (look: AvatarLook): AvatarModelInstance => {
@@ -110,6 +115,8 @@ export function prepareAvatarModel(gltf: GLTF): AvatarModel {
         repaint(root, agentPaint, paintAgentShell);
       } else if (look === "simulated-agent") {
         repaint(root, simulatedAgentPaint, paintSimulatedAgent);
+      } else if (look === "liveAgent") {
+        repaint(root, liveAgentPaint, paintLiveAgentShell);
       }
       return {
         root,
@@ -166,17 +173,25 @@ const brighten: MaterialPaint = (source) => {
   return copy;
 };
 
-/** The agents' paint: the shell recoloured, everything else left shared. */
-const paintAgentShell: MaterialPaint = (source) => {
-  if (source.name !== SHELL_MATERIAL_NAME) {
-    return undefined;
-  }
-  const copy = source.clone();
-  if ("color" in copy && copy.color instanceof THREE.Color) {
-    copy.color.set(AGENT_SHELL_COLOUR);
-  }
-  return copy;
-};
+/** Paints the shell one colour, leaving everything else shared. */
+function paintShell(colour: number): MaterialPaint {
+  return (source) => {
+    if (source.name !== SHELL_MATERIAL_NAME) {
+      return undefined;
+    }
+    const copy = source.clone();
+    if ("color" in copy && copy.color instanceof THREE.Color) {
+      copy.color.set(colour);
+    }
+    return copy;
+  };
+}
+
+/** The agent employees' paint. */
+const paintAgentShell = paintShell(AGENT_SHELL_COLOUR);
+
+/** The live coding agents' paint. */
+const paintLiveAgentShell = paintShell(LIVE_AGENT_SHELL_COLOUR);
 
 /** A simulated agent's paint: the agents' shell, and the whole body translucent. */
 const paintSimulatedAgent: MaterialPaint = (source) => {

@@ -326,4 +326,14 @@ describe("isClearLine", () => {
     expect(isClearLine(a, b, OFFICE_LAYOUT, 0.1)).toBe(true);
     expect(isClearLine(a, b, OFFICE_LAYOUT, OCCUPANT_RADIUS)).toBe(false);
   });
+
+  it("is blocked through the CEO office wall and by a desk the body is too wide to clear", () => {
+    // From the corridor straight into the CEO office, through its south wall.
+    expect(isClearLine({ x: -10.5, z: -3.7 }, { x: -10.5, z: -6.5 }, OFFICE_LAYOUT)).toBe(false);
+    const desk = OFFICE_LAYOUT.desks.find((spec) => spec.id === "desk-north-3");
+    if (desk === undefined) {
+      throw new Error("the layout has no desk-north-3");
+    }
+    expect(isClearLine({ x: desk.x, z: -1.6 }, { x: desk.x, z: 2.5 }, OFFICE_LAYOUT)).toBe(false);
+  });
 });

@@ -47,16 +47,22 @@ export interface RosterEntry {
   /** An agent's activity; `undefined` for a player. */
   readonly activity: AgentActivity | undefined;
   readonly isLocal: boolean;
+  /** A live agent's status and task, `""` for anyone else. */
+  readonly caption: string;
+  /** The task's issue or pull request, `""` when not known. The server only passes `https:`. */
+  readonly taskUrl: string;
 }
 
-/** The roster split into players and agent employees, each in arrival order. */
+/** The roster split into players, agent employees and live coding agents, each in arrival order. */
 export function groupRoster(roster: readonly RosterEntry[]): {
   readonly people: readonly RosterEntry[];
   readonly agents: readonly RosterEntry[];
+  readonly liveAgents: readonly RosterEntry[];
 } {
   return {
-    people: roster.filter((entry) => entry.kind !== OCCUPANT_KIND.agent),
+    people: roster.filter((entry) => entry.kind === OCCUPANT_KIND.human),
     agents: roster.filter((entry) => entry.kind === OCCUPANT_KIND.agent),
+    liveAgents: roster.filter((entry) => entry.kind === OCCUPANT_KIND.liveAgent),
   };
 }
 
@@ -320,6 +326,28 @@ function EmoteBar({ sendEmote }: { sendEmote: (emote: Emote) => void }) {
 }
 
 /**
+ * A live agent's task under its name, linked to the issue or pull request when
+ * the orchestrator said which.
+ *
+ * Opened in a new tab, since following it from the office would otherwise take
+ * the player out of it. The link is only ever `https:` — the server's parser
+ * refuses anything else — so it cannot be a script URL.
+ */
+function AgentTask({ caption, url }: { caption: string; url: string }) {
+  return (
+    <span className="hud__task">
+      {url.startsWith("https://") ? (
+        <a href={url} target="_blank" rel="noopener noreferrer">
+          {caption}
+        </a>
+      ) : (
+        caption
+      )}
+    </span>
+  );
+}
+
+/**
  * The chat scrollback.
  *
  * Every entry is a React text node, so a message containing angle brackets is
@@ -402,10 +430,21 @@ function AgentRow({ entry }: { entry: RosterEntry }) {
   );
 }
 
+/** One live coding agent's line: its name, and its task linked to the issue or pull request. */
+function LiveAgentRow({ entry }: { entry: RosterEntry }) {
+  return (
+    <li className="hud__occupant">
+      <span className="hud__name">{entry.name}</span>
+      <span className="hud__badge hud__badge--agent">Agent</span>
+      {entry.caption === "" ? null : <AgentTask caption={entry.caption} url={entry.taskUrl} />}
+    </li>
+  );
+}
+
 /**
- * Who is in the office: people first, then the agent employees under their own
- * heading, so the roster answers "who is a person here?" as plainly as the
- * floor does.
+ * Who is in the office: people first, then the agent employees and the live
+ * coding agents under headings of their own, so the roster answers "who is a
+ * person here?" as plainly as the floor does.
  */
 function Roster({
   roster,
@@ -414,7 +453,7 @@ function Roster({
   roster: readonly RosterEntry[];
   boardAccess: BoardAccess | undefined;
 }) {
-  const { people, agents } = groupRoster(roster);
+  const { people, agents, liveAgents } = groupRoster(roster);
   return (
     <div className="hud__panel">
       <h2 className="hud__title">People ({people.length})</h2>
@@ -433,6 +472,16 @@ function Roster({
           <ul className="hud__roster">
             {agents.map((entry) => (
               <AgentRow entry={entry} key={entry.id} />
+            ))}
+          </ul>
+        </>
+      )}
+      {liveAgents.length === 0 ? null : (
+        <>
+          <h2 className="hud__title hud__title--group">Live agents ({liveAgents.length})</h2>
+          <ul className="hud__roster">
+            {liveAgents.map((entry) => (
+              <LiveAgentRow entry={entry} key={entry.id} />
             ))}
           </ul>
         </>
