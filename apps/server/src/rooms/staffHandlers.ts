@@ -99,7 +99,7 @@ export function runStaffCommand(
   });
   if (result.action === STAFF_ACTION.hire) {
     host.hiresSoFar += 1;
-    const { agent, fee } = result;
+    const { agent } = result;
     host.hired(agent.id);
     announce(room, {
       change: STAFF_CHANGE.hired,
@@ -107,7 +107,6 @@ export function runStaffCommand(
       name: agent.name,
       jobTitle: agent.jobTitle,
       salary: agent.salary,
-      fee,
     });
   } else {
     const { departure, moraleLost } = result;

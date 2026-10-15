@@ -67,25 +67,6 @@ export const CLOCK_DISPLAY_STEP_MINUTES = 15;
 export const STARTING_CASH = 50_000;
 
 /**
- * Cash drawn at every midnight whoever is on staff: rent, power, coffee.
- *
- * Set so that the default office of four agents draws the same 2,500 a day the
- * flat payroll used to. It also means an office that fires everyone still runs
- * out of cash eventually rather than freezing its runway.
- */
-export const DAILY_OVERHEAD = 300;
-
-/**
- * Days of an agent's salary paid up front to hire them.
- *
- * Hiring is meant to be a bet: more hands now against runway later. Without a
- * cost at the moment of hiring the bet would only be paid for at midnight, and
- * firing and rehiring would be free. A hire the company cannot pay this for is
- * refused.
- */
-export const RECRUITING_FEE_DAYS = 2;
-
-/**
  * Company morale lost, at once, when the CEO fires an agent.
  *
  * Applied the moment the agent is let go rather than at the day's close, so the
@@ -184,22 +165,17 @@ export function moraleChange(openTickets: number): number {
 }
 
 /**
- * What one day of the office costs: {@link DAILY_OVERHEAD} plus every salary.
+ * What one day of the office costs: the sum of every salary.
  *
  * Takes the salaries rather than the occupants, which `agents.ts`'s
  * `payrollOf` reads them from; this module does not know what an agent is.
  */
 export function dailyPayroll(salaries: Iterable<number>): number {
-  let total = DAILY_OVERHEAD;
+  let total = 0;
   for (const salary of salaries) {
     total += salary;
   }
   return total;
-}
-
-/** What hiring someone on `salary` costs on the day they are hired. */
-export function recruitingFee(salary: number): number {
-  return salary * RECRUITING_FEE_DAYS;
 }
 
 /**

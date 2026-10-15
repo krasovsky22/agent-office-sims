@@ -30,7 +30,6 @@ import {
   type StaffRejectedEvent,
   TICKET_STATUS,
   isAgentEmployee,
-  recruitingFee,
 } from "@sim/shared";
 import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -138,14 +137,13 @@ describe("staffing over a live socket", () => {
       change: STAFF_CHANGE.hired,
       jobTitle: CANDIDATE.jobTitle,
       salary: CANDIDATE.salary,
-      fee: recruitingFee(CANDIDATE.salary),
     });
     const hired = event === undefined ? undefined : serverRoom(dana).state.occupants.get(event.agentId);
     expect(hired !== undefined && isAgentEmployee(hired)).toBe(true);
     if (hired !== undefined && isAgentEmployee(hired)) {
       expect(hired.deskId).toBe(OFFICE_LAYOUT.agentDesks[DEFAULT_AGENT_COUNT]);
     }
-    expect(serverRoom(dana).state.company.cash).toBe(STARTING_CASH - recruitingFee(CANDIDATE.salary));
+    expect(serverRoom(dana).state.company.cash).toBe(STARTING_CASH);
     // Replicated, so Milo's tab has the new agent to draw.
     await settled(() => event !== undefined && milo.room.state.occupants.has(event.agentId));
 
