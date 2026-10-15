@@ -97,10 +97,12 @@ Then confirm all fourteen:
    reachable through a doorway.
 4. **Closing a tab removes that avatar** from the other tab within about a
    second, and reopening it rejoins cleanly. If the CEO is the one who left, the
-   title passes to the player who has been in the office longest, and every
-   tab's chat log announces who the new CEO is. A dropped connection is not
-   a leave: the server holds the player's place, role included, for
-   `RECONNECT_GRACE_SECONDS`, and the client reconnects as the same person.
+   title passes to the connected player who has been in the office longest
+   (one whose connection has dropped is passed over while anyone else is
+   left), and every tab's chat log announces who the new CEO is. A dropped
+   connection is not a leave: the server holds the player's place, role
+   included, for `RECONNECT_GRACE_SECONDS`, and the client reconnects as the
+   same person.
 5. **An emote in one tab appears in the other.** Press `1`; the other tab shows
    it above that avatar within normal latency, and it clears after a couple of
    seconds. Say something and the bubble does the same, for longer, and the line
