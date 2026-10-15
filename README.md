@@ -150,7 +150,7 @@ Then confirm all seventeen:
     tabs read the same time. The first midnight comes a little over a minute
     after the room opens: cash drops by the payroll the Staff panel shows and
     morale and productivity move, in both tabs at once. Running out of cash
-    takes about forty minutes at the starting numbers, which live in
+    takes about forty-five minutes at the starting numbers, which live in
     `shared/company.ts`; set `STARTING_CASH` there to one payroll to see the end
     state at the first midnight instead.
 12. **The agents are at their desks, in both tabs.** Four agent employees
