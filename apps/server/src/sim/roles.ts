@@ -49,6 +49,11 @@ export function roleForArrival(occupants: MapSchema<Occupant>): PlayerRole {
 /**
  * Promotes the longest-connected player if the office has no CEO.
  *
+ * A player whose socket has dropped, and whose place is only being held for
+ * reconnection, cannot run the board and would not hear the announcement, so
+ * they are passed over for anyone still connected. They take the role only
+ * when nobody connected is left, so the office still has someone in charge.
+ *
  * Called after a departure has been removed from the map. A no-op when someone
  * still holds the role — an executive leaving changes nothing — or when nobody
  * human is left to hold it, in which case the next arrival takes it through
@@ -57,12 +62,14 @@ export function roleForArrival(occupants: MapSchema<Occupant>): PlayerRole {
  * @param joinedAtOf when each occupant joined, by session id; the earliest
  * wins. An occupant with no known join time ranks last rather than first, so a
  * gap in the bookkeeping cannot jump someone the queue.
+ * @param isHeld whether an occupant is inside the reconnection grace period.
  * @returns the player promoted, so the room can announce it, or `undefined`
  * if nobody was.
  */
 export function appointSuccessor(
   occupants: MapSchema<Occupant>,
   joinedAtOf: (sessionId: string) => number | undefined,
+  isHeld: (sessionId: string) => boolean,
 ): HumanPlayer | undefined {
   if (findCeo(occupants) !== undefined) {
     return undefined;
@@ -70,14 +77,19 @@ export function appointSuccessor(
 
   let successor: HumanPlayer | undefined;
   let successorJoinedAt = Number.POSITIVE_INFINITY;
+  let successorHeld = true;
   for (const [sessionId, occupant] of occupants) {
     if (!isHumanPlayer(occupant)) {
       continue;
     }
     const joinedAt = joinedAtOf(sessionId) ?? Number.POSITIVE_INFINITY;
-    if (successor === undefined || joinedAt < successorJoinedAt) {
+    const held = isHeld(sessionId);
+    const ranksAhead =
+      held === successorHeld ? joinedAt < successorJoinedAt : successorHeld;
+    if (successor === undefined || ranksAhead) {
       successor = occupant;
       successorJoinedAt = joinedAt;
+      successorHeld = held;
     }
   }
 

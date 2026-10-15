@@ -274,6 +274,36 @@ describe("CEO succession", () => {
   });
 });
 
+describe("CEO succession past a dropped player", () => {
+  it("promotes a connected player over an earlier one whose place is only held", async () => {
+    const dana = await openOffice("Dana");
+    const milo = await joinOffice(dana, "Milo");
+    const ines = await joinOffice(dana, "Ines");
+    const miloId = milo.room.sessionId;
+    const token = milo.room.reconnectionToken;
+
+    await milo.room.leave(false);
+    await roundTrip(ines);
+    expect(serverRoom(ines).state.occupants.has(miloId)).toBe(true);
+
+    await dana.room.leave();
+    await settled(() => ines.announcements.length === 1);
+    expect(roleOf(ines, ines.room.sessionId)).toBe(PLAYER_ROLE.ceo);
+    expect(roleOf(ines, miloId)).toBe(PLAYER_ROLE.exec);
+    expect(ines.announcements).toEqual([
+      { ceoId: ines.room.sessionId, previousCeoId: dana.room.sessionId },
+    ]);
+
+    listen(milo, await milo.client.reconnect<OfficeState>(token));
+    await roundTrip(milo);
+    expect(roleOf(ines, miloId)).toBe(PLAYER_ROLE.exec);
+    expect(describeRoleProblems(serverRoom(ines).state.occupants)).toEqual([]);
+
+    await milo.room.leave();
+    await ines.room.leave();
+  });
+});
+
 describe("the role across a reconnect", () => {
   it("holds a dropped CEO's role and hands it back on reconnection", async () => {
     const dana = await openOffice("Dana");

@@ -154,6 +154,9 @@ export class OfficeRoom extends Room<OfficeState> {
 
   private reconnectGraceSeconds = RECONNECT_GRACE_SECONDS;
 
+  /** Session ids whose socket has dropped and whose place is being held. */
+  private readonly held = new Set<string>();
+
   public override onCreate(options?: unknown): void {
     this.state = new OfficeState();
     this.patchRate = TICK_INTERVAL_MS;
@@ -305,8 +308,10 @@ export class OfficeRoom extends Room<OfficeState> {
    */
   public override async onLeave(client: Client, consented?: boolean): Promise<void> {
     if (consented !== true) {
+      this.held.add(client.sessionId);
       try {
         await this.allowReconnection(client, this.reconnectGraceSeconds);
+        this.held.delete(client.sessionId);
         return;
       } catch {
         // The grace period ran out, or the room is closing: gone for good.
@@ -402,6 +407,7 @@ export class OfficeRoom extends Room<OfficeState> {
     this.state.occupants.delete(sessionId);
     this.motions.delete(sessionId);
     this.budgets.delete(sessionId);
+    this.held.delete(sessionId);
 
     if (departing === undefined || !isCeo(departing)) {
       return;
@@ -409,6 +415,7 @@ export class OfficeRoom extends Room<OfficeState> {
     const successor = appointSuccessor(
       this.state.occupants,
       (id) => this.motions.get(id)?.joinedAt,
+      (id) => this.held.has(id),
     );
     if (successor !== undefined) {
       this.broadcast(SERVER_MESSAGE.ceoChanged, {
