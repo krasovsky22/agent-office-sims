@@ -42,7 +42,7 @@ issue closed on GitHub is put down by whoever had it. The company has vital
 signs now too: cash, morale and productivity, moved once an in-game day by a
 server clock that runs two real minutes to the day. Payroll draws cash, issues
 whose work is approved lift productivity and a growing backlog of open issues
-wears morale down; the HUD shows
+nobody is on wears morale down; the HUD shows
 all three with the day and the time, and when cash runs out the clock stops and
 every tab shows the company has folded. And the coding agents building this
 repository can be on the floor too: an orchestrator reports each one to the
