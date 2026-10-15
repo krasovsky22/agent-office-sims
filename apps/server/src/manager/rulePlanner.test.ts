@@ -167,6 +167,16 @@ describe("planFromRules: assignments", () => {
     ["put Bo on Draft the Q3 roadmap", [{ work: "ticket-5", agent: "agent-2" }]],
     ["assign #39 to Bo today", [{ work: "issue #39", agent: "agent-2" }]],
     ["give ticket-1 to Bo please", [{ work: "ticket-1", agent: "agent-2" }]],
+    ["give ticket-1 to Bo, please", [{ work: "ticket-1", agent: "agent-2" }]],
+    ["assign #39 to someone, thanks", [{ work: "issue #39", agent: "" }]],
+    ["assign the backlog to Bo, please", [{ work: "ticket-1", agent: "agent-2" }, { work: "ticket-5", agent: "agent-2" }]],
+    [
+      "give ticket-1 to Bo, and ticket-5 to Ada",
+      [
+        { work: "ticket-1", agent: "agent-2" },
+        { work: "ticket-5", agent: "agent-1" },
+      ],
+    ],
     ["assign the backlog to Bo", [{ work: "ticket-1", agent: "agent-2" }, { work: "ticket-5", agent: "agent-2" }]],
     ["please have anyone pick up ticket-1", [{ work: "ticket-1", agent: "" }]],
     [

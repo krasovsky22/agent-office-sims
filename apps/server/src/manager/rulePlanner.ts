@@ -192,7 +192,7 @@ function wordsOf(message: string): string[] {
     .split(/\s+/)
     .map((word) => word.replace(/[.!?;:]+$/, ""))
     .filter((word) => word !== "");
-  while (words.length > 0 && FILLER.test(words[words.length - 1] ?? "")) {
+  while (words.length > 0 && (FILLER.test(words[words.length - 1] ?? "") || words[words.length - 1] === ",")) {
     words.pop();
   }
   return words;
@@ -293,7 +293,7 @@ function readPairs(words: readonly string[], view: OfficeView): { slot: WorkSlot
       if (rest[and] !== "and") {
         continue;
       }
-      const agent = readAgent(rest.slice(0, and), view);
+      const agent = readAgent(rest.slice(0, rest[and - 1] === "," ? and - 1 : and), view);
       const more = agent === null ? null : readPairs(rest.slice(and + 1), view);
       if (agent !== null && more !== null) {
         return [{ slot, agent: agent.agent }, ...more];
