@@ -100,7 +100,10 @@ export function TicketBoardPanel({ tickets, people, actions }: TicketBoardPanelP
         lastFocused.current = event.target;
       }}
       onBlur={(event) => {
-        if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
+        if (
+          document.hasFocus() &&
+          !(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))
+        ) {
           lastFocused.current = null;
         }
       }}
