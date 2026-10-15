@@ -9,11 +9,10 @@
  * furniture is not: `props.ts` draws that from the asset kit, and the grey desk
  * boxes this file makes are the fallback it replaces. See {@link OfficeView}.
  *
- * Lighting is a hemisphere fill plus one shadow-casting directional light. Only
- * the floor receives its shadows and only the furniture and the avatars cast
+ * Only the floor receives shadows and only the furniture and the avatars cast
  * them: the walls are a closed box around the camera, so shadowing them would
  * cost a second pass over most of the scene's triangles and change almost
- * nothing you can see.
+ * nothing you can see. The lights themselves are `lighting.ts`'s.
  */
 
 import { type InteractableSpec, type OfficeLayout, type WallSpec, interactables } from "@sim/shared";
@@ -23,20 +22,6 @@ const FLOOR_COLOUR = 0x4a4a50;
 const WALL_COLOUR = 0x8e8e95;
 const FURNITURE_COLOUR = 0x6c6c74;
 const FIXTURE_COLOUR = 0xe6e8ee;
-
-/** Shadow map resolution. One light, one map, so this is the whole budget. */
-const SHADOW_MAP_SIZE = 2048;
-
-/**
- * Pulls the shadow comparison off the surface that cast it.
- *
- * Without it the low-poly desk tops self-shadow into stripes, which is far more
- * visible than the slight contact gap the bias introduces.
- */
-const SHADOW_NORMAL_BIAS = 0.02;
-
-/** Slack added to the shadow camera's frustum so the floor's corners are inside it. */
-const SHADOW_MARGIN = 2;
 
 /**
  * One unit cube, scaled per mesh.
@@ -102,32 +87,8 @@ function addFixture(parent: THREE.Object3D, spec: InteractableSpec, material: TH
 }
 
 /**
- * Frames the whole floor in the one shadow camera.
- *
- * Derived from the layout's extent rather than written down, so a bigger floor
- * plan keeps its shadows instead of losing them off the edge of the map.
- */
-function aimShadowCamera(sun: THREE.DirectionalLight, layout: OfficeLayout): void {
-  const floor = centreOf(layout.floor);
-  const reach = Math.hypot(floor.width, floor.depth) / 2 + SHADOW_MARGIN;
-
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
-  sun.shadow.normalBias = SHADOW_NORMAL_BIAS;
-
-  const shadowCamera = sun.shadow.camera;
-  shadowCamera.left = -reach;
-  shadowCamera.right = reach;
-  shadowCamera.top = reach;
-  shadowCamera.bottom = -reach;
-  shadowCamera.near = 0.5;
-  shadowCamera.far = sun.position.length() + reach;
-  shadowCamera.updateProjectionMatrix();
-}
-
-/**
- * Adds the floor, the walls, the grey desk boxes, the hand-placed fixtures and
- * the lighting to a scene.
+ * Adds the floor, the walls, the grey desk boxes and the hand-placed fixtures
+ * to a scene.
  *
  * @returns a handle on the world, so a caller can remove the whole office in one
  * call and swap the grey desks for the prop kit's.
@@ -176,14 +137,6 @@ export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): OfficeVie
   }
 
   scene.add(office);
-
-  const sky = new THREE.HemisphereLight(0xdfe3ea, 0x3a3a40, 1.1);
-  scene.add(sky);
-
-  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-  sun.position.set(-8, 14, 6);
-  aimShadowCamera(sun, layout);
-  scene.add(sun);
 
   return {
     group: office,
