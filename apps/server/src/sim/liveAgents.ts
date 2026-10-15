@@ -181,7 +181,7 @@ export class LiveAgentCrew {
   /**
    * Brings the bodies on the floor in line with the feed's list: arrivals walk
    * in, departures vanish and free their chairs, and everyone else takes on
-   * their new status and task.
+   * their new status, task, and whatever the manager has assigned them next.
    */
   public sync(records: readonly LiveAgentRecord[], now: number): void {
     const present = new Set<string>();
@@ -260,6 +260,14 @@ export class LiveAgentCrew {
     }
     if (occupant.taskUrl !== url) {
       occupant.taskUrl = url;
+    }
+    const assignedTitle = record.assignment?.title ?? "";
+    const assignedUrl = record.assignment?.url ?? "";
+    if (occupant.assignedTitle !== assignedTitle) {
+      occupant.assignedTitle = assignedTitle;
+    }
+    if (occupant.assignedUrl !== assignedUrl) {
+      occupant.assignedUrl = assignedUrl;
     }
     if (body.status !== record.status) {
       body.status = record.status;

@@ -14,3 +14,4 @@ export * from "./staffing.js";
 export * from "./company.js";
 export * from "./projectBoard.js";
 export * from "./liveAgents.js";
+export * from "./manager.js";

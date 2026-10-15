@@ -40,6 +40,7 @@ import {
   type TicketStatus,
   type OccupantKind,
   isAgentEmployee,
+  isAiManager,
   isCeo,
   isTicketPriority,
 } from "./state.js";
@@ -336,7 +337,7 @@ export const TICKET_REJECTION = {
   unknownTicket: "unknown-ticket",
   /** The requested status is not reachable from the current one. */
   illegalTransition: "illegal-transition",
-  /** The named assignee is not in the office. */
+  /** The named assignee is not in the office, or is the manager, who does no tickets. */
   unknownAssignee: "unknown-assignee",
   /** The move would leave a non-`backlog` ticket with no assignee. */
   missingAssignee: "missing-assignee",
@@ -517,7 +518,10 @@ function assignTicket(
     // `done` has no outgoing edge to carry the change anyway.
     return reject(TICKET_REJECTION.illegalTransition);
   }
-  if (!context.occupants.has(payload.assigneeId)) {
+  // The manager hands work out rather than doing it, so a ticket given to it
+  // would sit in `assigned` with nobody ever claiming it.
+  const assignee = context.occupants.get(payload.assigneeId);
+  if (assignee === undefined || isAiManager(assignee)) {
     return reject(TICKET_REJECTION.unknownAssignee);
   }
 

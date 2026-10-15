@@ -16,7 +16,13 @@
  * joiner would receive it as if it were still going on.
  */
 
-import { MAX_CHAT_LENGTH, MAX_COMMENT_LENGTH } from "./constants.js";
+import {
+  MAX_CHAT_LENGTH,
+  MAX_COMMENT_LENGTH,
+  MAX_MANAGER_MESSAGE_LENGTH,
+  MAX_MANAGER_REPLY_LENGTH,
+} from "./constants.js";
+import type { ManagerRejection } from "./manager.js";
 import {
   ANIMATION_STATE,
   type ReportedAnimation,
@@ -65,6 +71,8 @@ export const CLIENT_MESSAGE = {
   staffHire: "staff:hire",
   /** Let an agent employee go. */
   staffFire: "staff:fire",
+  /** Say something to the AI manager; only the CEO is listened to. */
+  managerSay: "manager:say",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -107,6 +115,22 @@ export const SERVER_MESSAGE = {
    * state; this is the announcement, carrying the why that state cannot.
    */
   staffChanged: "staff-changed",
+  /**
+   * The conversation with the AI manager so far, a {@link ManagerHistoryEvent},
+   * sent to each client as it joins.
+   */
+  managerHistory: "manager:history",
+  /**
+   * One new line in that conversation, a {@link ManagerEntry}: the CEO's
+   * instruction, the manager's reply, or an update it posted on its own.
+   * Broadcast to every client, since everyone may read the conversation.
+   */
+  managerEntry: "manager:entry",
+  /**
+   * Sent only to the client whose message the manager did not take, with the
+   * reason. Carries a {@link ManagerRejectedEvent}.
+   */
+  managerRejected: "manager:rejected",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];
@@ -204,7 +228,8 @@ export interface ThrottledEvent {
   readonly command:
     | typeof CLIENT_MESSAGE.emote
     | typeof CLIENT_MESSAGE.chat
-    | typeof CLIENT_MESSAGE.ticketComment;
+    | typeof CLIENT_MESSAGE.ticketComment
+    | typeof CLIENT_MESSAGE.managerSay;
 }
 
 /**
@@ -269,6 +294,54 @@ export type StaffChangedEvent = {
       readonly releasedTickets: number;
     }
 );
+
+/** Who wrote a line in the conversation with the AI manager, and why. */
+export const MANAGER_ENTRY_KIND = {
+  /** The CEO, telling or asking the manager something. */
+  instruction: "instruction",
+  /** The manager, answering the instruction before it. */
+  reply: "reply",
+  /** The manager, unprompted: work handed in, an agent stuck, an assignment picked up. */
+  update: "update",
+} as const;
+
+export type ManagerEntryKind = (typeof MANAGER_ENTRY_KIND)[keyof typeof MANAGER_ENTRY_KIND];
+
+/**
+ * One line in the conversation with the AI manager.
+ *
+ * Carries the author's name rather than only an id, because the conversation
+ * outlives whoever was CEO when a line was written.
+ */
+export interface ManagerEntry {
+  /** Increasing within a room, so a client can tell a line it already has. */
+  readonly id: number;
+  readonly kind: ManagerEntryKind;
+  readonly authorName: string;
+  /**
+   * Sanitized and length-capped by the server. Safe to render as text; may
+   * hold newlines, which a reply uses for a list.
+   */
+  readonly text: string;
+  /** Epoch milliseconds. */
+  readonly at: number;
+}
+
+/** The conversation so far, oldest first, as a joining client is handed it. */
+export interface ManagerHistoryEvent {
+  readonly entries: readonly ManagerEntry[];
+}
+
+/** The manager did not take one of this client's messages, and why. */
+export interface ManagerRejectedEvent {
+  readonly rejection: ManagerRejection;
+}
+
+/** Something the sending client wants to tell the AI manager. */
+export interface ManagerSayMessage {
+  /** Already sanitized by {@link parseManagerSayMessage}, and never empty. */
+  readonly text: string;
+}
 
 /** Options a client may supply when joining the office room. */
 export interface JoinOptions {
@@ -448,6 +521,14 @@ export function sanitizeCommentText(raw: unknown): string {
   return sanitizeLine(raw, MAX_COMMENT_LENGTH);
 }
 
+/**
+ * Reduces a client-supplied message to the AI manager to something safe to
+ * keep and render: the chat treatment, at {@link MAX_MANAGER_MESSAGE_LENGTH}.
+ */
+export function sanitizeManagerText(raw: unknown): string {
+  return sanitizeLine(raw, MAX_MANAGER_MESSAGE_LENGTH);
+}
+
 /** Flattens, collapses and truncates by code point; see {@link sanitizeChatText}. */
 function sanitizeLine(raw: unknown, maxLength: number): string {
   if (typeof raw !== "string") {
@@ -472,6 +553,22 @@ export function parseChatMessage(raw: unknown): ChatMessage | undefined {
     return undefined;
   }
   const text = sanitizeChatText((raw as { text?: unknown }).text);
+  return text === "" ? undefined : { text };
+}
+
+/**
+ * Validates a raw `manager:say` payload.
+ *
+ * Shape only: whether the sender may instruct the manager is the authority
+ * rule's call, in `manager.ts`.
+ *
+ * @returns the sanitized message, or `undefined` when nothing legible survived.
+ */
+export function parseManagerSayMessage(raw: unknown): ManagerSayMessage | undefined {
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
+  const text = sanitizeManagerText((raw as { text?: unknown }).text);
   return text === "" ? undefined : { text };
 }
 
@@ -536,6 +633,19 @@ const BLANK_LINE_RUN = /\n{3,}/g;
  * to push the rest of a panel off screen.
  */
 export function sanitizeTicketBody(raw: unknown): string {
+  return sanitizeParagraphs(raw, MAX_TICKET_BODY_LENGTH);
+}
+
+/**
+ * Reduces a line the AI manager posts — a model's reply among them — to
+ * something safe to render, keeping its line breaks as a ticket body does.
+ */
+export function sanitizeManagerReply(raw: unknown): string {
+  return sanitizeParagraphs(raw, MAX_MANAGER_REPLY_LENGTH).trim();
+}
+
+/** Normalises and caps multi-line text; see {@link sanitizeTicketBody}. */
+function sanitizeParagraphs(raw: unknown, maxLength: number): string {
   if (typeof raw !== "string") {
     return "";
   }
@@ -544,7 +654,7 @@ export function sanitizeTicketBody(raw: unknown): string {
     .replace(BODY_CONTROL_CHARACTERS, " ")
     .replace(BLANK_LINE_RUN, "\n\n")
     .trim()
-    .slice(0, MAX_TICKET_BODY_LENGTH);
+    .slice(0, maxLength);
 }
 
 /** Whether a value is usable as an occupant, ticket or interactable id. */

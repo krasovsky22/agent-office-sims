@@ -12,8 +12,9 @@
  * mistaken for a person and a floor of them costs one extra material, not one
  * per agent; a simulated agent employee wears that shell over one shared
  * translucent copy of every material, so it reads as a ghost of an agent that
- * is doing nothing real; and every live coding agent shares another shell, in
- * a colour of its own, so a real agent is told apart from a simulated one too.
+ * is doing nothing real; every live coding agent shares another shell, in a
+ * colour of its own, so a real agent is told apart from a simulated one too;
+ * and the AI manager wears a third, so the one in charge is picked out at once.
  *
  * The load is allowed to fail. Nothing here throws anything the caller cannot
  * handle by leaving the avatar as the capsule it was built as.
@@ -66,8 +67,11 @@ export const SIMULATED_BODY_OPACITY = 0.45;
 /** A live coding agent's shell: violet, clear of both the players and the agent employees. */
 const LIVE_AGENT_SHELL_COLOUR = 0x8a6cf0;
 
+/** The AI manager's shell: crimson, the one body in the office in charge of the rest. */
+const MANAGER_SHELL_COLOUR = 0xcf3d4f;
+
 /** Which coat of paint a body is stamped out with. */
-export type AvatarLook = "local" | "remote" | "agent" | "simulated-agent" | "liveAgent";
+export type AvatarLook = "local" | "remote" | "agent" | "simulated-agent" | "liveAgent" | "manager";
 
 /** A body ready to be added to an avatar's group, with the clips that drive it. */
 export interface AvatarModelInstance {
@@ -104,6 +108,7 @@ export function prepareAvatarModel(gltf: GLTF): AvatarModel {
   const agentPaint = new Map<THREE.Material, THREE.Material>();
   const simulatedAgentPaint = new Map<THREE.Material, THREE.Material>();
   const liveAgentPaint = new Map<THREE.Material, THREE.Material>();
+  const managerPaint = new Map<THREE.Material, THREE.Material>();
 
   return {
     createInstance: (look: AvatarLook): AvatarModelInstance => {
@@ -117,6 +122,8 @@ export function prepareAvatarModel(gltf: GLTF): AvatarModel {
         repaint(root, simulatedAgentPaint, paintSimulatedAgent);
       } else if (look === "liveAgent") {
         repaint(root, liveAgentPaint, paintLiveAgentShell);
+      } else if (look === "manager") {
+        repaint(root, managerPaint, paintManagerShell);
       }
       return {
         root,
@@ -192,6 +199,9 @@ const paintAgentShell = paintShell(AGENT_SHELL_COLOUR);
 
 /** The live coding agents' paint. */
 const paintLiveAgentShell = paintShell(LIVE_AGENT_SHELL_COLOUR);
+
+/** The AI manager's paint. */
+const paintManagerShell = paintShell(MANAGER_SHELL_COLOUR);
 
 /** A simulated agent's paint: the agents' shell, and the whole body translucent. */
 const paintSimulatedAgent: MaterialPaint = (source) => {

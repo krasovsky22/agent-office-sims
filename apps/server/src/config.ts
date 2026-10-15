@@ -103,6 +103,7 @@ export interface ServerConfig {
   /** Whether the debug command that sends an agent walking is honoured. */
   readonly agentDebug: boolean;
   readonly liveAgents: LiveAgentsConfig;
+  readonly manager: ManagerConfig;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -114,6 +115,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     agentCount: readAgentCount(env),
     agentDebug: readAgentDebug(env),
     liveAgents: readLiveAgentsConfig(env),
+    manager: readManagerConfig(env),
   };
 }
 
@@ -177,6 +179,66 @@ export function readAgentWorkConfig(env: NodeJS.ProcessEnv = process.env): Agent
     model: rawModel === "" ? DEFAULT_AGENT_MODEL : rawModel,
     callsPerDay: readCallBudget(env, "AGENT_CALLS_PER_DAY", DEFAULT_AGENT_CALLS_PER_DAY),
     callsPerRun: readCallBudget(env, "AGENT_CALLS_PER_RUN", DEFAULT_AGENT_CALLS_PER_RUN),
+  };
+}
+
+/**
+ * Model calls the AI manager may make when no budget is configured. One call
+ * answers one message from the CEO, so a day's worth is a long day of
+ * questions; the per-run figure bounds a server left up for weeks.
+ */
+const DEFAULT_MANAGER_CALLS_PER_DAY = 150;
+const DEFAULT_MANAGER_CALLS_PER_RUN = 1000;
+
+/**
+ * How the AI manager answers: from live state by rule, for free, or through a
+ * real model that costs money. Its own switch and its own budget, so paying
+ * for agents' work never quietly starts paying for conversation too.
+ */
+export type ManagerConfig =
+  | { readonly mode: "mock" }
+  | {
+      readonly mode: "model";
+      /** Server-side only, like the agents' key; the same variable. */
+      readonly apiKey: string;
+      readonly model: string;
+      readonly callsPerDay: number;
+      readonly callsPerRun: number;
+    };
+
+/**
+ * Reads how the AI manager answers.
+ *
+ * - `MOCK_MANAGER`: `on` (the default) or `off`. On, the manager answers from
+ *   the office's live state by rule and makes no network call.
+ * - `ANTHROPIC_API_KEY`: required when `MOCK_MANAGER` is off.
+ * - `MANAGER_MODEL`: optional, defaulting to {@link DEFAULT_AGENT_MODEL}.
+ * - `MANAGER_CALLS_PER_DAY`, `MANAGER_CALLS_PER_RUN`: optional call budgets.
+ */
+export function readManagerConfig(env: NodeJS.ProcessEnv = process.env): ManagerConfig {
+  const rawMock = env["MOCK_MANAGER"]?.trim().toLowerCase() ?? "";
+  if (rawMock === "" || rawMock === "on") {
+    return { mode: "mock" };
+  }
+  if (rawMock !== "off") {
+    throw new Error(`MOCK_MANAGER must be on or off, got "${env["MOCK_MANAGER"]}"`);
+  }
+
+  const apiKey = env["ANTHROPIC_API_KEY"]?.trim() ?? "";
+  if (apiKey === "") {
+    throw new Error(
+      "MOCK_MANAGER is off but ANTHROPIC_API_KEY is not set: set the key as a platform secret, " +
+        "or leave MOCK_MANAGER on to have the manager answer without a model",
+    );
+  }
+
+  const rawModel = env["MANAGER_MODEL"]?.trim() ?? "";
+  return {
+    mode: "model",
+    apiKey,
+    model: rawModel === "" ? DEFAULT_AGENT_MODEL : rawModel,
+    callsPerDay: readCallBudget(env, "MANAGER_CALLS_PER_DAY", DEFAULT_MANAGER_CALLS_PER_DAY),
+    callsPerRun: readCallBudget(env, "MANAGER_CALLS_PER_RUN", DEFAULT_MANAGER_CALLS_PER_RUN),
   };
 }
 

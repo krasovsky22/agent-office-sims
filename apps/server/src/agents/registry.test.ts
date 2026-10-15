@@ -65,6 +65,17 @@ describe("LiveAgentRegistry", () => {
     expect(registry.current()).toBe(before);
   });
 
+  it("tells report subscribers of every report it takes, changed or not, and not of a refused one", () => {
+    const { registry } = setup(1);
+    const heard: string[] = [];
+    registry.subscribeReports((id) => heard.push(id));
+    registry.report(report("a", LIVE_AGENT_REPORT_STATUS.idle));
+    registry.report(report("a", LIVE_AGENT_REPORT_STATUS.idle));
+    expect(registry.report(report("b", LIVE_AGENT_REPORT_STATUS.idle))).toBe("full");
+    registry.report(report("a", LIVE_AGENT_REPORT_STATUS.stopped));
+    expect(heard).toEqual(["a", "a", "a"]);
+  });
+
   it("removes an agent that reports it has stopped", () => {
     const { registry, notifications } = setup();
     registry.report(report("a", LIVE_AGENT_REPORT_STATUS.idle));

@@ -21,6 +21,8 @@
 export interface CallBudgetLimits {
   readonly perDay: number;
   readonly perRun: number;
+  /** Whose calls these are, for the refusal message. Defaults to `agent`. */
+  readonly label?: string;
 }
 
 /** Whether one more call may be made, and if not, why and until when. */
@@ -54,20 +56,24 @@ export class CallBudget {
     if (this.usedThisRun >= this.limits.perRun) {
       return {
         ok: false,
-        message: `agent call budget for this server run is spent (${this.limits.perRun} calls); it refills on restart`,
+        message: `${this.label} call budget for this server run is spent (${this.limits.perRun} calls); it refills on restart`,
         retryAt: undefined,
       };
     }
     if (this.usedToday >= this.limits.perDay) {
       return {
         ok: false,
-        message: `agent call budget for today is spent (${this.limits.perDay} calls); it refills at 00:00 UTC`,
+        message: `${this.label} call budget for today is spent (${this.limits.perDay} calls); it refills at 00:00 UTC`,
         retryAt: (this.day + 1) * DAY_MS,
       };
     }
     this.usedToday += 1;
     this.usedThisRun += 1;
     return { ok: true };
+  }
+
+  private get label(): string {
+    return this.limits.label ?? "agent";
   }
 
   private rollDay(): void {

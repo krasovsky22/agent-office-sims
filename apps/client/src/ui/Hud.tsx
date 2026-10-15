@@ -10,14 +10,19 @@
  * The store below is the seam between the two. The game loop pushes snapshots
  * into it; React subscribes. Chat and emotes travel the other way, through
  * {@link HudActions}, which the loop supplies — the HUD never touches the
- * socket itself.
+ * socket itself. So do messages to the AI manager, whose conversation the loop
+ * keeps in the snapshot whether or not its panel is open, counting the lines
+ * nobody has read yet.
  */
 
 import {
   type AgentActivity,
   EMOTES,
   type Emote,
+  MANAGER_STATUS,
   MAX_CHAT_LENGTH,
+  type ManagerEntry,
+  type ManagerStatus,
   OCCUPANT_KIND,
   type OccupantKind,
   type ProjectBoardSnapshot,
@@ -27,12 +32,19 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { BoardAccess } from "../boardAccess.js";
 import type { CompanyReadout } from "../companyReadout.js";
+import type { ManagerAccess } from "../managerAccess.js";
 import type { StaffReadout } from "../staffing.js";
-import { AGENT_ACTIVITY_APPEARANCE, SIMULATED_LABEL, isSimulated } from "../agentActivity.js";
+import {
+  AGENT_ACTIVITY_APPEARANCE,
+  MANAGER_STATUS_APPEARANCE,
+  SIMULATED_LABEL,
+  isSimulated,
+} from "../agentActivity.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ConnectionStatus } from "../net/room.js";
 import { CompanyEndState, CompanyPanel } from "./CompanyPanel.js";
+import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
 import { ProjectBoardPanel } from "./ProjectBoardPanel.js";
 import { type TicketBoardActions, TicketBoardPanel } from "./TicketBoardPanel.js";
 import { StaffPanel } from "./StaffPanel.js";
@@ -55,19 +67,33 @@ export interface RosterEntry {
   readonly caption: string;
   /** The task's issue or pull request, `""` when not known. The server only passes `https:`. */
   readonly taskUrl: string;
+  /** What the manager assigned a live agent next, `""` when nothing. Only `https:`. */
+  readonly assignedUrl: string;
+  /** The AI manager's status; `undefined` for anyone else. */
+  readonly managerStatus: ManagerStatus | undefined;
 }
 
-/** The roster split into players, agent employees and live coding agents, each in arrival order. */
+/**
+ * The roster split into players, agent employees, live coding agents and the
+ * AI manager, each in arrival order.
+ */
 export function groupRoster(roster: readonly RosterEntry[]): {
   readonly people: readonly RosterEntry[];
   readonly agents: readonly RosterEntry[];
   readonly liveAgents: readonly RosterEntry[];
+  readonly managers: readonly RosterEntry[];
 } {
   return {
     people: roster.filter((entry) => entry.kind === OCCUPANT_KIND.human),
     agents: roster.filter((entry) => entry.kind === OCCUPANT_KIND.agent),
     liveAgents: roster.filter((entry) => entry.kind === OCCUPANT_KIND.liveAgent),
+    managers: roster.filter((entry) => entry.kind === OCCUPANT_KIND.manager),
   };
+}
+
+/** Everyone a ticket can be given to: the manager hands work out and takes none. */
+export function assignableRoster(roster: readonly RosterEntry[]): readonly RosterEntry[] {
+  return roster.filter((entry) => entry.kind !== OCCUPANT_KIND.manager);
 }
 
 /** One line in the chat scrollback. */
@@ -146,6 +172,14 @@ export interface HudSnapshot {
    * `id` changes with each firing so the same drop twice still animates.
    */
   readonly moraleHit?: { readonly id: number; readonly text: string } | undefined;
+  /** Whether the local player opened the conversation with `E` at the manager's desk. */
+  readonly managerOpen: boolean;
+  /** The conversation with the manager, oldest first, as the server relayed it. */
+  readonly managerLog: readonly ManagerEntry[];
+  /** Lines that arrived while the conversation was closed. */
+  readonly managerUnread: number;
+  /** What the local player may say to the manager; absent until they are in the office. */
+  readonly managerAccess?: ManagerAccess | undefined;
 }
 
 export interface HudActions {
@@ -157,6 +191,7 @@ export interface HudActions {
   readonly hire: (candidateId: string) => void;
   /** Asks the server to let an agent go; it decides. */
   readonly fire: (agentId: string) => void;
+  readonly manager: ManagerPanelActions;
 }
 
 export interface HudStore {
@@ -174,6 +209,9 @@ const INITIAL: HudSnapshot = {
   boardCloseUp: false,
   tickets: [],
   ticketBoardOpen: false,
+  managerOpen: false,
+  managerLog: [],
+  managerUnread: 0,
 };
 
 export function createHudStore(): HudStore {
@@ -456,19 +494,38 @@ function LiveAgentRow({ entry }: { entry: RosterEntry }) {
   );
 }
 
+/** The AI manager's line: its name and title, its status, and whether it has said anything unread. */
+function ManagerRow({ entry, unread }: { entry: RosterEntry; unread: number }) {
+  const appearance = MANAGER_STATUS_APPEARANCE[entry.managerStatus ?? MANAGER_STATUS.idle];
+  return (
+    <li className="hud__occupant hud__occupant--manager">
+      <span className="hud__name">{entry.name}</span>
+      <span className="hud__title-of hud__title-of--manager">{entry.jobTitle}</span>
+      <span className="hud__activity" style={{ color: appearance.colour }}>
+        {appearance.label}
+      </span>
+      <span className="hud__task">
+        {unread > 0 ? `${unread} new — ` : ""}talk to it at its desk in the lobby
+      </span>
+    </li>
+  );
+}
+
 /**
- * Who is in the office: people first, then the agent employees and the live
- * coding agents under headings of their own, so the roster answers "who is a
- * person here?" as plainly as the floor does.
+ * Who is in the office: people first, then the manager, the agent employees and
+ * the live coding agents under headings of their own, so the roster answers
+ * "who is a person here?" as plainly as the floor does.
  */
 function Roster({
   roster,
   boardAccess,
+  managerUnread,
 }: {
   roster: readonly RosterEntry[];
   boardAccess: BoardAccess | undefined;
+  managerUnread: number;
 }) {
-  const { people, agents, liveAgents } = groupRoster(roster);
+  const { people, agents, liveAgents, managers } = groupRoster(roster);
   return (
     <div className="hud__panel">
       <h2 className="hud__title">People ({people.length})</h2>
@@ -480,6 +537,16 @@ function Roster({
             <PersonRow entry={entry} key={entry.id} />
           ))}
         </ul>
+      )}
+      {managers.length === 0 ? null : (
+        <>
+          <h2 className="hud__title hud__title--group">Manager</h2>
+          <ul className="hud__roster">
+            {managers.map((entry) => (
+              <ManagerRow entry={entry} unread={managerUnread} key={entry.id} />
+            ))}
+          </ul>
+        </>
       )}
       {agents.length === 0 ? null : (
         <>
@@ -531,6 +598,10 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     ticketBoardOpen,
     staff,
     moraleHit,
+    managerOpen,
+    managerLog,
+    managerUnread,
+    managerAccess,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
 
@@ -544,7 +615,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       <div className="hud__column">
         <CompanyPanel readout={company} moraleHit={moraleHit} />
 
-        <Roster roster={roster} boardAccess={boardAccess} />
+        <Roster roster={roster} boardAccess={boardAccess} managerUnread={managerUnread} />
 
         <div className="hud__panel">
           <h2 className="hud__title">Status</h2>
@@ -575,9 +646,17 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       {ticketBoardOpen ? (
         <TicketBoardPanel
           tickets={tickets}
-          people={roster}
+          people={assignableRoster(roster)}
           access={boardAccess}
           actions={actions.ticketBoard}
+        />
+      ) : null}
+      {managerOpen ? (
+        <ManagerPanel
+          entries={managerLog}
+          access={managerAccess}
+          thinking={groupRoster(roster).managers.some((entry) => entry.managerStatus === MANAGER_STATUS.thinking)}
+          actions={actions.manager}
         />
       ) : null}
 

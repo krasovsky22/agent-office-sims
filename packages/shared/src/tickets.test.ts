@@ -12,6 +12,8 @@
 import { describe, expect, it } from "vitest";
 
 import { MAX_COMMENT_LENGTH, MAX_TICKET_COMMENTS } from "./constants.js";
+import { OFFICE_LAYOUT } from "./layout.js";
+import { MANAGER_OCCUPANT_ID, employManager } from "./manager.js";
 import {
   type TicketAction,
   type TicketActor,
@@ -371,6 +373,24 @@ describe("assign and unassign", () => {
     const result = board.run({
       action: TICKET_ACTION.assign,
       payload: { ticketId: "ticket-1", assigneeId: "session-ghost" },
+    });
+
+    expect(result).toEqual({ ok: false, rejection: TICKET_REJECTION.unknownAssignee });
+    expect(snapshot(board.ticket("ticket-1"))).toEqual(before);
+  });
+
+  it("rejects the AI manager as an assignee, since it does no tickets", () => {
+    const board = harness();
+    const manager = employManager(OFFICE_LAYOUT);
+    if (manager === undefined) {
+      throw new Error("the shipped layout has no manager's desk");
+    }
+    board.state.occupants.set(manager.id, manager);
+    const before = snapshot(board.ticket("ticket-1"));
+
+    const result = board.run({
+      action: TICKET_ACTION.assign,
+      payload: { ticketId: "ticket-1", assigneeId: MANAGER_OCCUPANT_ID },
     });
 
     expect(result).toEqual({ ok: false, rejection: TICKET_REJECTION.unknownAssignee });

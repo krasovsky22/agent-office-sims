@@ -199,6 +199,7 @@ export const INTERACTION_KIND = {
   coffee: "coffee",
   whiteboard: "whiteboard",
   board: "board",
+  manager: "manager",
 } as const;
 
 export type InteractionKind = (typeof INTERACTION_KIND)[keyof typeof INTERACTION_KIND];
@@ -347,6 +348,12 @@ export const PROJECT_BOARD_ID = "project-board";
 /** The meeting room's whiteboard, which is where the ticket board is read and worked. */
 export const TICKET_BOARD_ID = "whiteboard-meeting";
 
+/** The AI manager's desk in the lobby, where it sits for good. */
+export const MANAGER_DESK_ID = "desk-manager";
+
+/** The spot across the manager's desk where the CEO stands to talk to it. */
+export const MANAGER_INTERACTABLE_ID = "manager-desk";
+
 /**
  * Gap between the back of a chair and the occupant who just got up from it.
  *
@@ -427,7 +434,8 @@ const DESK_ROW_XS = [-9, -5.4, -1.8, 1.8, 5.4, 9] as const;
  *   the north-west, then the meeting room, then the kitchen, then the entrance
  *   lobby in the north-east. Each is divided from the next by a solid wall and
  *   opens south onto the corridor through a doorway; the lobby's opening is the
- *   full width of the room, since that is the way in.
+ *   full width of the room, since that is the way in, and the AI manager's
+ *   desk faces it.
  * - An east-west corridor, `z` from -4.7 to -2.7, running the whole width of
  *   the building and serving every door in that band.
  * - The open floor, `z` from -2.4 south, holding three rows of desks that all
@@ -493,6 +501,10 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     // Private rooms.
     desk("desk-ceo", -9, -8.5, 0, 2.2, 0.9),
     desk("table-meeting", -2.85, -8.5, 0, 3.2, 1.4),
+
+    // The AI manager's, in the lobby: turned to face the way in, so whoever
+    // arrives from the corridor walks straight up to it.
+    desk(MANAGER_DESK_ID, 9, -9.2, Math.PI),
   ],
   props: [
     // Against the kitchen's north wall, facing south into the room and straight
@@ -588,9 +600,11 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { id: "wp-kitchen-coffee", x: 3.15, z: -10, links: ["wp-kitchen-door"] },
     { id: "wp-kitchen-door", x: 3.15, z: -4.85, links: ["wp-kitchen-coffee", "wp-corridor-kitchen"] },
 
-    // Lobby.
-    { id: "wp-lobby-centre", x: 9, z: -8, links: ["wp-lobby-door"] },
+    // Lobby, and round the east end of the manager's desk to its chair.
+    { id: "wp-lobby-centre", x: 9, z: -8, links: ["wp-lobby-door", "wp-lobby-east"] },
     { id: "wp-lobby-door", x: 9, z: -4.85, links: ["wp-lobby-centre", "wp-corridor-lobby"] },
+    { id: "wp-lobby-east", x: 10.8, z: -8, links: ["wp-lobby-centre", "wp-lobby-desk-back"] },
+    { id: "wp-lobby-desk-back", x: 10.8, z: -10.9, links: ["wp-lobby-east"] },
 
     // Corridor, one node off each doorway so a turn lands on a node.
     { id: "wp-corridor-ceo", x: -8.7, z: -3.7, links: ["wp-ceo-door", "wp-corridor-west-door"] },
@@ -706,6 +720,16 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       kind: INTERACTION_KIND.whiteboard,
       anchor: { x: -2.85, z: -10.7, yaw: 0 },
       volume: box3(-4.35, 1, -11.7, -1.35, 2.1, -11.62),
+      exit: undefined,
+      deskId: undefined,
+    },
+    // Across the manager's desk from its chair, facing it. The desk and the
+    // manager sitting at it are what show it, so it needs no volume.
+    {
+      id: MANAGER_INTERACTABLE_ID,
+      kind: INTERACTION_KIND.manager,
+      anchor: { x: 9, z: -8.2, yaw: 0 },
+      volume: undefined,
       exit: undefined,
       deskId: undefined,
     },

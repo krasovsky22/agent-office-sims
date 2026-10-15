@@ -37,6 +37,9 @@
  * A live coding agent is drawn differently on purpose too: its shell is a
  * colour of its own, and its nameplate's second line says what it is working
  * on, so nobody walks up to one expecting a colleague to answer.
+ *
+ * So is the AI manager: a crimson shell, its title under its name, and a badge
+ * in the agents' slot saying whether it is ready or thinking.
  */
 
 import {
@@ -46,6 +49,7 @@ import {
   CHAT_BUBBLE_LIFETIME_MS,
   type Emote,
   EMOTE_LIFETIME_MS,
+  type ManagerStatus,
   OCCUPANT_HEIGHT,
   OCCUPANT_KIND,
   OCCUPANT_RADIUS,
@@ -55,7 +59,13 @@ import {
 } from "@sim/shared";
 import * as THREE from "three";
 
-import { AGENT_ACTIVITY_APPEARANCE, SIMULATED_LABEL, isSimulated } from "../agentActivity.js";
+import {
+  AGENT_ACTIVITY_APPEARANCE,
+  type AgentActivityAppearance,
+  MANAGER_STATUS_APPEARANCE,
+  SIMULATED_LABEL,
+  isSimulated,
+} from "../agentActivity.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 
 import { AvatarAnimator } from "./avatarAnimator.js";
@@ -191,6 +201,10 @@ const SIMULATED_TAG_COLOUR = "#b4b9c4";
 const LIVE_AGENT_BODY_COLOUR = 0x8a6cf0;
 /** A live agent's task line: the same violet, lifted to read on the dark pill. */
 const LIVE_AGENT_CAPTION_COLOUR = "#c9bcff";
+/** The fallback capsule's version of the manager's crimson shell in `avatarModel.ts`. */
+const MANAGER_BODY_COLOUR = 0xcf3d4f;
+/** The manager's title on its nameplate: the same crimson, lifted to read on the dark pill. */
+const MANAGER_TITLE_COLOUR = "#ff9aa5";
 const FACING_COLOUR = 0x5e6470;
 const CEO_MARKER_COLOUR = 0xf0c650;
 const CUP_COLOUR = 0xe8dcc4;
@@ -235,6 +249,8 @@ export interface AvatarOptions {
   readonly activity: AgentActivity | undefined;
   /** A live coding agent's task, shown under its name; `""` for anyone else. */
   readonly caption: string;
+  /** The AI manager's status, shown on its badge; `undefined` for anyone else. */
+  readonly managerStatus: ManagerStatus | undefined;
   /** The local player's body is lighter, so you can pick yourself out. */
   readonly isLocal: boolean;
   /**
@@ -263,9 +279,9 @@ interface AvatarBody {
 
 /**
  * Paints a nameplate: the name, with a CEO suffix for the CEO, and on a second
- * line beneath it an agent employee's job title, tagged when the agent is
- * simulated, or a live agent's task, cut short with an ellipsis rather than
- * overflowing.
+ * line beneath it an agent employee's or the manager's job title, tagged when
+ * the agent is simulated, or a live agent's task, cut short with an ellipsis
+ * rather than overflowing.
  */
 function drawNameplate(
   canvas: HTMLCanvasElement,
@@ -273,8 +289,9 @@ function drawNameplate(
   isCeo: boolean,
   subtitle: string,
   simulated: boolean,
-  isLiveAgent: boolean,
+  kind: OccupantKind,
 ): void {
+  const isLiveAgent = kind === OCCUPANT_KIND.liveAgent;
   const label = isCeo ? `${name}  ·  CEO` : isLiveAgent ? `${name}  ·  agent` : name;
   const context = canvas.getContext("2d");
   if (context === null) {
@@ -331,7 +348,11 @@ function drawNameplate(
   context.font = titleFont;
   context.textAlign = "left";
   const titleLeft = centreX - titleWidth / 2;
-  context.fillStyle = isLiveAgent ? LIVE_AGENT_CAPTION_COLOUR : JOB_TITLE_COLOUR;
+  context.fillStyle = isLiveAgent
+    ? LIVE_AGENT_CAPTION_COLOUR
+    : kind === OCCUPANT_KIND.manager
+      ? MANAGER_TITLE_COLOUR
+      : JOB_TITLE_COLOUR;
   context.fillText(title, titleLeft, titleY);
   context.fillStyle = SIMULATED_TAG_COLOUR;
   context.fillText(tag, titleLeft + titleOnlyWidth, titleY);
@@ -377,6 +398,7 @@ const CAPSULE_COLOUR: Record<AvatarLook, number> = {
   agent: AGENT_BODY_COLOUR,
   "simulated-agent": AGENT_BODY_COLOUR,
   liveAgent: LIVE_AGENT_BODY_COLOUR,
+  manager: MANAGER_BODY_COLOUR,
 };
 
 /** The capsule: the body an avatar has before the model arrives, or instead of it. */
@@ -444,8 +466,10 @@ export class Avatar {
     worldHeight: CHAT_WORLD_HEIGHT,
   });
 
-  /** An agent's activity badge; absent on a player. */
+  /** An agent's activity badge, or the manager's status; absent on anyone else. */
   private readonly badge: Billboard | undefined;
+  /** The label the badge last showed, so it is repainted only on a change. */
+  private badgeLabel: string | undefined;
 
   private emoteExpiresAt = NOT_SHOWING;
   private chatExpiresAt = NOT_SHOWING;
@@ -454,12 +478,12 @@ export class Avatar {
   private readonly look: AvatarLook;
   private readonly simulated: boolean;
   private readonly isLiveAgent: boolean;
+  private readonly kind: OccupantKind;
 
   private name: string;
   private isCeo: boolean;
   /** The nameplate's second line: an agent's job title or a live agent's task. */
   private subtitle: string;
-  private activity: AgentActivity | undefined;
   private animation: AnimationState = ANIMATION_STATE.idle;
 
   private speed = 0;
@@ -475,20 +499,24 @@ export class Avatar {
   private glideZ = 0;
 
   public constructor(options: AvatarOptions) {
-    const isAgent = options.kind === OCCUPANT_KIND.agent;
+    this.kind = options.kind;
+    const isManager = options.kind === OCCUPANT_KIND.manager;
+    // An agent and the manager both wear a badge, and so share a layout.
+    const isAgent = options.kind === OCCUPANT_KIND.agent || isManager;
     this.isLiveAgent = options.kind === OCCUPANT_KIND.liveAgent;
     this.name = options.name;
     this.isCeo = options.isCeo;
     this.subtitle = this.isLiveAgent ? options.caption : options.jobTitle;
-    this.activity = undefined;
     this.simulated = isSimulated(options.kind);
     this.look = this.simulated
       ? "simulated-agent"
       : this.isLiveAgent
         ? "liveAgent"
-        : options.isLocal
-          ? "local"
-          : "remote";
+        : isManager
+          ? "manager"
+          : options.isLocal
+            ? "local"
+            : "remote";
 
     this.body =
       options.model !== undefined
@@ -525,7 +553,11 @@ export class Avatar {
       });
       this.badge.sprite.position.y = BADGE_OFFSET_Y;
       this.headAnchor.add(this.badge.sprite);
-      this.setActivity(options.activity);
+      if (isManager) {
+        this.setManagerStatus(options.managerStatus);
+      } else {
+        this.setActivity(options.activity);
+      }
     }
 
     this.ceoMarker = new THREE.Mesh(CEO_MARKER_GEOMETRY, CEO_MARKER_MATERIAL);
@@ -536,14 +568,7 @@ export class Avatar {
     this.nameplateCanvas.width = NAMEPLATE_CANVAS_WIDTH;
     this.nameplateCanvas.height =
       isAgent || this.isLiveAgent ? AGENT_NAMEPLATE_CANVAS_HEIGHT : NAMEPLATE_CANVAS_HEIGHT;
-    drawNameplate(
-      this.nameplateCanvas,
-      this.name,
-      this.isCeo,
-      this.subtitle,
-      this.simulated,
-      this.isLiveAgent,
-    );
+    drawNameplate(this.nameplateCanvas, this.name, this.isCeo, this.subtitle, this.simulated, this.kind);
     this.nameplateTexture = new THREE.CanvasTexture(this.nameplateCanvas);
     this.nameplateTexture.colorSpace = THREE.SRGBColorSpace;
     this.nameplate = new THREE.Sprite(
@@ -691,7 +716,7 @@ export class Avatar {
     this.isCeo = isCeo;
     this.subtitle = subtitle;
     this.ceoMarker.visible = isCeo;
-    drawNameplate(this.nameplateCanvas, name, isCeo, subtitle, this.simulated, this.isLiveAgent);
+    drawNameplate(this.nameplateCanvas, name, isCeo, subtitle, this.simulated, this.kind);
     this.nameplateTexture.needsUpdate = true;
   }
 
@@ -702,12 +727,22 @@ export class Avatar {
    * somehow unknown shows no badge rather than a wrong one.
    */
   public setActivity(activity: AgentActivity | undefined): void {
+    this.showBadge(activity === undefined ? undefined : AGENT_ACTIVITY_APPEARANCE[activity]);
+  }
+
+  /** Repaints the manager's badge, only when its status has changed. Does nothing on anyone else. */
+  public setManagerStatus(status: ManagerStatus | undefined): void {
+    if (this.kind === OCCUPANT_KIND.manager) {
+      this.showBadge(status === undefined ? undefined : MANAGER_STATUS_APPEARANCE[status]);
+    }
+  }
+
+  private showBadge(appearance: AgentActivityAppearance | undefined): void {
     const badge = this.badge;
-    if (badge === undefined || activity === this.activity) {
+    if (badge === undefined || appearance?.label === this.badgeLabel) {
       return;
     }
-    this.activity = activity;
-    const appearance = activity === undefined ? undefined : AGENT_ACTIVITY_APPEARANCE[activity];
+    this.badgeLabel = appearance?.label;
     if (appearance === undefined) {
       badge.hide();
       return;

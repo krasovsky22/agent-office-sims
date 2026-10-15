@@ -1,5 +1,6 @@
 /**
- * The orchestrator's report route, over real HTTP.
+ * The orchestrator's routes, over real HTTP: reporting its agents, and
+ * collecting what the AI manager has assigned them.
  *
  * Mounted on the same `createHealthServer` the server boots with, so these also
  * prove the route is reachable beside the health check, and that everything a
@@ -13,7 +14,14 @@ import { LIVE_AGENT_REPORT_STATUS } from "@sim/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { HEALTH_PATH, createHealthServer } from "../http.js";
-import { LIVE_AGENT_REPORT_PATH, MAX_REPORT_BYTES, createLiveAgentEndpoint } from "./endpoint.js";
+import { LiveAssignmentQueue } from "../manager/liveAssignments.js";
+import {
+  LIVE_AGENT_ASSIGNMENTS_PATH,
+  LIVE_AGENT_REPORT_PATH,
+  MAX_REPORT_BYTES,
+  createAssignmentEndpoint,
+  createLiveAgentEndpoint,
+} from "./endpoint.js";
 import { LiveAgentRegistry } from "./registry.js";
 
 const SECRET = "a-shared-secret-long-enough";
@@ -21,6 +29,7 @@ const SECRET = "a-shared-secret-long-enough";
 let server: Server;
 let baseUrl: string;
 let registry: LiveAgentRegistry;
+let queue: LiveAssignmentQueue;
 const clock = { now: 0 };
 
 beforeAll(async () => {
@@ -33,6 +42,14 @@ beforeAll(async () => {
           secret: SECRET,
           // Through a closure, so each test's fresh registry is the one reported to.
           registry: { report: (report) => registry.report(report) },
+          now: () => clock.now,
+        }),
+      ],
+      [
+        LIVE_AGENT_ASSIGNMENTS_PATH,
+        createAssignmentEndpoint({
+          secret: SECRET,
+          queue: { collect: () => queue.collect() },
           now: () => clock.now,
         }),
       ],
@@ -52,6 +69,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   registry = new LiveAgentRegistry({ timeoutMs: 60_000, maxAgents: 3 });
+  queue = new LiveAssignmentQueue({ agents: registry, now: () => 7000 });
   // Far enough on that the rate limit has refilled since the last test.
   clock.now += 60_000;
 });
@@ -149,5 +167,67 @@ describe(`POST ${LIVE_AGENT_REPORT_PATH}`, () => {
     const response = await fetch(`${baseUrl}${HEALTH_PATH}`);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "ok" });
+  });
+});
+
+describe(`POST ${LIVE_AGENT_ASSIGNMENTS_PATH}`, () => {
+  function collect(headers: Record<string, string> = { Authorization: `Bearer ${SECRET}` }): Promise<Response> {
+    return fetch(`${baseUrl}${LIVE_AGENT_ASSIGNMENTS_PATH}`, { method: "POST", headers });
+  }
+
+  function queueOne(): void {
+    queue.assign({
+      agentId: "agent-1",
+      item: { kind: "issue", number: 39, title: "Night shift", url: "https://github.com/o/r/issues/39" },
+      requestedBy: "Dana",
+      note: "put crewmate on #39",
+      origin: "room-a",
+    });
+  }
+
+  it("hands over what the manager queued, once", async () => {
+    queueOne();
+    const response = await collect();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      assignments: [
+        {
+          id: "assignment-1",
+          agentId: "agent-1",
+          kind: "issue",
+          number: 39,
+          title: "Night shift",
+          url: "https://github.com/o/r/issues/39",
+          requestedBy: "Dana",
+          note: "put crewmate on #39",
+          assignedAt: 7000,
+        },
+      ],
+    });
+    expect(await (await collect()).json()).toEqual({ assignments: [] });
+  });
+
+  it("refuses without the secret, and keeps the assignments for the real orchestrator", async () => {
+    queueOne();
+    expect((await collect({})).status).toBe(401);
+    expect((await collect({ Authorization: "Bearer not-the-secret" })).status).toBe(401);
+    const { assignments } = (await (await collect()).json()) as { assignments: unknown[] };
+    expect(assignments).toHaveLength(1);
+  });
+
+  it("only accepts POST", async () => {
+    queueOne();
+    const response = await fetch(`${baseUrl}${LIVE_AGENT_ASSIGNMENTS_PATH}`, {
+      headers: { Authorization: `Bearer ${SECRET}` },
+    });
+    expect(response.status).toBe(405);
+    expect(queue.collect()).toHaveLength(1);
+  });
+
+  it("rate-limits a collector that polls far faster than an orchestrator would", async () => {
+    const statuses = await Promise.all(Array.from({ length: 30 }, () => collect())).then((responses) =>
+      responses.map((response) => response.status),
+    );
+    expect(statuses.filter((status) => status === 429).length).toBeGreaterThan(0);
   });
 });

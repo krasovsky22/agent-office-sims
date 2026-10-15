@@ -1,0 +1,282 @@
+/**
+ * The AI manager's thinking: given what the CEO said and what the office looks
+ * like, decide what to say back and which work to hand to whom.
+ *
+ * Modelled on the work executor (`../work/executor.ts`), for the same reasons.
+ * Where the answer comes from is a {@link ManagerPlanner} — rules over the
+ * live state (`./rulePlanner.ts`), or a language model (`./modelPlanner.ts`) —
+ * which makes one attempt and may throw. Everything that makes an attempt safe
+ * lives here once: the call budget, the per-attempt timeout, bounded retry with
+ * backoff, and cancellation. And the contract is the executor's: **advise
+ * always resolves, never rejects**, because whatever calls it sits on the path
+ * that feeds the room.
+ *
+ * A plan only says what the manager wants done. Nothing here touches the
+ * board: the room's manager carries a plan out afterwards, synchronously and
+ * through the board's own rules, so a model can propose an assignment but never
+ * make one the CEO could not.
+ *
+ * `advise` takes seconds with a model and must never be awaited inside the
+ * simulation tick; the manager's own loop calls it.
+ */
+
+import type { ManagerEntry } from "@sim/shared";
+
+import type { BudgetDecision, CallBudget } from "../work/budget.js";
+import { WORK_FAILURE, WorkProviderError, type WorkFailureReason } from "../work/executor.js";
+import type { OfficeView } from "./officeView.js";
+
+/**
+ * One piece of work the manager wants handed out.
+ *
+ * Both fields are as the planner wrote them — `ticket-3` or `#39`, an agent's
+ * id or name, or `""` for whoever is free — and are resolved against the live
+ * office when the plan is carried out, not trusted.
+ */
+export interface PlannedAssignment {
+  readonly work: string;
+  readonly agent: string;
+}
+
+export interface ManagerPlan {
+  /** What the manager says, before the outcome of any assignment is added. */
+  readonly reply: string;
+  readonly assignments: readonly PlannedAssignment[];
+  /** Model tokens spent; `0` for the rules. */
+  readonly tokensUsed: number;
+}
+
+/** Everything a planner is given. */
+export interface ManagerRequest {
+  /** The CEO's message, sanitized. */
+  readonly message: string;
+  readonly ceoName: string;
+  readonly view: OfficeView;
+  /** The conversation before this message, oldest first. */
+  readonly history: readonly ManagerEntry[];
+}
+
+/** One attempt at a plan. It should stop when `signal` aborts. */
+export type ManagerPlanner = (request: ManagerRequest, signal: AbortSignal) => Promise<ManagerPlan>;
+
+export type AdviceResult =
+  | { readonly ok: true; readonly plan: ManagerPlan; readonly attempts: number }
+  | {
+      readonly ok: false;
+      readonly reason: WorkFailureReason;
+      /** Readable, and safe to show: it never carries a credential. */
+      readonly message: string;
+      readonly attempts: number;
+      readonly tokensUsed: number;
+    };
+
+export interface ManagerAdvisor {
+  /** Whether a model is behind it, for the boot log and the manager's own words. */
+  readonly mode: "rules" | "model";
+  /** Resolves with a plan or a structured failure. Never rejects. */
+  advise(request: ManagerRequest, signal?: AbortSignal): Promise<AdviceResult>;
+}
+
+/**
+ * Whether a value is a {@link ManagerAdvisor}, for a room handed one through
+ * options a client's join options are merged into.
+ */
+export function isManagerAdvisor(value: unknown): value is ManagerAdvisor {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Partial<ManagerAdvisor>).advise === "function"
+  );
+}
+
+export interface ManagerAdvisorOptions {
+  readonly planner: ManagerPlanner;
+  readonly mode: ManagerAdvisor["mode"];
+  /** Absent means unlimited, which only a planner that spends nothing should be given. */
+  readonly budget?: CallBudget | undefined;
+  /** How long one attempt may take before it counts as timed out. */
+  readonly timeoutMs?: number;
+  /** Attempts per message, the first included. */
+  readonly maxAttempts?: number;
+  /** Wait before the first retry; it doubles on each one after. */
+  readonly backoffMs?: number;
+  /** Ceiling on any one wait, a provider's own `retry-after` included. */
+  readonly maxBackoffMs?: number;
+  /** Injected so a test need not wait out real backoff. */
+  readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  /** Injected so a test can pin the jitter. In `[0, 1)`. */
+  readonly random?: () => number;
+}
+
+/**
+ * A minute: an answer about the office is a short read of a few kilobytes of
+ * state, and someone is standing at the desk waiting for it.
+ */
+const DEFAULT_TIMEOUT_MS = 60_000;
+
+/** One call and one retry: a conversation should fail fast and be asked again. */
+const DEFAULT_MAX_ATTEMPTS = 2;
+const DEFAULT_BACKOFF_MS = 2_000;
+const DEFAULT_MAX_BACKOFF_MS = 15_000;
+
+const NEVER = new AbortController().signal;
+const UNLIMITED: BudgetDecision = { ok: true };
+
+function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
+type Attempt =
+  | { readonly kind: "ok"; readonly plan: ManagerPlan }
+  | {
+      readonly kind: "failed";
+      readonly reason: typeof WORK_FAILURE.timeout | typeof WORK_FAILURE.providerError | typeof WORK_FAILURE.cancelled;
+      readonly message: string;
+      readonly retryable: boolean;
+      readonly retryAfterMs: number | undefined;
+      readonly tokensUsed: number;
+    };
+
+const TIMED_OUT = Symbol("timed out");
+const CANCELLED = Symbol("cancelled");
+
+export function createManagerAdvisor(options: ManagerAdvisorOptions): ManagerAdvisor {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxAttempts = Math.max(1, options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
+  const backoffMs = options.backoffMs ?? DEFAULT_BACKOFF_MS;
+  const maxBackoffMs = options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
+  const sleep = options.sleep ?? defaultSleep;
+  const random = options.random ?? Math.random;
+
+  async function attempt(request: ManagerRequest, cancel: AbortSignal): Promise<Attempt> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve(TIMED_OUT);
+      }, timeoutMs);
+    });
+    let onCancel: (() => void) | undefined;
+    const cancelled = new Promise<typeof CANCELLED>((resolve) => {
+      onCancel = () => {
+        controller.abort();
+        resolve(CANCELLED);
+      };
+      if (cancel.aborted) {
+        onCancel();
+      } else {
+        cancel.addEventListener("abort", onCancel, { once: true });
+      }
+    });
+    // Started inside a chain so a synchronous throw lands in the catch, and
+    // handled at once so a rejection after losing the race is not unhandled.
+    const pending = Promise.resolve().then(() => options.planner(request, controller.signal));
+    pending.catch(() => undefined);
+
+    try {
+      const outcome = await Promise.race([pending, deadline, cancelled]);
+      if (outcome === CANCELLED) {
+        return failure(WORK_FAILURE.cancelled, "the question was withdrawn", false, undefined, 0);
+      }
+      if (outcome === TIMED_OUT) {
+        return failure(WORK_FAILURE.timeout, `no answer within ${Math.round(timeoutMs / 1000)}s`, true, undefined, 0);
+      }
+      if (typeof outcome.reply !== "string" || outcome.reply.trim() === "") {
+        return failure(WORK_FAILURE.providerError, "the answer was empty", false, undefined, outcome.tokensUsed);
+      }
+      return { kind: "ok", plan: outcome };
+    } catch (error) {
+      if (cancel.aborted) {
+        return failure(WORK_FAILURE.cancelled, "the question was withdrawn", false, undefined, 0);
+      }
+      if (controller.signal.aborted) {
+        return failure(WORK_FAILURE.timeout, `no answer within ${Math.round(timeoutMs / 1000)}s`, true, undefined, 0);
+      }
+      if (error instanceof WorkProviderError) {
+        return failure(WORK_FAILURE.providerError, error.message, error.retryable, error.retryAfterMs, error.tokensUsed);
+      }
+      const message = error instanceof Error && error.message !== "" ? error.message : "the planner failed";
+      return failure(WORK_FAILURE.providerError, message, false, undefined, 0);
+    } finally {
+      clearTimeout(timer);
+      if (onCancel !== undefined) {
+        cancel.removeEventListener("abort", onCancel);
+      }
+    }
+  }
+
+  function failure(
+    reason: Extract<Attempt, { kind: "failed" }>["reason"],
+    message: string,
+    retryable: boolean,
+    retryAfterMs: number | undefined,
+    tokensUsed: number,
+  ): Attempt {
+    return { kind: "failed", reason, message, retryable, retryAfterMs, tokensUsed };
+  }
+
+  function backoff(retry: number, retryAfterMs: number | undefined): number {
+    const exponential = backoffMs * 2 ** (retry - 1) * (0.5 + random() / 2);
+    return Math.min(maxBackoffMs, Math.max(exponential, retryAfterMs ?? 0));
+  }
+
+  async function advise(request: ManagerRequest, signal: AbortSignal): Promise<AdviceResult> {
+    let tokensUsed = 0;
+    let attempts = 0;
+    let last: Extract<Attempt, { kind: "failed" }> | undefined;
+    while (attempts < maxAttempts) {
+      if (signal.aborted) {
+        return { ok: false, reason: WORK_FAILURE.cancelled, message: "the question was withdrawn", attempts, tokensUsed };
+      }
+      const decision = options.budget?.take() ?? UNLIMITED;
+      if (!decision.ok) {
+        return { ok: false, reason: WORK_FAILURE.budgetExhausted, message: decision.message, attempts, tokensUsed };
+      }
+      attempts += 1;
+      const outcome = await attempt(request, signal);
+      if (outcome.kind === "ok") {
+        return { ok: true, plan: { ...outcome.plan, tokensUsed: tokensUsed + outcome.plan.tokensUsed }, attempts };
+      }
+      tokensUsed += outcome.tokensUsed;
+      last = outcome;
+      if (!outcome.retryable || attempts >= maxAttempts) {
+        break;
+      }
+      await sleep(backoff(attempts, outcome.retryAfterMs), signal);
+    }
+    return {
+      ok: false,
+      reason: last?.reason ?? WORK_FAILURE.providerError,
+      message: last?.message ?? "no attempt was made",
+      attempts,
+      tokensUsed,
+    };
+  }
+
+  return {
+    mode: options.mode,
+    async advise(request, signal) {
+      try {
+        return await advise(request, signal ?? NEVER);
+      } catch (error) {
+        // Unreachable by construction; the guarantee is worth one more net.
+        return {
+          ok: false,
+          reason: WORK_FAILURE.providerError,
+          message: error instanceof Error && error.message !== "" ? error.message : "the manager failed",
+          attempts: 0,
+          tokensUsed: 0,
+        };
+      }
+    },
+  };
+}
