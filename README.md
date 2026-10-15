@@ -110,7 +110,7 @@ Then confirm all thirteen:
    the first few go out, the rest are refused and the panel says so. Chat is the
    same. Refusals come from the server, so a modified client cannot talk its way
    past them.
-8. **Sitting down replicates.** Walk Dana up to a chair at an open-floor desk
+8. **Sitting down replicates.** Walk Dana up to a chair at a free open-floor desk
    until the prompt reads `Sit down`, press `E`, and Milo's tab shows Dana
    seated in that chair, not standing beside it. Press a movement key and Dana
    stands up and walks off cleanly in both tabs.
@@ -143,7 +143,8 @@ Then confirm all thirteen:
     nameplate, and an `Idle` badge over each head that reads from where you
     spawn. The roster lists Dana and Milo under **People** and the agents under
     **Agents**, each with its title and activity. Reload a tab and the same
-    names come back at the same desks. Start the server with `AGENT_COUNT=0`
+    names come back at the same desks. Walk up to an agent's chair and the
+    prompt reads `Sit down — taken`; `E` does nothing. Start the server with `AGENT_COUNT=0`
     and the floor is empty of them, or with `AGENT_COUNT=8` and every agent
     desk is taken.
 13. **`pnpm typecheck` passes** across the whole repository.
