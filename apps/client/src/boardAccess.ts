@@ -30,8 +30,11 @@ export interface BoardAccess {
   readonly summary: string;
   /** Whether the board panel offers to file a new ticket. */
   readonly mayCreate: boolean;
-  /** The moves the board panel offers on `ticket`; the shared planner's answer. */
-  readonly movesFor: (ticket: TicketData) => TicketMove[];
+  /**
+   * The moves the board panel offers on `ticket`, given who is in the office;
+   * the shared planner's answer.
+   */
+  readonly movesFor: (ticket: TicketData, people: readonly { readonly id: string }[]) => TicketMove[];
 }
 
 /** Whether `actor` may perform `action`; the server's own rule. */
@@ -51,7 +54,8 @@ export function mayAct(actor: TicketActor, action: TicketAction): boolean {
 export function boardAccessFor(actor: TicketActor, ceoName: string | undefined): BoardAccess {
   const mayCreate = mayCreateTicket(actor);
   const readOnly = !mayCreate;
-  const movesFor = (ticket: TicketData): TicketMove[] => ticketMoves(ticket, actor);
+  const movesFor = (ticket: TicketData, people: readonly { readonly id: string }[]): TicketMove[] =>
+    ticketMoves(ticket, actor, (id) => people.some((person) => person.id === id));
   if (!readOnly) {
     return {
       readOnly,

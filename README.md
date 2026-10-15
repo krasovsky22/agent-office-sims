@@ -514,7 +514,8 @@ Twelve things are worth knowing before changing anything:
   `mayManageStaff`, the one staffing gate, and the rules for what firing costs
   in morale and what a departing agent's tickets do — work still in flight goes
   back to the backlog, never left waiting on someone who has gone, while a
-  handed-in review keeps its deliverable and assignee for the CEO to approve.
+  handed-in review keeps its deliverable and assignee for the CEO to approve,
+  and sending it back for rework returns it to the backlog instead.
   Exactly one player holds the CEO role while anyone is in the office;
   `server/sim/roles.ts` assigns it on arrival and passes it on, in the same
   patch as the departure, when its holder leaves.

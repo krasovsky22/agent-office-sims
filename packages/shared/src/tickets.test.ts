@@ -24,6 +24,7 @@ import {
   type TicketCommand,
   type TicketCommandContext,
   type TicketCommandResult,
+  type TicketPermission,
   applyTicketCommand,
   describeBoardProblems,
   isLegalTicketTransition,
@@ -1040,46 +1041,96 @@ describe("the move planner", () => {
     return board;
   }
 
-  it("offers exactly the moves the server accepts, from every column", () => {
-    for (const from of TICKET_STATUSES) {
-      const offered = ticketMoves(at(from).ticket("ticket-1"), ceo);
+  /** A fresh board with `ticket-1` walked to `status`, then its assignee gone if `departed`. */
+  function atWith(status: TicketStatus, departed: boolean): Harness {
+    const board = at(status);
+    if (departed) {
+      board.state.occupants.delete(WORKER_ID);
+    }
+    return board;
+  }
 
-      for (const to of TICKET_STATUSES.filter((status) => status !== from)) {
-        const board = at(from);
-        const move = offered.find((candidate) => candidate.to === to);
-        if (move === undefined) {
-          const result = board.run({
-            action: TICKET_ACTION.moveStatus,
-            payload: { ticketId: "ticket-1", status: to },
-          });
-          expect(result.ok, `${from} -> ${to} is not offered`).toBe(false);
-          continue;
+  function movesOn(board: Harness, permit?: TicketPermission) {
+    return ticketMoves(board.ticket("ticket-1"), ceo, (id) => board.state.occupants.has(id), permit);
+  }
+
+  it("offers exactly the moves the server accepts, from every column, assignee present or gone", () => {
+    for (const departed of [false, true]) {
+      for (const from of TICKET_STATUSES) {
+        const offered = movesOn(atWith(from, departed));
+
+        for (const to of TICKET_STATUSES.filter((status) => status !== from)) {
+          const board = atWith(from, departed);
+          const move = offered.find((candidate) => candidate.to === to);
+          if (move === undefined) {
+            const result = board.run({
+              action: TICKET_ACTION.moveStatus,
+              payload: { ticketId: "ticket-1", status: to },
+            });
+            expect(result.ok, `${from} -> ${to} is not offered`).toBe(false);
+            continue;
+          }
+          const result =
+            move.action === TICKET_ACTION.assign
+              ? board.run({
+                  action: TICKET_ACTION.assign,
+                  payload: { ticketId: "ticket-1", assigneeId: departed ? CEO_ID : WORKER_ID },
+                })
+              : board.run({
+                  action: TICKET_ACTION.moveStatus,
+                  payload: { ticketId: "ticket-1", status: to },
+                });
+          expect(result.ok, `${from} -> ${to} is offered`).toBe(true);
+          expect(board.ticket("ticket-1").status).toBe(to);
         }
-        const result =
-          move.action === TICKET_ACTION.assign
-            ? board.run({
-                action: TICKET_ACTION.assign,
-                payload: { ticketId: "ticket-1", assigneeId: WORKER_ID },
-              })
-            : board.run({
-                action: TICKET_ACTION.moveStatus,
-                payload: { ticketId: "ticket-1", status: to },
-              });
-        expect(result.ok, `${from} -> ${to} is offered`).toBe(true);
-        expect(board.ticket("ticket-1").status).toBe(to);
       }
     }
   });
 
+  it("sends rework of a review whose assignee has left to the backlog, with a note", () => {
+    const board = atWith(TICKET_STATUS.review, true);
+    const ticket = board.ticket("ticket-1");
+    ticket.outputArtifact = "the finished work";
+    expect(movesOn(board).map((move) => move.to)).toEqual([TICKET_STATUS.backlog, TICKET_STATUS.done]);
+
+    expect(
+      board.run({ action: TICKET_ACTION.moveStatus, payload: { ticketId: "ticket-1", status: TICKET_STATUS.in_progress } }),
+    ).toEqual({ ok: false, rejection: TICKET_REJECTION.illegalTransition });
+    expect(ticket.status).toBe(TICKET_STATUS.review);
+
+    const result = board.run(
+      { action: TICKET_ACTION.moveStatus, payload: { ticketId: "ticket-1", status: TICKET_STATUS.backlog } },
+      1,
+    );
+    expect(result.ok).toBe(true);
+    expect(ticket.status).toBe(TICKET_STATUS.backlog);
+    expect(ticket.assigneeId).toBe("");
+    expect(ticket.outputArtifact).toBe("the finished work");
+    expect(ticket.comments.at(-1)?.authorId).toBe(SYSTEM_AUTHOR_ID);
+    expect(ticket.comments.at(-1)?.text).toContain("assignee left");
+  });
+
+  it("still lets a review whose assignee is present go back to them, and never straight to the backlog", () => {
+    const board = at(TICKET_STATUS.review);
+    expect(
+      board.run({ action: TICKET_ACTION.moveStatus, payload: { ticketId: "ticket-1", status: TICKET_STATUS.backlog } }),
+    ).toEqual({ ok: false, rejection: TICKET_REJECTION.illegalTransition });
+    expect(
+      board.run({ action: TICKET_ACTION.moveStatus, payload: { ticketId: "ticket-1", status: TICKET_STATUS.in_progress } }).ok,
+    ).toBe(true);
+    expect(board.ticket("ticket-1").assigneeId).toBe(WORKER_ID);
+    expect(board.ticket("ticket-1").comments).toHaveLength(0);
+  });
+
   it("asks for an assignee to leave the backlog, and offers nothing out of done", () => {
-    expect(ticketMoves(at(TICKET_STATUS.backlog).ticket("ticket-1"), ceo)).toEqual([
+    expect(movesOn(at(TICKET_STATUS.backlog))).toEqual([
       { action: TICKET_ACTION.assign, to: TICKET_STATUS.assigned },
     ]);
-    expect(ticketMoves(at(TICKET_STATUS.done).ticket("ticket-1"), ceo)).toEqual([]);
+    expect(movesOn(at(TICKET_STATUS.done))).toEqual([]);
   });
 
   it("lists moves in column order", () => {
-    expect(ticketMoves(at(TICKET_STATUS.review).ticket("ticket-1"), ceo).map((move) => move.to)).toEqual([
+    expect(movesOn(at(TICKET_STATUS.review)).map((move) => move.to)).toEqual([
       TICKET_STATUS.in_progress,
       TICKET_STATUS.done,
     ]);
@@ -1088,7 +1139,7 @@ describe("the move planner", () => {
   it("goes through the authority seam, so a denial offers nothing", () => {
     const deny = () => false;
     for (const status of TICKET_STATUSES) {
-      expect(ticketMoves(at(status).ticket("ticket-1"), ceo, deny)).toEqual([]);
+      expect(movesOn(at(status), deny)).toEqual([]);
     }
     expect(mayCreateTicket(ceo)).toBe(true);
     expect(mayCreateTicket(ceo, deny)).toBe(false);

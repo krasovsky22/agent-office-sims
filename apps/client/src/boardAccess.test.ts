@@ -54,16 +54,25 @@ describe("board panel offers", () => {
   it("offers the CEO creation and the shared planner's moves", () => {
     const access = boardAccessFor(DANA, "Dana");
     expect(access.mayCreate).toBe(true);
-    expect(access.movesFor(inProgress)).toEqual([
+    expect(access.movesFor(inProgress, [DANA, MILO])).toEqual([
       { action: TICKET_ACTION.moveStatus, to: TICKET_STATUS.assigned },
       { action: TICKET_ACTION.moveStatus, to: TICKET_STATUS.review },
+    ]);
+  });
+
+  it("offers rework of a review whose assignee has left as a move to the backlog", () => {
+    const access = boardAccessFor(DANA, "Dana");
+    const inReview = { ...inProgress, status: TICKET_STATUS.review };
+    expect(access.movesFor(inReview, [DANA])).toEqual([
+      { action: TICKET_ACTION.moveStatus, to: TICKET_STATUS.backlog },
+      { action: TICKET_ACTION.moveStatus, to: TICKET_STATUS.done },
     ]);
   });
 
   it("offers an executive neither creation nor moves", () => {
     const access = boardAccessFor(MILO, "Dana");
     expect(access.mayCreate).toBe(false);
-    expect(access.movesFor(inProgress)).toEqual([]);
+    expect(access.movesFor(inProgress, [DANA, MILO])).toEqual([]);
   });
 });
 

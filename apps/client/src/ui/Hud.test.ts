@@ -48,6 +48,7 @@ function liveAgent(id: string): RosterEntry {
     isCeo: false,
     jobTitle: "",
     activity: undefined,
+    salary: 0,
     isLocal: false,
     caption: "Working on #33",
     taskUrl: "https://github.com/krasovsky22/agent-office-sims/issues/33",
