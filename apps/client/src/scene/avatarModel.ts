@@ -8,9 +8,10 @@
  *
  * Bodies come in three looks. A remote player wears the model as authored; the
  * local player gets a lighter copy of its materials, so you can spot yourself;
- * and every agent employee shares one recoloured copy of the shell, so an
- * agent is never mistaken for a person and a floor of them costs one extra
- * material, not one per agent.
+ * and every agent employee shares one recoloured, translucent copy of the
+ * materials, so an agent is never mistaken for a person, a simulated employee
+ * reads as a ghost of one that is doing nothing real, and a floor of them costs
+ * one set of extra materials, not one per agent.
  *
  * The load is allowed to fail. Nothing here throws anything the caller cannot
  * handle by leaving the avatar as the capsule it was built as.
@@ -51,6 +52,15 @@ const SHELL_MATERIAL_NAME = "Main";
 
 /** The agents' shell: teal, as far from the players' orange as the wheel goes. */
 const AGENT_SHELL_COLOUR = 0x2bb3a3;
+
+/**
+ * How opaque a simulated agent employee's body is.
+ *
+ * Every agent employee is simulated until the brain loop gives it real work,
+ * and see-through is the one look that reads as "not really here" from across
+ * the open floor without changing its shape or its colour.
+ */
+export const SIMULATED_BODY_OPACITY = 0.45;
 
 /** Which coat of paint a body is stamped out with. */
 export type AvatarLook = "local" | "remote" | "agent";
@@ -149,15 +159,18 @@ const brighten: MaterialPaint = (source) => {
   return copy;
 };
 
-/** The agents' paint: the shell recoloured, everything else left shared. */
+/** The agents' paint: the shell recoloured, and the whole body translucent. */
 const paintAgentShell: MaterialPaint = (source) => {
-  if (source.name !== SHELL_MATERIAL_NAME) {
-    return undefined;
-  }
   const copy = source.clone();
-  if ("color" in copy && copy.color instanceof THREE.Color) {
+  if (
+    source.name === SHELL_MATERIAL_NAME &&
+    "color" in copy &&
+    copy.color instanceof THREE.Color
+  ) {
     copy.color.set(AGENT_SHELL_COLOUR);
   }
+  copy.transparent = true;
+  copy.opacity = SIMULATED_BODY_OPACITY;
   return copy;
 };
 

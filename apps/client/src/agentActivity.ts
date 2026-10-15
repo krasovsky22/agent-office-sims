@@ -9,6 +9,10 @@
  * Colour carries the activity from across the room, and the label carries it
  * for anyone who cannot tell the colours apart: every badge spells its state
  * out. There is no glyph, for the reason `emotes.ts` gives about emoji.
+ *
+ * Every agent employee is simulated: it does no real work until the brain loop
+ * arrives, whatever its badge says. The nameplate and the roster both say so
+ * with {@link SIMULATED_LABEL}, so no one mistakes one for a live coding agent.
  */
 
 import { AGENT_ACTIVITY, type AgentActivity } from "@sim/shared";
@@ -27,3 +31,6 @@ export const AGENT_ACTIVITY_APPEARANCE: Readonly<Record<AgentActivity, AgentActi
     [AGENT_ACTIVITY.meeting]: { label: "In a meeting", colour: "#b994ff" },
     [AGENT_ACTIVITY.blocked]: { label: "Blocked", colour: "#ff7a66" },
   };
+
+/** The tag every simulated agent employee carries on its nameplate and roster line. */
+export const SIMULATED_LABEL = "Simulated";
