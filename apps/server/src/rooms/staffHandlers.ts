@@ -4,7 +4,7 @@
  * Thin for the same reason the ticket handlers are: each one parses the
  * untrusted payload, resolves the sender to an actor, and hands both to
  * `applyStaffCommand` in `@sim/shared`'s `staffing.ts`, which decides whether
- * the sender may, whether there is a desk, and whether the company can pay.
+ * the sender may and whether there is a desk.
  * A refusal is answered to the sender alone, with its reason.
  *
  * What only the room can do lives here: counting the hires it has made, so the

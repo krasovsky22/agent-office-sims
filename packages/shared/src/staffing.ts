@@ -2,8 +2,8 @@
  * The rules of hiring and firing, and of an agent walking out.
  *
  * `agents.ts` says who the office could hire and where they would sit; this
- * module says when the CEO may, what it costs, and what an agent leaving does
- * to the board. It is the staffing counterpart of `tickets.ts`, in the same
+ * module says when the CEO may, what firing costs in morale, and what an agent
+ * leaving does to the board. It is the staffing counterpart of `tickets.ts`, in the same
  * shape: one authority gate the client also asks, and one applier that
  * validates a parsed command against the live room and mutates it, or rejects
  * it and changes nothing.
