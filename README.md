@@ -106,8 +106,8 @@ curl -X POST localhost:2567/agents/report \
                "url":"https://github.com/krasovsky22/agent-office-sims/issues/33"}}'
 ```
 
-`status` is `working`, `idle` or `stopped`; `task` is optional, only read on a
-`working` report, and its `url` must be `https:`. Every report doubles as a
+`status` is `working`, `idle` or `stopped`; `task` is optional (leave it out or
+send `null`), only read on a `working` report, and its `url` must be `https:`. Every report doubles as a
 heartbeat: an agent the server has not heard about for `LIVE_AGENTS_TIMEOUT_SECONDS`
 (a minute by default) leaves the office, so an orchestrator keeps one there by
 repeating its status every few seconds. A report without the secret is refused

@@ -96,9 +96,10 @@ function parseTaskUrl(raw: unknown): string | undefined {
 /**
  * Validates a raw report.
  *
- * A `working` report may omit its task — an orchestrator that knows an agent is
- * busy but not on what still gets it a seat. A task on any other status is
- * ignored rather than rejected, since an idle agent has nothing to show for one.
+ * A `working` report may omit its task or send it as `null` — an orchestrator
+ * that knows an agent is busy but not on what still gets it a seat. A task on
+ * any other status is ignored rather than rejected, since an idle agent has
+ * nothing to show for one.
  *
  * @returns the report, or `undefined` if the payload is not one.
  */
