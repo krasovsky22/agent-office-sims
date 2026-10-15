@@ -37,6 +37,8 @@ import {
   type ChatMessage,
   CLIENT_MESSAGE,
   type Company,
+  type DebugGotoMessage,
+  type DebugReplyEvent,
   type CompanyStatus,
   type Emote,
   type EmoteEvent,
@@ -158,6 +160,8 @@ export interface RoomConnectionEvents {
   onThrottled?: (event: ThrottledEvent) => void;
   /** The project board's snapshot, on joining and whenever the server's feed replaces it. */
   onProjectBoard?: (snapshot: ProjectBoardSnapshot) => void;
+  /** The server's answer to a debug command this client sent. */
+  onDebugReply?: (event: DebugReplyEvent) => void;
   /**
    * The company's numbers changed — which, with the clock among them, is several
    * times a second. The caller decides what is worth re-rendering.
@@ -314,6 +318,11 @@ export class RoomConnection {
   /** Says something out loud. Echoed back by the server, like an emote. */
   public sendChat(text: string): void {
     this.room?.send(CLIENT_MESSAGE.chat, { text } satisfies ChatMessage);
+  }
+
+  /** Sends an agent walking. Answered with a debug reply, to this client only. */
+  public sendDebugGoto(message: DebugGotoMessage): void {
+    this.room?.send(CLIENT_MESSAGE.debugGoto, message satisfies DebugGotoMessage);
   }
 
   /**
@@ -476,6 +485,10 @@ export class RoomConnection {
 
     room.onMessage<CeoChangedEvent>(SERVER_MESSAGE.ceoChanged, (event) => {
       this.events.onCeoChanged?.(event);
+    });
+
+    room.onMessage<DebugReplyEvent>(SERVER_MESSAGE.debugReply, (event) => {
+      this.events.onDebugReply?.(event);
     });
 
     room.onError((code, message) => {

@@ -21,7 +21,12 @@ board panel to see it in is a later milestone. The agent employees have bodies
 now: a handful of them stand at their desks on the open floor, teal where
 players are orange, each labelled with a name and a job title and wearing a
 badge that says what it is doing, and the roster lists them apart from the
-people. They do not move or decide anything yet; that is what comes next. The
+people. They can walk now, too: each has a queue of small instructions — go
+somewhere, sit at a desk, stand, face something, wait — that the server's tick
+works through, routing along the floor plan's waypoints and colliding exactly as
+players do, and giving up with a `Blocked` badge when geometry stops it. Nothing
+decides where they go yet; that is what comes next, and until then a debug
+command sends them. The
 open floor's north wall, facing the desk rows, carries a different board: this
 repository's own GitHub issues, grouped open, in progress and recently closed,
 beside its open pull requests, each with its labels (`wave-1`, `client`…),
@@ -46,7 +51,7 @@ Vite client on `http://localhost:5173`. Both have working defaults, so no
 configuration is required; `.env.example` lists the variables (`PORT`,
 `ALLOWED_ORIGINS`, and `VITE_SERVER_URL`, plus the project board's
 `PROJECT_BOARD_*`, the agents' `MOCK_AGENTS`, `ANTHROPIC_API_KEY` and
-`AGENT_*`, and the staff size, `AGENT_COUNT`) if you need to point the
+`AGENT_*`, the staff size, `AGENT_COUNT`, and `AGENT_DEBUG`) if you need to point the
 client somewhere else. A deployment
 has to set the first three — see [Deploying it](#deploying-it).
 
@@ -82,7 +87,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all fourteen:
+Then confirm all fifteen:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -162,13 +167,28 @@ Then confirm all fourteen:
     refused with the board unchanged, and his tab says "Only the CEO can do
     that." `apps/server/src/rooms/OfficeRoom.test.ts` checks exactly that
     against a live room.
-14. **`pnpm typecheck` passes** across the whole repository.
+14. **Agents walk, in both tabs.** Start the server with `AGENT_DEBUG=on pnpm dev`,
+    and in Dana's chat box type `/goto ada wp-meeting-table`. The HUD says Ada
+    is on her way; in both tabs Ada's badge turns to `Walking` and she walks —
+    legs moving, facing where she is going — up the aisle, out through a
+    doorway in the partition, along the corridor and in through the meeting
+    room's door to the table, never through a wall or a desk, then stands
+    `Idle`. `/goto ada 1.8 0.5`, a point inside a desk, is refused with a
+    reason. Send every agent somewhere at once (`/goto bo wp-lobby-centre`,
+    `/goto cleo wp-kitchen-coffee`, `/goto dax wp-ceo-desk`) and walk Dana around
+    while they go: her movement is exactly as smooth as with nobody walking.
+    `/goto ada -9.5 -9.5`, behind the CEO's desk where no route reaches, has
+    her try, press against the desk for a few seconds, and give up with a
+    `Blocked` badge rather than walking on the spot; the server log has an
+    `agent-intent` line saying so. Without `AGENT_DEBUG=on` a `/goto` is
+    answered with a line saying debug commands are off, and nobody moves.
+15. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets and CEO authority, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets and CEO authority, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing, agent movement
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -207,6 +227,7 @@ public.
 | `AGENT_MODEL` | server | runtime | No. The model agents use. Defaults to `claude-opus-5-5`. |
 | `AGENT_CALLS_PER_DAY` / `AGENT_CALLS_PER_RUN` | server | runtime | No. Model call ceilings per UTC day and per server process. Default 200 and 1000. |
 | `AGENT_COUNT` | server | runtime | No. Agent employees each room hires, from 0 to 8. Defaults to 4. |
+| `AGENT_DEBUG` | server | runtime | No, and leave it off. `on` lets any connected client send agents walking with `/goto`; defaults to `off`. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
 static file cannot be reconfigured afterwards. Changing it means rebuilding and
@@ -324,6 +345,8 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/company.ts      the company clock, stepped by the simulation tick
   src/sim/agents.ts       hiring the agent employees when a room opens
   src/sim/roles.ts        who holds the CEO role, and who inherits it
+  src/sim/agentMotion.ts  each agent's intent queue, and the steering that walks it
+  src/rooms/agentDebug.ts the `/goto` debug command
   src/github/             the project board's feed: fetch, bucket, poll
   src/work/               ticket work: the executor, its budget, mock and model providers
 apps/client/       @sim/client   Three.js scene, React HUD overlay
@@ -335,7 +358,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/assets/office-kit/ the vendored models, and their licence
 ```
 
-Nine things are worth knowing before changing anything:
+Ten things are worth knowing before changing anything:
 
 - **The floor plan is data.** `shared/layout.ts` is the only place a wall
   position exists. The client builds meshes from it and the server collides
@@ -390,6 +413,16 @@ Nine things are worth knowing before changing anything:
   simulation tick, so a slow or unreachable GitHub costs a stale board, never a
   stalled room. It is a broadcast rather than schema for the same reason chat is:
   it is replaced whole, and only the server writes it.
+- **Agents move through an intent queue, and walk like players.** Whatever
+  decides where an agent goes thinks in seconds; the tick runs at 20Hz and never
+  waits. The boundary is a per-agent queue in `sim/agentMotion.ts`: intents land
+  on it whenever they are ready, and the tick drains it synchronously, treating
+  an empty queue as the normal case. Each step goes through the shared
+  pathfinding and the same collision resolver players use, so an agent cannot
+  pass through a wall or a desk, and sitting takes a seat through the room's own
+  interaction rules, so a chair an agent holds is taken for everyone. An agent
+  that makes no progress for three seconds gives up, reports `blocked` and drops
+  the rest of its queue, rather than walking into the wall forever.
 - **The company's numbers have one home.** Every starting value, the clock's
   ratio and each daily formula live in `shared/company.ts`, and rebalancing is
   an edit there and nowhere else. The server's tick steps the clock and closes a

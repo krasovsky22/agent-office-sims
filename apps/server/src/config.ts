@@ -73,6 +73,8 @@ export interface ServerConfig {
   readonly agentWork: AgentWorkConfig;
   /** Agent employees each room hires when it opens. */
   readonly agentCount: number;
+  /** Whether the debug command that sends an agent walking is honoured. */
+  readonly agentDebug: boolean;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -82,6 +84,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     projectBoard: readProjectBoardConfig(env),
     agentWork: readAgentWorkConfig(env),
     agentCount: readAgentCount(env),
+    agentDebug: readAgentDebug(env),
   };
 }
 
@@ -180,6 +183,24 @@ export function readAgentCount(env: NodeJS.ProcessEnv = process.env): number {
     );
   }
   return count;
+}
+
+/**
+ * Reads `AGENT_DEBUG`: `on` or `off`, defaulting to off.
+ *
+ * Off by default, unlike `MOCK_AGENTS`, because what it turns on is a command
+ * any connected browser can send: on a deployment that is every visitor
+ * marching the staff around. Development asks for it by name.
+ */
+export function readAgentDebug(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env["AGENT_DEBUG"]?.trim().toLowerCase() ?? "";
+  if (raw === "" || raw === "off") {
+    return false;
+  }
+  if (raw !== "on") {
+    throw new Error(`AGENT_DEBUG must be on or off, got "${env["AGENT_DEBUG"]}"`);
+  }
+  return true;
 }
 
 /**

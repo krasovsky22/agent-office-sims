@@ -9,7 +9,10 @@
  * "Who is in the office" includes the agent employees, which the room hires
  * itself when it opens — see `sim/agents.ts`. They are occupants like any
  * player, so the board can assign to them and every client draws them, but no
- * session drives them, so nothing below that is keyed by session ever sees one.
+ * session drives them: the per-session maps below never see one, and an agent
+ * moves only through its intent queue. The one registry an agent shares with
+ * players is the hold registry, so a chair an agent sits in is taken for
+ * everyone.
  *
  * Interactions are server-decided, not client-reported. A client may ask to use
  * an interactable; it may not say that it is in reach of one, that the chair is
@@ -34,6 +37,11 @@
  * A player whose socket drops without leaving keeps their place, role
  * included, for {@link RECONNECT_GRACE_SECONDS}. Only a player who left on
  * purpose, or did not come back in time, is removed.
+ *
+ * Nor is how an agent walks. The tick steps `sim/agentMotion.ts`, which drains
+ * each agent's intent queue and moves its body through the shared pathfinding
+ * and collision; whatever fills those queues — a brain, or the debug command in
+ * `agentDebug.ts` — never runs inside the tick.
  *
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
  * one feed polls GitHub on its own timer and is handed to every room as a room option;
@@ -66,6 +74,7 @@ import {
 } from "@sim/shared";
 
 import type { ProjectBoardSource } from "../github/feed.js";
+import { AgentMotion, type IntentReport } from "../sim/agentMotion.js";
 import { type CompanyClock, createCompanyClock, stepCompany } from "../sim/company.js";
 import { hireAgentEmployees } from "../sim/agents.js";
 import { recordOfficeEvent } from "../sim/events.js";
@@ -79,6 +88,7 @@ import {
 } from "../sim/interaction.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
+import { registerAgentDebugHandlers } from "./agentDebug.js";
 import {
   isProjectBoardSource,
   relayProjectBoard,
@@ -100,6 +110,14 @@ import {
  */
 const IDLE_AFTER_MS = 400;
 
+/**
+ * How often agents' intent outcomes are written to the event log.
+ *
+ * On a clock of its own rather than from the tick, because writing a log line
+ * is I/O and the tick does none.
+ */
+const AGENT_REPORT_INTERVAL_MS = 1000;
+
 /** What `index.ts` hands the room type when it defines it. */
 export interface OfficeRoomOptions {
   readonly projectBoard: ProjectBoardSource;
@@ -111,6 +129,8 @@ export interface OfficeRoomOptions {
    * low to watch a grace period run out without waiting for the real one.
    */
   readonly reconnectGraceSeconds?: number;
+  /** Whether the debug goto command is honoured; `AGENT_DEBUG` in `config.ts`. */
+  readonly agentDebug: boolean;
 }
 
 /**
@@ -146,6 +166,9 @@ export class OfficeRoom extends Room<OfficeState> {
   /** The server-only half of the company clock; assigned in `onCreate`. */
   private companyClock!: CompanyClock;
 
+  /** Every agent's intent queue and body; assigned in `onCreate`. */
+  private agentMotion!: AgentMotion;
+
   private spawnCursor = 0;
   private hireCount = 0;
 
@@ -168,6 +191,7 @@ export class OfficeRoom extends Room<OfficeState> {
       lastUsedAt: new Map(),
     };
     this.companyClock = createCompanyClock(this.state.company, this.clock.currentTime);
+    this.agentMotion = new AgentMotion(this.interaction);
 
     const roomOptions = options as Partial<OfficeRoomOptions> | undefined;
     this.reconnectGraceSeconds = graceSecondsOf(roomOptions);
@@ -197,6 +221,14 @@ export class OfficeRoom extends Room<OfficeState> {
     if (typeof agentCount === "number") {
       hireAgentEmployees(this.state.occupants, OFFICE_LAYOUT, agentCount);
     }
+    registerAgentDebugHandlers(this, {
+      enabled: roomOptions?.agentDebug === true,
+      motion: this.agentMotion,
+      occupants: this.state.occupants,
+    });
+    this.clock.setInterval(() => {
+      this.agentMotion.drainReports().forEach(logIntentReport);
+    }, AGENT_REPORT_INTERVAL_MS);
 
     this.onMessage(CLIENT_MESSAGE.pose, (client, raw: unknown) => {
       const pose = parsePoseMessage(raw);
@@ -325,10 +357,10 @@ export class OfficeRoom extends Room<OfficeState> {
    *
    * Synchronous, allocation-light, and with nothing awaited anywhere inside it.
    * That is a deliberate boundary, not an accident of the current scope: agent
-   * employees will decide what to do by calling a model, and those calls will
-   * land on an intent queue that this tick reads without ever waiting on. If the
-   * tick were allowed to await now, that boundary would have to be retrofitted
-   * later against a room full of assumptions that it could.
+   * employees will decide what to do by calling a model, and those decisions
+   * land on the intent queue `agentMotion.step` drains here without ever
+   * waiting on them. If the tick were allowed to await, a slow model would
+   * stall every player in the room.
    */
   private simulate(): void {
     const now = this.clock.currentTime;
@@ -354,6 +386,10 @@ export class OfficeRoom extends Room<OfficeState> {
         occupant.animation = ANIMATION_STATE.idle;
       }
     }
+
+    // After the players, and touching none of their bookkeeping, so however
+    // many agents are walking a player's pose is validated exactly as before.
+    this.agentMotion.step(now);
 
     stepCompany(this.state.company, this.companyClock, this.state.tickets, now);
   }
@@ -424,4 +460,13 @@ export class OfficeRoom extends Room<OfficeState> {
       } satisfies CeoChangedEvent);
     }
   }
+}
+
+function logIntentReport(report: IntentReport): void {
+  recordOfficeEvent("agent-intent", {
+    agent: report.agentId,
+    intent: report.intent.kind,
+    outcome: report.outcome,
+    ...(report.reason === undefined ? {} : { reason: report.reason }),
+  });
 }

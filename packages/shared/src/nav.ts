@@ -182,6 +182,22 @@ export function nearestWaypoint(
   return reachable ?? nearest;
 }
 
+/**
+ * Whether a body of `radius` can walk the straight line from `a` to `b`
+ * without touching an obstacle.
+ *
+ * The same conservative test {@link nearestWaypoint} anchors with, exported so
+ * a steering body can cut a corner of its route exactly when doing so is safe.
+ */
+export function isClearLine(
+  a: Vec2,
+  b: Vec2,
+  layout: OfficeLayout,
+  radius = OCCUPANT_RADIUS,
+): boolean {
+  return hasClearLine(a, b, radius, collisionBoxes(layout));
+}
+
 /** Whether a body of `radius` can walk the straight line from `a` to `b`. */
 function hasClearLine(a: Vec2, b: Vec2, radius: number, boxes: readonly Aabb2[]): boolean {
   for (let i = 0; i < boxes.length; i += 1) {

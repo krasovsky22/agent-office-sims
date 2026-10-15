@@ -8,7 +8,8 @@
  * it and consumes the same events. Callers should not have to change when that
  * happens.
  *
- * Called from message handlers, never from the simulation tick.
+ * Called from message handlers and the room's own timers, never from the
+ * simulation tick.
  */
 
 /** A value an event is allowed to carry. Events are for reading, not for state. */

@@ -7,10 +7,10 @@
  * finds them at their desks.
  *
  * An agent has no session, so it has none of the server-side bookkeeping a
- * player does: no motion record for the tick to validate poses against, no
- * expression budget, no hold. The tick walks the motion records, so it never
- * touches an agent, and a standing agent costs nothing on the wire after the
- * patch that introduced it.
+ * player does: no motion record for the tick to validate poses against, and no
+ * expression budget. It moves only when `agentMotion.ts` has an intent for it,
+ * so a standing agent costs nothing on the wire after the patch that
+ * introduced it.
  */
 
 import {
