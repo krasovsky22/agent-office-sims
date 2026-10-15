@@ -49,6 +49,7 @@ import {
   type EmoteMessage,
   INTERPOLATION_DELAY_MS,
   type InteractMessage,
+  type LiveAgentStatus,
   OFFICE_ROOM_NAME,
   type Occupant,
   type OccupantKind,
@@ -65,6 +66,7 @@ import {
   agentAtDesk,
   isAgentEmployee,
   isCeo,
+  isLiveAgent,
   type Ticket,
   type TicketAssignMessage,
   type TicketCreateMessage,
@@ -107,8 +109,8 @@ interface PoseSample {
  *
  * Mutated in place as patches arrive rather than replaced, so the game loop can
  * read one every frame without allocating. Only the fields the HUD renders
- * trigger an `onOccupantsChanged`; `interactableId` changes far too often for
- * that and is read from the loop instead.
+ * trigger an `onOccupantsChanged`; `interactableId` and `animation` change far
+ * too often for that and are read from the loop instead.
  *
  * `jobTitle` and `activity` are an agent employee's: `""` and `undefined` for a
  * player, so a consumer can branch on `kind` and never meet a half-agent.
@@ -123,6 +125,13 @@ export interface OccupantView {
   readonly isLocal: boolean;
   /** Interactable this occupant is engaged with, or `""` when free. */
   interactableId: string;
+  /** As replicated, so a seated agent can be drawn typing rather than just sitting. */
+  animation: AnimationState;
+  /** A live coding agent's status, or `undefined` for anyone else. */
+  agentStatus: LiveAgentStatus | undefined;
+  /** A live agent's task title and link, `""` when it has none. */
+  taskTitle: string;
+  taskUrl: string;
 }
 
 /**
@@ -461,6 +470,10 @@ export class RoomConnection {
         activity: isAgentEmployee(occupant) ? occupant.activity : undefined,
         isLocal,
         interactableId: occupant.interactableId,
+        animation: occupant.animation,
+        agentStatus: isLiveAgent(occupant) ? occupant.status : undefined,
+        taskTitle: isLiveAgent(occupant) ? occupant.taskTitle : "",
+        taskUrl: isLiveAgent(occupant) ? occupant.taskUrl : "",
       };
       this.views.set(sessionId, view);
 
@@ -565,24 +578,35 @@ export class RoomConnection {
     const ceo = isCeo(occupant);
     const jobTitle = isAgentEmployee(occupant) ? occupant.jobTitle : "";
     const activity = isAgentEmployee(occupant) ? occupant.activity : undefined;
+    const agent = isLiveAgent(occupant) ? occupant : undefined;
+    const agentStatus = agent?.status;
+    const taskTitle = agent?.taskTitle ?? "";
+    const taskUrl = agent?.taskUrl ?? "";
     if (
       view.name !== occupant.name ||
       view.isCeo !== ceo ||
       view.kind !== occupant.kind ||
       view.jobTitle !== jobTitle ||
-      view.activity !== activity
+      view.activity !== activity ||
+      view.agentStatus !== agentStatus ||
+      view.taskTitle !== taskTitle ||
+      view.taskUrl !== taskUrl
     ) {
       view.name = occupant.name;
       view.kind = occupant.kind;
       view.isCeo = ceo;
       view.jobTitle = jobTitle;
       view.activity = activity;
+      view.agentStatus = agentStatus;
+      view.taskTitle = taskTitle;
+      view.taskUrl = taskUrl;
       this.events.onOccupantsChanged?.();
     }
 
-    // Deliberately outside that notification: this changes as often as
-    // someone sits down, and the HUD has no business re-rendering for it.
+    // Deliberately outside that notification: these change as often as
+    // someone sits down, and the HUD has no business re-rendering for them.
     view.interactableId = occupant.interactableId;
+    view.animation = occupant.animation;
 
     if (isLocal) {
       this.readLocalPose(occupant);

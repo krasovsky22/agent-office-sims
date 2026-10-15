@@ -40,7 +40,10 @@ signs now too: cash, morale and productivity, moved once an in-game day by a
 server clock that runs two real minutes to the day. Payroll draws cash, finished
 tickets lift productivity and a growing backlog wears morale down; the HUD shows
 all three with the day and the time, and when cash runs out the clock stops and
-every tab shows the company has folded.
+every tab shows the company has folded. And the coding agents building this
+repository can be on the floor too: an orchestrator reports each one to the
+server, and it walks in, sits at a free desk and types while it has a task, and
+gets up to wander and chat with the other idle agents while it has none.
 
 ## Running it
 
@@ -56,8 +59,8 @@ Vite client on `http://localhost:5173`. Both have working defaults, so no
 configuration is required; `.env.example` lists the variables (`PORT`,
 `ALLOWED_ORIGINS`, and `VITE_SERVER_URL`, plus the project board's
 `PROJECT_BOARD_*`, the agents' `MOCK_AGENTS`, `ANTHROPIC_API_KEY` and
-`AGENT_*`, the staff size, `AGENT_COUNT`, and `AGENT_DEBUG`) if you need to point the
-client somewhere else. A deployment
+`AGENT_*`, the staff size, `AGENT_COUNT`, `AGENT_DEBUG`, and the live agents'
+`LIVE_AGENTS_*`) if you need to point the client somewhere else. A deployment
 has to set the first three — see [Deploying it](#deploying-it).
 
 The server polls GitHub for the project board as soon as it starts, anonymously
@@ -88,6 +91,40 @@ focus back, so walking resumes without a click. While the box has focus it keeps
 every key it is given, so typing an `a` is a letter rather than a step to the
 left.
 
+### Live coding agents
+
+The office shows the real coding agents working on this repository when their
+orchestrator reports them. Set `LIVE_AGENTS_SECRET` (16 characters or more) on
+the server and the orchestrator posts one report per agent to `/agents/report`,
+with the secret as a bearer token:
+
+```sh
+curl -X POST localhost:2567/agents/report \
+  -H "Authorization: Bearer $LIVE_AGENTS_SECRET" -H 'Content-Type: application/json' \
+  -d '{"id":"w2-live-agents-33","name":"Crewmate","status":"working",
+       "task":{"title":"Live coding agents on the floor",
+               "url":"https://github.com/krasovsky22/agent-office-sims/issues/33"}}'
+```
+
+`status` is `working`, `idle` or `stopped`; `task` is optional (leave it out or
+send `null`), only read on a `working` report, and its `url` must be `https:`. Every report doubles as a
+heartbeat: an agent the server has not heard about for `LIVE_AGENTS_TIMEOUT_SECONDS`
+(a minute by default) leaves the office, so an orchestrator keeps one there by
+repeating its status every few seconds. A report without the secret is refused
+with `401`, more than a dozen agents with `409`, and a burst beyond what an
+orchestrator would ever send with `429`. Without the secret the route does not
+exist.
+
+On the floor a live agent is a violet body labelled with its name and task, so
+it is told apart from both the players and the teal agent employees. Working,
+it takes the nearest open-floor chair nobody holds and no agent employee's desk
+owns, walks there along the waypoint graph and sits through the same
+interaction a player uses, so it never takes your chair and you see its chair as
+taken. Idle, it stands up and wanders between rooms; two idle agents that meet
+stop, face each other and trade a few canned lines in speech bubbles. The
+roster lists them under **Live agents** with an `Agent` badge and a link to the
+issue or pull request.
+
 Two query parameters are useful while developing. `?props=off` renders the
 grey-box office instead of the asset kit, and `?debug` puts the draw-call count
 and the number of placed props on the HUD.
@@ -101,7 +138,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all seventeen:
+Then confirm all eighteen:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -221,13 +258,23 @@ Then confirm all seventeen:
     offers only the neighbouring columns, and `Done` offers nothing. `Esc`
     closes the card, then the board; `E` again reopens it with no card open.
     Reopen it, click the office floor, and `Esc` still closes it.
-17. **`pnpm typecheck` passes** across the whole repository.
+17. **Live agents are the same in both tabs.** Start the server with
+    `LIVE_AGENTS_SECRET` set and report one agent `working` and two `idle`, as
+    in [Live coding agents](#live-coding-agents), repeating the reports every few
+    seconds. Within a few seconds the working agent walks to a free open-floor
+    chair — never one at an agent employee's desk — and sits typing, and the
+    two idle ones meet and trade chat bubbles — the same violet bodies, chairs
+    and lines in both tabs, listed under **Live agents** in the roster. Report
+    the working one `idle` and it stands up and wanders; stop reporting one and
+    it leaves after the timeout, its chair free again. The same report without
+    the secret gets `401` and changes nothing.
+18. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing, agent movement, agent work
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -267,6 +314,8 @@ public.
 | `AGENT_CALLS_PER_DAY` / `AGENT_CALLS_PER_RUN` | server | runtime | No. Model call ceilings per UTC day and per server process. Default 200 and 1000. |
 | `AGENT_COUNT` | server | runtime | No. Agent employees each room hires, from 0 to 8. Defaults to 4. |
 | `AGENT_DEBUG` | server | runtime | No, and leave it off. `on` lets any connected client send agents walking with `/goto`; defaults to `off`. |
+| `LIVE_AGENTS_SECRET` | server | runtime | No. The shared secret an agent orchestrator reports with, at least 16 characters; without it no live agents appear. |
+| `LIVE_AGENTS_TIMEOUT_SECONDS` | server | runtime | No. Silence after which a live agent leaves, at least 5. Defaults to 60. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
 static file cannot be reconfigured afterwards. Changing it means rebuilding and
@@ -297,6 +346,11 @@ With `MOCK_AGENTS=off`, every model call an agent makes is counted against the
 two `AGENT_CALLS_*` ceilings, retries included, and a ticket that would pass one
 fails with a budget message instead of being worked. The counters live in memory,
 so a restart resets them. The key is sent only to the model API.
+
+`LIVE_AGENTS_SECRET` is the other secret, and is set the same way. It is compared
+against the report route's `Authorization` header in constant time and never
+leaves the server: clients see each agent's name, status and task and nothing
+about how they were reported.
 
 ### Order of operations
 
@@ -354,9 +408,10 @@ thing the page talks to is the WebSocket.
 ### Checking a deployment
 
 - `GET /health` on the server returns `{"status":"ok"}`. This is what the
-  platform probes, and the only HTTP the server serves; everything else is 404.
+  platform probes, and with `POST /agents/report` when `LIVE_AGENTS_SECRET` is
+  set, the only HTTP the server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same sixteen things.
+  [The two-tab check](#the-two-tab-check), and confirm the same seventeen things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -373,6 +428,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/tickets.ts      the board's rules: transitions, authority, commands
   src/company.ts      the company's tunables, clock ratio, and daily formulas
   src/projectBoard.ts the project board's GitHub snapshot
+  src/liveAgents.ts   a live agent's report, its label, and the chairs it may take
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
   src/collision.ts    capsule-vs-AABB movement resolution
@@ -389,6 +445,8 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/agentDebug.ts the `/goto` debug command
   src/github/             the project board's feed: fetch, bucket, poll
   src/work/               ticket work: the executor, its budget, mock and model providers
+  src/agents/             the live agents' feed: the report route and the registry
+  src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do at the ticket board, and why
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
@@ -400,7 +458,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/assets/office-kit/ the vendored models, and their licence
 ```
 
-Eleven things are worth knowing before changing anything:
+Twelve things are worth knowing before changing anything:
 
 - **The floor plan is data.** `shared/layout.ts` is the only place a wall
   position exists. The client builds meshes from it and the server collides
@@ -484,6 +542,14 @@ Eleven things are worth knowing before changing anything:
   day at each midnight, synchronously, with the board read once a day rather
   than every tick; the numbers replicate as schema, so every tab reads them off
   the same patch.
+- **Live agents are fed off the tick and moved on it.** A report lands in the
+  registry on Node's event loop and only raises a flag; the next tick reads the
+  registry's finished list once, however many reports arrived, and the crew in
+  `sim/liveAgents.ts` walks the bodies through the shared resolver and seats them
+  through the shared interaction. The world side reads the feed through one
+  small interface, `LiveAgentSource`, so another source — open pull requests
+  with recent pushes, say — can stand in for the orchestrator without the
+  world side changing.
 
 ## Assets
 

@@ -98,6 +98,7 @@
 
 .hud__occupant {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 6px;
 }
@@ -114,6 +115,31 @@
   letter-spacing: 0.06em;
   background: rgba(243, 207, 106, 0.16);
   color: #f3cf6a;
+}
+
+.hud__badge--agent {
+  background: rgba(127, 232, 218, 0.14);
+  color: #7fe8da;
+}
+
+/* A live agent's task, on a line of its own under the name. */
+.hud__task {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #9aa0aa;
+}
+
+.hud__task a {
+  color: #a9d8d2;
+  text-decoration: none;
+}
+
+.hud__task a:hover {
+  text-decoration: underline;
 }
 
 .hud__you {
