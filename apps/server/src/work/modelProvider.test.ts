@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { WORK_FAILURE, type WorkContext, WorkProviderError, type WorkTicket, createWorkExecutor } from "./executor.js";
 import { type SendMessage, classifyError, createModelProvider, readReply } from "./modelProvider.js";
 
-type ModelMessage = Anthropic.Beta.Messages.BetaMessage;
+type ModelMessage = Anthropic.Message;
 
 const TICKET: WorkTicket = { id: "t-1", title: "Write the launch email", body: "We ship on Friday." };
 const CONTEXT: WorkContext = { agentName: "Grace", jobTitle: "Marketing Lead" };
@@ -57,18 +57,7 @@ describe("the request", () => {
     expect(JSON.stringify(params?.messages)).toContain("Write the launch email");
     expect(JSON.stringify(params?.messages)).toContain("We ship on Friday.");
     expect(params?.output_config?.format?.type).toBe("json_schema");
-    expect(params?.fallbacks).toBe("default");
     expect(JSON.stringify(params)).not.toContain("test-key");
-  });
-
-  it("leaves out fallbacks for a model that does not take them", async () => {
-    let fallbacks: unknown = "unset";
-    const send: SendMessage = async (params) => {
-      fallbacks = params.fallbacks;
-      return reply(JSON.stringify({ summary: "s", artifact: "a" }));
-    };
-    await createModelProvider({ apiKey: "k", model: "claude-haiku-4-5", send })(TICKET, CONTEXT, SIGNAL);
-    expect(fallbacks).toBeUndefined();
   });
 });
 

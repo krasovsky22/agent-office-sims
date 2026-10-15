@@ -19,7 +19,6 @@ describe("CallBudget", () => {
     const refused = budget.take();
     expect(refused).toMatchObject({ ok: false, retryAt: 20_001 * DAY_MS });
     expect(refused.ok === false && refused.message).toMatch(/today/);
-    expect(budget.remaining()).toEqual({ today: 0, run: 8 });
   });
 
   it("refills the daily limit on a new day", () => {

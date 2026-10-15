@@ -118,10 +118,10 @@ export type AgentWorkConfig =
  */
 export function readAgentWorkConfig(env: NodeJS.ProcessEnv = process.env): AgentWorkConfig {
   const rawMock = env["MOCK_AGENTS"]?.trim().toLowerCase() ?? "";
-  if (rawMock === "" || ["on", "true", "1", "yes"].includes(rawMock)) {
+  if (rawMock === "" || rawMock === "on") {
     return { mode: "mock" };
   }
-  if (!["off", "false", "0", "no"].includes(rawMock)) {
+  if (rawMock !== "off") {
     throw new Error(`MOCK_AGENTS must be on or off, got "${env["MOCK_AGENTS"]}"`);
   }
 

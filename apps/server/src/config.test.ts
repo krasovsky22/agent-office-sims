@@ -154,7 +154,7 @@ describe("readAgentWorkConfig", () => {
 
   it("reads the model and budgets", () => {
     const config = readAgentWorkConfig({
-      MOCK_AGENTS: "false",
+      MOCK_AGENTS: "off",
       ANTHROPIC_API_KEY: "k",
       AGENT_MODEL: "claude-sonnet-5-5",
       AGENT_CALLS_PER_DAY: "20",
@@ -170,6 +170,7 @@ describe("readAgentWorkConfig", () => {
 
   it.each([
     [{ MOCK_AGENTS: "maybe" }, /MOCK_AGENTS/],
+    [{ MOCK_AGENTS: "false", ANTHROPIC_API_KEY: "k" }, /MOCK_AGENTS/],
     [{ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "k", AGENT_CALLS_PER_DAY: "-1" }, /AGENT_CALLS_PER_DAY/],
     [{ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "k", AGENT_CALLS_PER_RUN: "lots" }, /AGENT_CALLS_PER_RUN/],
   ])("rejects %j", (env, pattern) => {

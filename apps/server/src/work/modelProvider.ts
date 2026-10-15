@@ -21,8 +21,8 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { type WorkContext, type WorkOutput, type WorkProvider, WorkProviderError, type WorkTicket } from "./executor.js";
 
-type CreateParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
-type ModelMessage = Anthropic.Beta.Messages.BetaMessage;
+type CreateParams = Anthropic.MessageCreateParamsNonStreaming;
+type ModelMessage = Anthropic.Message;
 
 /** The one SDK call this module makes, so a test can stand in for it. */
 export type SendMessage = (params: CreateParams, options: { signal: AbortSignal }) => Promise<ModelMessage>;
@@ -39,19 +39,6 @@ export interface ModelProviderOptions {
  * not fit is reported as a failure rather than stored cut off mid-sentence.
  */
 const MAX_TOKENS = 16_000;
-
-/**
- * Models that accept `fallbacks: "default"`, which re-runs a request a safety
- * classifier declined on the model Anthropic recommends for that case, inside
- * the same call. Other models are sent without it rather than refused.
- */
-const FALLBACK_MODELS: ReadonlySet<string> = new Set([
-  "claude-fable-5-1",
-  "claude-opus-5-5",
-  "claude-opus-5",
-  "claude-sonnet-5-5",
-]);
-const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
 const OUTPUT_SCHEMA = {
   type: "object",
@@ -85,14 +72,13 @@ export function userPrompt(ticket: WorkTicket): string {
 }
 
 function requestFor(model: string, ticket: WorkTicket, context: WorkContext): CreateParams {
-  const params: CreateParams = {
+  return {
     model,
     max_tokens: MAX_TOKENS,
     system: systemPrompt(context),
     messages: [{ role: "user", content: userPrompt(ticket) }],
     output_config: { effort: "medium", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
   };
-  return FALLBACK_MODELS.has(model) ? { ...params, betas: [FALLBACK_BETA], fallbacks: "default" } : params;
 }
 
 function tokensOf(message: ModelMessage): number {
@@ -115,8 +101,7 @@ export function readReply(message: ModelMessage): WorkOutput {
     throw new WorkProviderError("the deliverable did not fit in the token limit", { retryable: false, tokensUsed });
   }
 
-  // After a fallback the answering model's text comes last.
-  const text = message.content.filter((block) => block.type === "text").at(-1)?.text ?? "";
+  const text = message.content.find((block) => block.type === "text")?.text ?? "";
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -178,7 +163,7 @@ export function createModelProvider(options: ModelProviderOptions): WorkProvider
   let send = options.send;
   if (send === undefined) {
     const client = new Anthropic({ apiKey: options.apiKey, maxRetries: 0 });
-    send = (params, requestOptions) => client.beta.messages.create(params, requestOptions);
+    send = (params, requestOptions) => client.messages.create(params, requestOptions);
   }
   const call = send;
 

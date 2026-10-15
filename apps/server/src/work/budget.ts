@@ -70,15 +70,6 @@ export class CallBudget {
     return { ok: true };
   }
 
-  /** Calls left before each limit refuses. */
-  public remaining(): { readonly today: number; readonly run: number } {
-    this.rollDay();
-    return {
-      today: Math.max(0, this.limits.perDay - this.usedToday),
-      run: Math.max(0, this.limits.perRun - this.usedThisRun),
-    };
-  }
-
   private rollDay(): void {
     const day = Math.floor(this.now() / DAY_MS);
     if (day !== this.day) {
