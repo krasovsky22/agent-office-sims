@@ -314,6 +314,25 @@ describe("an idle agent", () => {
     expect(runUntil(office, 20, () => body.interactableId !== "")).toBeDefined();
     expect(body).toMatchObject({ taskTitle: "Next issue" });
   });
+
+  it("heads for a chair at once when it picks up a task while resting", () => {
+    const office = createOffice();
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    const body = agent(office, "alpha");
+    let moved = false;
+    let last = { x: body.x, z: body.z };
+    const rested = runUntil(office, 60, () => {
+      const still = body.x === last.x && body.z === last.z;
+      last = { x: body.x, z: body.z };
+      moved ||= !still;
+      return moved && still;
+    });
+    expect(rested).toBeDefined();
+
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working)], office.now);
+    runUntil(office, STEP_SECONDS * 2, () => false);
+    expect({ x: body.x, z: body.z }).not.toEqual(last);
+  });
 });
 
 describe("two idle agents that meet", () => {

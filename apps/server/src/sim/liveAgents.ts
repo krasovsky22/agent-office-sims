@@ -188,7 +188,7 @@ export class LiveAgentCrew {
     for (const record of records) {
       present.add(record.id);
       const body = this.bodies.get(record.id) ?? this.arrive(record, now);
-      this.update(body, record);
+      this.update(body, record, now);
     }
     for (const [id, body] of this.bodies) {
       if (!present.has(id)) {
@@ -243,7 +243,7 @@ export class LiveAgentCrew {
     return body;
   }
 
-  private update(body: AgentBody, record: LiveAgentRecord): void {
+  private update(body: AgentBody, record: LiveAgentRecord, now: number): void {
     const { occupant } = body;
     const title = record.task?.title ?? "";
     const url = record.task?.url ?? "";
@@ -261,7 +261,10 @@ export class LiveAgentCrew {
     if (occupant.taskUrl !== url) {
       occupant.taskUrl = url;
     }
-    body.status = record.status;
+    if (body.status !== record.status) {
+      body.status = record.status;
+      body.restUntil = now;
+    }
   }
 
   private depart(id: string, body: AgentBody, now: number): void {
