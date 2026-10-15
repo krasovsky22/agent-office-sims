@@ -20,7 +20,7 @@
  * are solid because they are workstation geometry: `layout.ts` derives their
  * footprint from the same {@link DESK_CHAIR} the chair prop below is fitted to,
  * so the chair you see and the chair you bump into are one shape. The decor —
- * plants, door frames, screens — is still walk-through on purpose.
+ * plants, door frames, screens, the microwave on the counter — is still walk-through on purpose.
  */
 
 import {
@@ -29,6 +29,7 @@ import {
   type DeskSpec,
   type OfficeLayout,
   type PropSpec,
+  type TabletopSpec,
   type WallSpec,
   OFFICE_LAYOUT,
   collisionBoxes,
@@ -43,7 +44,17 @@ import {
  * kind and nothing else. Adding a kind here means adding a model there, so the
  * union stays deliberately short.
  */
-export type AssetPropKind = "desk" | "chair" | "monitor" | "plant" | "door" | "coffee";
+export type AssetPropKind =
+  | "desk"
+  | "chair"
+  | "monitor"
+  | "plant"
+  | "door"
+  | "coffee"
+  | "cabinet"
+  | "microwave"
+  | "table"
+  | "diningChair";
 
 /** An exact box a model should be stretched to fill. */
 export interface PropFit {
@@ -314,16 +325,17 @@ function plantProps(layout: OfficeLayout): AssetPropSpec[] {
 /**
  * The pieces with nowhere to be derived from.
  *
- * A coffee machine does not follow from a wall or a desk, so the layout places
- * it by hand, in `layout.props`, against the shipped floor plan specifically.
- * This just carries that placement over into a render prop, fitted to the
- * exact box the layout already states.
+ * Kitchen furniture does not follow from a wall or a desk, so the layout places
+ * it by hand, in `layout.props` and `layout.tabletop`, against the shipped
+ * floor plan specifically. This just carries those placements over into render
+ * props, fitted to the exact box the layout already states, with each piece of
+ * tabletop dressing lifted onto the prop it names.
  *
  * {@link describePropProblems} checks them, so a layout change that walls one of
  * them in fails the test suite rather than being noticed in a screenshot.
  */
 function handPlacedProps(layout: OfficeLayout): AssetPropSpec[] {
-  return layout.props.map((spec: PropSpec) => ({
+  const standing = layout.props.map((spec: PropSpec) => ({
     id: `prop-${spec.id}`,
     kind: spec.kind,
     x: spec.x,
@@ -332,6 +344,19 @@ function handPlacedProps(layout: OfficeLayout): AssetPropSpec[] {
     yaw: spec.yaw,
     fit: { width: spec.width, depth: spec.depth, height: spec.height },
   }));
+  const heights = new Map(layout.props.map((spec) => [spec.id, spec.height]));
+  // The layout's own check rejects an item on a prop it does not have, so the
+  // fallback to the floor is only ever reached by a broken plan.
+  const onTop = layout.tabletop.map((item: TabletopSpec) => ({
+    id: `prop-${item.id}`,
+    kind: item.kind,
+    x: item.x,
+    y: heights.get(item.on) ?? 0,
+    z: item.z,
+    yaw: item.yaw,
+    fit: { width: item.width, depth: item.depth, height: item.height },
+  }));
+  return [...standing, ...onTop];
 }
 
 /**
@@ -392,8 +417,9 @@ export function describePropProblems(
 ): string[] {
   const problems: string[] = [];
   const boxes = collisionBoxes(layout);
-  // A coffee machine stands against a wall by design — "coffee" is deliberately
-  // excluded, unlike a plant, which needs room to walk up to.
+  // Kitchen furniture stands against a wall or round a table by design, and
+  // `layout.ts` already holds it clear of everything solid — so it is
+  // deliberately excluded, unlike a plant, which needs room to walk up to.
   const freeStanding = new Set<AssetPropKind>(["plant"]);
   const seen = new Set<string>();
 

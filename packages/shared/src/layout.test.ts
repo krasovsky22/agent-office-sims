@@ -23,9 +23,14 @@ import {
 import {
   INTERACTION_KIND,
   OFFICE_LAYOUT,
+  type OfficeLayout,
+  type PropSpec,
   type Vec2,
   type WaypointSpec,
+  containsPoint,
+  describeLayoutProblems,
   interactables,
+  propAabb,
   roomAt,
 } from "./layout.js";
 import { nearestWaypoint } from "./nav.js";
@@ -291,5 +296,116 @@ describe("OFFICE_LAYOUT doorways", () => {
         ARRIVAL_TOLERANCE,
       );
     }
+  });
+});
+
+describe("OFFICE_LAYOUT kitchen", () => {
+  const kitchen = OFFICE_LAYOUT.rooms.find((room) => room.id === "kitchen");
+  if (kitchen === undefined) {
+    throw new Error("the shipped layout has no kitchen");
+  }
+  const inKitchen = OFFICE_LAYOUT.props.filter((spec) => containsPoint(kitchen.bounds, spec));
+
+  function kitchenProp(id: string): PropSpec {
+    const spec = OFFICE_LAYOUT.props.find((candidate) => candidate.id === id);
+    if (spec === undefined) {
+      throw new Error(`no prop ${id}`);
+    }
+    return spec;
+  }
+
+  /** The shipped layout with one prop swapped for `replacement`. */
+  function withProp(replacement: PropSpec): OfficeLayout {
+    return {
+      ...OFFICE_LAYOUT,
+      props: OFFICE_LAYOUT.props.map((spec) => (spec.id === replacement.id ? replacement : spec)),
+    };
+  }
+
+  it("is furnished with a counter, a microwave on it, and a table with chairs", () => {
+    const kinds = inKitchen.map((spec) => spec.kind);
+    expect(kinds.filter((kind) => kind === "cabinet").length).toBeGreaterThanOrEqual(2);
+    expect(kinds.filter((kind) => kind === "table")).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === "diningChair").length).toBeGreaterThanOrEqual(2);
+
+    const microwave = OFFICE_LAYOUT.tabletop.find((item) => item.kind === "microwave");
+    expect(microwave).toBeDefined();
+    expect(inKitchen.find((spec) => spec.id === microwave?.on)?.kind).toBe("cabinet");
+  });
+
+  it("turns the coffee machine to face into the room and serves it from the front", () => {
+    const machine = kitchenProp("coffee-machine");
+    const forward = { x: -Math.sin(machine.yaw), z: -Math.cos(machine.yaw) };
+    // Just past the front face is kitchen floor; just past the back is wall.
+    const reach = machine.depth / 2 + R;
+    const inFront = { x: machine.x + forward.x * reach, z: machine.z + forward.z * reach };
+    const behind = { x: machine.x - forward.x * reach, z: machine.z - forward.z * reach };
+    expect(roomAt(OFFICE_LAYOUT, inFront)?.id).toBe("kitchen");
+    expect(roomAt(OFFICE_LAYOUT, behind)).toBeUndefined();
+
+    const coffee = interactables(OFFICE_LAYOUT).find((spec) => spec.id === "coffee-machine");
+    expect(coffee).toBeDefined();
+    if (coffee === undefined) {
+      return;
+    }
+    // Stood on the machine's front side, facing back into it.
+    const ahead = forward.x * (coffee.anchor.x - machine.x) + forward.z * (coffee.anchor.z - machine.z);
+    expect(ahead).toBeGreaterThan(machine.depth / 2);
+    expect(Math.abs(Math.sin(coffee.anchor.yaw - machine.yaw - Math.PI))).toBeLessThan(1e-9);
+    expect(Math.cos(coffee.anchor.yaw - machine.yaw - Math.PI)).toBeCloseTo(1);
+  });
+
+  it("would refuse a coffee machine turned back to face its wall", () => {
+    const machine = kitchenProp("coffee-machine");
+    expect(describeLayoutProblems(withProp({ ...machine, yaw: 0 }))).toContain(
+      "interactable coffee-machine anchors inside an obstacle",
+    );
+  });
+
+  it("leaves the straight walk from the door to the coffee machine clear", () => {
+    const coffee = interactables(OFFICE_LAYOUT).find((spec) => spec.id === "coffee-machine");
+    expect(coffee).toBeDefined();
+    if (coffee === undefined) {
+      return;
+    }
+    const door = waypoint("wp-kitchen-door");
+    const arrived = walkTo(door, coffee.anchor);
+    expect(distanceBetween(arrived, coffee.anchor)).toBeLessThanOrEqual(ARRIVAL_TOLERANCE);
+    // Not one of the new furnishings sits on that line, so it is clear by a body's width.
+    const walk = { minX: door.x - R, minZ: coffee.anchor.z, maxX: door.x + R, maxZ: door.z };
+    for (const spec of inKitchen.filter((candidate) => candidate.id !== "coffee-machine")) {
+      const box = propAabb(spec);
+      const overlaps =
+        box.minX < walk.maxX && walk.minX < box.maxX && box.minZ < walk.maxZ && walk.minZ < box.maxZ;
+      expect(overlaps, spec.id).toBe(false);
+    }
+  });
+
+  it("would refuse a cabinet pushed into the wall, into a neighbour, or into the doorway", () => {
+    const cabinet = kitchenProp("kitchen-cabinet-north-1");
+    expect(describeLayoutProblems(withProp({ ...cabinet, z: cabinet.z - 0.1 }))).toContain(
+      "prop kitchen-cabinet-north-1 overlaps wall wall-north",
+    );
+    expect(describeLayoutProblems(withProp({ ...cabinet, x: cabinet.x - 0.1 }))).toContain(
+      "prop kitchen-cabinet-north-1 overlaps prop kitchen-cabinet-north-2",
+    );
+    expect(describeLayoutProblems(withProp({ ...cabinet, x: 3.15, z: -5.5 }))).toContain(
+      "prop kitchen-cabinet-north-1 stands in doorway door-kitchen",
+    );
+  });
+
+  it("would refuse a microwave left off the counter it names", () => {
+    const [microwave] = OFFICE_LAYOUT.tabletop;
+    if (microwave === undefined) {
+      throw new Error("the shipped layout has no tabletop items");
+    }
+    const offEdge = { ...microwave, x: microwave.x + 0.5 };
+    expect(describeLayoutProblems({ ...OFFICE_LAYOUT, tabletop: [offEdge] })).toEqual([
+      `tabletop item ${microwave.id} overhangs prop ${microwave.on}`,
+    ]);
+    const onNothing = { ...microwave, on: "kitchen-shelf" };
+    expect(describeLayoutProblems({ ...OFFICE_LAYOUT, tabletop: [onNothing] })).toEqual([
+      `tabletop item ${microwave.id} stands on unknown prop kitchen-shelf`,
+    ]);
   });
 });

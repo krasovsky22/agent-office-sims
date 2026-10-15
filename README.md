@@ -298,8 +298,9 @@ Seven things are worth knowing before changing anything:
 - **The furniture is data too, and only some of it collides.** `shared/props.ts`
   derives every prop from the floor plan — a chair and a screen per workstation, a
   frame in every doorway gap, a plant in each room — so a layout change furnishes
-  itself. Walls, desks, the coffee machine and the chairs are solid; screens,
-  plants and door frames are not. A chair's footprint, its seat height and its
+  itself. Walls, desks, the chairs and the kitchen's furniture — the coffee
+  machine, the counter's cabinets, the table and its chairs — are solid; screens,
+  plants, door frames and the microwave on the counter are not. A chair's footprint, its seat height and its
   backrest are one shared record, `DESK_CHAIR` in `shared/layout.ts`: the chair
   prop is fitted to it, the server collides against it, and the seated avatar is
   lifted onto it. The seats you can sit in come from the same workstations as
@@ -321,7 +322,7 @@ Seven things are worth knowing before changing anything:
 
 ## Assets
 
-The props come from Kenney's **Furniture Kit 2.0**, which is CC0. Six models are
+The props come from Kenney's **Furniture Kit 2.0**, which is CC0. Ten models are
 vendored into `apps/client/src/assets/office-kit/`, with the pack's own licence
 text, the checksums, and the re-download command recorded in the `README.md`
 beside them. That file is the provenance record — keep it current when the models
