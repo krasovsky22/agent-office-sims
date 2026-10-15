@@ -20,7 +20,10 @@
  * here, once, so every provider gets it and none can skip it.
  *
  * `work` is async and takes seconds. It must be called from an agent's own
- * loop and its result handed to the room, never awaited inside the tick.
+ * loop and its result handed to the room, never awaited inside the tick. That
+ * loop can be torn down mid-call, when its room closes, so `work` takes a
+ * signal: aborting it ends the call at once, with every timer it started
+ * cleared, rather than leaving a provider running for a room that is gone.
  */
 
 import { type Ticket } from "@sim/shared";
@@ -60,6 +63,8 @@ export const WORK_FAILURE = {
   timeout: "timeout",
   /** The provider answered with an error, a refusal, or something unusable. */
   providerError: "provider-error",
+  /** The caller's signal aborted; whatever was in flight was abandoned. */
+  cancelled: "cancelled",
 } as const;
 
 export type WorkFailureReason = (typeof WORK_FAILURE)[keyof typeof WORK_FAILURE];
@@ -80,8 +85,23 @@ export interface WorkFailure {
 export type WorkResult = WorkSuccess | WorkFailure;
 
 export interface WorkExecutor {
-  /** Resolves with the deliverable or a structured failure. Never rejects. */
-  work(ticket: WorkTicket, context: WorkContext): Promise<WorkResult>;
+  /**
+   * Resolves with the deliverable or a structured failure. Never rejects.
+   * An aborted `signal` resolves it promptly as {@link WORK_FAILURE.cancelled}.
+   */
+  work(ticket: WorkTicket, context: WorkContext, signal?: AbortSignal): Promise<WorkResult>;
+}
+
+/**
+ * Whether a value is a {@link WorkExecutor}, for a room that is handed one
+ * through options a client's join options are merged into.
+ */
+export function isWorkExecutor(value: unknown): value is WorkExecutor {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Partial<WorkExecutor>).work === "function"
+  );
 }
 
 /**
@@ -130,8 +150,11 @@ export interface WorkExecutorOptions {
   readonly backoffMs?: number;
   /** Ceiling on any one wait, a provider's own `retry-after` included. */
   readonly maxBackoffMs?: number;
-  /** Injected so a test need not wait out real backoff. */
-  readonly sleep?: (ms: number) => Promise<void>;
+  /**
+   * Injected so a test need not wait out real backoff. Should resolve early
+   * when `signal` aborts; the executor stops waiting for it either way.
+   */
+  readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   /** Injected so a test can pin the jitter. In `[0, 1)`. */
   readonly random?: () => number;
 }
@@ -147,23 +170,59 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_BACKOFF_MS = 2_000;
 const DEFAULT_MAX_BACKOFF_MS = 60_000;
 
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 
+/** Resolves when `signal` aborts, and lets go of it when `release` is called first. */
+function whenAborted(signal: AbortSignal): { readonly aborted: Promise<void>; release(): void } {
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<void>((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    onAbort = () => resolve();
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return {
+    aborted,
+    release: () => {
+      if (onAbort !== undefined) {
+        signal.removeEventListener("abort", onAbort);
+      }
+    },
+  };
+}
+
+/** A signal that never aborts, for a caller that passed none. */
+const NEVER = new AbortController().signal;
+
 /** What one attempt came to; never a thrown error. */
-type AttemptOutcome =
-  | { readonly kind: "ok"; readonly output: WorkOutput }
-  | {
-      readonly kind: "failed";
-      readonly reason: typeof WORK_FAILURE.timeout | typeof WORK_FAILURE.providerError;
-      readonly message: string;
-      readonly retryable: boolean;
-      readonly retryAfterMs: number | undefined;
-      readonly tokensUsed: number;
-    };
+type AttemptOutcome = { readonly kind: "ok"; readonly output: WorkOutput } | FailedAttempt;
+
+interface FailedAttempt {
+  readonly kind: "failed";
+  readonly reason:
+    | typeof WORK_FAILURE.timeout
+    | typeof WORK_FAILURE.providerError
+    | typeof WORK_FAILURE.cancelled;
+  readonly message: string;
+  readonly retryable: boolean;
+  readonly retryAfterMs: number | undefined;
+  readonly tokensUsed: number;
+}
 
 const TIMED_OUT = Symbol("timed out");
+const CANCELLED = Symbol("cancelled");
 
 /** What an absent budget always says. */
 const UNLIMITED: BudgetDecision = { ok: true };
@@ -176,7 +235,11 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
   const sleep = options.sleep ?? defaultSleep;
   const random = options.random ?? Math.random;
 
-  async function attempt(ticket: WorkTicket, context: WorkContext): Promise<AttemptOutcome> {
+  async function attempt(
+    ticket: WorkTicket,
+    context: WorkContext,
+    cancel: AbortSignal,
+  ): Promise<AttemptOutcome> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
@@ -185,6 +248,13 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
         resolve(TIMED_OUT);
       }, timeoutMs);
     });
+    // The caller giving up wins the race too, so a provider that ignores its
+    // signal still cannot keep this attempt — or its timer — alive.
+    const caller = whenAborted(cancel);
+    const cancelled = caller.aborted.then((): typeof CANCELLED => {
+      controller.abort();
+      return CANCELLED;
+    });
     // Started inside a promise chain so a provider that throws synchronously
     // still lands in the catch below, and given a handler at once so one that
     // rejects after losing the race is not an unhandled rejection.
@@ -192,7 +262,10 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
     pending.catch(() => undefined);
 
     try {
-      const output = await Promise.race([pending, deadline]);
+      const output = await Promise.race([pending, deadline, cancelled]);
+      if (output === CANCELLED) {
+        return cancelledAttempt();
+      }
       if (output === TIMED_OUT) {
         return timedOut();
       }
@@ -203,6 +276,9 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
       const summary = typeof output.summary === "string" ? output.summary.trim() : "";
       return { kind: "ok", output: { artifact, summary, tokensUsed: output.tokensUsed } };
     } catch (error) {
+      if (cancel.aborted) {
+        return cancelledAttempt();
+      }
       if (controller.signal.aborted) {
         return timedOut();
       }
@@ -213,7 +289,19 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
       return failed(message, false, undefined, 0);
     } finally {
       clearTimeout(timer);
+      caller.release();
     }
+  }
+
+  function cancelledAttempt(): FailedAttempt {
+    return {
+      kind: "failed",
+      reason: WORK_FAILURE.cancelled,
+      message: "the work was cancelled",
+      retryable: false,
+      retryAfterMs: undefined,
+      tokensUsed: 0,
+    };
   }
 
   function timedOut(): AttemptOutcome {
@@ -242,12 +330,21 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
     return Math.min(maxBackoffMs, Math.max(exponential, retryAfterMs ?? 0));
   }
 
-  async function work(ticket: WorkTicket, context: WorkContext): Promise<WorkResult> {
+  async function work(
+    ticket: WorkTicket,
+    context: WorkContext,
+    signal: AbortSignal,
+  ): Promise<WorkResult> {
     let tokensUsed = 0;
     let attempts = 0;
-    let last: Extract<AttemptOutcome, { kind: "failed" }> | undefined;
+    let last: FailedAttempt | undefined;
 
     while (attempts < maxAttempts) {
+      // Checked before the budget, so a cancelled call spends nothing.
+      if (signal.aborted) {
+        last = cancelledAttempt();
+        break;
+      }
       const decision = options.budget?.take() ?? UNLIMITED;
       if (!decision.ok) {
         const message =
@@ -263,7 +360,7 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
       }
 
       attempts += 1;
-      const outcome = await attempt(ticket, context);
+      const outcome = await attempt(ticket, context, signal);
       tokensUsed += outcome.kind === "ok" ? outcome.output.tokensUsed : outcome.tokensUsed;
       if (outcome.kind === "ok") {
         return { ok: true, ...outcome.output, tokensUsed, attempts };
@@ -273,7 +370,9 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
       if (!outcome.retryable || attempts >= maxAttempts) {
         break;
       }
-      await sleep(backoff(attempts, outcome.retryAfterMs));
+      const waited = whenAborted(signal);
+      await Promise.race([sleep(backoff(attempts, outcome.retryAfterMs), signal), waited.aborted]);
+      waited.release();
     }
 
     return {
@@ -287,9 +386,9 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
   }
 
   return {
-    async work(ticket, context) {
+    async work(ticket, context, signal) {
       try {
-        return await work(ticket, context);
+        return await work(ticket, context, signal ?? NEVER);
       } catch (error) {
         // Unreachable by construction; the guarantee is worth one more net.
         return {

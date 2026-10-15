@@ -30,8 +30,10 @@ import {
   mayActOnTicket,
   seedBoard,
   ticketActorOf,
+  ticketForAgent,
 } from "./tickets.js";
 import {
+  AgentEmployee,
   HumanPlayer,
   OCCUPANT_KIND,
   OfficeState,
@@ -578,8 +580,12 @@ describe("comment", () => {
 
 describe("CEO authority", () => {
   const ACTIONS: readonly TicketAction[] = Object.values(TICKET_ACTION);
+  /** Every action a player may ever be granted; the rest are an assignee agent's. */
+  const PLAYER_ACTIONS = ACTIONS.filter(
+    (action) => TICKET_ACTION_AUTHORITY[action] !== TICKET_AUTHORITY.assignee,
+  );
 
-  /** One valid instance of every command, each of which the CEO may run. */
+  /** One valid instance of every player command, each of which the CEO may run. */
   const COMMANDS: readonly TicketCommand[] = [
     { action: TICKET_ACTION.create, payload: { title: "Denied", body: "" } },
     { action: TICKET_ACTION.assign, payload: { ticketId: "ticket-1", assigneeId: WORKER_ID } },
@@ -617,12 +623,14 @@ describe("CEO authority", () => {
 
   it("names who may perform every action", () => {
     expect(Object.keys(TICKET_ACTION_AUTHORITY).sort()).toEqual([...ACTIONS].sort());
-    expect(COMMANDS.map((command) => command.action).sort()).toEqual([...ACTIONS].sort());
+    expect(COMMANDS.map((command) => command.action).sort()).toEqual([...PLAYER_ACTIONS].sort());
   });
 
-  it("gives the CEO every action", () => {
+  it("gives the CEO every action but the assignee's own", () => {
     for (const action of ACTIONS) {
-      expect(mayActOnTicket({ actor: CEO_ACTOR, action }), action).toBe(true);
+      expect(mayActOnTicket({ actor: CEO_ACTOR, action }), action).toBe(
+        PLAYER_ACTIONS.includes(action),
+      );
     }
   });
 
@@ -698,7 +706,7 @@ describe("CEO authority", () => {
 });
 
 describe("the authority seam", () => {
-  it("is the only gate: denying it refuses all seven commands, even the CEO's", () => {
+  it("is the only gate: denying it refuses every command, even the CEO's", () => {
     const board = harness({ permit: () => false });
     const before = [...board.state.tickets.values()].map(snapshot);
 
@@ -716,6 +724,9 @@ describe("the authority seam", () => {
         payload: { ticketId: "ticket-1", priority: TICKET_PRIORITY.low },
       },
       { action: TICKET_ACTION.comment, payload: { ticketId: "ticket-1", text: "Denied" } },
+      { action: TICKET_ACTION.claim, payload: { ticketId: "ticket-1" } },
+      { action: TICKET_ACTION.attachOutput, payload: { ticketId: "ticket-1", artifact: "Denied" } },
+      { action: TICKET_ACTION.handIn, payload: { ticketId: "ticket-1" } },
     ];
     expect(commands.map((command) => command.action).sort()).toEqual(
       [...Object.values(TICKET_ACTION)].sort(),
@@ -748,6 +759,212 @@ describe("the authority seam", () => {
       { action: TICKET_ACTION.create, hasTicket: false },
       { action: TICKET_ACTION.assign, hasTicket: true },
     ]);
+  });
+});
+
+describe("an agent's own work", () => {
+  const ADA = "agent-1";
+  const BO = "agent-2";
+
+  function agent(id: string): AgentEmployee {
+    const employee = new AgentEmployee();
+    employee.id = id;
+    employee.name = id;
+    return employee;
+  }
+
+  /** The starter board with two agents on the staff, judged as `actor`. */
+  function office(): Harness & { readonly as: (id: string) => Harness["run"] } {
+    const board = harness();
+    board.state.occupants.set(ADA, agent(ADA));
+    board.state.occupants.set(BO, agent(BO));
+    const as =
+      (id: string): Harness["run"] =>
+      (command, step = 0) => {
+        const occupant = board.state.occupants.get(id);
+        if (occupant === undefined) {
+          throw new Error(`nobody called ${id}`);
+        }
+        return applyTicketCommand(command, {
+          board: board.state.tickets,
+          occupants: board.state.occupants,
+          actor: ticketActorOf(occupant),
+          now: T0 + step,
+          nextTicketId: () => "ticket-new",
+        });
+      };
+    return { ...board, as };
+  }
+
+  function assign(board: Harness, ticketId: string, assigneeId: string): void {
+    expect(board.run({ action: TICKET_ACTION.assign, payload: { ticketId, assigneeId } }).ok).toBe(true);
+  }
+
+  it("claims, attaches and hands in the ticket the CEO gave it", () => {
+    const board = office();
+    assign(board, "ticket-1", ADA);
+    const ada = board.as(ADA);
+
+    expect(ada({ action: TICKET_ACTION.claim, payload: { ticketId: "ticket-1" } }, 10).ok).toBe(true);
+    expect(board.ticket("ticket-1").status).toBe(TICKET_STATUS.in_progress);
+    expect(
+      ada({ action: TICKET_ACTION.attachOutput, payload: { ticketId: "ticket-1", artifact: "Spec." } }, 20)
+        .ok,
+    ).toBe(true);
+    expect(board.ticket("ticket-1").status).toBe(TICKET_STATUS.in_progress);
+    expect(ada({ action: TICKET_ACTION.handIn, payload: { ticketId: "ticket-1" } }, 30).ok).toBe(true);
+
+    const ticket = board.ticket("ticket-1");
+    expect(ticket.status).toBe(TICKET_STATUS.review);
+    expect(ticket.assigneeId).toBe(ADA);
+    expect(ticket.outputArtifact).toBe("Spec.");
+    expect(ticket.updatedAt).toBe(T0 + 30);
+    expect(describeBoardProblems(board.state.tickets)).toEqual([]);
+  });
+
+  it("refuses every other agent, the CEO and an executive the assignee's actions", () => {
+    const board = office();
+    assign(board, "ticket-1", ADA);
+    advanceTo(board, "ticket-2", TICKET_STATUS.in_progress);
+    const before = [...board.state.tickets.values()].map(snapshot);
+
+    for (const who of [BO, CEO_ID, WORKER_ID]) {
+      const run = board.as(who);
+      for (const command of [
+        { action: TICKET_ACTION.claim, payload: { ticketId: "ticket-1" } },
+        { action: TICKET_ACTION.attachOutput, payload: { ticketId: "ticket-2", artifact: "Mine." } },
+        { action: TICKET_ACTION.handIn, payload: { ticketId: "ticket-2" } },
+      ] satisfies TicketCommand[]) {
+        expect(run(command), `${who} ${command.action}`).toEqual({
+          ok: false,
+          rejection: TICKET_REJECTION.forbidden,
+        });
+      }
+    }
+    expect([...board.state.tickets.values()].map(snapshot)).toEqual(before);
+  });
+
+  it("leaves the CEO's actions to the CEO, so an agent cannot pick or approve its own work", () => {
+    const board = office();
+    assign(board, "ticket-1", ADA);
+    const ada = board.as(ADA);
+
+    expect(
+      ada({ action: TICKET_ACTION.assign, payload: { ticketId: "ticket-2", assigneeId: ADA } }),
+    ).toEqual({ ok: false, rejection: TICKET_REJECTION.forbidden });
+    expect(
+      ada({
+        action: TICKET_ACTION.moveStatus,
+        payload: { ticketId: "ticket-1", status: TICKET_STATUS.in_progress },
+      }),
+    ).toEqual({ ok: false, rejection: TICKET_REJECTION.forbidden });
+    expect(ada({ action: TICKET_ACTION.comment, payload: { ticketId: "ticket-1", text: "Stuck." } }).ok).toBe(
+      true,
+    );
+  });
+
+  it("only claims a ticket waiting in assigned", () => {
+    const board = office();
+    assign(board, "ticket-1", ADA);
+    const ada = board.as(ADA);
+    ada({ action: TICKET_ACTION.claim, payload: { ticketId: "ticket-1" } });
+
+    expect(ada({ action: TICKET_ACTION.claim, payload: { ticketId: "ticket-1" } })).toEqual({
+      ok: false,
+      rejection: TICKET_REJECTION.illegalTransition,
+    });
+  });
+
+  it("attaches only to work in progress, and never an empty deliverable", () => {
+    const board = office();
+    assign(board, "ticket-1", ADA);
+    const ada = board.as(ADA);
+
+    expect(
+      ada({ action: TICKET_ACTION.attachOutput, payload: { ticketId: "ticket-1", artifact: "Early." } }),
+    ).toEqual({ ok: false, rejection: TICKET_REJECTION.illegalTransition });
+    ada({ action: TICKET_ACTION.claim, payload: { ticketId: "ticket-1" } });
+    expect(
+      ada({ action: TICKET_ACTION.attachOutput, payload: { ticketId: "ticket-1", artifact: "  \n " } }),
+    ).toEqual({ ok: false, rejection: TICKET_REJECTION.missingArtifact });
+    expect(board.ticket("ticket-1").outputArtifact).toBe("");
+  });
+
+  it("hands in nothing without a deliverable", () => {
+    const board = office();
+    assign(board, "ticket-1", ADA);
+    const ada = board.as(ADA);
+    ada({ action: TICKET_ACTION.claim, payload: { ticketId: "ticket-1" } });
+
+    expect(ada({ action: TICKET_ACTION.handIn, payload: { ticketId: "ticket-1" } })).toEqual({
+      ok: false,
+      rejection: TICKET_REJECTION.missingArtifact,
+    });
+    expect(board.ticket("ticket-1").status).toBe(TICKET_STATUS.in_progress);
+  });
+
+  describe("ticketForAgent", () => {
+    function pick(board: Harness, agentId: string): string | undefined {
+      return ticketForAgent(board.state.tickets.values(), board.state.occupants.values(), agentId)?.id;
+    }
+
+    it("finds only tickets assigned to that agent, and never one in the backlog", () => {
+      const board = office();
+      expect(pick(board, ADA)).toBeUndefined();
+
+      assign(board, "ticket-1", BO);
+      expect(pick(board, ADA)).toBeUndefined();
+      assign(board, "ticket-2", ADA);
+      expect(pick(board, ADA)).toBe("ticket-2");
+    });
+
+    it("takes up work sent back from review, and leaves review and done alone", () => {
+      const board = office();
+      assign(board, "ticket-1", ADA);
+      const ada = board.as(ADA);
+      ada({ action: TICKET_ACTION.claim, payload: { ticketId: "ticket-1" } });
+      ada({ action: TICKET_ACTION.attachOutput, payload: { ticketId: "ticket-1", artifact: "Draft." } });
+      ada({ action: TICKET_ACTION.handIn, payload: { ticketId: "ticket-1" } });
+      expect(pick(board, ADA)).toBeUndefined();
+
+      board.run({
+        action: TICKET_ACTION.moveStatus,
+        payload: { ticketId: "ticket-1", status: TICKET_STATUS.in_progress },
+      });
+      expect(pick(board, ADA)).toBe("ticket-1");
+    });
+
+    it("picks the highest priority first, then the oldest", () => {
+      const board = office();
+      for (const id of ["ticket-1", "ticket-2", "ticket-3"]) {
+        assign(board, id, ADA);
+      }
+      board.ticket("ticket-1").createdAt = T0 + 5;
+      expect(pick(board, ADA)).toBe("ticket-2");
+
+      board.run({
+        action: TICKET_ACTION.setPriority,
+        payload: { ticketId: "ticket-3", priority: TICKET_PRIORITY.high },
+      });
+      expect(pick(board, ADA)).toBe("ticket-3");
+    });
+
+    it("never gives two agents the same ticket, even straight after a reassignment", () => {
+      const board = office();
+      assign(board, "ticket-1", ADA);
+      const ada = board.state.occupants.get(ADA) as AgentEmployee;
+      expect(pick(board, ADA)).toBe("ticket-1");
+      board.as(ADA)({ action: TICKET_ACTION.claim, payload: { ticketId: "ticket-1" } });
+      ada.currentTicketId = "ticket-1";
+
+      // Handed to Bo while Ada is still holding it: Bo waits until she lets go.
+      assign(board, "ticket-1", BO);
+      expect(pick(board, BO)).toBeUndefined();
+      expect(pick(board, ADA)).toBeUndefined();
+
+      ada.currentTicketId = "";
+      expect(pick(board, BO)).toBe("ticket-1");
+    });
   });
 });
 

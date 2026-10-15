@@ -29,7 +29,7 @@ import { ProjectFeed } from "./github/feed.js";
 import { createHealthServer } from "./http.js";
 import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
-import { describeAgentWork } from "./work/fromConfig.js";
+import { createConfiguredExecutor, describeAgentWork } from "./work/fromConfig.js";
 
 const { port, allowedOrigins, projectBoard, agentWork, agentCount, agentDebug } = readConfig();
 
@@ -51,13 +51,15 @@ const server = new Server({
 });
 
 // Colyseus lets these server options win a collision with a client's join
-// options, so a client can never supply the feed, the size of the staff, or
-// its own permission to send debug commands.
+// options, so a client can never supply the feed, the size of the staff, the
+// way the staff work, or its own permission to send debug commands. The
+// executor is made once, so its call budget is the whole server's.
 server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   projectBoard: projectFeed,
   agentCount,
   reconnectGraceSeconds: RECONNECT_GRACE_SECONDS,
   agentDebug,
+  workExecutor: createConfiguredExecutor(agentWork),
 } satisfies OfficeRoomOptions);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

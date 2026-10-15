@@ -13,7 +13,14 @@
  * function of the layout, and the layout is shared.
  */
 
-import { type DeskSpec, type OfficeLayout, type SpawnSpec, workstations } from "./layout.js";
+import {
+  type DeskSpec,
+  INTERACTION_KIND,
+  type OfficeLayout,
+  type SpawnSpec,
+  type Vec2,
+  workstations,
+} from "./layout.js";
 import { type Occupant, isAgentEmployee } from "./state.js";
 
 /** One person the office can hire. */
@@ -73,7 +80,6 @@ export interface AgentHire extends AgentProfile {
  * agent that later sits down only has to take the seat in front of it.
  */
 export function planAgentHires(layout: OfficeLayout, count: number): AgentHire[] {
-  const desksById = new Map<string, DeskSpec>(layout.desks.map((spec) => [spec.id, spec]));
   const hires: AgentHire[] = [];
 
   for (const deskId of layout.agentDesks) {
@@ -81,19 +87,51 @@ export function planAgentHires(layout: OfficeLayout, count: number): AgentHire[]
     if (hires.length >= count || profile === undefined) {
       break;
     }
-    const desk = desksById.get(deskId);
-    const workstation = desk === undefined ? undefined : workstations(desk)[0];
-    if (desk === undefined || workstation === undefined) {
+    const stand = deskStand(layout, deskId);
+    if (stand === undefined) {
       throw new Error(`agent desk ${deskId} is not a desk in the layout`);
     }
-    hires.push({
-      ...profile,
-      id: `agent-${hires.length + 1}`,
-      deskId,
-      stand: { x: workstation.exit.x, z: workstation.exit.z, yaw: desk.yaw },
-    });
+    hires.push({ ...profile, id: `agent-${hires.length + 1}`, deskId, stand });
   }
   return hires;
+}
+
+/**
+ * Where an agent stands at its desk when it is not sitting at it: behind the
+ * chair of the desk's first workstation, facing the desk.
+ *
+ * Where it is hired, and where it goes back to between tickets, so an agent
+ * with nothing to do is always found at its own desk.
+ */
+export function deskStand(layout: OfficeLayout, deskId: string): SpawnSpec | undefined {
+  const desk: DeskSpec | undefined = layout.desks.find((spec) => spec.id === deskId);
+  const workstation = desk === undefined ? undefined : workstations(desk)[0];
+  if (desk === undefined || workstation === undefined) {
+    return undefined;
+  }
+  return { x: workstation.exit.x, z: workstation.exit.z, yaw: desk.yaw };
+}
+
+/**
+ * Where an agent carries a deliverable: the reader's spot at the layout's
+ * whiteboard, facing it, which is where the ticket board is read and worked.
+ *
+ * Read from the layout rather than written down here, so moving the board
+ * moves where the agents walk to.
+ */
+export function ticketBoardStand(layout: OfficeLayout): SpawnSpec | undefined {
+  const board = layout.fixtures.find((spec) => spec.kind === INTERACTION_KIND.whiteboard);
+  return board === undefined ? undefined : { ...board.anchor };
+}
+
+/**
+ * A point `distance` metres ahead of a pose, along its yaw.
+ *
+ * A body is turned by facing a point, so this is how a pose's yaw becomes
+ * something to face. Yaw 0 faces -Z, as it does everywhere in the layout.
+ */
+export function pointAhead(pose: SpawnSpec, distance = 1): Vec2 {
+  return { x: pose.x - Math.sin(pose.yaw) * distance, z: pose.z - Math.cos(pose.yaw) * distance };
 }
 
 /**

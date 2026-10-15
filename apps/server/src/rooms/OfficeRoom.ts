@@ -43,6 +43,12 @@
  * and collision; whatever fills those queues — a brain, or the debug command in
  * `agentDebug.ts` — never runs inside the tick.
  *
+ * Nor is how an agent works. Each agent hired gets a brain, `sim/agentBrain.ts`,
+ * on its own async loop and its own timers rather than the room clock's, which
+ * Colyseus ticks from inside the simulation interval. The room starts the brains
+ * when it hires the agents and stops them when it closes, and that is all it
+ * does with them.
+ *
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
  * one feed polls GitHub on its own timer and is handed to every room as a room option;
  * `projectBoardDelivery.ts` relays what it publishes. The tick never reads it.
@@ -74,6 +80,7 @@ import {
 } from "@sim/shared";
 
 import type { ProjectBoardSource } from "../github/feed.js";
+import { AgentBrain } from "../sim/agentBrain.js";
 import { AgentMotion, type IntentReport } from "../sim/agentMotion.js";
 import { type CompanyClock, createCompanyClock, stepCompany } from "../sim/company.js";
 import { hireAgentEmployees } from "../sim/agents.js";
@@ -88,6 +95,7 @@ import {
 } from "../sim/interaction.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
+import { type WorkExecutor, isWorkExecutor } from "../work/executor.js";
 import { registerAgentDebugHandlers } from "./agentDebug.js";
 import {
   isProjectBoardSource,
@@ -131,6 +139,11 @@ export interface OfficeRoomOptions {
   readonly reconnectGraceSeconds?: number;
   /** Whether the debug goto command is honoured; `AGENT_DEBUG` in `config.ts`. */
   readonly agentDebug: boolean;
+  /**
+   * How the agents do their tickets, shared by every room so one call budget
+   * covers the server. A room given none hires agents that never pick up work.
+   */
+  readonly workExecutor: WorkExecutor;
 }
 
 /**
@@ -168,6 +181,9 @@ export class OfficeRoom extends Room<OfficeState> {
 
   /** Every agent's intent queue and body; assigned in `onCreate`. */
   private agentMotion!: AgentMotion;
+
+  /** One per agent hired, each on its own loop; stopped in `onDispose`. */
+  private readonly brains: AgentBrain[] = [];
 
   private spawnCursor = 0;
   private hireCount = 0;
@@ -218,8 +234,24 @@ export class OfficeRoom extends Room<OfficeState> {
 
     // Before anyone can join, so nobody's first patch is an empty office.
     const agentCount = roomOptions?.agentCount;
-    if (typeof agentCount === "number") {
-      hireAgentEmployees(this.state.occupants, OFFICE_LAYOUT, agentCount);
+    const hired =
+      typeof agentCount === "number"
+        ? hireAgentEmployees(this.state.occupants, OFFICE_LAYOUT, agentCount)
+        : [];
+    const executor = roomOptions?.workExecutor;
+    if (isWorkExecutor(executor)) {
+      const brainHost = {
+        tickets: ticketHost,
+        layout: OFFICE_LAYOUT,
+        motion: this.agentMotion,
+        executor,
+        clockNow: () => this.clock.currentTime,
+      };
+      for (const agent of hired) {
+        const brain = new AgentBrain(brainHost, agent.id);
+        this.brains.push(brain);
+        brain.start();
+      }
     }
     registerAgentDebugHandlers(this, {
       enabled: roomOptions?.agentDebug === true,
@@ -325,6 +357,10 @@ export class OfficeRoom extends Room<OfficeState> {
   }
 
   public override onDispose(): void {
+    // First, so no brain is left writing to a room that is closing.
+    for (const brain of this.brains) {
+      brain.stop();
+    }
     this.stopRelayingProjectBoard?.();
   }
 
@@ -357,10 +393,10 @@ export class OfficeRoom extends Room<OfficeState> {
    *
    * Synchronous, allocation-light, and with nothing awaited anywhere inside it.
    * That is a deliberate boundary, not an accident of the current scope: agent
-   * employees will decide what to do by calling a model, and those decisions
-   * land on the intent queue `agentMotion.step` drains here without ever
-   * waiting on them. If the tick were allowed to await, a slow model would
-   * stall every player in the room.
+   * employees work their tickets by calling a model, on their own loops, and
+   * what they decide lands on the intent queue `agentMotion.step` drains here
+   * without ever waiting on them. If the tick were allowed to await, a slow
+   * model would stall every player in the room.
    */
   private simulate(): void {
     const now = this.clock.currentTime;

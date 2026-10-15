@@ -24,9 +24,12 @@ badge that says what it is doing, and the roster lists them apart from the
 people. They can walk now, too: each has a queue of small instructions — go
 somewhere, sit at a desk, stand, face something, wait — that the server's tick
 works through, routing along the floor plan's waypoints and colliding exactly as
-players do, and giving up with a `Blocked` badge when geometry stops it. Nothing
-decides where they go yet; that is what comes next, and until then a debug
-command sends them. The
+players do, and giving up with a `Blocked` badge when geometry stops it. And
+they work: a ticket the CEO assigns to one is claimed, worked at the agent's
+own desk — seated, typing, badge `Working` — and carried to the meeting room's
+whiteboard, where the agent hands it in for review with its deliverable
+attached, then walks back to its desk. Work that fails leaves the agent
+`Blocked`, with the reason in a comment on the ticket. The
 open floor's north wall, facing the desk rows, carries a different board: this
 repository's own GitHub issues, grouped open, in progress and recently closed,
 beside its open pull requests, each with its labels (`wave-1`, `client`…),
@@ -87,7 +90,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all fifteen:
+Then confirm all sixteen:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -182,13 +185,27 @@ Then confirm all fifteen:
     `Blocked` badge rather than walking on the spot; the server log has an
     `agent-intent` line saying so. Without `AGENT_DEBUG=on` a `/goto` is
     answered with a line saying debug commands are off, and nobody moves.
-15. **`pnpm typecheck` passes** across the whole repository.
+15. **Agents work what the CEO assigns, in both tabs.** As Dana, assign a
+    ticket to Ada (a `ticket:assign` with `assigneeId: "agent-1"`, which the
+    board panel sends). Within a second the ticket is `in_progress` and Ada's
+    badge reads `Working`: she sits at her desk and types for several seconds of
+    mock work, then gets up, walks to the meeting room's whiteboard and the
+    ticket moves to `review` with a deliverable in `outputArtifact` that quotes
+    the ticket. She walks back to her desk and goes `Idle`. Assign a ticket to
+    every agent at once and walk Dana around the whole time: her movement is
+    exactly as smooth as with nobody working. The server log has an
+    `agent-work` line for each step. To see a failure, start the server with
+    `MOCK_AGENTS=off`, `AGENT_CALLS_PER_RUN=0` and any `ANTHROPIC_API_KEY`: the
+    agent goes `Blocked`, the ticket stays `in_progress` and assigned to her
+    with the reason in a comment, and moving it back to `assigned` has her try
+    again.
+16. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets and CEO authority, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing, agent movement
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets and CEO authority, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing, agent movement, agent work
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -346,6 +363,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/agents.ts       hiring the agent employees when a room opens
   src/sim/roles.ts        who holds the CEO role, and who inherits it
   src/sim/agentMotion.ts  each agent's intent queue, and the steering that walks it
+  src/sim/agentBrain.ts   each agent's work loop: claim a ticket, work it, hand it in
   src/rooms/agentDebug.ts the `/goto` debug command
   src/github/             the project board's feed: fetch, bucket, poll
   src/work/               ticket work: the executor, its budget, mock and model providers
@@ -358,7 +376,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/assets/office-kit/ the vendored models, and their licence
 ```
 
-Ten things are worth knowing before changing anything:
+Eleven things are worth knowing before changing anything:
 
 - **The floor plan is data.** `shared/layout.ts` is the only place a wall
   position exists. The client builds meshes from it and the server collides
@@ -423,6 +441,17 @@ Ten things are worth knowing before changing anything:
   interaction rules, so a chair an agent holds is taken for everyone. An agent
   that makes no progress for three seconds gives up, reports `blocked` and drops
   the rest of its queue, rather than walking into the wall forever.
+- **Agents think on their own loop, never the tick's.** Each agent's brain in
+  `sim/agentBrain.ts` is an async loop on its own timers: it polls the board,
+  pushes intents, awaits the work executor and writes the result, and the tick
+  never waits on any of it. Its ticket writes go through the same
+  `applyTicketCommand` and authority gate as a player's, with the agent as the
+  actor: the assignee may claim, attach a deliverable and hand in, and nothing
+  else, so assignment and approval stay the CEO's. The ticket is re-checked
+  after every wait, and watched while the work call runs, so work the CEO
+  moved or reassigned meanwhile is put down — the call cancelled at once —
+  rather than delivered, and closing the room stops every brain, aborting work
+  in flight, before anything else is torn down.
 - **The company's numbers have one home.** Every starting value, the clock's
   ratio and each daily formula live in `shared/company.ts`, and rebalancing is
   an edit there and nowhere else. The server's tick steps the clock and closes a

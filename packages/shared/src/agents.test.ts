@@ -4,11 +4,14 @@ import {
   AGENT_ROSTER,
   DEFAULT_AGENT_COUNT,
   MAX_AGENT_COUNT,
+  deskStand,
   planAgentHires,
+  pointAhead,
+  ticketBoardStand,
 } from "./agents.js";
 import { isBlocked } from "./collision.js";
 import { OCCUPANT_RADIUS } from "./constants.js";
-import { OFFICE_LAYOUT, describeLayoutProblems, workstations } from "./layout.js";
+import { INTERACTION_KIND, OFFICE_LAYOUT, describeLayoutProblems, workstations } from "./layout.js";
 import {
   AGENT_ACTIVITY,
   AgentEmployee,
@@ -64,6 +67,36 @@ describe("planAgentHires", () => {
       expect(hire.stand.z).toBeCloseTo(workstation?.exit.z ?? Number.NaN);
       expect(hire.stand.yaw).toBe(desk?.yaw);
     }
+  });
+});
+
+describe("where an agent goes", () => {
+  it("goes home to where it was hired", () => {
+    for (const hire of planAgentHires(OFFICE_LAYOUT, MAX_AGENT_COUNT)) {
+      expect(deskStand(OFFICE_LAYOUT, hire.deskId)).toEqual(hire.stand);
+    }
+    expect(deskStand(OFFICE_LAYOUT, "desk-nowhere")).toBeUndefined();
+  });
+
+  it("hands work in standing clear in front of the whiteboard, facing it", () => {
+    const stand = ticketBoardStand(OFFICE_LAYOUT);
+    const board = OFFICE_LAYOUT.fixtures.find((spec) => spec.kind === INTERACTION_KIND.whiteboard);
+    expect(stand).toBeDefined();
+    expect(stand).toEqual(board?.anchor);
+    if (stand !== undefined) {
+      expect(isBlocked(stand, OCCUPANT_RADIUS, OFFICE_LAYOUT)).toBe(false);
+    }
+    expect(ticketBoardStand({ ...OFFICE_LAYOUT, fixtures: [] })).toBeUndefined();
+  });
+
+  it("faces a pose's yaw by facing the point ahead of it", () => {
+    // Yaw 0 faces -Z; a quarter turn faces -X.
+    const ahead = pointAhead({ x: 1, z: 1, yaw: 0 });
+    expect(ahead.x).toBeCloseTo(1);
+    expect(ahead.z).toBeCloseTo(0);
+    const turned = pointAhead({ x: 0, z: 0, yaw: Math.PI / 2 }, 2);
+    expect(turned.x).toBeCloseTo(-2);
+    expect(turned.z).toBeCloseTo(0);
   });
 });
 
