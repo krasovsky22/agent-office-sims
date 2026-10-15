@@ -35,20 +35,17 @@ import {
   isDueToQuit,
   isTrading,
 } from "./company.js";
-import { MAX_TICKET_COMMENTS } from "./constants.js";
 import type { OfficeLayout } from "./layout.js";
 import type { StaffFireMessage, StaffHireMessage } from "./messages.js";
 import {
   type AgentEmployee,
   type Company,
   type Occupant,
-  SYSTEM_AUTHOR_ID,
   TICKET_STATUS,
   type Ticket,
-  TicketComment,
   isAgentEmployee,
 } from "./state.js";
-import type { TicketActor } from "./tickets.js";
+import { type TicketActor, noteOnTicket } from "./tickets.js";
 
 /** What a staffing command wants to do. */
 export const STAFF_ACTION = {
@@ -213,7 +210,8 @@ function fire(payload: StaffFireMessage, context: StaffCommandContext): StaffCom
  *
  * A `review` or `done` ticket keeps the agent as its assignee, which is the
  * record of who did the work: a review is already handed in with its
- * deliverable, so the CEO can still approve it after the agent has left.
+ * deliverable, so the CEO can still approve it after the agent has left, or
+ * send it back to the backlog; see `ticketTransitions`.
  */
 export function removeAgent(
   agent: AgentEmployee,
@@ -236,17 +234,6 @@ export function removeAgent(
   }
   context.occupants.delete(agent.id);
   return { agent, releasedTicketIds };
-}
-
-function noteOnTicket(ticket: Ticket, text: string, now: number): void {
-  const comment = new TicketComment();
-  comment.authorId = SYSTEM_AUTHOR_ID;
-  comment.text = text;
-  comment.createdAt = now;
-  while (ticket.comments.length >= MAX_TICKET_COMMENTS) {
-    ticket.comments.shift();
-  }
-  ticket.comments.push(comment);
 }
 
 /** The reason an agent who quit gives, for the ticket note and the announcement. */
