@@ -68,6 +68,7 @@ export interface ServerConfig {
   /** Origins permitted to matchmake and open a socket, already normalized. */
   readonly allowedOrigins: readonly string[];
   readonly projectBoard: ProjectBoardConfig;
+  readonly agentWork: AgentWorkConfig;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -75,7 +76,83 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port: readPort(env),
     allowedOrigins: readAllowedOrigins(env),
     projectBoard: readProjectBoardConfig(env),
+    agentWork: readAgentWorkConfig(env),
   };
+}
+
+/** The model agents use when `AGENT_MODEL` is unset. */
+const DEFAULT_AGENT_MODEL = "claude-opus-5-5";
+
+/**
+ * Model calls allowed when no budget is configured. A day's worth covers an
+ * office of a few agents working tickets all day; the per-run figure is the
+ * total a long-lived server will spend before it needs a restart to spend more.
+ */
+const DEFAULT_AGENT_CALLS_PER_DAY = 200;
+const DEFAULT_AGENT_CALLS_PER_RUN = 1000;
+
+/** How agents do ticket work: canned text for free, or a real model that costs money. */
+export type AgentWorkConfig =
+  | { readonly mode: "mock" }
+  | {
+      readonly mode: "model";
+      /**
+       * Server-side only: read here, handed to the model client, and never
+       * logged or sent to a browser.
+       */
+      readonly apiKey: string;
+      readonly model: string;
+      readonly callsPerDay: number;
+      readonly callsPerRun: number;
+    };
+
+/**
+ * Reads how agents do their work.
+ *
+ * - `MOCK_AGENTS`: `on` (the default) or `off`. On, agents write canned text
+ *   on a timer and nothing is spent, which is what development wants.
+ * - `ANTHROPIC_API_KEY`: required when `MOCK_AGENTS` is off. Checked here so a
+ *   missing key stops the server at boot rather than failing the first ticket.
+ * - `AGENT_MODEL`: optional, defaulting to {@link DEFAULT_AGENT_MODEL}.
+ * - `AGENT_CALLS_PER_DAY`, `AGENT_CALLS_PER_RUN`: optional call budgets.
+ */
+export function readAgentWorkConfig(env: NodeJS.ProcessEnv = process.env): AgentWorkConfig {
+  const rawMock = env["MOCK_AGENTS"]?.trim().toLowerCase() ?? "";
+  if (rawMock === "" || rawMock === "on") {
+    return { mode: "mock" };
+  }
+  if (rawMock !== "off") {
+    throw new Error(`MOCK_AGENTS must be on or off, got "${env["MOCK_AGENTS"]}"`);
+  }
+
+  const apiKey = env["ANTHROPIC_API_KEY"]?.trim() ?? "";
+  if (apiKey === "") {
+    throw new Error(
+      "MOCK_AGENTS is off but ANTHROPIC_API_KEY is not set: set the key as a platform secret, " +
+        "or leave MOCK_AGENTS on to run agents without a model",
+    );
+  }
+
+  const rawModel = env["AGENT_MODEL"]?.trim() ?? "";
+  return {
+    mode: "model",
+    apiKey,
+    model: rawModel === "" ? DEFAULT_AGENT_MODEL : rawModel,
+    callsPerDay: readCallBudget(env, "AGENT_CALLS_PER_DAY", DEFAULT_AGENT_CALLS_PER_DAY),
+    callsPerRun: readCallBudget(env, "AGENT_CALLS_PER_RUN", DEFAULT_AGENT_CALLS_PER_RUN),
+  };
+}
+
+function readCallBudget(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name]?.trim() ?? "";
+  if (raw === "") {
+    return fallback;
+  }
+  const calls = Number(raw);
+  if (!Number.isInteger(calls) || calls < 0) {
+    throw new Error(`${name} must be a whole number of calls, got "${raw}"`);
+  }
+  return calls;
 }
 
 /**

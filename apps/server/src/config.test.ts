@@ -3,12 +3,19 @@
  * security boundary rather than a convenience. Each case below is a claim the
  * README makes about `ALLOWED_ORIGINS`, or about the project board's
  * `PROJECT_BOARD_*` variables, which refuse to start the server when they are
- * wrong rather than polling a repository nobody meant.
+ * wrong rather than polling a repository nobody meant. The agent work variables
+ * follow the same rule: a model mode with no key stops the boot, not a ticket.
  */
 
 import { describe, expect, it } from "vitest";
 
-import { isOriginAllowed, readAllowedOrigins, readPort, readProjectBoardConfig } from "./config.js";
+import {
+  isOriginAllowed,
+  readAgentWorkConfig,
+  readAllowedOrigins,
+  readPort,
+  readProjectBoardConfig,
+} from "./config.js";
 
 const SITE = "https://office.example.com";
 
@@ -125,5 +132,54 @@ describe("readProjectBoardConfig", () => {
     expect(() => readProjectBoardConfig({ PROJECT_BOARD_POLL_SECONDS: value })).toThrow(
       /PROJECT_BOARD_POLL_SECONDS/,
     );
+  });
+});
+
+describe("readAgentWorkConfig", () => {
+  it("runs mock agents unless told otherwise", () => {
+    expect(readAgentWorkConfig({})).toEqual({ mode: "mock" });
+    expect(readAgentWorkConfig({ MOCK_AGENTS: "" })).toEqual({ mode: "mock" });
+    expect(readAgentWorkConfig({ MOCK_AGENTS: "on", ANTHROPIC_API_KEY: "k" })).toEqual({ mode: "mock" });
+  });
+
+  it("uses the model, with default budgets, when mock is off and a key is present", () => {
+    expect(readAgentWorkConfig({ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: " sk-test " })).toEqual({
+      mode: "model",
+      apiKey: "sk-test",
+      model: "claude-opus-5-5",
+      callsPerDay: 200,
+      callsPerRun: 1000,
+    });
+  });
+
+  it("reads the model and budgets", () => {
+    const config = readAgentWorkConfig({
+      MOCK_AGENTS: "off",
+      ANTHROPIC_API_KEY: "k",
+      AGENT_MODEL: "claude-sonnet-5-5",
+      AGENT_CALLS_PER_DAY: "20",
+      AGENT_CALLS_PER_RUN: "0",
+    });
+    expect(config).toMatchObject({ model: "claude-sonnet-5-5", callsPerDay: 20, callsPerRun: 0 });
+  });
+
+  it("refuses to start in model mode without a key, and says how to fix it", () => {
+    expect(() => readAgentWorkConfig({ MOCK_AGENTS: "off" })).toThrow(/ANTHROPIC_API_KEY.*MOCK_AGENTS on/);
+    expect(() => readAgentWorkConfig({ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "  " })).toThrow(/ANTHROPIC_API_KEY/);
+  });
+
+  it.each([
+    [{ MOCK_AGENTS: "maybe" }, /MOCK_AGENTS/],
+    [{ MOCK_AGENTS: "false", ANTHROPIC_API_KEY: "k" }, /MOCK_AGENTS/],
+    [{ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "k", AGENT_CALLS_PER_DAY: "-1" }, /AGENT_CALLS_PER_DAY/],
+    [{ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "k", AGENT_CALLS_PER_RUN: "lots" }, /AGENT_CALLS_PER_RUN/],
+  ])("rejects %j", (env, pattern) => {
+    expect(() => readAgentWorkConfig(env)).toThrow(pattern);
+  });
+
+  it("never puts the key in an error", () => {
+    expect(() =>
+      readAgentWorkConfig({ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "sk-secret", AGENT_CALLS_PER_DAY: "x" }),
+    ).toThrow(expect.objectContaining({ message: expect.not.stringContaining("sk-secret") }));
   });
 });
