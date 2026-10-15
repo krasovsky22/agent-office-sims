@@ -2,10 +2,11 @@
  * Replicated room state.
  *
  * {@link Occupant} is deliberately the base type for everyone who can stand in
- * the office, not just for players. This milestone only ever puts
- * {@link HumanPlayer} instances in the map, but the agent employees this
- * prototype exists to host will be a sibling class added alongside it, and the
- * occupants map will not have to be reshaped to hold them.
+ * the office, not just for players. The map holds two siblings of it:
+ * {@link HumanPlayer}, one per browser, and {@link AgentEmployee}, the staff the
+ * room hires itself. Both are read through the same map, so anything that only
+ * needs a body and a name — the renderer, the board's assignee lookup — treats
+ * them alike, and only what is particular to one kind narrows by `kind`.
  *
  * Positions are `float32`: the wire stays small and the rounding is far below
  * the drift the client tolerates before it corrects itself.
@@ -87,7 +88,7 @@ export function isAnimationState(value: unknown): value is AnimationState {
  */
 export type ReportedAnimation = typeof ANIMATION_STATE.idle | typeof ANIMATION_STATE.walking;
 
-/** Anyone standing in the office: a player now, an agent employee later. */
+/** Anyone standing in the office: a player or an agent employee. */
 export class Occupant extends Schema {
   declare public id: string;
   declare public name: string;
@@ -143,6 +144,74 @@ export class HumanPlayer extends Occupant {
 defineTypes(HumanPlayer, { isCeo: "boolean" });
 
 /**
+ * What an agent employee is doing, as the floor should read it.
+ *
+ * Separate from {@link ANIMATION_STATE}, which is what the body is doing. An
+ * agent stuck on a ticket and an agent with nothing to do may both be standing
+ * still; this is the field that tells them apart, and it is what the badge
+ * above an agent's head shows.
+ *
+ * Nothing changes it yet. Agents stand at their desks and are `idle` until the
+ * issue that gives them a brain writes the rest.
+ */
+export const AGENT_ACTIVITY = {
+  idle: "idle",
+  walking: "walking",
+  working: "working",
+  meeting: "meeting",
+  blocked: "blocked",
+} as const;
+
+export type AgentActivity = (typeof AGENT_ACTIVITY)[keyof typeof AGENT_ACTIVITY];
+
+/** Ceiling of an agent's morale and energy, which run from 0 to this. */
+export const AGENT_STAT_MAX = 100;
+
+/**
+ * An occupant the room hires rather than one a browser drives.
+ *
+ * Every field is written by the server alone: no client message names an agent,
+ * so nothing a client sends can reach one.
+ *
+ * `currentTicketId` holds a {@link Ticket.id}, or `""` when the agent has
+ * nothing, for the same reason a ticket holds occupant ids rather than
+ * references — Colyseus replicates trees, not graphs. An id that is no longer
+ * on the board is rendered as no ticket rather than repaired.
+ *
+ * Morale and energy are whole numbers out of {@link AGENT_STAT_MAX}, `uint8` on
+ * the wire, because nothing reads them finer than a percentage.
+ */
+export class AgentEmployee extends Occupant {
+  declare public jobTitle: string;
+  /** Id of the desk in the layout this agent works at. */
+  declare public deskId: string;
+  declare public currentTicketId: string;
+  declare public activity: AgentActivity;
+  declare public morale: number;
+  declare public energy: number;
+
+  public constructor() {
+    super();
+    this.kind = OCCUPANT_KIND.agent;
+    this.jobTitle = "";
+    this.deskId = "";
+    this.currentTicketId = "";
+    this.activity = AGENT_ACTIVITY.idle;
+    this.morale = AGENT_STAT_MAX;
+    this.energy = AGENT_STAT_MAX;
+  }
+}
+
+defineTypes(AgentEmployee, {
+  jobTitle: "string",
+  deskId: "string",
+  currentTicketId: "string",
+  activity: "string",
+  morale: "uint8",
+  energy: "uint8",
+});
+
+/**
  * Where a ticket sits on the board.
  *
  * The order of these keys is the order of the board's columns, left to right,
@@ -171,9 +240,9 @@ export function isTicketStatus(value: unknown): value is TicketStatus {
 /**
  * One unit of work on the board.
  *
- * `assigneeId` and `createdById` hold occupant ids — session ids for the humans
- * in this milestone — rather than object references, because Colyseus replicates
- * trees and not graphs. A consumer resolves them against
+ * `assigneeId` and `createdById` hold occupant ids — a session id for a human,
+ * an `agent-` id for an agent employee — rather than object references, because
+ * Colyseus replicates trees and not graphs. A consumer resolves them against
  * {@link OfficeState.occupants}; an id that is no longer in that map is a
  * ticket whose assignee has disconnected, which the board renders rather than
  * repairs.
@@ -329,8 +398,13 @@ export function shortestYawDelta(from: number, to: number): number {
  * Tests the replicated `kind` field rather than using `instanceof`: the browser
  * client builds its state from the schema the server reflects to it on join, so
  * the objects it holds carry the right fields without being instances of these
- * classes. When agent employees arrive they get the same treatment.
+ * classes.
  */
 export function isHumanPlayer(occupant: Occupant): occupant is HumanPlayer {
   return occupant.kind === OCCUPANT_KIND.human;
+}
+
+/** Narrows an occupant to an agent employee, by `kind` as {@link isHumanPlayer} does. */
+export function isAgentEmployee(occupant: Occupant): occupant is AgentEmployee {
+  return occupant.kind === OCCUPANT_KIND.agent;
 }

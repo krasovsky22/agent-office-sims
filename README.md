@@ -17,7 +17,11 @@ one shadow-casting light. Some of it can be used: walk up to a desk chair, the
 kitchen's coffee machine, the meeting room's whiteboard or the project board and a
 prompt offers the action, which the server grants or refuses. On top of that, the ticket
 board exists as replicated state with its rules enforced on the server — a
-board panel to see it in and the AI agent employees are later milestones. The
+board panel to see it in is a later milestone. The agent employees have bodies
+now: a handful of them stand at their desks on the open floor, teal where
+players are orange, each labelled with a name and a job title and wearing a
+badge that says what it is doing, and the roster lists them apart from the
+people. They do not move or decide anything yet; that is what comes next. The
 open floor's north wall, facing the desk rows, carries a different board: this
 repository's own GitHub issues, grouped open, in progress and recently closed,
 beside its open pull requests, each with its labels (`wave-1`, `client`…),
@@ -41,8 +45,9 @@ That starts both halves: the Colyseus server on `ws://localhost:2567` and the
 Vite client on `http://localhost:5173`. Both have working defaults, so no
 configuration is required; `.env.example` lists the variables (`PORT`,
 `ALLOWED_ORIGINS`, and `VITE_SERVER_URL`, plus the project board's
-`PROJECT_BOARD_*` and the agents' `MOCK_AGENTS`, `ANTHROPIC_API_KEY` and
-`AGENT_*`) if you need to point the client somewhere else. A deployment
+`PROJECT_BOARD_*`, the agents' `MOCK_AGENTS`, `ANTHROPIC_API_KEY` and
+`AGENT_*`, and the staff size, `AGENT_COUNT`) if you need to point the
+client somewhere else. A deployment
 has to set the first three — see [Deploying it](#deploying-it).
 
 The server polls GitHub for the project board as soon as it starts, anonymously
@@ -77,7 +82,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twelve:
+Then confirm all thirteen:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -105,7 +110,7 @@ Then confirm all twelve:
    the first few go out, the rest are refused and the panel says so. Chat is the
    same. Refusals come from the server, so a modified client cannot talk its way
    past them.
-8. **Sitting down replicates.** Walk Dana up to a chair at an open-floor desk
+8. **Sitting down replicates.** Walk Dana up to a chair at a free open-floor desk
    until the prompt reads `Sit down`, press `E`, and Milo's tab shows Dana
    seated in that chair, not standing beside it. Press a movement key and Dana
    stands up and walks off cleanly in both tabs.
@@ -134,13 +139,23 @@ Then confirm all twelve:
     move, in both tabs at once. Running out of cash takes about forty minutes at
     the starting numbers, which live in `shared/company.ts`; set `STARTING_CASH`
     there to one payroll to see the end state at the first midnight instead.
-12. **`pnpm typecheck` passes** across the whole repository.
+12. **The agents are at their desks, in both tabs.** Four agent employees
+    stand behind the chairs of open-floor desks, the same four in the same
+    places in both tabs: teal bodies, a name over a job title on each
+    nameplate, and an `Idle` badge over each head that reads from where you
+    spawn. The roster lists Dana and Milo under **People** and the agents under
+    **Agents**, each with its title and activity. Reload a tab and the same
+    names come back at the same desks. Walk up to an agent's chair and the
+    prompt reads `Sit down — taken`; `E` does nothing. Start the server with `AGENT_COUNT=0`
+    and the floor is empty of them, or with `AGENT_COUNT=8` and every agent
+    desk is taken.
+13. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets, company metrics and clock, messages, expression limits, server origins, avatar animation, the project board's GitHub feed and filters
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets, company metrics and clock, messages, expression limits, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -178,6 +193,7 @@ public.
 | `ANTHROPIC_API_KEY` | server | runtime | Only with `MOCK_AGENTS=off`, when the server refuses to start without it. A secret. |
 | `AGENT_MODEL` | server | runtime | No. The model agents use. Defaults to `claude-opus-5-5`. |
 | `AGENT_CALLS_PER_DAY` / `AGENT_CALLS_PER_RUN` | server | runtime | No. Model call ceilings per UTC day and per server process. Default 200 and 1000. |
+| `AGENT_COUNT` | server | runtime | No. Agent employees each room hires, from 0 to 8. Defaults to 4. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
 static file cannot be reconfigured afterwards. Changing it means rebuilding and
@@ -267,7 +283,7 @@ thing the page talks to is the WebSocket.
 - `GET /health` on the server returns `{"status":"ok"}`. This is what the
   platform probes, and the only HTTP the server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same eleven things.
+  [The two-tab check](#the-two-tab-check), and confirm the same twelve things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -279,6 +295,7 @@ thing the page talks to is the WebSocket.
 ```
 packages/shared/   @sim/shared   the contract both sides import
   src/state.ts        replicated Colyseus schema
+  src/agents.ts       the agent employees' roster, and which desk each one gets
   src/messages.ts     commands and events, with the parsers for the untrusted ones
   src/tickets.ts      the board's rules: transitions, authority, commands
   src/company.ts      the company's tunables, clock ratio, and daily formulas
@@ -292,6 +309,7 @@ packages/shared/   @sim/shared   the contract both sides import
 apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/expression.ts   per-occupant emote and chat budgets
   src/sim/company.ts      the company clock, stepped by the simulation tick
+  src/sim/agents.ts       hiring the agent employees when a room opens
   src/github/             the project board's feed: fetch, bucket, poll
   src/work/               ticket work: the executor, its budget, mock and model providers
 apps/client/       @sim/client   Three.js scene, React HUD overlay

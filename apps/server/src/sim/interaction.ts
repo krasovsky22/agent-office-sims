@@ -23,6 +23,7 @@ import {
   type InteractableSpec,
   type Occupant,
   type OfficeLayout,
+  agentAtDesk,
   authorizeInteract,
   heldAnimationFor,
   holdMsFor,
@@ -121,7 +122,10 @@ export class HoldRegistry {
 /** What the interaction rules need from the room, named so a test can supply it. */
 export interface InteractionHost {
   readonly layout: OfficeLayout;
-  readonly occupants: { get(sessionId: string): Occupant | undefined };
+  readonly occupants: {
+    get(sessionId: string): Occupant | undefined;
+    values(): Iterable<Occupant>;
+  };
   readonly motions: { get(sessionId: string): OccupantMotion | undefined };
   readonly holds: HoldRegistry;
   /** Room clock time each session last used an interaction that holds nothing. */
@@ -171,6 +175,7 @@ export function requestInteract(
     target,
     SERVER_INTERACT_RANGE,
     (interactableId) => host.holds.holderOf(interactableId),
+    (deskId) => agentAtDesk(host.occupants.values(), deskId),
   );
   if (!decision.allowed) {
     return { result: "refused", decision };

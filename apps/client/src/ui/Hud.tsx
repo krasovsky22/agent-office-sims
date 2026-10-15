@@ -13,10 +13,19 @@
  * socket itself.
  */
 
-import { EMOTES, type Emote, MAX_CHAT_LENGTH, type ProjectBoardSnapshot } from "@sim/shared";
+import {
+  type AgentActivity,
+  EMOTES,
+  type Emote,
+  MAX_CHAT_LENGTH,
+  OCCUPANT_KIND,
+  type OccupantKind,
+  type ProjectBoardSnapshot,
+} from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { CompanyReadout } from "../companyReadout.js";
+import { AGENT_ACTIVITY_APPEARANCE } from "../agentActivity.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ConnectionStatus } from "../net/room.js";
@@ -28,8 +37,24 @@ import "./hud.css";
 export interface RosterEntry {
   readonly id: string;
   readonly name: string;
+  readonly kind: OccupantKind;
   readonly isCeo: boolean;
+  /** An agent's job title; `""` for a player. */
+  readonly jobTitle: string;
+  /** An agent's activity; `undefined` for a player. */
+  readonly activity: AgentActivity | undefined;
   readonly isLocal: boolean;
+}
+
+/** The roster split into players and agent employees, each in arrival order. */
+export function groupRoster(roster: readonly RosterEntry[]): {
+  readonly people: readonly RosterEntry[];
+  readonly agents: readonly RosterEntry[];
+} {
+  return {
+    people: roster.filter((entry) => entry.kind !== OCCUPANT_KIND.agent),
+    agents: roster.filter((entry) => entry.kind === OCCUPANT_KIND.agent),
+  };
 }
 
 /** One line in the chat scrollback. */
@@ -327,6 +352,67 @@ const ASSET_TEXT: Partial<Record<AssetState, string>> = {
   failed: "Asset kit did not load; showing grey boxes.",
 };
 
+/** One player's line in the roster. */
+function PersonRow({ entry }: { entry: RosterEntry }) {
+  return (
+    <li className="hud__occupant">
+      <span className="hud__name">{entry.name}</span>
+      {entry.isCeo ? <span className="hud__badge">CEO</span> : null}
+      {entry.isLocal ? <span className="hud__you">you</span> : null}
+    </li>
+  );
+}
+
+/** One agent's line: its name and title, and the same activity its badge shows. */
+function AgentRow({ entry }: { entry: RosterEntry }) {
+  const appearance =
+    entry.activity === undefined ? undefined : AGENT_ACTIVITY_APPEARANCE[entry.activity];
+  return (
+    <li className="hud__occupant hud__occupant--agent">
+      <span className="hud__name">{entry.name}</span>
+      <span className="hud__title-of">{entry.jobTitle}</span>
+      {appearance === undefined ? null : (
+        <span className="hud__activity" style={{ color: appearance.colour }}>
+          {appearance.label}
+        </span>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Who is in the office: people first, then the agent employees under their own
+ * heading, so the roster answers "who is a person here?" as plainly as the
+ * floor does.
+ */
+function Roster({ roster }: { roster: readonly RosterEntry[] }) {
+  const { people, agents } = groupRoster(roster);
+  return (
+    <div className="hud__panel">
+      <h2 className="hud__title">People ({people.length})</h2>
+      {people.length === 0 ? (
+        <p className="hud__status">Nobody here yet.</p>
+      ) : (
+        <ul className="hud__roster">
+          {people.map((entry) => (
+            <PersonRow entry={entry} key={entry.id} />
+          ))}
+        </ul>
+      )}
+      {agents.length === 0 ? null : (
+        <>
+          <h2 className="hud__title hud__title--group">Agents ({agents.length})</h2>
+          <ul className="hud__roster">
+            {agents.map((entry) => (
+              <AgentRow entry={entry} key={entry.id} />
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function Hud({ store, actions }: { store: HudStore; actions: HudActions }) {
   const {
     status,
@@ -353,22 +439,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       <div className="hud__column">
         <CompanyPanel readout={company} />
 
-        <div className="hud__panel">
-          <h2 className="hud__title">In the office ({roster.length})</h2>
-          {roster.length === 0 ? (
-            <p className="hud__status">Nobody here yet.</p>
-          ) : (
-            <ul className="hud__roster">
-              {roster.map((entry) => (
-                <li className="hud__occupant" key={entry.id}>
-                  <span className="hud__name">{entry.name}</span>
-                  {entry.isCeo ? <span className="hud__badge">CEO</span> : null}
-                  {entry.isLocal ? <span className="hud__you">you</span> : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <Roster roster={roster} />
 
         <div className="hud__panel">
           <h2 className="hud__title">Status</h2>

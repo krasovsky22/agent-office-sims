@@ -8,6 +8,8 @@
  * joins looks like a client bug.
  */
 
+import { DEFAULT_AGENT_COUNT, MAX_AGENT_COUNT } from "@sim/shared";
+
 const DEFAULT_PORT = 2567;
 
 /**
@@ -69,6 +71,8 @@ export interface ServerConfig {
   readonly allowedOrigins: readonly string[];
   readonly projectBoard: ProjectBoardConfig;
   readonly agentWork: AgentWorkConfig;
+  /** Agent employees each room hires when it opens. */
+  readonly agentCount: number;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -77,6 +81,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedOrigins: readAllowedOrigins(env),
     projectBoard: readProjectBoardConfig(env),
     agentWork: readAgentWorkConfig(env),
+    agentCount: readAgentCount(env),
   };
 }
 
@@ -153,6 +158,28 @@ function readCallBudget(env: NodeJS.ProcessEnv, name: string, fallback: number):
     throw new Error(`${name} must be a whole number of calls, got "${raw}"`);
   }
   return calls;
+}
+
+/**
+ * Reads `AGENT_COUNT`: how many agent employees a room hires, from 0 to
+ * {@link MAX_AGENT_COUNT}, defaulting to {@link DEFAULT_AGENT_COUNT}.
+ *
+ * A count past the roster is refused rather than quietly capped: an operator
+ * who asked for twenty and got eight would be looking for the bug in the wrong
+ * place.
+ */
+export function readAgentCount(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env["AGENT_COUNT"]?.trim() ?? "";
+  if (raw === "") {
+    return DEFAULT_AGENT_COUNT;
+  }
+  const count = Number(raw);
+  if (!Number.isInteger(count) || count < 0 || count > MAX_AGENT_COUNT) {
+    throw new Error(
+      `AGENT_COUNT must be a whole number from 0 to ${MAX_AGENT_COUNT}, got "${raw}"`,
+    );
+  }
+  return count;
 }
 
 /**

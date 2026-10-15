@@ -152,7 +152,7 @@ export const INTERACT_REFUSAL = {
   unknownTarget: "unknown-target",
   /** The actor is too far from the anchor. */
   outOfRange: "out-of-range",
-  /** Another occupant is holding the anchor. */
+  /** Another occupant is holding the anchor, or the desk is an agent's. */
   occupied: "occupied",
   /** The actor is already engaged and has to release first. */
   alreadyEngaged: "already-engaged",
@@ -186,6 +186,9 @@ export interface InteractActor {
  * `undefined` if it is free. The server reads this from its own bookkeeping and
  * the client from replicated state, which is why it is a callback rather than a
  * map: the two sides store it differently and the rule does not care.
+ * @param agentAt the agent employee given a desk, or `undefined` if no agent
+ * has it. An agent's desk is its own whether or not it is sitting down, so its
+ * seats are refused to everyone else as if they were held.
  */
 export function authorizeInteract(
   layout: OfficeLayout,
@@ -193,6 +196,7 @@ export function authorizeInteract(
   targetId: string,
   range: number,
   holderOf: (interactableId: string) => string | undefined,
+  agentAt: (deskId: string) => string | undefined,
 ): InteractDecision {
   const target = interactableById(layout, targetId);
   if (target === undefined) {
@@ -207,7 +211,8 @@ export function authorizeInteract(
     return { allowed: false, refusal: INTERACT_REFUSAL.outOfRange };
   }
   if (holdsAnchor(target)) {
-    const holder = holderOf(target.id);
+    const holder =
+      holderOf(target.id) ?? (target.deskId === undefined ? undefined : agentAt(target.deskId));
     if (holder !== undefined && holder !== actor.id) {
       return { allowed: false, refusal: INTERACT_REFUSAL.occupied };
     }

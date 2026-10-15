@@ -7,10 +7,11 @@
  * because a billboard is parented to an avatar's anchor it tracks a moving body
  * without anyone updating its position.
  *
- * The two painters below are the uses this milestone has. They are plain
- * functions over a 2D context rather than methods, so an agent employee's
- * overhead display — a thought, a ticket it picked up — can reuse the sprite
- * plumbing with a painter of its own and nothing here has to change.
+ * The painters below are plain functions over a 2D context rather than
+ * methods: a speech bubble, an emote, and an agent employee's activity badge
+ * all share the sprite plumbing, and a new overhead display — a thought, a
+ * ticket an agent picked up — is one more painter, with nothing else here
+ * changing.
  */
 
 import * as THREE from "three";
@@ -305,5 +306,48 @@ export function paintEmote(glyph: string, caption: string): BillboardPainter {
     context.fillStyle = CAPTION_TEXT;
     context.font = `600 ${captionSize}px ${FONT_STACK}`;
     context.fillText(caption, centreX, pillTop + pillHeight - captionSize);
+  };
+}
+
+/**
+ * Paints an agent's activity badge: a coloured dot and the activity's name, on
+ * a pill outlined in the same colour.
+ *
+ * Sized to the canvas height rather than to its content, so every badge reads
+ * at the same size from the same distance; the pill's width follows the label.
+ */
+export function paintActivityBadge(label: string, colour: string): BillboardPainter {
+  return (context, width, height) => {
+    const fontSize = Math.round(height * 0.5);
+    const dotRadius = Math.round(fontSize * 0.3);
+    const padding = Math.round(fontSize * 0.6);
+    const gap = Math.round(fontSize * 0.35);
+    const border = Math.max(2, Math.round(height * 0.06));
+
+    context.font = `700 ${fontSize}px ${FONT_STACK}`;
+    context.textAlign = "left";
+    context.textBaseline = "middle";
+
+    const textWidth = context.measureText(label).width;
+    const pillWidth = Math.min(
+      width - border,
+      Math.ceil(padding * 2 + dotRadius * 2 + gap + textWidth),
+    );
+    const pillHeight = height - border;
+    const left = (width - pillWidth) / 2;
+    const centreY = height / 2;
+
+    context.fillStyle = BUBBLE_FILL;
+    context.strokeStyle = colour;
+    context.lineWidth = border;
+    roundedRect(context, left, border / 2, pillWidth, pillHeight, pillHeight / 2);
+
+    context.fillStyle = colour;
+    context.beginPath();
+    context.arc(left + padding + dotRadius, centreY, dotRadius, 0, Math.PI * 2);
+    context.fill();
+
+    context.fillStyle = BUBBLE_TEXT;
+    context.fillText(label, left + padding + dotRadius * 2 + gap, centreY + 1);
   };
 }

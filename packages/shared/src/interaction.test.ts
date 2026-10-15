@@ -283,6 +283,7 @@ describe("authorizeInteract", () => {
       "seat-desk-north-3-1",
       SERVER_RANGE,
       NOBODY,
+      NOBODY,
     );
     expect(decision).toEqual({ allowed: true, target: specOf("seat-desk-north-3-1") });
   });
@@ -293,6 +294,7 @@ describe("authorizeInteract", () => {
       actorAt("seat-desk-north-3-1", 0),
       "seat-desk-99",
       SERVER_RANGE,
+      NOBODY,
       NOBODY,
     );
     expect(decision).toEqual({
@@ -313,6 +315,7 @@ describe("authorizeInteract", () => {
       "seat-desk-ceo-1",
       SERVER_RANGE,
       NOBODY,
+      NOBODY,
     );
     expect(decision).toEqual({ allowed: false, refusal: INTERACT_REFUSAL.outOfRange });
   });
@@ -326,6 +329,7 @@ describe("authorizeInteract", () => {
         "seat-desk-north-3-1",
         SERVER_RANGE,
         NOBODY,
+        NOBODY,
       ).allowed,
     ).toBe(true);
     expect(
@@ -334,6 +338,7 @@ describe("authorizeInteract", () => {
         actorAt("seat-desk-north-3-1", SERVER_RANGE + epsilon),
         "seat-desk-north-3-1",
         SERVER_RANGE,
+        NOBODY,
         NOBODY,
       ),
     ).toEqual({ allowed: false, refusal: INTERACT_REFUSAL.outOfRange });
@@ -351,6 +356,7 @@ describe("authorizeInteract", () => {
       "seat-desk-north-3-1",
       SERVER_RANGE,
       NOBODY,
+      NOBODY,
     );
     expect(decision.allowed).toBe(true);
   });
@@ -362,6 +368,7 @@ describe("authorizeInteract", () => {
       "seat-desk-north-3-1",
       SERVER_RANGE,
       (id) => (id === "seat-desk-north-3-1" ? "alice" : undefined),
+      NOBODY,
     );
     expect(decision).toEqual({ allowed: false, refusal: INTERACT_REFUSAL.occupied });
   });
@@ -373,14 +380,15 @@ describe("authorizeInteract", () => {
       "seat-desk-north-3-1",
       SERVER_RANGE,
       NOBODY,
+      NOBODY,
     );
     expect(decision).toEqual({ allowed: false, refusal: INTERACT_REFUSAL.alreadyEngaged });
   });
 
   it("refuses an out-of-range target whether or not it is taken", () => {
     const far = { id: "bob", x: 0, z: 6, interactableId: "" };
-    const taken = authorizeInteract(OFFICE_LAYOUT, far, "seat-desk-ceo-1", SERVER_RANGE, () => "alice");
-    const free = authorizeInteract(OFFICE_LAYOUT, far, "seat-desk-ceo-1", SERVER_RANGE, NOBODY);
+    const taken = authorizeInteract(OFFICE_LAYOUT, far, "seat-desk-ceo-1", SERVER_RANGE, () => "alice", NOBODY);
+    const free = authorizeInteract(OFFICE_LAYOUT, far, "seat-desk-ceo-1", SERVER_RANGE, NOBODY, NOBODY);
     // Identical answers, so a refusal leaks nothing about who is where.
     expect(taken).toEqual(free);
     expect(taken).toEqual({ allowed: false, refusal: INTERACT_REFUSAL.outOfRange });
@@ -393,6 +401,31 @@ describe("authorizeInteract", () => {
       "whiteboard-meeting",
       SERVER_RANGE,
       () => "alice",
+      () => "agent-1",
+    );
+    expect(decision.allowed).toBe(true);
+  });
+
+  it("refuses a seat at a desk an agent has, though the agent is standing", () => {
+    const decision = authorizeInteract(
+      OFFICE_LAYOUT,
+      actorAt("seat-desk-north-3-1", 0, "bob"),
+      "seat-desk-north-3-1",
+      SERVER_RANGE,
+      NOBODY,
+      (deskId) => (deskId === "desk-north-3" ? "agent-1" : undefined),
+    );
+    expect(decision).toEqual({ allowed: false, refusal: INTERACT_REFUSAL.occupied });
+  });
+
+  it("leaves a desk no agent has free for players", () => {
+    const decision = authorizeInteract(
+      OFFICE_LAYOUT,
+      actorAt("seat-desk-north-4-1", 0, "bob"),
+      "seat-desk-north-4-1",
+      SERVER_RANGE,
+      NOBODY,
+      (deskId) => (deskId === "desk-north-3" ? "agent-1" : undefined),
     );
     expect(decision.allowed).toBe(true);
   });

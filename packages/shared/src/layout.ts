@@ -231,6 +231,11 @@ export interface InteractableSpec {
    * left inside it for the resolver to argue with.
    */
   readonly exit: Vec2 | undefined;
+  /**
+   * The desk a seat belongs to, or `undefined` for anything that is not a
+   * seat. It is what lets a desk given to an agent keep its chairs.
+   */
+  readonly deskId: string | undefined;
 }
 
 /**
@@ -290,6 +295,13 @@ export interface OfficeLayout {
   readonly waypoints: readonly WaypointSpec[];
   /** Cycled through in arrival order so occupants do not stack up. */
   readonly spawnPoints: readonly SpawnSpec[];
+  /**
+   * Ids of the desks agent employees are given, in hiring order: the first
+   * agent hired gets the first desk. A desk an agent has is not a desk a
+   * player can sit at; a room hiring fewer agents than this leaves the rest
+   * free for players.
+   */
+  readonly agentDesks: readonly string[];
   /**
    * Interactables placed by hand. Desk seats and the coffee machine are not
    * listed here: they are derived from the desk and the prop they belong to,
@@ -660,6 +672,20 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { x: 7.2, z: 2.5, yaw: 0 },
     { x: 0, z: 3, yaw: 0 },
   ],
+  // Open-floor desks either side of the aisle players spawn into, so the first
+  // few hires are in view on arrival; the wall desks and the back row come
+  // after. Alternating rows keeps two neighbours from standing shoulder to
+  // shoulder, which is what makes a floor of them unreadable.
+  agentDesks: [
+    "desk-north-3",
+    "desk-middle-4",
+    "desk-north-5",
+    "desk-middle-2",
+    "desk-west-wall",
+    "desk-east-wall",
+    "desk-south-3",
+    "desk-south-4",
+  ],
   fixtures: [
     // Hung on the meeting room's stretch of the north wall, across the table
     // from its chairs, so it needs no footprint of its own — the wall is
@@ -670,6 +696,7 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       anchor: { x: -2.85, z: -10.7, yaw: 0 },
       volume: box3(-4.35, 1, -11.7, -1.35, 2.1, -11.62),
       exit: undefined,
+      deskId: undefined,
     },
   ],
 };
@@ -761,6 +788,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
         anchor: workstation.seat,
         volume: undefined,
         exit: workstation.exit,
+        deskId: spec.id,
       });
     });
   }
@@ -778,6 +806,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
       anchor: { x: position.x, z: position.z, yaw: spec.yaw - Math.PI },
       volume: undefined,
       exit: undefined,
+      deskId: undefined,
     });
   }
   for (const board of layout.boards) {
@@ -789,6 +818,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
       anchor: { x: position.x, z: position.z, yaw: board.yaw - Math.PI },
       volume: undefined,
       exit: undefined,
+      deskId: undefined,
     });
   }
   all.push(...layout.fixtures);
@@ -1002,6 +1032,20 @@ export function describeLayoutProblems(layout: OfficeLayout): string[] {
     if (overlapsObstacle(point, collisionBoxes(layout))) {
       problems.push(`spawn point (${point.x}, ${point.z}) overlaps an obstacle`);
     }
+  }
+
+  // Two agents given one desk would stand inside each other, and a desk id
+  // that names nothing is an agent the room cannot place.
+  const deskIds = new Set(layout.desks.map((spec) => spec.id));
+  const givenDesks = new Set<string>();
+  for (const id of layout.agentDesks) {
+    if (!deskIds.has(id)) {
+      problems.push(`agent desk ${id} is not a desk in the layout`);
+    }
+    if (givenDesks.has(id)) {
+      problems.push(`agent desk ${id} is given out twice`);
+    }
+    givenDesks.add(id);
   }
   return problems;
 }

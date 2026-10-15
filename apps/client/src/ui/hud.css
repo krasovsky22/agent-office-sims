@@ -121,6 +121,28 @@
   color: #9aa0aa;
 }
 
+.hud__title--group {
+  margin-top: 12px;
+}
+
+/* An agent's line wraps under its name rather than widening the panel. */
+.hud__occupant--agent {
+  flex-wrap: wrap;
+  column-gap: 6px;
+  row-gap: 0;
+}
+
+.hud__title-of {
+  font-size: 11px;
+  color: #7fe3d6;
+}
+
+.hud__activity {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .hud__status {
   margin: 0;
   color: #9aa0aa;

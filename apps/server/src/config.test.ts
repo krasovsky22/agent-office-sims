@@ -2,15 +2,19 @@
  * The origin allowlist is the piece of deployment configuration that is a
  * security boundary rather than a convenience. Each case below is a claim the
  * README makes about `ALLOWED_ORIGINS`, or about the project board's
- * `PROJECT_BOARD_*` variables, which refuse to start the server when they are
- * wrong rather than polling a repository nobody meant. The agent work variables
- * follow the same rule: a model mode with no key stops the boot, not a ticket.
+ * `PROJECT_BOARD_*` variables and `AGENT_COUNT`, which refuse to start the
+ * server when they are wrong rather than polling a repository nobody meant or
+ * hiring a staff nobody asked for. The agent work variables follow the same
+ * rule: a model mode with no key stops the boot, not a ticket.
  */
 
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_AGENT_COUNT, MAX_AGENT_COUNT } from "@sim/shared";
+
 import {
   isOriginAllowed,
+  readAgentCount,
   readAgentWorkConfig,
   readAllowedOrigins,
   readPort,
@@ -181,5 +185,22 @@ describe("readAgentWorkConfig", () => {
     expect(() =>
       readAgentWorkConfig({ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "sk-secret", AGENT_CALLS_PER_DAY: "x" }),
     ).toThrow(expect.objectContaining({ message: expect.not.stringContaining("sk-secret") }));
+  });
+});
+
+describe("readAgentCount", () => {
+  it("defaults when unset or empty", () => {
+    expect(readAgentCount({})).toBe(DEFAULT_AGENT_COUNT);
+    expect(readAgentCount({ AGENT_COUNT: " " })).toBe(DEFAULT_AGENT_COUNT);
+  });
+
+  it("reads any whole count the roster can staff, none included", () => {
+    expect(readAgentCount({ AGENT_COUNT: "0" })).toBe(0);
+    expect(readAgentCount({ AGENT_COUNT: "3" })).toBe(3);
+    expect(readAgentCount({ AGENT_COUNT: String(MAX_AGENT_COUNT) })).toBe(MAX_AGENT_COUNT);
+  });
+
+  it.each(["-1", "2.5", "five", String(MAX_AGENT_COUNT + 1)])("rejects %j", (value) => {
+    expect(() => readAgentCount({ AGENT_COUNT: value })).toThrow(/AGENT_COUNT/);
   });
 });
