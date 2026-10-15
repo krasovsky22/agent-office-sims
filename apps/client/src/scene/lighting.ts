@@ -3,17 +3,17 @@
  *
  * A hemisphere fill and one shadow-casting directional light that is the sun by
  * day and the moon by night: the same two lights the office always had. The
- * interior lights coming up at night are not lights at all. They are glowing
- * ceiling panels over each stretch of every room, and a warm lift in the
- * hemisphere that stands in for what they would throw. `daylight.ts` decides
- * what each of them should be at a given minute; this module owns them and
- * copies that on.
+ * interior lights coming up at night are not lights at all. They are a warm
+ * lift in the hemisphere that stands in for what office lighting would throw,
+ * and the desk screens glowing brighter as it gets dark outside. `daylight.ts`
+ * decides what each of them should be at a given minute; this module owns them
+ * and copies that on.
  *
  * It is all kept cheap enough to run every frame. Every light the renderer
  * shades costs every lit pixel, whatever its intensity, so the count never
  * grows past those two, and it never changes, because changing how many lights
- * the scene has recompiles every material in it. The panels are one instanced
- * mesh that casts nothing. The shadow map's size and camera are set once; a
+ * the scene has recompiles every material in it. The screens' glow is one
+ * shared material's emissive intensity. The shadow map's size and camera are set once; a
  * moving sun only moves the light, which re-renders the one map the renderer
  * draws anyway.
  */
@@ -45,24 +45,6 @@ const SHADOW_MARGIN = 2;
  */
 const SUN_DISTANCE = 18;
 
-/** Height of the ceiling panels: just under the 3m walls. */
-const CEILING_PANEL_HEIGHT = 2.7;
-
-/**
- * Longest stretch of room one ceiling panel covers.
- *
- * The panels are one instanced mesh, so more of them costs next to nothing;
- * this is close enough that a room reads as lit from end to end.
- */
-const CEILING_PANEL_SPAN = 4;
-
-/** Size of one ceiling panel. */
-const CEILING_PANEL_LENGTH = 1.2;
-const CEILING_PANEL_WIDTH = 0.6;
-
-/** The panels' own colour, seen by day with the lights off. */
-const CEILING_PANEL_COLOUR = 0xf2f2ee;
-
 /** Warm white, the colour of an office at night. */
 const INTERIOR_LIGHT_COLOUR = new THREE.Color(0xffe2b8);
 
@@ -72,41 +54,23 @@ const INTERIOR_FILL = 0.5;
 /** How far the hemisphere's sky colour turns to the interior's warm white at full. */
 const INTERIOR_WARMTH = 0.6;
 
+/** Cool blue-white, the colour of a screen in a dark room. */
+const SCREEN_GLOW_COLOUR = new THREE.Color(0x9cc2ff);
+
+/** How bright the screens glow with the interior lights full. */
+const SCREEN_GLOW = 0.8;
+
 /** The office's lights, set to a time of day by {@link OfficeLighting.showMinute}. */
 export interface OfficeLighting {
   /** Lights the scene for `minuteOfDay`, which may be fractional. */
   showMinute(minuteOfDay: number): void;
-}
-
-/**
- * Where the ceiling panels hang: a grid over each room, one panel per
- * {@link CEILING_PANEL_SPAN} of it in each direction.
- *
- * Derived from the layout's rooms rather than written down, so a new room is
- * lit at night without anyone remembering to light it.
- */
-export function ceilingPanelPositions(layout: OfficeLayout): readonly THREE.Vector3[] {
-  const positions: THREE.Vector3[] = [];
-  for (const room of layout.rooms) {
-    const across = Math.max(1, Math.ceil((room.bounds.maxX - room.bounds.minX) / CEILING_PANEL_SPAN));
-    const down = Math.max(1, Math.ceil((room.bounds.maxZ - room.bounds.minZ) / CEILING_PANEL_SPAN));
-    for (let i = 0; i < across; i += 1) {
-      for (let j = 0; j < down; j += 1) {
-        positions.push(
-          new THREE.Vector3(
-            cellCentre(room.bounds.minX, room.bounds.maxX, i, across),
-            CEILING_PANEL_HEIGHT,
-            cellCentre(room.bounds.minZ, room.bounds.maxZ, j, down),
-          ),
-        );
-      }
-    }
-  }
-  return positions;
-}
-
-function cellCentre(min: number, max: number, index: number, count: number): number {
-  return min + ((max - min) * (index + 0.5)) / count;
+  /**
+   * Hands over the desk screens' material, so they glow as it gets dark.
+   *
+   * Separate from building the lights because the screens arrive later, with
+   * the asset kit, and may never arrive at all.
+   */
+  lightScreens(screen: THREE.MeshStandardMaterial): void;
 }
 
 function centreOf(box: Aabb2): { x: number; z: number; width: number; depth: number } {
@@ -144,32 +108,6 @@ function aimShadowCamera(sun: THREE.DirectionalLight, floor: ReturnType<typeof c
 }
 
 /**
- * The ceiling panels, as one instanced mesh whose glow is the interior lights.
- *
- * Each faces down, so it is seen from under the ceiling and vanishes when the
- * camera looks down over the walls.
- */
-function buildCeilingPanels(layout: OfficeLayout): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshLambertMaterial> {
-  const geometry = new THREE.PlaneGeometry(CEILING_PANEL_LENGTH, CEILING_PANEL_WIDTH).rotateX(Math.PI / 2);
-  const material = new THREE.MeshLambertMaterial({
-    color: CEILING_PANEL_COLOUR,
-    emissive: INTERIOR_LIGHT_COLOUR,
-    emissiveIntensity: 0,
-  });
-  const positions = ceilingPanelPositions(layout);
-  const panels = new THREE.InstancedMesh(geometry, material, positions.length);
-  panels.name = "ceiling-panels";
-
-  const matrix = new THREE.Matrix4();
-  positions.forEach((position, index) => {
-    panels.setMatrixAt(index, matrix.makeTranslation(position));
-  });
-  panels.instanceMatrix.needsUpdate = true;
-  panels.computeBoundingSphere();
-  return panels;
-}
-
-/**
  * Adds the office's lights to a scene and hands back the one control they need.
  *
  * The scene's background is taken over as well, so the sky above the walls
@@ -186,13 +124,11 @@ export function buildLighting(scene: THREE.Scene, layout: OfficeLayout): OfficeL
   aimShadowCamera(sun, floor);
   scene.add(sun, sun.target);
 
-  const panels = buildCeilingPanels(layout);
-  scene.add(panels);
-
   const background = new THREE.Color();
   scene.background = background;
 
   const daylight: Daylight = createDaylight();
+  let screen: THREE.MeshStandardMaterial | undefined;
 
   return {
     showMinute(minuteOfDay) {
@@ -209,9 +145,16 @@ export function buildLighting(scene: THREE.Scene, layout: OfficeLayout): OfficeL
       sun.color.copy(daylight.sunColour);
       sun.intensity = daylight.sunIntensity;
 
-      panels.material.emissiveIntensity = daylight.interior;
+      if (screen !== undefined) {
+        screen.emissiveIntensity = daylight.interior * SCREEN_GLOW;
+      }
 
       background.copy(daylight.background);
+    },
+    lightScreens(material) {
+      material.emissive.copy(SCREEN_GLOW_COLOUR);
+      material.emissiveIntensity = daylight.interior * SCREEN_GLOW;
+      screen = material;
     },
   };
 }

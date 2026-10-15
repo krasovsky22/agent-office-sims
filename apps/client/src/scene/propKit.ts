@@ -218,6 +218,17 @@ export function modelFromScene(kind: AssetPropKind, root: THREE.Object3D): PropM
 }
 
 /**
+ * The monitor's display face material, which is the only part of it that should glow.
+ *
+ * In this pack the screen is a single light-metal quad set into a dark-metal
+ * body, so its material's name is what picks it out.
+ */
+export function screenMaterialOf(kit: PropKit): THREE.MeshStandardMaterial | undefined {
+  const screen = kit.get("monitor")?.parts.find((part) => part.material.name === "metal");
+  return screen?.material instanceof THREE.MeshStandardMaterial ? screen.material : undefined;
+}
+
+/**
  * Loads every model in the registry.
  *
  * All ten at once and all-or-nothing: the caller shows one loading state and then

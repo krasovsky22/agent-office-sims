@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
 import diningChairData from "../assets/office-kit/chair.glb?inline";
 import chairData from "../assets/office-kit/chairDesk.glb?inline";
 import monitorData from "../assets/office-kit/computerScreen.glb?inline";
-import { modelFromScene } from "./propKit.js";
+import { modelFromScene, screenMaterialOf } from "./propKit.js";
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -168,5 +168,19 @@ describe("the kitchen chair", () => {
     const fromFront = firstHit(object, new THREE.Vector3(0, size.y * 0.95, -2), new THREE.Vector3(0, 0, 1));
     expect(fromFront).toBeDefined();
     expect(fromFront?.z).toBeGreaterThan(0);
+  });
+});
+
+describe("screenMaterialOf", () => {
+  it("picks out the monitor's display face and nothing else on it", async () => {
+    const buffer = await (await fetch(monitorData)).arrayBuffer();
+    const gltf = await new GLTFLoader().parseAsync(buffer, "");
+    const model = modelFromScene("monitor", gltf.scene);
+
+    const screen = screenMaterialOf(new Map([["monitor", model]]));
+    const face = model.parts.find((part) => part.material === screen);
+    expect(face).toBeDefined();
+    expect(face?.geometry.getIndex()?.count).toBe(6);
+    expect(model.parts.filter((part) => part.material === screen)).toHaveLength(1);
   });
 });

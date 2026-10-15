@@ -44,7 +44,7 @@ import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
 import { buildWallBoard } from "./scene/wallBoard.js";
 import { buildLighting } from "./scene/lighting.js";
 import { buildOffice } from "./scene/office.js";
-import { loadPropKit } from "./scene/propKit.js";
+import { loadPropKit, screenMaterialOf } from "./scene/propKit.js";
 import { buildProps } from "./scene/props.js";
 import {
   Hud,
@@ -235,6 +235,10 @@ function start(): void {
     try {
       const kit = await loadPropKit();
       placedProps = buildProps(scene, OFFICE_PROPS, kit).instances;
+      const screen = screenMaterialOf(kit);
+      if (screen !== undefined) {
+        lighting.lightScreens(screen);
+      }
       office.setGreyDesksVisible(false);
       publishHud({ assets: "ready" });
     } catch {

@@ -14,8 +14,8 @@ whole floor — desk rows in the open plan, a meeting room, a kitchen, the CEO's
 corner office and the lobby, joined by a corridor — and it is furnished now,
 with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
 one shadow-casting light that follows the in-game clock, sun by day and moon by
-night, with the ceiling panels glowing brighter as the outside light falls. Some
-of it can be used: walk up to a desk chair, the
+night, with the room light turning warmer and the desk screens glowing brighter
+as the outside light falls. Some of it can be used: walk up to a desk chair, the
 kitchen's coffee machine, the meeting room's whiteboard or the project board and a
 prompt offers the action, which the server grants or refuses. On top of that, the ticket
 board exists as replicated state with its rules enforced on the server, and the
