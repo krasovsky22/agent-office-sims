@@ -653,7 +653,8 @@ Thirteen things are worth knowing before changing anything:
   manager can never do what the CEO who asked could not, and GitHub work goes
   to the orchestrator's queue, which wraps the live agents' registry as their
   `LiveAgentSource` so an assignment shows on its agent until the agent's
-  next report after collection settles it, as started or not taken. The model call sits behind its own call budget, timeout and retry in
+  next report after collection settles it, as started or not taken. The model
+  call sits behind its own call budget, timeout and retry in
   `server/manager/advisor.ts`, modelled on the work executor.
 
 ## Assets
