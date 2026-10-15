@@ -443,7 +443,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/agents.ts       the agent employees' roster, the hiring candidates and their salaries, and which desk each one gets
   src/messages.ts     commands and events, with the parsers for the untrusted ones
   src/tickets.ts      the board's rules: transitions, authority, commands
-  src/staffing.ts     hiring, firing and quitting: authority, costs, and handing back a leaver's tickets
+  src/staffing.ts     hiring, firing and quitting: authority, firing's morale cost, and handing back a leaver's tickets
   src/company.ts      the company's tunables, clock ratio, and daily formulas
   src/projectBoard.ts the project board's GitHub snapshot
   src/liveAgents.ts   a live agent's report, its label, and the chairs it may take
