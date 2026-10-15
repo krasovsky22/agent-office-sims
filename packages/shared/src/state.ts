@@ -28,7 +28,7 @@
  * accessors exactly as a tracked write should.
  */
 
-import { MapSchema, Schema, defineTypes } from "@colyseus/schema";
+import { ArraySchema, MapSchema, Schema, defineTypes } from "@colyseus/schema";
 
 import {
   COMPANY_STATUS,
@@ -130,18 +130,48 @@ defineTypes(Occupant, {
   interactableId: "string",
 });
 
+/**
+ * What a human player may do in the office.
+ *
+ * Two values, not a permission set: the CEO runs the board and everyone else
+ * is an executive who reads it, comments on it and advises. A finer-grained
+ * scheme is a product decision nobody has made, and a string field leaves room
+ * for one without reshaping the schema.
+ */
+export const PLAYER_ROLE = {
+  ceo: "ceo",
+  exec: "exec",
+} as const;
+
+export type PlayerRole = (typeof PLAYER_ROLE)[keyof typeof PLAYER_ROLE];
+
 /** An occupant driven by a browser. */
 export class HumanPlayer extends Occupant {
-  /** Set on the first player to join the room, and re-homed if they leave. */
-  declare public isCeo: boolean;
+  /**
+   * {@link PLAYER_ROLE.ceo} on exactly one player while anyone is in the room:
+   * the first to join, and on their departure whoever has been connected
+   * longest. The server's `sim/roles.ts` is the only writer.
+   */
+  declare public role: PlayerRole;
 
   public constructor() {
     super();
-    this.isCeo = false;
+    this.role = PLAYER_ROLE.exec;
   }
 }
 
-defineTypes(HumanPlayer, { isCeo: "boolean" });
+defineTypes(HumanPlayer, { role: "string" });
+
+/**
+ * Whether an occupant holds the CEO role.
+ *
+ * The one reading of the role every consumer should use, so that an agent —
+ * which has no role at all — is never mistaken for a CEO by a check that only
+ * looked at the field.
+ */
+export function isCeo(occupant: Occupant): boolean {
+  return isHumanPlayer(occupant) && occupant.role === PLAYER_ROLE.ceo;
+}
 
 /**
  * What an agent employee is doing, as the floor should read it.
@@ -238,6 +268,57 @@ export function isTicketStatus(value: unknown): value is TicketStatus {
 }
 
 /**
+ * How urgent a ticket is, lowest first.
+ *
+ * Set by the CEO and only by the CEO: deciding what matters most is the
+ * decision this role exists to make. Iterate {@link TICKET_PRIORITIES} rather
+ * than these keys when an order is needed.
+ */
+export const TICKET_PRIORITY = {
+  low: "low",
+  normal: "normal",
+  high: "high",
+} as const;
+
+export type TicketPriority = (typeof TICKET_PRIORITY)[keyof typeof TICKET_PRIORITY];
+
+/** Every priority, lowest first. */
+export const TICKET_PRIORITIES: readonly TicketPriority[] = Object.values(TICKET_PRIORITY);
+
+/** Whether an arbitrary value is one of the priorities. */
+export function isTicketPriority(value: unknown): value is TicketPriority {
+  return typeof value === "string" && (TICKET_PRIORITIES as readonly string[]).includes(value);
+}
+
+/**
+ * A remark left on a ticket.
+ *
+ * The one board write open to everyone, so it is how an executive who may not
+ * move a ticket still advises on it. Append-only: a comment is never edited,
+ * and the oldest are dropped once a ticket holds `MAX_TICKET_COMMENTS`.
+ */
+export class TicketComment extends Schema {
+  /** Occupant id of whoever wrote it; resolved like {@link Ticket.createdById}. */
+  declare public authorId: string;
+  /** Sanitized and length-capped by the parser. Safe to render as text. */
+  declare public text: string;
+  declare public createdAt: number;
+
+  public constructor() {
+    super();
+    this.authorId = "";
+    this.text = "";
+    this.createdAt = 0;
+  }
+}
+
+defineTypes(TicketComment, {
+  authorId: "string",
+  text: "string",
+  createdAt: "number",
+});
+
+/**
  * One unit of work on the board.
  *
  * `assigneeId` and `createdById` hold occupant ids — a session id for a human,
@@ -266,6 +347,9 @@ export class Ticket extends Schema {
   declare public createdById: string;
   /** The assignee's deliverable, written when an agent finishes. `""` until. */
   declare public outputArtifact: string;
+  declare public priority: TicketPriority;
+  /** Oldest first. */
+  declare public comments: ArraySchema<TicketComment>;
   declare public createdAt: number;
   declare public updatedAt: number;
 
@@ -278,6 +362,8 @@ export class Ticket extends Schema {
     this.assigneeId = "";
     this.createdById = "";
     this.outputArtifact = "";
+    this.priority = TICKET_PRIORITY.normal;
+    this.comments = new ArraySchema<TicketComment>();
     this.createdAt = 0;
     this.updatedAt = 0;
   }
@@ -291,6 +377,8 @@ defineTypes(Ticket, {
   assigneeId: "string",
   createdById: "string",
   outputArtifact: "string",
+  priority: "string",
+  comments: [TicketComment],
   createdAt: "number",
   updatedAt: "number",
 });

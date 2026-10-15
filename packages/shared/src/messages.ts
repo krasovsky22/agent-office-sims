@@ -16,13 +16,16 @@
  * joiner would receive it as if it were still going on.
  */
 
-import { MAX_CHAT_LENGTH } from "./constants.js";
+import { MAX_CHAT_LENGTH, MAX_COMMENT_LENGTH } from "./constants.js";
 import {
   ANIMATION_STATE,
   type ReportedAnimation,
+  type TicketPriority,
   type TicketStatus,
+  isTicketPriority,
   isTicketStatus,
 } from "./state.js";
+import type { TicketAction, TicketRejection } from "./tickets.js";
 
 /** Matchmaking name of the only room type this milestone defines. */
 export const OFFICE_ROOM_NAME = "office";
@@ -48,6 +51,10 @@ export const CLIENT_MESSAGE = {
   ticketMoveStatus: "ticket:move-status",
   /** Rewrite a ticket's title, body, or both. */
   ticketEdit: "ticket:edit",
+  /** Change how urgent a ticket is. */
+  ticketSetPriority: "ticket:set-priority",
+  /** Leave a remark on a ticket; open to every player. */
+  ticketComment: "ticket:comment",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -65,6 +72,18 @@ export const SERVER_MESSAGE = {
    * the server's feed replaces it.
    */
   projectBoard: "project-board",
+  /**
+   * Sent only to the client whose ticket command the board refused, so a
+   * refusal is distinguishable from a lost message. Carries a
+   * {@link TicketRejectedEvent}.
+   */
+  ticketRejected: "ticket-rejected",
+  /**
+   * The CEO role passed to someone else because its holder left. Broadcast to
+   * every client as a {@link CeoChangedEvent}; the role itself is replicated
+   * state, so this is the announcement, not the change.
+   */
+  ceoChanged: "ceo-changed",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];
@@ -140,7 +159,29 @@ export interface ChatEvent {
 
 /** A client's own message was dropped because it was sending too fast. */
 export interface ThrottledEvent {
-  readonly command: typeof CLIENT_MESSAGE.emote | typeof CLIENT_MESSAGE.chat;
+  readonly command:
+    | typeof CLIENT_MESSAGE.emote
+    | typeof CLIENT_MESSAGE.chat
+    | typeof CLIENT_MESSAGE.ticketComment;
+}
+
+/**
+ * The board refused one of this client's ticket commands and changed nothing.
+ *
+ * `rejection` is the reason, so a client can say "only the CEO can do that"
+ * rather than a generic failure.
+ */
+export interface TicketRejectedEvent {
+  readonly action: TicketAction;
+  readonly rejection: TicketRejection;
+}
+
+/** Who holds the CEO role now that its previous holder has left. */
+export interface CeoChangedEvent {
+  /** Occupant id of the new CEO. */
+  readonly ceoId: string;
+  /** Occupant id of the CEO who left. No longer resolvable in the occupants map. */
+  readonly previousCeoId: string;
 }
 
 /** Options a client may supply when joining the office room. */
@@ -149,7 +190,7 @@ export interface JoinOptions {
 }
 
 /**
- * The five ticket commands.
+ * The seven ticket commands.
  *
  * Each parser below returns the payload with its strings already sanitised, so
  * a handler that has a payload has text it can replicate. The id fields are
@@ -180,6 +221,17 @@ export interface TicketEditMessage {
   readonly ticketId: string;
   readonly title?: string;
   readonly body?: string;
+}
+
+export interface TicketSetPriorityMessage {
+  readonly ticketId: string;
+  readonly priority: TicketPriority;
+}
+
+export interface TicketCommentMessage {
+  readonly ticketId: string;
+  /** Sanitized by {@link parseTicketCommentMessage}, and never empty. */
+  readonly text: string;
 }
 
 const MAX_NAME_LENGTH = 18;
@@ -287,13 +339,28 @@ export function parseEmoteMessage(raw: unknown): EmoteMessage | undefined {
  * markup, so there is no markup context to escape for.
  */
 export function sanitizeChatText(raw: unknown): string {
+  return sanitizeLine(raw, MAX_CHAT_LENGTH);
+}
+
+/**
+ * Reduces a client-supplied ticket comment to something safe to render.
+ *
+ * The chat treatment at {@link MAX_COMMENT_LENGTH}: a comment is a remark read
+ * in a list on a ticket, laid out as one flowing paragraph like a chat line.
+ */
+export function sanitizeCommentText(raw: unknown): string {
+  return sanitizeLine(raw, MAX_COMMENT_LENGTH);
+}
+
+/** Flattens, collapses and truncates by code point; see {@link sanitizeChatText}. */
+function sanitizeLine(raw: unknown, maxLength: number): string {
   if (typeof raw !== "string") {
     return "";
   }
   return Array.from(
     raw.replace(CONTROL_CHARACTERS, " ").replace(WHITESPACE_RUN, " ").trim()
   )
-    .slice(0, MAX_CHAT_LENGTH)
+    .slice(0, maxLength)
     .join("")
     .trim();
 }
@@ -474,4 +541,37 @@ export function parseTicketEditMessage(raw: unknown): TicketEditMessage | undefi
     ...(title === undefined ? {} : { title }),
     ...(hasBody ? { body: sanitizeTicketBody(candidate.body) } : {}),
   };
+}
+
+/**
+ * Validates a raw `ticket:set-priority` payload.
+ *
+ * Proves the priority is one of the known values; whether the sender may set
+ * it is the authority rule's call.
+ */
+export function parseTicketSetPriorityMessage(raw: unknown): TicketSetPriorityMessage | undefined {
+  const candidate = asRecord(raw);
+  if (
+    candidate === undefined ||
+    !isId(candidate.ticketId) ||
+    !isTicketPriority(candidate.priority)
+  ) {
+    return undefined;
+  }
+  return { ticketId: candidate.ticketId, priority: candidate.priority };
+}
+
+/**
+ * Validates a raw `ticket:comment` payload.
+ *
+ * @returns the sanitized comment, or `undefined` when nothing legible survived
+ * sanitization, the same rule chat applies.
+ */
+export function parseTicketCommentMessage(raw: unknown): TicketCommentMessage | undefined {
+  const candidate = asRecord(raw);
+  if (candidate === undefined || !isId(candidate.ticketId)) {
+    return undefined;
+  }
+  const text = sanitizeCommentText(candidate.text);
+  return text === "" ? undefined : { ticketId: candidate.ticketId, text };
 }

@@ -151,3 +151,38 @@ export const EMOTE_BURST_ALLOWANCE = 3;
 
 /** Rate at which a client's emote allowance is restored, in emotes/second. */
 export const EMOTE_REFILL_PER_SECOND = 0.6;
+
+/**
+ * Longest ticket comment the server will accept, in characters.
+ *
+ * Truncated rather than rejected, like chat. Longer than a chat line because a
+ * comment is read on the ticket at leisure rather than in a passing bubble.
+ */
+export const MAX_COMMENT_LENGTH = 280;
+
+/**
+ * Comments a ticket keeps; the oldest is dropped to make room for a new one.
+ *
+ * Commenting is open to every player, so without a cap one client could grow a
+ * replicated ticket without limit. Dropping the oldest rather than refusing the
+ * newest keeps a long-lived ticket open to advice.
+ */
+export const MAX_TICKET_COMMENTS = 30;
+
+/** Comments a client may post back to back before the server starts dropping. */
+export const COMMENT_BURST_ALLOWANCE = 3;
+
+/** Rate at which a client's comment allowance is restored, in comments/second. */
+export const COMMENT_REFILL_PER_SECOND = 0.2;
+
+/**
+ * How long the server holds a dropped player's place, in seconds.
+ *
+ * A socket that closes without the player leaving — a network blip, a laptop
+ * lid — keeps its occupant, and with it the CEO role, for this long. The
+ * client reconnects within it and carries on as the same person; past it the
+ * player is gone and, if they were CEO, the role passes on. Long enough to ride
+ * out a flaky connection, short enough that an office does not sit for minutes
+ * with its CEO's chair held by someone who is not coming back.
+ */
+export const RECONNECT_GRACE_SECONDS = 20;

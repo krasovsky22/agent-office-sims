@@ -21,7 +21,7 @@
 
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
-import { OFFICE_ROOM_NAME, TICK_RATE_HZ } from "@sim/shared";
+import { OFFICE_ROOM_NAME, RECONNECT_GRACE_SECONDS, TICK_RATE_HZ } from "@sim/shared";
 
 import { readConfig } from "./config.js";
 import { createGithubLoader } from "./github/client.js";
@@ -55,6 +55,7 @@ const server = new Server({
 server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   projectBoard: projectFeed,
   agentCount,
+  reconnectGraceSeconds: RECONNECT_GRACE_SECONDS,
 } satisfies OfficeRoomOptions);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

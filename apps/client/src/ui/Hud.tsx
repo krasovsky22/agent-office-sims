@@ -24,6 +24,7 @@ import {
 } from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import type { BoardAccess } from "../boardAccess.js";
 import type { CompanyReadout } from "../companyReadout.js";
 import { AGENT_ACTIVITY_APPEARANCE } from "../agentActivity.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
@@ -64,6 +65,8 @@ export interface ChatLogEntry {
   readonly author: string;
   readonly text: string;
   readonly isLocal: boolean;
+  /** An announcement from the office itself rather than something a player said. */
+  readonly isSystem?: boolean;
 }
 
 /**
@@ -118,6 +121,8 @@ export interface HudSnapshot {
   readonly boardCloseUp: boolean;
   /** The company's numbers as shown; absent until the first patch carries them. */
   readonly company?: CompanyReadout;
+  /** What the local player may do at the ticket board; absent until they are in the office. */
+  readonly boardAccess?: BoardAccess | undefined;
 }
 
 export interface HudActions {
@@ -165,6 +170,7 @@ export function createHudStore(): HudStore {
 const STATUS_TEXT: Record<ConnectionStatus, string> = {
   connecting: "Connecting to the office…",
   connected: "Connected",
+  reconnecting: "Connection lost — reconnecting…",
   disconnected: "Disconnected",
   failed: "Could not reach the office server",
 };
@@ -331,7 +337,7 @@ function ChatLog({ entries }: { entries: readonly ChatLogEntry[] }) {
   return (
     <ol className="hud__log" ref={scrollRef}>
       {entries.map((entry) => (
-        <li className="hud__line" key={entry.id}>
+        <li className={entry.isSystem === true ? "hud__line hud__line--system" : "hud__line"} key={entry.id}>
           <span className={entry.isLocal ? "hud__author hud__author--you" : "hud__author"}>
             {entry.author}
           </span>
@@ -385,7 +391,13 @@ function AgentRow({ entry }: { entry: RosterEntry }) {
  * heading, so the roster answers "who is a person here?" as plainly as the
  * floor does.
  */
-function Roster({ roster }: { roster: readonly RosterEntry[] }) {
+function Roster({
+  roster,
+  boardAccess,
+}: {
+  roster: readonly RosterEntry[];
+  boardAccess: BoardAccess | undefined;
+}) {
   const { people, agents } = groupRoster(roster);
   return (
     <div className="hud__panel">
@@ -409,6 +421,14 @@ function Roster({ roster }: { roster: readonly RosterEntry[] }) {
           </ul>
         </>
       )}
+      {boardAccess === undefined ? null : (
+        <p
+          className={boardAccess.readOnly ? "hud__role hud__role--readonly" : "hud__role"}
+          role="note"
+        >
+          {boardAccess.summary}
+        </p>
+      )}
     </div>
   );
 }
@@ -426,6 +446,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     projectBoard,
     boardCloseUp,
     company,
+    boardAccess,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
 
@@ -439,7 +460,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       <div className="hud__column">
         <CompanyPanel readout={company} />
 
-        <Roster roster={roster} />
+        <Roster roster={roster} boardAccess={boardAccess} />
 
         <div className="hud__panel">
           <h2 className="hud__title">Status</h2>
