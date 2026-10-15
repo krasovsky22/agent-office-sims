@@ -26,6 +26,10 @@
  * dropped player's place, and with it their role, for
  * {@link RECONNECT_GRACE_SECONDS}; reconnecting inside that window resumes the
  * same session, so a CEO whose wifi blinks is still the CEO afterwards.
+ *
+ * The ticket board is state too, and is handed on as a fresh plain copy whenever
+ * any ticket changes, so the panel re-renders from a value rather than holding
+ * a schema object that mutates under it.
  */
 
 import {
@@ -61,6 +65,12 @@ import {
   agentAtDesk,
   isAgentEmployee,
   isCeo,
+  type Ticket,
+  type TicketAssignMessage,
+  type TicketCreateMessage,
+  type TicketData,
+  type TicketMoveStatusMessage,
+  type TicketStatus,
   normalizeYaw,
   shortestYawDelta,
 } from "@sim/shared";
@@ -171,6 +181,8 @@ export interface RoomConnectionEvents {
   onTicketRejected?: (event: TicketRejectedEvent) => void;
   /** The CEO left and the role passed to someone else. */
   onCeoChanged?: (event: CeoChangedEvent) => void;
+  /** The whole ticket board, after any ticket is added, changed or removed. */
+  onTicketsChanged?: (tickets: readonly TicketData[]) => void;
 }
 
 export class RoomConnection {
@@ -183,6 +195,8 @@ export class RoomConnection {
   private leaving = false;
   private readonly views = new Map<string, OccupantView>();
   private readonly buffers = new Map<string, PoseSample[]>();
+
+  private ticketsQueued = false;
 
   private lastSentAt = Number.NEGATIVE_INFINITY;
   private readonly lastSent = {
@@ -268,6 +282,27 @@ export class RoomConnection {
   /** Asks to be let go of whatever the local player is engaged with. */
   public sendRelease(): void {
     this.room?.send(CLIENT_MESSAGE.release, {});
+  }
+
+  /** Files a ticket. Like every ticket command, the board patch is the reply. */
+  public sendTicketCreate(title: string, body: string): void {
+    this.room?.send(CLIENT_MESSAGE.ticketCreate, { title, body } satisfies TicketCreateMessage);
+  }
+
+  /** Gives a ticket an owner, which is how it leaves the backlog. */
+  public sendTicketAssign(ticketId: string, assigneeId: string): void {
+    this.room?.send(CLIENT_MESSAGE.ticketAssign, {
+      ticketId,
+      assigneeId,
+    } satisfies TicketAssignMessage);
+  }
+
+  /** Moves a ticket to an adjacent column. */
+  public sendTicketMove(ticketId: string, status: TicketStatus): void {
+    this.room?.send(CLIENT_MESSAGE.ticketMoveStatus, {
+      ticketId,
+      status,
+    } satisfies TicketMoveStatusMessage);
   }
 
   /**
@@ -460,6 +495,12 @@ export class RoomConnection {
       this.events.onOccupantsChanged?.();
     });
 
+    $(room.state).tickets.onAdd((ticket) => {
+      $(ticket).onChange(() => this.queueTickets(room));
+      this.queueTickets(room);
+    });
+    $(room.state).tickets.onRemove(() => this.queueTickets(room));
+
     // Expression arrives as events rather than state, so there is nothing to
     // diff here: the server has already validated and sanitized each one, and
     // the handler's job is only to pass it on.
@@ -503,6 +544,7 @@ export class RoomConnection {
       this.views.clear();
       this.buffers.clear();
       this.events.onOccupantsChanged?.();
+      this.events.onTicketsChanged?.([]);
       this.room = undefined;
       if (this.leaving || code === CONSENTED_CLOSE_CODE) {
         this.events.onStatusChanged?.("disconnected");
@@ -564,6 +606,27 @@ export class RoomConnection {
     }
   }
 
+  /**
+   * Publishes the board once per patch, however many tickets it touched.
+   *
+   * One patch can carry a change to every ticket — a join decodes the whole
+   * board at once — and copying the board per field would hand React a burst
+   * of intermediate boards nobody will see.
+   */
+  private queueTickets(room: Room<OfficeState>): void {
+    if (this.ticketsQueued) {
+      return;
+    }
+    this.ticketsQueued = true;
+    queueMicrotask(() => {
+      this.ticketsQueued = false;
+      if (this.room !== room) {
+        return;
+      }
+      this.events.onTicketsChanged?.([...room.state.tickets.values()].map(copyTicket));
+    });
+  }
+
   private readLocalPose(occupant: Occupant): void {
     this.localServerPose.x = occupant.x;
     this.localServerPose.z = occupant.z;
@@ -597,6 +660,20 @@ function companyViewOf(company: Company): CompanyView {
     day: company.day,
     minuteOfDay: company.minuteOfDay,
     status: company.status,
+  };
+}
+
+function copyTicket(ticket: Ticket): TicketData {
+  return {
+    id: ticket.id,
+    title: ticket.title,
+    body: ticket.body,
+    status: ticket.status,
+    assigneeId: ticket.assigneeId,
+    createdById: ticket.createdById,
+    outputArtifact: ticket.outputArtifact,
+    createdAt: ticket.createdAt,
+    updatedAt: ticket.updatedAt,
   };
 }
 

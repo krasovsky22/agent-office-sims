@@ -28,9 +28,11 @@ import {
   describeBoardProblems,
   isLegalTicketTransition,
   mayActOnTicket,
+  mayCreateTicket,
   seedBoard,
   ticketActorOf,
   ticketForAgent,
+  ticketMoves,
 } from "./tickets.js";
 import {
   AgentEmployee,
@@ -1025,6 +1027,71 @@ describe("two clients on one ticket", () => {
 
     expect(describeBoardProblems(board.state.tickets)).toEqual([]);
     expect(board.state.tickets.size).toBe(STARTER_TICKETS.length);
+  });
+});
+
+describe("the move planner", () => {
+  const ceo = { id: CEO_ID, kind: OCCUPANT_KIND.human, isCeo: true } as const;
+
+  /** A fresh board with `ticket-1` walked to `status`. */
+  function at(status: TicketStatus): Harness {
+    const board = harness();
+    advanceTo(board, "ticket-1", status);
+    return board;
+  }
+
+  it("offers exactly the moves the server accepts, from every column", () => {
+    for (const from of TICKET_STATUSES) {
+      const offered = ticketMoves(at(from).ticket("ticket-1"), ceo);
+
+      for (const to of TICKET_STATUSES.filter((status) => status !== from)) {
+        const board = at(from);
+        const move = offered.find((candidate) => candidate.to === to);
+        if (move === undefined) {
+          const result = board.run({
+            action: TICKET_ACTION.moveStatus,
+            payload: { ticketId: "ticket-1", status: to },
+          });
+          expect(result.ok, `${from} -> ${to} is not offered`).toBe(false);
+          continue;
+        }
+        const result =
+          move.action === TICKET_ACTION.assign
+            ? board.run({
+                action: TICKET_ACTION.assign,
+                payload: { ticketId: "ticket-1", assigneeId: WORKER_ID },
+              })
+            : board.run({
+                action: TICKET_ACTION.moveStatus,
+                payload: { ticketId: "ticket-1", status: to },
+              });
+        expect(result.ok, `${from} -> ${to} is offered`).toBe(true);
+        expect(board.ticket("ticket-1").status).toBe(to);
+      }
+    }
+  });
+
+  it("asks for an assignee to leave the backlog, and offers nothing out of done", () => {
+    expect(ticketMoves(at(TICKET_STATUS.backlog).ticket("ticket-1"), ceo)).toEqual([
+      { action: TICKET_ACTION.assign, to: TICKET_STATUS.assigned },
+    ]);
+    expect(ticketMoves(at(TICKET_STATUS.done).ticket("ticket-1"), ceo)).toEqual([]);
+  });
+
+  it("lists moves in column order", () => {
+    expect(ticketMoves(at(TICKET_STATUS.review).ticket("ticket-1"), ceo).map((move) => move.to)).toEqual([
+      TICKET_STATUS.in_progress,
+      TICKET_STATUS.done,
+    ]);
+  });
+
+  it("goes through the authority seam, so a denial offers nothing", () => {
+    const deny = () => false;
+    for (const status of TICKET_STATUSES) {
+      expect(ticketMoves(at(status).ticket("ticket-1"), ceo, deny)).toEqual([]);
+    }
+    expect(mayCreateTicket(ceo)).toBe(true);
+    expect(mayCreateTicket(ceo, deny)).toBe(false);
   });
 });
 

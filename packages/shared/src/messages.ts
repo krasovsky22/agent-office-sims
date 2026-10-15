@@ -263,10 +263,10 @@ export interface TicketCommentMessage {
 const MAX_NAME_LENGTH = 18;
 
 /** Long enough for a real summary line, short enough for a board card. */
-const MAX_TICKET_TITLE_LENGTH = 90;
+export const MAX_TICKET_TITLE_LENGTH = 90;
 
 /** Long enough for the detail an agent would need to act on the ticket. */
-const MAX_TICKET_BODY_LENGTH = 1200;
+export const MAX_TICKET_BODY_LENGTH = 1200;
 
 /** Rejects an id longer than anything the server itself mints. */
 const MAX_ID_LENGTH = 64;

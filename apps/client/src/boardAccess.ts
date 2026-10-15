@@ -4,18 +4,22 @@
  * The decision is not made here. `mayActOnTicket` in `@sim/shared` is the rule
  * the server enforces, and this module only asks it the same question about the
  * local player, so a control is disabled exactly when the server would refuse
- * it. Everything a board control needs — whether to enable it, and what to say
- * when it is not — comes from this one place, so the board panel has a single
- * import to gate on rather than a role check of its own.
+ * it. Everything a board control needs — whether to offer it, which moves are
+ * on offer, and what to say when it is not — comes from this one place, so the
+ * board panel has a single import to gate on rather than a role check of its
+ * own.
  */
 
 import {
-  TICKET_ACTION,
   TICKET_REJECTION,
   type TicketAction,
   type TicketActor,
+  type TicketData,
+  type TicketMove,
   type TicketRejection,
   mayActOnTicket,
+  mayCreateTicket,
+  ticketMoves,
 } from "@sim/shared";
 
 /** The local player's standing at the board. */
@@ -24,6 +28,10 @@ export interface BoardAccess {
   readonly readOnly: boolean;
   /** One sentence on what this player may do, and why, for the HUD. */
   readonly summary: string;
+  /** Whether the board panel offers to file a new ticket. */
+  readonly mayCreate: boolean;
+  /** The moves the board panel offers on `ticket`; the shared planner's answer. */
+  readonly movesFor: (ticket: TicketData) => TicketMove[];
 }
 
 /** Whether `actor` may perform `action`; the server's own rule. */
@@ -41,16 +49,22 @@ export function mayAct(actor: TicketActor, action: TicketAction): boolean {
  * @param ceoName `undefined` while the roster has not shown who holds the role.
  */
 export function boardAccessFor(actor: TicketActor, ceoName: string | undefined): BoardAccess {
-  const readOnly = !mayAct(actor, TICKET_ACTION.create);
+  const mayCreate = mayCreateTicket(actor);
+  const readOnly = !mayCreate;
+  const movesFor = (ticket: TicketData): TicketMove[] => ticketMoves(ticket, actor);
   if (!readOnly) {
     return {
       readOnly,
       summary: "You are the CEO: you create, assign, prioritise and approve the work.",
+      mayCreate,
+      movesFor,
     };
   }
   const who = ceoName === undefined ? "the CEO" : `the CEO, ${ceoName},`;
   return {
     readOnly,
+    mayCreate,
+    movesFor,
     summary:
       `The ticket board is read-only for you: only ${who} can create, assign, ` +
       "prioritise, approve or reject tickets. You can read it and comment.",

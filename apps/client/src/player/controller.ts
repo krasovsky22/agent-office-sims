@@ -69,6 +69,9 @@ const RIGHT_KEYS = new Set(["KeyD", "ArrowRight"]);
 /** The one verb key. Named in the HUD prompt as `E`. */
 const INTERACT_KEY = "KeyE";
 
+/** Closes whatever panel is open over the office. Named in the HUD prompt as `Esc`. */
+const CLOSE_KEY = "Escape";
+
 const MOVEMENT_KEYS = new Set([
   ...FORWARD_KEYS,
   ...BACKWARD_KEYS,
@@ -183,6 +186,7 @@ export class PlayerController {
 
   private interactRequested = false;
   private releaseRequested = false;
+  private closeRequested = false;
 
   public constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -206,6 +210,12 @@ export class PlayerController {
   public attach(): void {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) {
+        return;
+      }
+      if (event.code === CLOSE_KEY) {
+        if (!event.repeat) {
+          this.closeRequested = true;
+        }
         return;
       }
       if (!ALL_KEYS.has(event.code)) {
@@ -331,6 +341,18 @@ export class PlayerController {
   public takeInteractRequest(): boolean {
     const requested = this.interactRequested && !this.releasePending;
     this.interactRequested = false;
+    return requested;
+  }
+
+  /**
+   * Takes a pending `Esc` press made outside any keyboard owner, if there is one.
+   *
+   * A panel that owns the keyboard handles its own `Esc`; this is the press
+   * that reaches the office with such a panel still open.
+   */
+  public takeCloseRequest(): boolean {
+    const requested = this.closeRequested;
+    this.closeRequested = false;
     return requested;
   }
 

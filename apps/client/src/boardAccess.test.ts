@@ -8,6 +8,8 @@ import {
   OCCUPANT_KIND,
   TICKET_ACTION,
   TICKET_REJECTION,
+  TICKET_STATUS,
+  SYSTEM_AUTHOR_ID,
   type TicketActor,
   mayActOnTicket,
 } from "@sim/shared";
@@ -33,6 +35,35 @@ describe("boardAccessFor", () => {
 
   it("still explains itself before the CEO's name is known", () => {
     expect(boardAccessFor(MILO, undefined).summary).toContain("only the CEO can");
+  });
+});
+
+describe("board panel offers", () => {
+  const inProgress = {
+    id: "t",
+    title: "Ticket t",
+    body: "",
+    status: TICKET_STATUS.in_progress,
+    assigneeId: MILO.id,
+    createdById: SYSTEM_AUTHOR_ID,
+    outputArtifact: "",
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  it("offers the CEO creation and the shared planner's moves", () => {
+    const access = boardAccessFor(DANA, "Dana");
+    expect(access.mayCreate).toBe(true);
+    expect(access.movesFor(inProgress)).toEqual([
+      { action: TICKET_ACTION.moveStatus, to: TICKET_STATUS.assigned },
+      { action: TICKET_ACTION.moveStatus, to: TICKET_STATUS.review },
+    ]);
+  });
+
+  it("offers an executive neither creation nor moves", () => {
+    const access = boardAccessFor(MILO, "Dana");
+    expect(access.mayCreate).toBe(false);
+    expect(access.movesFor(inProgress)).toEqual([]);
   });
 });
 

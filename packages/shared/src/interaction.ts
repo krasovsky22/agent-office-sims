@@ -68,7 +68,7 @@ const HELD_ANIMATION: Record<InteractionKind, AnimationState> = {
 const PROMPT: Record<InteractionKind, string> = {
   [INTERACTION_KIND.seat]: "Sit down",
   [INTERACTION_KIND.coffee]: "Pour a coffee",
-  [INTERACTION_KIND.whiteboard]: "Read the whiteboard",
+  [INTERACTION_KIND.whiteboard]: "Open the ticket board",
   [INTERACTION_KIND.board]: "Read the project board",
 };
 

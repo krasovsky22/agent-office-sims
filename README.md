@@ -16,8 +16,10 @@ with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
 one shadow-casting light. Some of it can be used: walk up to a desk chair, the
 kitchen's coffee machine, the meeting room's whiteboard or the project board and a
 prompt offers the action, which the server grants or refuses. On top of that, the ticket
-board exists as replicated state with its rules enforced on the server — a
-board panel to see it in is a later milestone. The agent employees have bodies
+board exists as replicated state with its rules enforced on the server, and the
+meeting room's whiteboard opens it as a panel: five columns from backlog to
+done, where a card opens to its full text, a ticket can be filed, and a card
+moves only to the columns the server will accept. The agent employees have bodies
 now: a handful of them stand at their desks on the open floor, teal where
 players are orange, each labelled with a name and a job title and wearing a
 badge that says what it is doing, and the roster lists them apart from the
@@ -70,6 +72,15 @@ then move it to swing the camera; `Esc` releases it. Walk up to a desk chair, th
 coffee machine, the whiteboard or the project board and a prompt appears; `E` uses
 it. Any movement key gets you out of a chair.
 
+At the whiteboard, `E` opens the ticket board and puts the keyboard in it, so
+movement keys, emotes and chat stay quiet while it has focus. Moving is
+click-to-move: open a card and it offers a button for each column it can go to,
+or an assignee picker to take it out of the backlog. `Esc` backs out of the
+new-ticket form, then the open card, then the board, and walking resumes.
+Clicking the office instead gives the keyboard back with the board left open;
+then `Esc` or `E` closes it (if the click captured the mouse, the first `Esc`
+releases it), and stepping away closes it too.
+
 `1` to `5` fire the five emotes, which are also buttons in the chat panel.
 `Enter` moves focus to the chat box — and releases the mouse, since a captured
 pointer cannot click anything — then `Enter` sends and `Esc` abandons. Both give
@@ -90,7 +101,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all sixteen:
+Then confirm all seventeen:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -199,13 +210,24 @@ Then confirm all sixteen:
     agent goes `Blocked`, the ticket stays `in_progress` and assigned to her
     with the reason in a comment, and moving it back to `assigned` has her try
     again.
-16. **`pnpm typecheck` passes** across the whole repository.
+16. **The ticket board is live in both tabs.** Walk both players into the
+    meeting room to the whiteboard and press `E` at `Open the ticket board`;
+    nowhere else in the office opens it. Hold `W` with the board open: the
+    avatar does not move. In Dana's tab, `New ticket`, type a title and press
+    `Enter` — it appears in Milo's open board's backlog without reopening.
+    Milo's board offers no `New ticket` and no moves. In Dana's, open the
+    ticket: the only move offered is an assignee, and after assigning it
+    Milo's tab shows it under Assigned with that name. Each step after that
+    offers only the neighbouring columns, and `Done` offers nothing. `Esc`
+    closes the card, then the board; `E` again reopens it with no card open.
+    Reopen it, click the office floor, and `Esc` still closes it.
+17. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets and CEO authority, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing, agent movement, agent work
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing, agent movement, agent work
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -334,7 +356,7 @@ thing the page talks to is the WebSocket.
 - `GET /health` on the server returns `{"status":"ok"}`. This is what the
   platform probes, and the only HTTP the server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same thirteen things.
+  [The two-tab check](#the-two-tab-check), and confirm the same sixteen things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -373,6 +395,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
+  src/ticketBoard.ts     the ticket board panel's columns and labels
+  src/ui/TicketBoardPanel.tsx  the ticket board, opened at the whiteboard
   src/assets/office-kit/ the vendored models, and their licence
 ```
 
@@ -403,6 +427,8 @@ Eleven things are worth knowing before changing anything:
   rejecting included), editing and prioritising tickets are the CEO's, and
   commenting is open to everyone. The client asks the same predicate, through
   `client/boardAccess.ts`, to disable a control and say why — never to decide.
+  The board panel asks it, through `ticketMoves` beside it, which moves to
+  offer, so what the panel shows and what the server accepts change together.
   Exactly one player holds the CEO role while anyone is in the office;
   `server/sim/roles.ts` assigns it on arrival and passes it on, in the same
   patch as the departure, when its holder leaves.
