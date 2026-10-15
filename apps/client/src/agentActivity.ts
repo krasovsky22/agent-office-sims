@@ -10,12 +10,13 @@
  * for anyone who cannot tell the colours apart: every badge spells its state
  * out. There is no glyph, for the reason `emotes.ts` gives about emoji.
  *
- * Every agent employee is simulated: it does no real work until the brain loop
- * arrives, whatever its badge says. The nameplate and the roster both say so
- * with {@link SIMULATED_LABEL}, so no one mistakes one for a live coding agent.
+ * An agent employee is simulated: it does no real work, whatever its badge
+ * says. The nameplate and the roster both say so with {@link SIMULATED_LABEL},
+ * keyed on {@link isSimulated} rather than on being an agent, so no one
+ * mistakes one for a live coding agent and a live one is never tagged.
  */
 
-import { AGENT_ACTIVITY, type AgentActivity } from "@sim/shared";
+import { AGENT_ACTIVITY, type AgentActivity, OCCUPANT_KIND, type OccupantKind } from "@sim/shared";
 
 export interface AgentActivityAppearance {
   readonly label: string;
@@ -34,3 +35,8 @@ export const AGENT_ACTIVITY_APPEARANCE: Readonly<Record<AgentActivity, AgentActi
 
 /** The tag every simulated agent employee carries on its nameplate and roster line. */
 export const SIMULATED_LABEL = "Simulated";
+
+/** Whether an occupant of this kind is a simulated employee, doing no real work. */
+export function isSimulated(kind: OccupantKind): boolean {
+  return kind === OCCUPANT_KIND.agent;
+}

@@ -6,12 +6,13 @@
  * skeleton and its own node transforms while sharing everything the GPU holds.
  * That is what keeps twenty avatars affordable.
  *
- * Bodies come in three looks. A remote player wears the model as authored; the
+ * Bodies come in four looks. A remote player wears the model as authored; the
  * local player gets a lighter copy of its materials, so you can spot yourself;
- * and every agent employee shares one recoloured, translucent copy of the
- * materials, so an agent is never mistaken for a person, a simulated employee
- * reads as a ghost of one that is doing nothing real, and a floor of them costs
- * one set of extra materials, not one per agent.
+ * every agent shares one recoloured copy of the shell, so an agent is never
+ * mistaken for a person and a floor of them costs one extra material, not one
+ * per agent; and a simulated agent employee wears that shell over one shared
+ * translucent copy of every material, so it reads as a ghost of an agent that
+ * is doing nothing real while a live one keeps the agents' look.
  *
  * The load is allowed to fail. Nothing here throws anything the caller cannot
  * handle by leaving the avatar as the capsule it was built as.
@@ -19,7 +20,7 @@
 
 import { DESK_CHAIR, OCCUPANT_HEIGHT } from "@sim/shared";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { type GLTF, GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 import { type AvatarClips, buildAvatarClips, sourceSeatedClip } from "./avatarClips.js";
@@ -56,14 +57,13 @@ const AGENT_SHELL_COLOUR = 0x2bb3a3;
 /**
  * How opaque a simulated agent employee's body is.
  *
- * Every agent employee is simulated until the brain loop gives it real work,
- * and see-through is the one look that reads as "not really here" from across
- * the open floor without changing its shape or its colour.
+ * See-through is the one look that reads as "not really here" from across the
+ * open floor without changing its shape or its colour.
  */
 export const SIMULATED_BODY_OPACITY = 0.45;
 
 /** Which coat of paint a body is stamped out with. */
-export type AvatarLook = "local" | "remote" | "agent";
+export type AvatarLook = "local" | "remote" | "agent" | "simulated-agent";
 
 /** A body ready to be added to an avatar's group, with the clips that drive it. */
 export interface AvatarModelInstance {
@@ -86,14 +86,19 @@ export interface AvatarModel {
  * finds the asset.
  */
 export async function loadAvatarModel(baseUrl: string): Promise<AvatarModel> {
-  const gltf = await new GLTFLoader().loadAsync(`${baseUrl}${AVATAR_MODEL_PATH}`);
+  return prepareAvatarModel(await new GLTFLoader().loadAsync(`${baseUrl}${AVATAR_MODEL_PATH}`));
+}
+
+/** Prepares a loaded model for stamping bodies out of it. */
+export function prepareAvatarModel(gltf: GLTF): AvatarModel {
   const template = standAtOrigin(gltf.scene);
   const seat = measureSeatPlacement(template, sourceSeatedClip(gltf.animations), DESK_CHAIR);
   const clips = buildAvatarClips(template, gltf.animations, seat);
 
-  // Made on the first agent and shared by every one after it, for the life of
-  // the page, like the template's own materials.
+  // Made on the first agent of each look and shared by every one after it, for
+  // the life of the page, like the template's own materials.
   const agentPaint = new Map<THREE.Material, THREE.Material>();
+  const simulatedAgentPaint = new Map<THREE.Material, THREE.Material>();
 
   return {
     createInstance: (look: AvatarLook): AvatarModelInstance => {
@@ -103,6 +108,8 @@ export async function loadAvatarModel(baseUrl: string): Promise<AvatarModel> {
         owned = repaint(root, new Map(), brighten);
       } else if (look === "agent") {
         repaint(root, agentPaint, paintAgentShell);
+      } else if (look === "simulated-agent") {
+        repaint(root, simulatedAgentPaint, paintSimulatedAgent);
       }
       return {
         root,
@@ -159,20 +166,30 @@ const brighten: MaterialPaint = (source) => {
   return copy;
 };
 
-/** The agents' paint: the shell recoloured, and the whole body translucent. */
+/** The agents' paint: the shell recoloured, everything else left shared. */
 const paintAgentShell: MaterialPaint = (source) => {
+  if (source.name !== SHELL_MATERIAL_NAME) {
+    return undefined;
+  }
   const copy = source.clone();
-  if (
-    source.name === SHELL_MATERIAL_NAME &&
-    "color" in copy &&
-    copy.color instanceof THREE.Color
-  ) {
+  if ("color" in copy && copy.color instanceof THREE.Color) {
     copy.color.set(AGENT_SHELL_COLOUR);
   }
-  copy.transparent = true;
-  copy.opacity = SIMULATED_BODY_OPACITY;
   return copy;
 };
+
+/** A simulated agent's paint: the agents' shell, and the whole body translucent. */
+const paintSimulatedAgent: MaterialPaint = (source) => {
+  const copy = paintAgentShell(source) ?? source.clone();
+  markSimulated(copy);
+  return copy;
+};
+
+/** Makes a material see-through, the way every simulated agent's body is. */
+export function markSimulated(material: THREE.Material): void {
+  material.transparent = true;
+  material.opacity = SIMULATED_BODY_OPACITY;
+}
 
 /**
  * Swaps a body's materials for painted copies, reusing any already in `copies`.

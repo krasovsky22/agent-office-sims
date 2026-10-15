@@ -5,9 +5,10 @@
  * Players and agent employees are both built here, so the two cannot drift
  * apart in how they move, sit or emote. What differs is identity, and it is
  * meant to read at a glance: an agent wears the agents' colour rather than the
- * players', see-through because it is simulated, its nameplate carries its job
- * title and a simulated tag under its name, and a badge over its head says what
- * it is doing.
+ * players', its nameplate carries its job title under its name, and a badge
+ * over its head says what it is doing. A simulated agent employee is also
+ * see-through and its title is tagged simulated, so it never passes for a live
+ * coding agent.
  *
  * Three things about the shape of this file are load-bearing:
  *
@@ -50,11 +51,11 @@ import {
 } from "@sim/shared";
 import * as THREE from "three";
 
-import { AGENT_ACTIVITY_APPEARANCE, SIMULATED_LABEL } from "../agentActivity.js";
+import { AGENT_ACTIVITY_APPEARANCE, SIMULATED_LABEL, isSimulated } from "../agentActivity.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 
 import { AvatarAnimator } from "./avatarAnimator.js";
-import { type AvatarLook, type AvatarModel, SIMULATED_BODY_OPACITY } from "./avatarModel.js";
+import { type AvatarLook, type AvatarModel, markSimulated } from "./avatarModel.js";
 import { Billboard, paintActivityBadge, paintEmote, paintSpeechBubble } from "./billboard.js";
 
 /**
@@ -242,13 +243,14 @@ interface AvatarBody {
 
 /**
  * Paints a nameplate: the name, with a CEO suffix for the CEO, and an agent's
- * job title on a second line beneath it, tagged as simulated.
+ * job title on a second line beneath it, tagged when the agent is simulated.
  */
 function drawNameplate(
   canvas: HTMLCanvasElement,
   name: string,
   isCeo: boolean,
   jobTitle: string,
+  simulated: boolean,
 ): void {
   const label = isCeo ? `${name}  ·  CEO` : name;
   const context = canvas.getContext("2d");
@@ -265,10 +267,14 @@ function drawNameplate(
 
   const padding = NAMEPLATE_CANVAS_HEIGHT * 0.38;
   context.font = titleFont;
-  const tag = `  ·  ${SIMULATED_LABEL.toUpperCase()}`;
+  const hasTitleLine = jobTitle !== "" || simulated;
+  const tag = !simulated
+    ? ""
+    : jobTitle === ""
+      ? SIMULATED_LABEL.toUpperCase()
+      : `  ·  ${SIMULATED_LABEL.toUpperCase()}`;
   const titleOnlyWidth = context.measureText(jobTitle).width;
-  const tagWidth = context.measureText(tag).width;
-  const titleWidth = jobTitle === "" ? 0 : titleOnlyWidth + tagWidth;
+  const titleWidth = hasTitleLine ? titleOnlyWidth + context.measureText(tag).width : 0;
   context.font = nameFont;
   const textWidth = Math.max(context.measureText(label).width, titleWidth);
   const pillWidth = Math.min(canvas.width, Math.ceil(textWidth + padding * 2));
@@ -285,7 +291,7 @@ function drawNameplate(
   );
   context.fill();
 
-  if (jobTitle === "") {
+  if (!hasTitleLine) {
     context.fillStyle = isCeo ? "#f3cf6a" : "#eef0f4";
     context.fillText(label, centreX, canvas.height / 2 + 1);
     return;
@@ -332,6 +338,7 @@ const CAPSULE_COLOUR: Record<AvatarLook, number> = {
   local: LOCAL_BODY_COLOUR,
   remote: REMOTE_BODY_COLOUR,
   agent: AGENT_BODY_COLOUR,
+  "simulated-agent": AGENT_BODY_COLOUR,
 };
 
 /** The capsule: the body an avatar has before the model arrives, or instead of it. */
@@ -340,9 +347,8 @@ function createCapsuleBody(look: AvatarLook): AvatarBody {
   root.name = "avatar-capsule";
 
   const material = new THREE.MeshLambertMaterial({ color: CAPSULE_COLOUR[look] });
-  if (look === "agent") {
-    material.transparent = true;
-    material.opacity = SIMULATED_BODY_OPACITY;
+  if (look === "simulated-agent") {
+    markSimulated(material);
   }
   const capsule = new THREE.Mesh(BODY_GEOMETRY, material);
   capsule.position.y = OCCUPANT_HEIGHT / 2;
@@ -408,6 +414,7 @@ export class Avatar {
 
   private body: AvatarBody;
   private readonly look: AvatarLook;
+  private readonly simulated: boolean;
 
   private name: string;
   private isCeo: boolean;
@@ -433,7 +440,8 @@ export class Avatar {
     this.isCeo = options.isCeo;
     this.jobTitle = options.jobTitle;
     this.activity = undefined;
-    this.look = isAgent ? "agent" : options.isLocal ? "local" : "remote";
+    this.simulated = isSimulated(options.kind);
+    this.look = this.simulated ? "simulated-agent" : options.isLocal ? "local" : "remote";
 
     this.body =
       options.model !== undefined
@@ -478,7 +486,7 @@ export class Avatar {
     this.nameplateCanvas.height = isAgent
       ? AGENT_NAMEPLATE_CANVAS_HEIGHT
       : NAMEPLATE_CANVAS_HEIGHT;
-    drawNameplate(this.nameplateCanvas, this.name, this.isCeo, this.jobTitle);
+    drawNameplate(this.nameplateCanvas, this.name, this.isCeo, this.jobTitle, this.simulated);
     this.nameplateTexture = new THREE.CanvasTexture(this.nameplateCanvas);
     this.nameplateTexture.colorSpace = THREE.SRGBColorSpace;
     this.nameplate = new THREE.Sprite(
@@ -624,7 +632,7 @@ export class Avatar {
     this.isCeo = isCeo;
     this.jobTitle = jobTitle;
     this.ceoMarker.visible = isCeo;
-    drawNameplate(this.nameplateCanvas, name, isCeo, jobTitle);
+    drawNameplate(this.nameplateCanvas, name, isCeo, jobTitle, this.simulated);
     this.nameplateTexture.needsUpdate = true;
   }
 
