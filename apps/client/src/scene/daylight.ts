@@ -11,7 +11,7 @@
  * the sky on its own half of the day and they hand over at the horizon, where
  * the table holds the light at zero, so the change of direction is never seen.
  * Neither ever sinks below {@link MIN_ELEVATION}: the shadow camera stays where
- * `office.ts` aimed it and shadows stretch rather than streak off the floor.
+ * `lighting.ts` aimed it and shadows stretch rather than streak off the floor.
  *
  * Sampling writes into a {@link Daylight} the caller made once, so it can run
  * every frame without allocating.

@@ -1,19 +1,21 @@
 /**
  * The office's lights, and turning the time of day into them.
  *
- * A hemisphere fill, one shadow-casting directional light that is the sun by day
- * and the moon by night, and a ceiling light over each stretch of every room
- * that comes up as the light outside falls. `daylight.ts` decides what each of
- * them should be at a given minute; this module owns the lights and copies that
- * onto them.
+ * A hemisphere fill and one shadow-casting directional light that is the sun by
+ * day and the moon by night: the same two lights the office always had. The
+ * interior lights coming up at night are not lights at all. They are glowing
+ * ceiling panels over each stretch of every room, and a warm lift in the
+ * hemisphere that stands in for what they would throw. `daylight.ts` decides
+ * what each of them should be at a given minute; this module owns them and
+ * copies that on.
  *
- * It is all kept cheap enough to run every frame. Every light exists from the
- * start and stays in the scene: a light switched off is one at zero intensity,
- * never one removed or hidden, because changing how many lights the scene has
- * recompiles every material in it. The shadow map's size and camera are set
- * once; a moving sun only moves the light, which re-renders the one map the
- * renderer draws anyway. Only the sun casts — interior lights cast nothing, so
- * they add no shadow passes.
+ * It is all kept cheap enough to run every frame. Every light the renderer
+ * shades costs every lit pixel, whatever its intensity, so the count never
+ * grows past those two, and it never changes, because changing how many lights
+ * the scene has recompiles every material in it. The panels are one instanced
+ * mesh that casts nothing. The shadow map's size and camera are set once; a
+ * moving sun only moves the light, which re-renders the one map the renderer
+ * draws anyway.
  */
 
 import { type Aabb2, type OfficeLayout } from "@sim/shared";
@@ -43,26 +45,32 @@ const SHADOW_MARGIN = 2;
  */
 const SUN_DISTANCE = 18;
 
-/** Height of the interior lights: just under the 3m walls. */
-const INTERIOR_LIGHT_HEIGHT = 2.7;
+/** Height of the ceiling panels: just under the 3m walls. */
+const CEILING_PANEL_HEIGHT = 2.7;
 
 /**
- * Longest stretch of room one interior light covers.
+ * Longest stretch of room one ceiling panel covers.
  *
- * Wide enough that the whole floor takes only a handful of lights — every one is
- * a cost on every lit pixel — and close enough that the open floor's middle is
- * not left dimmer than its ends.
+ * The panels are one instanced mesh, so more of them costs next to nothing;
+ * this is close enough that a room reads as lit from end to end.
  */
-const INTERIOR_LIGHT_SPAN = 12;
+const CEILING_PANEL_SPAN = 4;
+
+/** Size of one ceiling panel. */
+const CEILING_PANEL_LENGTH = 1.2;
+const CEILING_PANEL_WIDTH = 0.6;
+
+/** The panels' own colour, seen by day with the lights off. */
+const CEILING_PANEL_COLOUR = 0xf2f2ee;
 
 /** Warm white, the colour of an office at night. */
-const INTERIOR_LIGHT_COLOUR = 0xffe2b8;
+const INTERIOR_LIGHT_COLOUR = new THREE.Color(0xffe2b8);
 
-/** Intensity of one interior light at full, in candela. */
-const INTERIOR_LIGHT_INTENSITY = 14;
+/** How much the hemisphere brightens with the interior lights full. */
+const INTERIOR_FILL = 0.5;
 
-/** Reach of an interior light, after which it contributes nothing. */
-const INTERIOR_LIGHT_RANGE = 10;
+/** How far the hemisphere's sky colour turns to the interior's warm white at full. */
+const INTERIOR_WARMTH = 0.6;
 
 /** The office's lights, set to a time of day by {@link OfficeLighting.showMinute}. */
 export interface OfficeLighting {
@@ -71,23 +79,23 @@ export interface OfficeLighting {
 }
 
 /**
- * Where the interior lights hang: a grid over each room, one light per
- * {@link INTERIOR_LIGHT_SPAN} of it in each direction.
+ * Where the ceiling panels hang: a grid over each room, one panel per
+ * {@link CEILING_PANEL_SPAN} of it in each direction.
  *
  * Derived from the layout's rooms rather than written down, so a new room is
  * lit at night without anyone remembering to light it.
  */
-export function interiorLightPositions(layout: OfficeLayout): readonly THREE.Vector3[] {
+export function ceilingPanelPositions(layout: OfficeLayout): readonly THREE.Vector3[] {
   const positions: THREE.Vector3[] = [];
   for (const room of layout.rooms) {
-    const across = Math.max(1, Math.ceil((room.bounds.maxX - room.bounds.minX) / INTERIOR_LIGHT_SPAN));
-    const down = Math.max(1, Math.ceil((room.bounds.maxZ - room.bounds.minZ) / INTERIOR_LIGHT_SPAN));
+    const across = Math.max(1, Math.ceil((room.bounds.maxX - room.bounds.minX) / CEILING_PANEL_SPAN));
+    const down = Math.max(1, Math.ceil((room.bounds.maxZ - room.bounds.minZ) / CEILING_PANEL_SPAN));
     for (let i = 0; i < across; i += 1) {
       for (let j = 0; j < down; j += 1) {
         positions.push(
           new THREE.Vector3(
             cellCentre(room.bounds.minX, room.bounds.maxX, i, across),
-            INTERIOR_LIGHT_HEIGHT,
+            CEILING_PANEL_HEIGHT,
             cellCentre(room.bounds.minZ, room.bounds.maxZ, j, down),
           ),
         );
@@ -136,6 +144,32 @@ function aimShadowCamera(sun: THREE.DirectionalLight, floor: ReturnType<typeof c
 }
 
 /**
+ * The ceiling panels, as one instanced mesh whose glow is the interior lights.
+ *
+ * Each faces down, so it is seen from under the ceiling and vanishes when the
+ * camera looks down over the walls.
+ */
+function buildCeilingPanels(layout: OfficeLayout): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshLambertMaterial> {
+  const geometry = new THREE.PlaneGeometry(CEILING_PANEL_LENGTH, CEILING_PANEL_WIDTH).rotateX(Math.PI / 2);
+  const material = new THREE.MeshLambertMaterial({
+    color: CEILING_PANEL_COLOUR,
+    emissive: INTERIOR_LIGHT_COLOUR,
+    emissiveIntensity: 0,
+  });
+  const positions = ceilingPanelPositions(layout);
+  const panels = new THREE.InstancedMesh(geometry, material, positions.length);
+  panels.name = "ceiling-panels";
+
+  const matrix = new THREE.Matrix4();
+  positions.forEach((position, index) => {
+    panels.setMatrixAt(index, matrix.makeTranslation(position));
+  });
+  panels.instanceMatrix.needsUpdate = true;
+  panels.computeBoundingSphere();
+  return panels;
+}
+
+/**
  * Adds the office's lights to a scene and hands back the one control they need.
  *
  * The scene's background is taken over as well, so the sky above the walls
@@ -152,12 +186,8 @@ export function buildLighting(scene: THREE.Scene, layout: OfficeLayout): OfficeL
   aimShadowCamera(sun, floor);
   scene.add(sun, sun.target);
 
-  const interiors = interiorLightPositions(layout).map((position) => {
-    const light = new THREE.PointLight(INTERIOR_LIGHT_COLOUR, 0, INTERIOR_LIGHT_RANGE);
-    light.position.copy(position);
-    scene.add(light);
-    return light;
-  });
+  const panels = buildCeilingPanels(layout);
+  scene.add(panels);
 
   const background = new THREE.Color();
   scene.background = background;
@@ -168,9 +198,9 @@ export function buildLighting(scene: THREE.Scene, layout: OfficeLayout): OfficeL
     showMinute(minuteOfDay) {
       sampleDaylight(minuteOfDay, daylight);
 
-      sky.color.copy(daylight.skyColour);
+      sky.color.lerpColors(daylight.skyColour, INTERIOR_LIGHT_COLOUR, daylight.interior * INTERIOR_WARMTH);
       sky.groundColor.copy(daylight.groundColour);
-      sky.intensity = daylight.skyIntensity;
+      sky.intensity = daylight.skyIntensity + daylight.interior * INTERIOR_FILL;
 
       sun.position
         .copy(daylight.sunDirection)
@@ -179,10 +209,7 @@ export function buildLighting(scene: THREE.Scene, layout: OfficeLayout): OfficeL
       sun.color.copy(daylight.sunColour);
       sun.intensity = daylight.sunIntensity;
 
-      const interior = daylight.interior * INTERIOR_LIGHT_INTENSITY;
-      for (const light of interiors) {
-        light.intensity = interior;
-      }
+      panels.material.emissiveIntensity = daylight.interior;
 
       background.copy(daylight.background);
     },
