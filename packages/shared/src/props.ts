@@ -20,7 +20,8 @@
  * are solid because they are workstation geometry: `layout.ts` derives their
  * footprint from the same {@link DESK_CHAIR} the chair prop below is fitted to,
  * so the chair you see and the chair you bump into are one shape. The decor —
- * plants, door frames, screens, the microwave on the counter — is still walk-through on purpose.
+ * plants, door frames, screens, the microwave on the counter — is still
+ * walk-through on purpose.
  */
 
 import {
