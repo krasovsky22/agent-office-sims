@@ -113,9 +113,9 @@ export function parseLiveAgentReport(raw: unknown): LiveAgentReport | undefined 
   }
 
   let task: LiveAgentTask | undefined;
-  if (status === LIVE_AGENT_REPORT_STATUS.working && candidate["task"] !== undefined) {
-    const rawTask = candidate["task"];
-    if (typeof rawTask !== "object" || rawTask === null) {
+  const rawTask = candidate["task"];
+  if (status === LIVE_AGENT_REPORT_STATUS.working && rawTask !== undefined && rawTask !== null) {
+    if (typeof rawTask !== "object") {
       return undefined;
     }
     const { title: rawTitle, url: rawUrl } = rawTask as Record<string, unknown>;

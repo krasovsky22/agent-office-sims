@@ -32,6 +32,7 @@ describe("parseLiveAgentReport", () => {
 
   it("accepts a working report with no task, or a task with no link", () => {
     expect(parseLiveAgentReport({ id: "a", status: "working" })?.task).toBeUndefined();
+    expect(parseLiveAgentReport({ id: "a", status: "working", task: null })?.task).toBeUndefined();
     expect(parseLiveAgentReport({ id: "a", status: "working", task: { title: "Busy" } })?.task).toEqual({
       title: "Busy",
       url: "",

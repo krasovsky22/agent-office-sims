@@ -197,13 +197,6 @@ export class LiveAgentCrew {
     }
   }
 
-  /** Takes every agent off the floor, for a room being disposed. */
-  public clear(now: number): void {
-    for (const [id, body] of this.bodies) {
-      this.depart(id, body, now);
-    }
-  }
-
   /** One tick. `deltaSeconds` is the time since the last one. */
   public step(now: number, deltaSeconds: number): void {
     for (const body of this.bodies.values()) {
