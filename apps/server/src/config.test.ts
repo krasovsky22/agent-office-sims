@@ -15,6 +15,7 @@ import { DEFAULT_AGENT_COUNT, MAX_AGENT_COUNT } from "@sim/shared";
 import {
   isOriginAllowed,
   readAgentCount,
+  readAgentDebug,
   readAgentWorkConfig,
   readAllowedOrigins,
   readPort,
@@ -202,5 +203,22 @@ describe("readAgentCount", () => {
 
   it.each(["-1", "2.5", "five", String(MAX_AGENT_COUNT + 1)])("rejects %j", (value) => {
     expect(() => readAgentCount({ AGENT_COUNT: value })).toThrow(/AGENT_COUNT/);
+  });
+});
+
+describe("readAgentDebug", () => {
+  it("is off unless asked for, so a deployment never exposes it by accident", () => {
+    expect(readAgentDebug({})).toBe(false);
+    expect(readAgentDebug({ AGENT_DEBUG: " " })).toBe(false);
+    expect(readAgentDebug({ AGENT_DEBUG: "off" })).toBe(false);
+  });
+
+  it("turns on by name, in any case", () => {
+    expect(readAgentDebug({ AGENT_DEBUG: "on" })).toBe(true);
+    expect(readAgentDebug({ AGENT_DEBUG: " ON " })).toBe(true);
+  });
+
+  it.each(["yes", "1", "true"])("rejects %j rather than guessing", (value) => {
+    expect(() => readAgentDebug({ AGENT_DEBUG: value })).toThrow(/AGENT_DEBUG/);
   });
 });

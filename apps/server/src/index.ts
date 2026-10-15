@@ -31,7 +31,7 @@ import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
 import { describeAgentWork } from "./work/fromConfig.js";
 
-const { port, allowedOrigins, projectBoard, agentWork, agentCount } = readConfig();
+const { port, allowedOrigins, projectBoard, agentWork, agentCount, agentDebug } = readConfig();
 
 const projectFeed = new ProjectFeed({
   repository: projectBoard.repository,
@@ -51,11 +51,13 @@ const server = new Server({
 });
 
 // Colyseus lets these server options win a collision with a client's join
-// options, so a client can never supply the feed or the size of the staff.
+// options, so a client can never supply the feed, the size of the staff, or
+// its own permission to send debug commands.
 server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   projectBoard: projectFeed,
   agentCount,
   reconnectGraceSeconds: RECONNECT_GRACE_SECONDS,
+  agentDebug,
 } satisfies OfficeRoomOptions);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -76,4 +78,5 @@ console.log(
 );
 console.log(describeAgentWork(agentWork));
 console.log(`agent employees per room: ${agentCount}`);
+console.log(`agent debug commands: ${agentDebug ? "on" : "off"}`);
 /* eslint-enable no-console */

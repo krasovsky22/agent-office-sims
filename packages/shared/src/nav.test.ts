@@ -22,7 +22,7 @@ import {
   describeLayoutProblems,
   roomAt,
 } from "./layout.js";
-import { findPath, findWaypointPath, nearestWaypoint } from "./nav.js";
+import { findPath, findWaypointPath, isClearLine, nearestWaypoint } from "./nav.js";
 
 const WALL_HEIGHT = 3;
 
@@ -307,5 +307,23 @@ describe("OFFICE_LAYOUT", () => {
         expect(path.at(-1), `${from.id} -> ${to.id}`).toBe(to.id);
       }
     }
+  });
+});
+
+describe("isClearLine", () => {
+  it("is clear along an aisle and blocked through a wall", () => {
+    expect(isClearLine({ x: -7.2, z: 2.5 }, { x: 7.2, z: 2.5 }, OFFICE_LAYOUT)).toBe(true);
+    // From the open floor north through the partition into the corridor.
+    expect(isClearLine({ x: 0, z: -1.6 }, { x: 0, z: -3.7 }, OFFICE_LAYOUT)).toBe(false);
+    // The same crossing through the west doorway.
+    expect(isClearLine({ x: -6, z: -1.6 }, { x: -6, z: -3.7 }, OFFICE_LAYOUT)).toBe(true);
+  });
+
+  it("accounts for the body's radius", () => {
+    // Along the partition's south face: a point clears it, a body does not.
+    const a = { x: -4, z: -2.2 };
+    const b = { x: 4, z: -2.2 };
+    expect(isClearLine(a, b, OFFICE_LAYOUT, 0.1)).toBe(true);
+    expect(isClearLine(a, b, OFFICE_LAYOUT, OCCUPANT_RADIUS)).toBe(false);
   });
 });

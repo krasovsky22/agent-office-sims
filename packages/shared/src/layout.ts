@@ -173,10 +173,10 @@ export interface DoorwaySpec {
 /**
  * A navigation node.
  *
- * Unread in this milestone: it exists so that agent employees can path through
- * the office later without the layout having to be reshaped first. Every room
- * and every doorway holds at least one node, and the graph is connected, so a
- * path exists between any two nodes.
+ * What agent employees path through: `nav.ts` routes over these nodes and the
+ * server's agent steering walks each link. Every room and every doorway holds
+ * at least one node, and the graph is connected, so a path exists between any
+ * two nodes.
  */
 export interface WaypointSpec {
   readonly id: string;

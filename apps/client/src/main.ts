@@ -30,6 +30,7 @@ import * as THREE from "three";
 
 import { boardAccessFor, rejectionText } from "./boardAccess.js";
 import { readCompany, sameReadout } from "./companyReadout.js";
+import { parseDebugCommand } from "./debugCommand.js";
 import { RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
 import { PlayerController } from "./player/controller.js";
@@ -339,6 +340,10 @@ function start(): void {
       publishHud({ projectBoard: snapshot });
     },
 
+    onDebugReply: (event) => {
+      showNotice(event.text);
+    },
+
     // Arrives with nearly every patch, because the clock is in it; React only
     // hears about the ones that change what is on screen.
     onCompanyChanged: (view) => {
@@ -354,7 +359,16 @@ function start(): void {
       store: hudStore,
       actions: {
         sendEmote: (emote) => room.sendEmote(emote),
-        sendChat: (text) => room.sendChat(text),
+        sendChat: (text) => {
+          const command = parseDebugCommand(text);
+          if (command === undefined) {
+            room.sendChat(text);
+          } else if (command.kind === "goto") {
+            room.sendDebugGoto(command.message);
+          } else {
+            showNotice(command.text);
+          }
+        },
       },
     }),
   );

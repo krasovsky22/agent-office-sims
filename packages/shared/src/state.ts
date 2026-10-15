@@ -181,8 +181,8 @@ export function isCeo(occupant: Occupant): boolean {
  * still; this is the field that tells them apart, and it is what the badge
  * above an agent's head shows.
  *
- * Nothing changes it yet. Agents stand at their desks and are `idle` until the
- * issue that gives them a brain writes the rest.
+ * Agent movement writes `walking` and `blocked`; every other value waits for
+ * the issue that gives agents a brain.
  */
 export const AGENT_ACTIVITY = {
   idle: "idle",

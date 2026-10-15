@@ -15,6 +15,7 @@ import {
   EMOTE,
   EMOTES,
   parseChatMessage,
+  parseDebugGotoMessage,
   parseEmoteMessage,
   parseInteractMessage,
   parsePoseMessage,
@@ -156,6 +157,40 @@ describe("parseInteractMessage", () => {
   for (const [description, raw] of rejected) {
     it(`rejects ${description}`, () => {
       expect(parseInteractMessage(raw)).toBeUndefined();
+    });
+  }
+});
+
+describe("parseDebugGotoMessage", () => {
+  it("accepts a waypoint target", () => {
+    expect(parseDebugGotoMessage({ agent: "ada", target: "wp-ceo-desk" })).toEqual({
+      agent: "ada",
+      target: "wp-ceo-desk",
+    });
+  });
+
+  it("accepts a position target, and keeps nothing else from it", () => {
+    expect(parseDebugGotoMessage({ agent: "ada", target: { x: 1, z: -2, y: 9 } })).toEqual({
+      agent: "ada",
+      target: { x: 1, z: -2 },
+    });
+  });
+
+  const rejected: readonly [string, unknown][] = [
+    ["a missing agent", { target: "wp-ceo-desk" }],
+    ["an empty agent", { agent: "", target: "wp-ceo-desk" }],
+    ["an overlong agent", { agent: "a".repeat(65), target: "wp-ceo-desk" }],
+    ["a missing target", { agent: "ada" }],
+    ["an empty target", { agent: "ada", target: "" }],
+    ["a position that is not finite", { agent: "ada", target: { x: Number.NaN, z: 0 } }],
+    ["a position missing an axis", { agent: "ada", target: { x: 1 } }],
+    ["a number target", { agent: "ada", target: 3 }],
+    ["null", null],
+  ];
+
+  for (const [label, payload] of rejected) {
+    it(`rejects ${label}`, () => {
+      expect(parseDebugGotoMessage(payload)).toBeUndefined();
     });
   }
 });

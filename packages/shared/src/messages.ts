@@ -55,6 +55,11 @@ export const CLIENT_MESSAGE = {
   ticketSetPriority: "ticket:set-priority",
   /** Leave a remark on a ticket; open to every player. */
   ticketComment: "ticket:comment",
+  /**
+   * Send a named agent walking to a waypoint or a position. A development
+   * tool: the server only honours it when started with `AGENT_DEBUG=on`.
+   */
+  debugGoto: "debug:goto",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -84,6 +89,8 @@ export const SERVER_MESSAGE = {
    * state, so this is the announcement, not the change.
    */
   ceoChanged: "ceo-changed",
+  /** Sent only to the client whose debug command it answers. */
+  debugReply: "debug:reply",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];
@@ -154,6 +161,25 @@ export interface EmoteEvent {
 export interface ChatEvent {
   readonly occupantId: string;
   /** Sanitized and length-capped. Safe to render as text. */
+  readonly text: string;
+}
+
+/**
+ * Which agent to send where.
+ *
+ * `agent` is matched by the server against agent ids and names, so a person
+ * typing it can write `ada`. `target` is a waypoint id from the layout or a
+ * floor position; whether either exists, or can be stood on, is the server's
+ * to decide.
+ */
+export interface DebugGotoMessage {
+  readonly agent: string;
+  readonly target: string | { readonly x: number; readonly z: number };
+}
+
+/** What became of a debug command, for the client that sent it. */
+export interface DebugReplyEvent {
+  readonly ok: boolean;
   readonly text: string;
 }
 
@@ -574,4 +600,26 @@ export function parseTicketCommentMessage(raw: unknown): TicketCommentMessage | 
   }
   const text = sanitizeCommentText(candidate.text);
   return text === "" ? undefined : { ticketId: candidate.ticketId, text };
+}
+
+/**
+ * Validates a raw `debug:goto` payload.
+ *
+ * Shape only, like every parser here: an agent name nobody has, or a waypoint
+ * the layout lacks, is refused by the server with a reply saying so.
+ */
+export function parseDebugGotoMessage(raw: unknown): DebugGotoMessage | undefined {
+  const candidate = asRecord(raw);
+  if (candidate === undefined || !isId(candidate.agent)) {
+    return undefined;
+  }
+  const { target } = candidate;
+  if (isId(target)) {
+    return { agent: candidate.agent, target };
+  }
+  const position = asRecord(target);
+  if (position === undefined || !isFiniteNumber(position.x) || !isFiniteNumber(position.z)) {
+    return undefined;
+  }
+  return { agent: candidate.agent, target: { x: position.x, z: position.z } };
 }
