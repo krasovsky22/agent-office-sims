@@ -18,6 +18,7 @@ import {
   OCCUPANT_RADIUS,
   OFFICE_LAYOUT,
   type InteractableSpec,
+  type Occupant,
   interactableById,
   isBlocked,
 } from "@sim/shared";
@@ -32,6 +33,7 @@ import {
   releaseHold,
   requestInteract,
 } from "./interaction.js";
+import { hireAgentEmployees } from "./agents.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "./movement.js";
 
 const SEAT = "seat-desk-north-3-1";
@@ -48,7 +50,7 @@ function specOf(id: string): InteractableSpec {
 }
 
 interface Room extends InteractionHost {
-  readonly occupants: Map<string, HumanPlayer>;
+  readonly occupants: Map<string, Occupant>;
   readonly motions: Map<string, OccupantMotion>;
 }
 
@@ -178,6 +180,23 @@ describe("requestInteract", () => {
     });
     expect(snapshot(bob)).toEqual(before);
     expect(room.holds.holderOf(SEAT)).toBe("alice");
+  });
+
+  it("does not let a player sit at a desk an agent has", () => {
+    const room = createRoom();
+    const [agent] = hireAgentEmployees(room.occupants, OFFICE_LAYOUT, 1);
+    expect(`seat-${agent?.deskId ?? ""}-1`).toBe(SEAT);
+    const bob = join(room, "bob", SEAT, 0.3);
+    const before = snapshot(bob);
+
+    const outcome = requestInteract(room, "bob", SEAT, 0);
+
+    expect(outcome).toEqual({
+      result: "refused",
+      decision: { allowed: false, refusal: INTERACT_REFUSAL.occupied },
+    });
+    expect(snapshot(bob)).toEqual(before);
+    expect(room.holds.holderOf(SEAT)).toBeUndefined();
   });
 
   it("refuses a second interaction while the first is held", () => {

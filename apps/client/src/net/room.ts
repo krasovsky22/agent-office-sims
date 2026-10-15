@@ -48,6 +48,7 @@ import {
   type ReportedAnimation,
   SERVER_MESSAGE,
   type ThrottledEvent,
+  agentAtDesk,
   isAgentEmployee,
   isHumanPlayer,
   normalizeYaw,
@@ -218,6 +219,12 @@ export class RoomConnection {
       }
     }
     return undefined;
+  }
+
+  /** The agent employee given a desk, or `undefined` if no agent has it. */
+  public agentAtDesk(deskId: string): string | undefined {
+    const occupants = this.room?.state.occupants;
+    return occupants === undefined ? undefined : agentAtDesk(occupants.values(), deskId);
   }
 
   /** Asks to use an interactable. The server decides; there is no reply. */

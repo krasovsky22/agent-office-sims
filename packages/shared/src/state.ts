@@ -164,13 +164,6 @@ export const AGENT_ACTIVITY = {
 
 export type AgentActivity = (typeof AGENT_ACTIVITY)[keyof typeof AGENT_ACTIVITY];
 
-const AGENT_ACTIVITIES: ReadonlySet<string> = new Set(Object.values(AGENT_ACTIVITY));
-
-/** Whether an untrusted value is one of the {@link AGENT_ACTIVITY} members. */
-export function isAgentActivity(value: unknown): value is AgentActivity {
-  return typeof value === "string" && AGENT_ACTIVITIES.has(value);
-}
-
 /** Ceiling of an agent's morale and energy, which run from 0 to this. */
 export const AGENT_STAT_MAX = 100;
 

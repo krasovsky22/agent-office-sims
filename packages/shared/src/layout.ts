@@ -206,6 +206,11 @@ export interface InteractableSpec {
    * left inside it for the resolver to argue with.
    */
   readonly exit: Vec2 | undefined;
+  /**
+   * The desk a seat belongs to, or `undefined` for anything that is not a
+   * seat. It is what lets a desk given to an agent keep its chairs.
+   */
+  readonly deskId: string | undefined;
 }
 
 /**
@@ -266,8 +271,9 @@ export interface OfficeLayout {
   readonly spawnPoints: readonly SpawnSpec[];
   /**
    * Ids of the desks agent employees are given, in hiring order: the first
-   * agent hired gets the first desk. A room hiring fewer agents than this
-   * leaves the rest free for players.
+   * agent hired gets the first desk. A desk an agent has is not a desk a
+   * player can sit at; a room hiring fewer agents than this leaves the rest
+   * free for players.
    */
   readonly agentDesks: readonly string[];
   /**
@@ -593,6 +599,7 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       anchor: { x: -2.85, z: -10.7, yaw: 0 },
       volume: box3(-4.35, 1, -11.7, -1.35, 2.1, -11.62),
       exit: undefined,
+      deskId: undefined,
     },
   ],
 };
@@ -681,6 +688,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
         anchor: workstation.seat,
         volume: undefined,
         exit: workstation.exit,
+        deskId: spec.id,
       });
     });
   }
@@ -697,6 +705,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
       anchor: { x: position.x, z: position.z, yaw: spec.yaw },
       volume: undefined,
       exit: undefined,
+      deskId: undefined,
     });
   }
   for (const board of layout.boards) {
@@ -708,6 +717,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
       anchor: { x: position.x, z: position.z, yaw: board.yaw - Math.PI },
       volume: undefined,
       exit: undefined,
+      deskId: undefined,
     });
   }
   all.push(...layout.fixtures);

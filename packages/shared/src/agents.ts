@@ -14,6 +14,7 @@
  */
 
 import { type DeskSpec, type OfficeLayout, type SpawnSpec, workstations } from "./layout.js";
+import { type Occupant, isAgentEmployee } from "./state.js";
 
 /** One person the office can hire. */
 export interface AgentProfile {
@@ -63,9 +64,8 @@ export interface AgentHire extends AgentProfile {
  * The agents a room with `count` of them hires.
  *
  * Asking for more than the roster or the layout's agent desks can supply gets
- * as many as both allow, and a negative or fractional count is read as the
- * whole number below it; deciding whether such a count is a mistake is the
- * configuration's business, not this function's.
+ * as many as both allow. The count itself is the configuration's to validate,
+ * and the desk ids the layout's.
  *
  * Each agent stands where someone getting up from that desk's chair would be
  * put down — clear of the chair by construction, and checked clear of every
@@ -74,20 +74,17 @@ export interface AgentHire extends AgentProfile {
  */
 export function planAgentHires(layout: OfficeLayout, count: number): AgentHire[] {
   const desksById = new Map<string, DeskSpec>(layout.desks.map((spec) => [spec.id, spec]));
-  const wanted = Math.max(0, Math.floor(count));
   const hires: AgentHire[] = [];
 
   for (const deskId of layout.agentDesks) {
     const profile = AGENT_ROSTER[hires.length];
-    if (hires.length >= wanted || profile === undefined) {
+    if (hires.length >= count || profile === undefined) {
       break;
     }
     const desk = desksById.get(deskId);
     const workstation = desk === undefined ? undefined : workstations(desk)[0];
     if (desk === undefined || workstation === undefined) {
-      // An unknown desk id is a layout problem `describeLayoutProblems`
-      // reports; the room still starts, one agent short.
-      continue;
+      throw new Error(`agent desk ${deskId} is not a desk in the layout`);
     }
     hires.push({
       ...profile,
@@ -97,4 +94,19 @@ export function planAgentHires(layout: OfficeLayout, count: number): AgentHire[]
     });
   }
   return hires;
+}
+
+/**
+ * The agent employee given a desk, or `undefined` if no agent has it.
+ *
+ * Read from the occupants map on both sides, so the client's prompt and the
+ * server's refusal agree on whose desk it is.
+ */
+export function agentAtDesk(occupants: Iterable<Occupant>, deskId: string): string | undefined {
+  for (const occupant of occupants) {
+    if (isAgentEmployee(occupant) && occupant.deskId === deskId) {
+      return occupant.id;
+    }
+  }
+  return undefined;
 }

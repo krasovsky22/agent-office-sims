@@ -14,7 +14,6 @@ import {
   AgentEmployee,
   HumanPlayer,
   OCCUPANT_KIND,
-  isAgentActivity,
   isAgentEmployee,
   isHumanPlayer,
 } from "./state.js";
@@ -43,11 +42,9 @@ describe("planAgentHires", () => {
     expect(planAgentHires(OFFICE_LAYOUT, MAX_AGENT_COUNT)).toHaveLength(AGENT_ROSTER.length);
   });
 
-  it("caps an oversized count at what the roster can supply, and floors a bad one", () => {
+  it("caps an oversized count at what the roster can supply", () => {
     expect(planAgentHires(OFFICE_LAYOUT, MAX_AGENT_COUNT + 10)).toHaveLength(MAX_AGENT_COUNT);
     expect(planAgentHires(OFFICE_LAYOUT, 0)).toEqual([]);
-    expect(planAgentHires(OFFICE_LAYOUT, -2)).toEqual([]);
-    expect(planAgentHires(OFFICE_LAYOUT, 2.9)).toHaveLength(2);
   });
 
   it("gives every agent a distinct name, title and desk", () => {
@@ -67,13 +64,6 @@ describe("planAgentHires", () => {
       expect(hire.stand.z).toBeCloseTo(workstation?.exit.z ?? Number.NaN);
       expect(hire.stand.yaw).toBe(desk?.yaw);
     }
-  });
-
-  it("skips a desk id the layout does not have, rather than standing an agent nowhere", () => {
-    const layout = { ...OFFICE_LAYOUT, agentDesks: ["desk-nowhere", "desk-north-1"] };
-    const hires = planAgentHires(layout, 2);
-    expect(hires.map((hire) => hire.deskId)).toEqual(["desk-north-1"]);
-    expect(hires.map((hire) => hire.id)).toEqual(["agent-1"]);
   });
 });
 
@@ -108,16 +98,5 @@ describe("AgentEmployee", () => {
     expect(isAgentEmployee(player)).toBe(false);
     // A client's reflected state is not an instance of either class.
     expect(isAgentEmployee({ ...player, kind: OCCUPANT_KIND.agent } as HumanPlayer)).toBe(true);
-  });
-});
-
-describe("isAgentActivity", () => {
-  it("accepts the five activities and nothing else", () => {
-    for (const activity of Object.values(AGENT_ACTIVITY)) {
-      expect(isAgentActivity(activity)).toBe(true);
-    }
-    expect(Object.values(AGENT_ACTIVITY)).toHaveLength(5);
-    expect(isAgentActivity("sitting")).toBe(false);
-    expect(isAgentActivity(undefined)).toBe(false);
   });
 });

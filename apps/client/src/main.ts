@@ -383,6 +383,7 @@ function start(): void {
           target.id,
           INTERACT_RANGE,
           (interactableId) => room.holderOf(interactableId),
+          (deskId) => room.agentAtDesk(deskId),
         );
         prompt = {
           keys: "E",
