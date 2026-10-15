@@ -427,9 +427,10 @@ const DESK_ROW_XS = [-9, -5.4, -1.8, 1.8, 5.4, 9] as const;
  *   full width of the room, since that is the way in.
  * - An east-west corridor, `z` from -4.7 to -2.7, running the whole width of
  *   the building and serving every door in that band.
- * - The open floor, `z` from -2.4 south, holding three rows of desks. A
- *   partition separates it from the corridor, broken by two doorways so the
- *   walk from a desk to a meeting is short from either end of the room.
+ * - The open floor, `z` from -2.4 south, holding three rows of desks that all
+ *   face the project board on its north partition. That partition separates
+ *   it from the corridor, broken by two doorways so the walk from a desk to a
+ *   meeting is short from either end of the room.
  *
  * Every doorway is 1.4m clear, which is twice an occupant's diameter: wide
  * enough that two people pass, narrow enough to read as a door. Walls are
@@ -473,15 +474,18 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     wall("wall-partition-east", 6.7, -2.7, 11.7, -2.4),
   ],
   desks: [
-    // Open floor. The middle row faces back up the floor so that two rows look
-    // at each other across an aisle rather than all three facing one way.
+    // Open floor. Every desk here faces north, so everyone sitting at one looks
+    // at the project board on the partition. Each chair backs onto the aisle
+    // south of its row, which is also where its occupant stands up.
     ...deskRow("desk-north", 0.5, 0, DESK_ROW_XS),
-    ...deskRow("desk-middle", 4.5, Math.PI, DESK_ROW_XS),
+    ...deskRow("desk-middle", 4.5, 0, DESK_ROW_XS),
     ...deskRow("desk-south", 8.5, 0, DESK_ROW_XS),
 
-    // Turned desks against the side walls, far enough off them to walk behind.
-    desk("desk-west-wall", -10.4, 6.5, QUARTER_TURN),
-    desk("desk-east-wall", 10.4, 6.5, -QUARTER_TURN),
+    // One more desk at each end of the aisle between the middle and south rows,
+    // outboard of the rows and facing the board like them. The chair stays
+    // clear of the south row's end desk, so its occupant can still walk out.
+    desk("desk-west-wall", -10.4, 6.5, 0),
+    desk("desk-east-wall", 10.4, 6.5, 0),
 
     // Private rooms.
     desk("desk-ceo", -9, -8.5, 0, 2.2, 0.9),
@@ -532,10 +536,9 @@ export const OFFICE_LAYOUT: OfficeLayout = {
   ],
   boards: [
     // The open floor's partition, between its two doorways and facing south
-    // down the desk rows: the north and south rows look straight at it from
-    // their seats, and an arriving player spawns facing it. As wide as the
-    // partition allows with a clear metre either side to the door frames, so
-    // it reads from the back row.
+    // down the desk rows: every open-floor seat looks north at it, and an
+    // arriving player spawns facing it. As wide as the partition allows with a
+    // clear metre either side to the door frames, so it reads from the back row.
     {
       id: PROJECT_BOARD_ID,
       roomId: "open-floor",
@@ -652,14 +655,19 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     },
     { id: "wp-floor-aisle-south-east", x: 7.2, z: 6.5, links: ["wp-floor-aisle-south"] },
 
-    { id: "wp-floor-back-west", x: -7.2, z: 10.5, links: ["wp-floor-back"] },
+    { id: "wp-floor-back-west", x: -7.2, z: 10.5, links: ["wp-floor-back", "wp-floor-back-west-wall"] },
     {
       id: "wp-floor-back",
       x: 0,
       z: 10.5,
       links: ["wp-floor-aisle-south", "wp-floor-back-west", "wp-floor-back-east"],
     },
-    { id: "wp-floor-back-east", x: 7.2, z: 10.5, links: ["wp-floor-back"] },
+    { id: "wp-floor-back-east", x: 7.2, z: 10.5, links: ["wp-floor-back", "wp-floor-back-east-wall"] },
+
+    // Behind the side-wall desks, round the end of the south row: the end desk
+    // hides each of their chairs from the aisle nodes.
+    { id: "wp-floor-back-west-wall", x: -10.4, z: 10.5, links: ["wp-floor-back-west"] },
+    { id: "wp-floor-back-east-wall", x: 10.4, z: 10.5, links: ["wp-floor-back-east"] },
   ],
   // The aisle between the first two desk rows, facing north up the floor. Far
   // enough from the partition that the third-person camera gets its full boom,

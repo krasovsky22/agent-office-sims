@@ -75,6 +75,20 @@ describe("the open floor's project board", () => {
     expect(rows.size).toBeGreaterThanOrEqual(2);
   });
 
+  it("is what every open-floor seat faces", () => {
+    const board = projectBoard();
+    const seats = interactables(OFFICE_LAYOUT).filter(
+      (spec) =>
+        spec.kind === INTERACTION_KIND.seat && roomAt(OFFICE_LAYOUT, spec.anchor)?.id === "open-floor",
+    );
+    expect(seats.length).toBeGreaterThan(0);
+    for (const seat of seats) {
+      // Yaw 0 faces -Z, toward the partition the board hangs on.
+      expect(Math.cos(seat.anchor.yaw), seat.id).toBeCloseTo(1);
+      expect(seat.anchor.z, seat.id).toBeGreaterThan(board.z);
+    }
+  });
+
   it("stays clear of the doorways in the wall it hangs on", () => {
     const board = projectBoard();
     const left = board.x - board.width / 2;
