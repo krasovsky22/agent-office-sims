@@ -18,21 +18,14 @@
 
 import {
   MAX_CHAT_LENGTH,
-  MAX_COMMENT_LENGTH,
   MAX_MANAGER_MESSAGE_LENGTH,
   MAX_MANAGER_REPLY_LENGTH,
+  MAX_WORK_NOTE_LENGTH,
 } from "./constants.js";
 import type { ManagerRejection } from "./manager.js";
-import {
-  ANIMATION_STATE,
-  type ReportedAnimation,
-  type TicketPriority,
-  type TicketStatus,
-  isTicketPriority,
-  isTicketStatus,
-} from "./state.js";
+import { ANIMATION_STATE, type ReportedAnimation, type WorkStatus, isWorkStatus } from "./state.js";
 import type { StaffAction, StaffRejection } from "./staffing.js";
-import type { TicketAction, TicketRejection } from "./tickets.js";
+import type { WorkAction, WorkRejection } from "./work.js";
 
 /** Matchmaking name of the only room type this milestone defines. */
 export const OFFICE_ROOM_NAME = "office";
@@ -48,20 +41,12 @@ export const CLIENT_MESSAGE = {
   interact: "interact",
   /** A request to stop using whatever the sender is currently engaged with. */
   release: "release",
-  /** File a new ticket into the backlog. */
-  ticketCreate: "ticket:create",
-  /** Give a ticket an owner, taking it out of the backlog if it is in one. */
-  ticketAssign: "ticket:assign",
-  /** Drop a ticket's owner, returning it to the backlog. */
-  ticketUnassign: "ticket:unassign",
-  /** Move a ticket to an adjacent status. */
-  ticketMoveStatus: "ticket:move-status",
-  /** Rewrite a ticket's title, body, or both. */
-  ticketEdit: "ticket:edit",
-  /** Change how urgent a ticket is. */
-  ticketSetPriority: "ticket:set-priority",
-  /** Leave a remark on a ticket; open to every player. */
-  ticketComment: "ticket:comment",
+  /** Give an open GitHub issue to an agent employee, or hand its work to another. */
+  workAssign: "work:assign",
+  /** Take an issue back off the agent it was given to before they started it. */
+  workRelease: "work:release",
+  /** Move an issue's work to an adjacent status: approve it, send it back, retry it. */
+  workMove: "work:move",
   /**
    * Send a named agent walking to a waypoint or a position. A development
    * tool: the server only honours it when started with `AGENT_DEBUG=on`.
@@ -91,11 +76,11 @@ export const SERVER_MESSAGE = {
    */
   projectBoard: "project-board",
   /**
-   * Sent only to the client whose ticket command the board refused, so a
+   * Sent only to the client whose work command the office refused, so a
    * refusal is distinguishable from a lost message. Carries a
-   * {@link TicketRejectedEvent}.
+   * {@link WorkRejectedEvent}.
    */
-  ticketRejected: "ticket-rejected",
+  workRejected: "work-rejected",
   /**
    * The CEO role passed to someone else because its holder left. Broadcast to
    * every client as a {@link CeoChangedEvent}; the role itself is replicated
@@ -228,19 +213,18 @@ export interface ThrottledEvent {
   readonly command:
     | typeof CLIENT_MESSAGE.emote
     | typeof CLIENT_MESSAGE.chat
-    | typeof CLIENT_MESSAGE.ticketComment
     | typeof CLIENT_MESSAGE.managerSay;
 }
 
 /**
- * The board refused one of this client's ticket commands and changed nothing.
+ * The office refused one of this client's work commands and changed nothing.
  *
  * `rejection` is the reason, so a client can say "only the CEO can do that"
  * rather than a generic failure.
  */
-export interface TicketRejectedEvent {
-  readonly action: TicketAction;
-  readonly rejection: TicketRejection;
+export interface WorkRejectedEvent {
+  readonly action: WorkAction;
+  readonly rejection: WorkRejection;
 }
 
 /** Who holds the CEO role now that its previous holder has left. */
@@ -284,14 +268,14 @@ export type StaffChangedEvent = {
       readonly change: typeof STAFF_CHANGE.fired;
       /** How far company morale fell, in points. */
       readonly moraleLost: number;
-      /** Unfinished tickets returned to the backlog. */
-      readonly releasedTickets: number;
+      /** Issues they had not finished, now free for someone else. */
+      readonly releasedIssues: number;
     }
   | {
       readonly change: typeof STAFF_CHANGE.quit;
       /** Why they went, in words, e.g. "morale stayed under 30% for 3 days". */
       readonly reason: string;
-      readonly releasedTickets: number;
+      readonly releasedIssues: number;
     }
 );
 
@@ -349,48 +333,24 @@ export interface JoinOptions {
 }
 
 /**
- * The seven ticket commands.
+ * The three work commands, all the CEO's.
  *
- * Each parser below returns the payload with its strings already sanitised, so
- * a handler that has a payload has text it can replicate. The id fields are
- * passed through as-is: an id the board does not know is the applier's
- * rejection to make, not the parser's.
+ * An issue is named by its GitHub number. Whether that issue is open on the
+ * project board, or the agent is in the office, is the work rules' rejection
+ * to make, not the parser's.
  */
-export interface TicketCreateMessage {
-  readonly title: string;
-  readonly body: string;
-}
-
-export interface TicketAssignMessage {
-  readonly ticketId: string;
+export interface WorkAssignMessage {
+  readonly issueNumber: number;
   readonly assigneeId: string;
 }
 
-export interface TicketUnassignMessage {
-  readonly ticketId: string;
+export interface WorkReleaseMessage {
+  readonly issueNumber: number;
 }
 
-export interface TicketMoveStatusMessage {
-  readonly ticketId: string;
-  readonly status: TicketStatus;
-}
-
-/** An edit omits whatever it is not changing. At least one field is present. */
-export interface TicketEditMessage {
-  readonly ticketId: string;
-  readonly title?: string;
-  readonly body?: string;
-}
-
-export interface TicketSetPriorityMessage {
-  readonly ticketId: string;
-  readonly priority: TicketPriority;
-}
-
-export interface TicketCommentMessage {
-  readonly ticketId: string;
-  /** Sanitized by {@link parseTicketCommentMessage}, and never empty. */
-  readonly text: string;
+export interface WorkMoveMessage {
+  readonly issueNumber: number;
+  readonly status: WorkStatus;
 }
 
 /** Which job the CEO wants to hire for; one of `HIRING_CANDIDATES`. */
@@ -406,10 +366,7 @@ export interface StaffFireMessage {
 const MAX_NAME_LENGTH = 18;
 
 /** Long enough for a real summary line, short enough for a board card. */
-export const MAX_TICKET_TITLE_LENGTH = 90;
-
-/** Long enough for the detail an agent would need to act on the ticket. */
-export const MAX_TICKET_BODY_LENGTH = 1200;
+export const MAX_TITLE_LENGTH = 90;
 
 /** Rejects an id longer than anything the server itself mints. */
 const MAX_ID_LENGTH = 64;
@@ -512,13 +469,12 @@ export function sanitizeChatText(raw: unknown): string {
 }
 
 /**
- * Reduces a client-supplied ticket comment to something safe to render.
- *
- * The chat treatment at {@link MAX_COMMENT_LENGTH}: a comment is a remark read
- * in a list on a ticket, laid out as one flowing paragraph like a chat line.
+ * Reduces a note on an issue's work — why an agent is stuck, why the work
+ * changed hands — to something safe to render: the chat treatment at
+ * {@link MAX_WORK_NOTE_LENGTH}, since a note reads as one flowing line.
  */
-export function sanitizeCommentText(raw: unknown): string {
-  return sanitizeLine(raw, MAX_COMMENT_LENGTH);
+export function sanitizeWorkNote(raw: unknown): string {
+  return sanitizeLine(raw, MAX_WORK_NOTE_LENGTH);
 }
 
 /**
@@ -599,12 +555,13 @@ export function parseJoinOptions(raw: unknown): JoinOptions {
 }
 
 /**
- * Reduces a client-supplied ticket title to one renderable line.
+ * Reduces an untrusted title — an issue's, a live agent's task — to one
+ * renderable line.
  *
  * Same treatment as a display name, at a card's width: a title is read in a
  * fixed-height row, so a newline in it is a layout bug rather than formatting.
  */
-export function sanitizeTicketTitle(raw: unknown): string {
+export function sanitizeTitle(raw: unknown): string {
   if (typeof raw !== "string") {
     return "";
   }
@@ -612,10 +569,10 @@ export function sanitizeTicketTitle(raw: unknown): string {
     .replace(CONTROL_CHARACTERS, " ")
     .replace(WHITESPACE_RUN, " ")
     .trim()
-    .slice(0, MAX_TICKET_TITLE_LENGTH);
+    .slice(0, MAX_TITLE_LENGTH);
 }
 
-/** C0 controls and DEL except newline, which a ticket body may legitimately use. */
+/** C0 controls and DEL except newline, which a description may legitimately use. */
 // eslint-disable-next-line no-control-regex -- matching control characters is the point
 const BODY_CONTROL_CHARACTERS = /[\u0000-\u0009\u000b-\u001f\u007f]/g;
 
@@ -626,25 +583,26 @@ const LINE_BREAK = /\r\n?/g;
 const BLANK_LINE_RUN = /\n{3,}/g;
 
 /**
- * Reduces a client-supplied ticket body to something safe to render.
+ * Reduces an untrusted description — an issue's body — to something safe to
+ * render, at most `maxLength` characters.
  *
- * Unlike a title this keeps newlines — a ticket body is the place a human
+ * Unlike a title this keeps newlines — a description is the place a human
  * writes a list — but collapses a run of them, so a body cannot be padded out
  * to push the rest of a panel off screen.
  */
-export function sanitizeTicketBody(raw: unknown): string {
-  return sanitizeParagraphs(raw, MAX_TICKET_BODY_LENGTH);
+export function sanitizeBody(raw: unknown, maxLength: number): string {
+  return sanitizeParagraphs(raw, maxLength);
 }
 
 /**
  * Reduces a line the AI manager posts — a model's reply among them — to
- * something safe to render, keeping its line breaks as a ticket body does.
+ * something safe to render, keeping its line breaks as a description does.
  */
 export function sanitizeManagerReply(raw: unknown): string {
   return sanitizeParagraphs(raw, MAX_MANAGER_REPLY_LENGTH).trim();
 }
 
-/** Normalises and caps multi-line text; see {@link sanitizeTicketBody}. */
+/** Normalises and caps multi-line text; see {@link sanitizeBody}. */
 function sanitizeParagraphs(raw: unknown, maxLength: number): string {
   if (typeof raw !== "string") {
     return "";
@@ -657,7 +615,7 @@ function sanitizeParagraphs(raw: unknown, maxLength: number): string {
     .slice(0, maxLength);
 }
 
-/** Whether a value is usable as an occupant, ticket or interactable id. */
+/** Whether a value is usable as an occupant or interactable id. */
 function isId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= MAX_ID_LENGTH;
 }
@@ -666,120 +624,44 @@ function asRecord(raw: unknown): Record<string, unknown> | undefined {
   return typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : undefined;
 }
 
-/**
- * Validates a raw `ticket:create` payload.
- *
- * A ticket with no title after sanitising is not a ticket, so it is rejected
- * here rather than filed as an untitled card. An empty body is allowed: "fix
- * the login loop" is sometimes the whole brief.
- */
-export function parseTicketCreateMessage(raw: unknown): TicketCreateMessage | undefined {
-  const candidate = asRecord(raw);
-  if (candidate === undefined) {
-    return undefined;
-  }
-  const title = sanitizeTicketTitle(candidate.title);
-  if (title === "") {
-    return undefined;
-  }
-  return { title, body: sanitizeTicketBody(candidate.body) };
+/** Larger than any issue number GitHub will hand out, and what `uint32` holds. */
+const MAX_ISSUE_NUMBER = 0xffffffff;
+
+/** Whether a value is usable as a GitHub issue number: a positive whole number. */
+function isIssueNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= MAX_ISSUE_NUMBER;
 }
 
-/** Validates a raw `ticket:assign` payload. */
-export function parseTicketAssignMessage(raw: unknown): TicketAssignMessage | undefined {
+/** Validates a raw `work:assign` payload. */
+export function parseWorkAssignMessage(raw: unknown): WorkAssignMessage | undefined {
   const candidate = asRecord(raw);
-  if (candidate === undefined || !isId(candidate.ticketId) || !isId(candidate.assigneeId)) {
+  if (candidate === undefined || !isIssueNumber(candidate.issueNumber) || !isId(candidate.assigneeId)) {
     return undefined;
   }
-  return { ticketId: candidate.ticketId, assigneeId: candidate.assigneeId };
+  return { issueNumber: candidate.issueNumber, assigneeId: candidate.assigneeId };
 }
 
-/** Validates a raw `ticket:unassign` payload. */
-export function parseTicketUnassignMessage(raw: unknown): TicketUnassignMessage | undefined {
+/** Validates a raw `work:release` payload. */
+export function parseWorkReleaseMessage(raw: unknown): WorkReleaseMessage | undefined {
   const candidate = asRecord(raw);
-  if (candidate === undefined || !isId(candidate.ticketId)) {
+  if (candidate === undefined || !isIssueNumber(candidate.issueNumber)) {
     return undefined;
   }
-  return { ticketId: candidate.ticketId };
+  return { issueNumber: candidate.issueNumber };
 }
 
 /**
- * Validates a raw `ticket:move-status` payload.
+ * Validates a raw `work:move` payload.
  *
- * Proves the status is one of the five. Whether it is *reachable* from where
- * the ticket is now is the transition table's call, not the parser's.
+ * Proves the status is one of the four. Whether it is *reachable* from where
+ * the work is now is the transition table's call, not the parser's.
  */
-export function parseTicketMoveStatusMessage(raw: unknown): TicketMoveStatusMessage | undefined {
+export function parseWorkMoveMessage(raw: unknown): WorkMoveMessage | undefined {
   const candidate = asRecord(raw);
-  if (candidate === undefined || !isId(candidate.ticketId) || !isTicketStatus(candidate.status)) {
+  if (candidate === undefined || !isIssueNumber(candidate.issueNumber) || !isWorkStatus(candidate.status)) {
     return undefined;
   }
-  return { ticketId: candidate.ticketId, status: candidate.status };
-}
-
-/**
- * Validates a raw `ticket:edit` payload.
- *
- * An absent field means "leave it alone", so a payload naming neither field is
- * not an edit and is rejected. A present-but-blank title is rejected for the
- * same reason `create` rejects one; a present-but-blank body is a real edit,
- * since clearing a body someone no longer wants is a sensible thing to do.
- */
-export function parseTicketEditMessage(raw: unknown): TicketEditMessage | undefined {
-  const candidate = asRecord(raw);
-  if (candidate === undefined || !isId(candidate.ticketId)) {
-    return undefined;
-  }
-
-  const hasTitle = candidate.title !== undefined;
-  const hasBody = candidate.body !== undefined;
-  if (!hasTitle && !hasBody) {
-    return undefined;
-  }
-
-  const title = hasTitle ? sanitizeTicketTitle(candidate.title) : undefined;
-  if (hasTitle && title === "") {
-    return undefined;
-  }
-
-  return {
-    ticketId: candidate.ticketId,
-    ...(title === undefined ? {} : { title }),
-    ...(hasBody ? { body: sanitizeTicketBody(candidate.body) } : {}),
-  };
-}
-
-/**
- * Validates a raw `ticket:set-priority` payload.
- *
- * Proves the priority is one of the known values; whether the sender may set
- * it is the authority rule's call.
- */
-export function parseTicketSetPriorityMessage(raw: unknown): TicketSetPriorityMessage | undefined {
-  const candidate = asRecord(raw);
-  if (
-    candidate === undefined ||
-    !isId(candidate.ticketId) ||
-    !isTicketPriority(candidate.priority)
-  ) {
-    return undefined;
-  }
-  return { ticketId: candidate.ticketId, priority: candidate.priority };
-}
-
-/**
- * Validates a raw `ticket:comment` payload.
- *
- * @returns the sanitized comment, or `undefined` when nothing legible survived
- * sanitization, the same rule chat applies.
- */
-export function parseTicketCommentMessage(raw: unknown): TicketCommentMessage | undefined {
-  const candidate = asRecord(raw);
-  if (candidate === undefined || !isId(candidate.ticketId)) {
-    return undefined;
-  }
-  const text = sanitizeCommentText(candidate.text);
-  return text === "" ? undefined : { ticketId: candidate.ticketId, text };
+  return { issueNumber: candidate.issueNumber, status: candidate.status };
 }
 
 /**
@@ -808,7 +690,7 @@ export function parseDebugGotoMessage(raw: unknown): DebugGotoMessage | undefine
  * Validates a raw `staff:hire` payload.
  *
  * Only the shape: whether the office offers that job is the staffing rules'
- * call, as an unknown ticket id is the board's.
+ * call, as an unknown issue number is the work rules'.
  */
 export function parseStaffHireMessage(raw: unknown): StaffHireMessage | undefined {
   const candidate = asRecord(raw);

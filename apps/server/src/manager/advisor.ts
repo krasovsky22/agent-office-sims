@@ -29,7 +29,7 @@ import type { OfficeView } from "./officeView.js";
 /**
  * One piece of work the manager wants handed out.
  *
- * Both fields are as the planner wrote them — `ticket-3` or `#39`, an agent's
+ * Both fields are as the planner wrote them — `#39` or `PR #40`, an agent's
  * id or name, or `""` for whoever is free — and are resolved against the live
  * office when the plan is carried out, not trusted.
  */

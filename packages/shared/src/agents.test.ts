@@ -7,11 +7,11 @@ import {
   deskStand,
   planAgentHires,
   pointAhead,
-  ticketBoardStand,
+  projectBoardStand,
 } from "./agents.js";
 import { isBlocked } from "./collision.js";
 import { OCCUPANT_RADIUS } from "./constants.js";
-import { INTERACTION_KIND, OFFICE_LAYOUT, describeLayoutProblems, workstations } from "./layout.js";
+import { OFFICE_LAYOUT, PROJECT_BOARD_ID, describeLayoutProblems, interactables, workstations } from "./layout.js";
 import {
   AGENT_ACTIVITY,
   AgentEmployee,
@@ -78,15 +78,15 @@ describe("where an agent goes", () => {
     expect(deskStand(OFFICE_LAYOUT, "desk-nowhere")).toBeUndefined();
   });
 
-  it("hands work in standing clear in front of the whiteboard, facing it", () => {
-    const stand = ticketBoardStand(OFFICE_LAYOUT);
-    const board = OFFICE_LAYOUT.fixtures.find((spec) => spec.kind === INTERACTION_KIND.whiteboard);
+  it("hands work in standing clear in front of the project board, facing it", () => {
+    const stand = projectBoardStand(OFFICE_LAYOUT);
+    const board = interactables(OFFICE_LAYOUT).find((spec) => spec.id === PROJECT_BOARD_ID);
     expect(stand).toBeDefined();
     expect(stand).toEqual(board?.anchor);
     if (stand !== undefined) {
       expect(isBlocked(stand, OCCUPANT_RADIUS, OFFICE_LAYOUT)).toBe(false);
     }
-    expect(ticketBoardStand({ ...OFFICE_LAYOUT, fixtures: [] })).toBeUndefined();
+    expect(projectBoardStand({ ...OFFICE_LAYOUT, boards: [] })).toBeUndefined();
   });
 
   it("faces a pose's yaw by facing the point ahead of it", () => {
@@ -118,7 +118,7 @@ describe("AgentEmployee", () => {
     const agent = new AgentEmployee();
     expect(agent.kind).toBe(OCCUPANT_KIND.agent);
     expect(agent.activity).toBe(AGENT_ACTIVITY.idle);
-    expect(agent.currentTicketId).toBe("");
+    expect(agent.currentIssueNumber).toBe(0);
     expect(agent.morale).toBe(100);
     expect(agent.energy).toBe(100);
   });

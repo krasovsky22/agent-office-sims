@@ -27,9 +27,9 @@
  * {@link RECONNECT_GRACE_SECONDS}; reconnecting inside that window resumes the
  * same session, so a CEO whose wifi blinks is still the CEO afterwards.
  *
- * The ticket board is state too, and is handed on as a fresh plain copy whenever
- * any ticket changes, so the panel re-renders from a value rather than holding
- * a schema object that mutates under it.
+ * The agents' work on the project board's issues is state too, and is handed
+ * on as a fresh plain copy whenever any of it changes, so the panel re-renders
+ * from a value rather than holding a schema object that mutates under it.
  *
  * The conversation with the AI manager is not: like chat it arrives as events —
  * the lines so far on joining, then each new one — and the manager's own badge
@@ -53,6 +53,7 @@ import {
   type EmoteMessage,
   INTERPOLATION_DELAY_MS,
   type InteractMessage,
+  type IssueWork,
   type LiveAgentStatus,
   type ManagerEntry,
   type ManagerHistoryEvent,
@@ -75,18 +76,17 @@ import {
   type StaffHireMessage,
   type StaffRejectedEvent,
   type ThrottledEvent,
-  type TicketRejectedEvent,
+  type WorkAssignMessage,
+  type WorkData,
+  type WorkMoveMessage,
+  type WorkRejectedEvent,
+  type WorkReleaseMessage,
+  type WorkStatus,
   agentAtDesk,
   isAgentEmployee,
   isAiManager,
   isCeo,
   isLiveAgent,
-  type Ticket,
-  type TicketAssignMessage,
-  type TicketCreateMessage,
-  type TicketData,
-  type TicketMoveStatusMessage,
-  type TicketStatus,
   normalizeYaw,
   shortestYawDelta,
 } from "@sim/shared";
@@ -209,12 +209,12 @@ export interface RoomConnectionEvents {
    * times a second. The caller decides what is worth re-rendering.
    */
   onCompanyChanged?: (company: CompanyView) => void;
-  /** The board refused one of the local client's own ticket commands. */
-  onTicketRejected?: (event: TicketRejectedEvent) => void;
+  /** The office refused one of the local client's own work commands. */
+  onWorkRejected?: (event: WorkRejectedEvent) => void;
   /** The CEO left and the role passed to someone else. */
   onCeoChanged?: (event: CeoChangedEvent) => void;
-  /** The whole ticket board, after any ticket is added, changed or removed. */
-  onTicketsChanged?: (tickets: readonly TicketData[]) => void;
+  /** All the agents' work, after any of it is added, changed or removed. */
+  onWorkChanged?: (work: readonly WorkData[]) => void;
   /** An agent was hired, fired, or quit. */
   onStaffChanged?: (event: StaffChangedEvent) => void;
   /** The office refused one of the local client's own hire or fire commands. */
@@ -238,7 +238,7 @@ export class RoomConnection {
   private readonly views = new Map<string, OccupantView>();
   private readonly buffers = new Map<string, PoseSample[]>();
 
-  private ticketsQueued = false;
+  private workQueued = false;
 
   private lastSentAt = Number.NEGATIVE_INFINITY;
   private readonly lastSent = {
@@ -326,25 +326,19 @@ export class RoomConnection {
     this.room?.send(CLIENT_MESSAGE.release, {});
   }
 
-  /** Files a ticket. Like every ticket command, the board patch is the reply. */
-  public sendTicketCreate(title: string, body: string): void {
-    this.room?.send(CLIENT_MESSAGE.ticketCreate, { title, body } satisfies TicketCreateMessage);
+  /** Gives an issue to an agent. Like every work command, the state patch is the reply. */
+  public sendWorkAssign(issueNumber: number, assigneeId: string): void {
+    this.room?.send(CLIENT_MESSAGE.workAssign, { issueNumber, assigneeId } satisfies WorkAssignMessage);
   }
 
-  /** Gives a ticket an owner, which is how it leaves the backlog. */
-  public sendTicketAssign(ticketId: string, assigneeId: string): void {
-    this.room?.send(CLIENT_MESSAGE.ticketAssign, {
-      ticketId,
-      assigneeId,
-    } satisfies TicketAssignMessage);
+  /** Takes an issue back off the agent it was given to. */
+  public sendWorkRelease(issueNumber: number): void {
+    this.room?.send(CLIENT_MESSAGE.workRelease, { issueNumber } satisfies WorkReleaseMessage);
   }
 
-  /** Moves a ticket to an adjacent column. */
-  public sendTicketMove(ticketId: string, status: TicketStatus): void {
-    this.room?.send(CLIENT_MESSAGE.ticketMoveStatus, {
-      ticketId,
-      status,
-    } satisfies TicketMoveStatusMessage);
+  /** Moves an issue's work a step: approve it, send it back, have it tried again. */
+  public sendWorkMove(issueNumber: number, status: WorkStatus): void {
+    this.room?.send(CLIENT_MESSAGE.workMove, { issueNumber, status } satisfies WorkMoveMessage);
   }
 
   /**
@@ -560,11 +554,11 @@ export class RoomConnection {
       this.events.onOccupantsChanged?.();
     });
 
-    $(room.state).tickets.onAdd((ticket) => {
-      $(ticket).onChange(() => this.queueTickets(room));
-      this.queueTickets(room);
+    $(room.state).work.onAdd((work) => {
+      $(work).onChange(() => this.queueWork(room));
+      this.queueWork(room);
     });
-    $(room.state).tickets.onRemove(() => this.queueTickets(room));
+    $(room.state).work.onRemove(() => this.queueWork(room));
 
     // Expression arrives as events rather than state, so there is nothing to
     // diff here: the server has already validated and sanitized each one, and
@@ -585,8 +579,8 @@ export class RoomConnection {
       this.events.onProjectBoard?.(snapshot);
     });
 
-    room.onMessage<TicketRejectedEvent>(SERVER_MESSAGE.ticketRejected, (event) => {
-      this.events.onTicketRejected?.(event);
+    room.onMessage<WorkRejectedEvent>(SERVER_MESSAGE.workRejected, (event) => {
+      this.events.onWorkRejected?.(event);
     });
 
     room.onMessage<CeoChangedEvent>(SERVER_MESSAGE.ceoChanged, (event) => {
@@ -629,7 +623,7 @@ export class RoomConnection {
       this.views.clear();
       this.buffers.clear();
       this.events.onOccupantsChanged?.();
-      this.events.onTicketsChanged?.([]);
+      this.events.onWorkChanged?.([]);
       this.room = undefined;
       if (this.leaving || code === CONSENTED_CLOSE_CODE) {
         this.events.onStatusChanged?.("disconnected");
@@ -712,23 +706,23 @@ export class RoomConnection {
   }
 
   /**
-   * Publishes the board once per patch, however many tickets it touched.
+   * Publishes the work once per patch, however much of it the patch touched.
    *
-   * One patch can carry a change to every ticket — a join decodes the whole
-   * board at once — and copying the board per field would hand React a burst
-   * of intermediate boards nobody will see.
+   * One patch can carry a change to every issue's work — a join decodes all of
+   * it at once — and copying it per field would hand React a burst of
+   * intermediate states nobody will see.
    */
-  private queueTickets(room: Room<OfficeState>): void {
-    if (this.ticketsQueued) {
+  private queueWork(room: Room<OfficeState>): void {
+    if (this.workQueued) {
       return;
     }
-    this.ticketsQueued = true;
+    this.workQueued = true;
     queueMicrotask(() => {
-      this.ticketsQueued = false;
+      this.workQueued = false;
       if (this.room !== room) {
         return;
       }
-      this.events.onTicketsChanged?.([...room.state.tickets.values()].map(copyTicket));
+      this.events.onWorkChanged?.([...room.state.work.values()].map(copyWork));
     });
   }
 
@@ -774,17 +768,16 @@ function companyViewOf(company: Company): CompanyView {
   };
 }
 
-function copyTicket(ticket: Ticket): TicketData {
+function copyWork(work: IssueWork): WorkData {
   return {
-    id: ticket.id,
-    title: ticket.title,
-    body: ticket.body,
-    status: ticket.status,
-    assigneeId: ticket.assigneeId,
-    createdById: ticket.createdById,
-    outputArtifact: ticket.outputArtifact,
-    createdAt: ticket.createdAt,
-    updatedAt: ticket.updatedAt,
+    issueNumber: work.issueNumber,
+    title: work.title,
+    status: work.status,
+    assigneeId: work.assigneeId,
+    outputArtifact: work.outputArtifact,
+    note: work.note,
+    assignedAt: work.assignedAt,
+    updatedAt: work.updatedAt,
   };
 }
 

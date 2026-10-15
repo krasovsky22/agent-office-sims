@@ -1,6 +1,6 @@
 /**
  * What counts as news to the manager between two looks at the office, for the
- * live agents and the orchestrator; the in-game board's news is shown end to
+ * live agents and the orchestrator; the agent employees' news is shown end to
  * end in `officeManager.test.ts`.
  */
 
@@ -13,7 +13,7 @@ import { describeChanges, observe } from "./updates.js";
 const ISSUE_33 = { title: "Live agents", url: "https://github.com/o/r/issues/33", reference: "#33" };
 
 function view(liveAgents: readonly LiveAgentView[]): OfficeView {
-  return { ceo: "Dana", agents: [], liveAgents, tickets: [], project: undefined, orchestrator: true };
+  return { ceo: "Dana", agents: [], liveAgents, work: [], project: undefined, orchestrator: true };
 }
 
 function crewmate(status: LiveAgentView["status"], task = status === "working" ? ISSUE_33 : undefined): LiveAgentView {

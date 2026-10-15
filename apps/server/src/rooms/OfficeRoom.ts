@@ -4,11 +4,11 @@
  * One room holds everyone on the floor. It owns six things: who is in the
  * office, where the authoritative version of each of them is, which of them is
  * the CEO, which of them is sitting at or standing over something, what they
- * are expressing, and the ticket board they work from.
+ * are expressing, and the agents' work on the project board's GitHub issues.
  *
  * "Who is in the office" includes the agent employees, which the room hires
  * itself when it opens — see `sim/agents.ts`. They are occupants like any
- * player, so the board can assign to them and every client draws them, but no
+ * player, so issues can be assigned to them and every client draws them, but no
  * session drives them: the per-session maps below never see one, and an agent
  * moves only through its intent queue. The one registry an agent shares with
  * players is the hold registry, so a chair an agent sits in is taken for
@@ -27,8 +27,8 @@
  * were still happening. The server validates, sanitizes and rate-limits, then
  * broadcasts; clients draw what they receive and forget it when it expires.
  *
- * The board's rules are not here. `ticketHandlers.ts` wires the seven commands
- * up and `@sim/shared`'s `tickets.ts` decides what each one is allowed to do.
+ * The work's rules are not here. `workHandlers.ts` wires the three commands
+ * up and `@sim/shared`'s `work.ts` decides what each one is allowed to do.
  * Hiring and firing are wired the same way, by `staffHandlers.ts` against
  * `staffing.ts`; the tick only asks `staffHandlers.ts`, after each step of the
  * clock, whether a run of bad days has cost the office an agent.
@@ -54,7 +54,11 @@
  *
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
  * one feed polls GitHub on its own timer and is handed to every room as a room option;
- * `projectBoardDelivery.ts` relays what it publishes. The tick never reads it.
+ * `projectBoardDelivery.ts` relays what it publishes, and each snapshot it
+ * publishes releases the work on any issue GitHub has closed. The board is
+ * read-only: nothing in the room writes to GitHub. The tick reads the feed
+ * only at midnight, when a day's close counts the open issues, and then only
+ * the snapshot it already holds in memory.
  *
  * The live coding agents arrive the same way, as a source handed over at
  * definition time. The room only marks itself dirty when the source changes;
@@ -82,7 +86,6 @@ import {
   OfficeState,
   RECONNECT_GRACE_SECONDS,
   SERVER_MESSAGE,
-  TICKET_ACTION,
   TICK_INTERVAL_MS,
   type ThrottledEvent,
   employManager,
@@ -94,13 +97,14 @@ import {
   parseInteractMessage,
   parseJoinOptions,
   parsePoseMessage,
+  releaseGoneWork,
 } from "@sim/shared";
 
 import { type LiveAgentSource, isLiveAgentSource } from "../agents/registry.js";
 import type { ProjectBoardSource } from "../github/feed.js";
 import { AgentBrain, type AgentBrainHost } from "../sim/agentBrain.js";
 import { AgentMotion, type IntentReport } from "../sim/agentMotion.js";
-import { type CompanyClock, createCompanyClock, stepCompany } from "../sim/company.js";
+import { type CompanyClock, type CompanyOffice, createCompanyClock, stepCompany } from "../sim/company.js";
 import { type ManagerAdvisor, isManagerAdvisor } from "../manager/advisor.js";
 import { type LiveAssignmentQueue, isLiveAssignmentQueue } from "../manager/liveAssignments.js";
 import { OfficeManager } from "../manager/officeManager.js";
@@ -126,12 +130,7 @@ import {
   sendProjectBoard,
 } from "./projectBoardDelivery.js";
 import { type StaffHost, registerStaffHandlers, resolveStaffQuits } from "./staffHandlers.js";
-import {
-  type TicketHost,
-  createTicketIdFactory,
-  registerTicketHandlers,
-  seedTicketBoard,
-} from "./ticketHandlers.js";
+import { type WorkHost, registerWorkHandlers } from "./workHandlers.js";
 
 /**
  * Silence after which an occupant is shown as standing still.
@@ -172,7 +171,7 @@ export interface OfficeRoomOptions {
   /** Whether the debug goto command is honoured; `AGENT_DEBUG` in `config.ts`. */
   readonly agentDebug: boolean;
   /**
-   * How the agents do their tickets, shared by every room so one call budget
+   * How the agents do their issues, shared by every room so one call budget
    * covers the server. A room given none hires agents that never pick up work.
    */
   readonly workExecutor: WorkExecutor;
@@ -223,6 +222,9 @@ export class OfficeRoom extends Room<OfficeState> {
   /** The server-only half of the company clock; assigned in `onCreate`. */
   private companyClock!: CompanyClock;
 
+  /** What a day's close reads; assigned in `onCreate`. */
+  private companyOffice!: CompanyOffice;
+
   /** Every agent's intent queue and body; assigned in `onCreate`. */
   private agentMotion!: AgentMotion;
 
@@ -240,6 +242,7 @@ export class OfficeRoom extends Room<OfficeState> {
 
   private projectBoard: ProjectBoardSource | undefined;
   private stopRelayingProjectBoard: (() => void) | undefined;
+  private stopReleasingWork: (() => void) | undefined;
 
   private reconnectGraceSeconds = RECONNECT_GRACE_SECONDS;
 
@@ -267,6 +270,12 @@ export class OfficeRoom extends Room<OfficeState> {
       lastUsedAt: new Map(),
     };
     this.companyClock = createCompanyClock(this.state.company, this.clock.currentTime);
+    this.companyOffice = {
+      company: this.state.company,
+      work: this.state.work,
+      occupants: this.state.occupants,
+      board: () => this.projectBoard?.current(),
+    };
     this.agentMotion = new AgentMotion(this.interaction);
 
     const roomOptions = options as Partial<OfficeRoomOptions> | undefined;
@@ -276,6 +285,11 @@ export class OfficeRoom extends Room<OfficeState> {
     if (isProjectBoardSource(source)) {
       this.projectBoard = source;
       this.stopRelayingProjectBoard = relayProjectBoard(this, source);
+      // On the feed's own timer, between ticks: an issue GitHub closed is no
+      // longer anyone's to work, and its agent puts it down on its next look.
+      this.stopReleasingWork = source.subscribe((snapshot) => {
+        releaseGoneWork(this.state.work, snapshot);
+      });
     }
 
     this.crew = new LiveAgentCrew({
@@ -295,20 +309,15 @@ export class OfficeRoom extends Room<OfficeState> {
       });
     }
 
-    // `Date.now()` rather than `this.clock`, because a ticket timestamp is read
-    // as a wall-clock date in a panel, not as an offset from this room's start.
-    const ticketHost: TicketHost = {
+    // `Date.now()` rather than `this.clock`, because a work timestamp is read
+    // as a wall-clock date, not as an offset from this room's start.
+    const workHost: WorkHost = {
       state: this.state,
       now: () => Date.now(),
-      nextTicketId: createTicketIdFactory(),
-      // Comments are the one board write open to everyone, so they are the one
-      // a client could flood; the rest are the CEO's, and refused otherwise.
-      allow: (client, action) =>
-        action !== TICKET_ACTION.comment || this.spend(client, CLIENT_MESSAGE.ticketComment),
+      board: () => this.projectBoard?.current(),
     };
-    seedTicketBoard(ticketHost);
-    registerTicketHandlers(this, ticketHost);
-    this.openManagersDesk(ticketHost, roomOptions);
+    registerWorkHandlers(this, workHost);
+    this.openManagersDesk(workHost, roomOptions);
 
     // Before anyone can join, so nobody's first patch is an empty office.
     const agentCount = roomOptions?.agentCount;
@@ -319,7 +328,7 @@ export class OfficeRoom extends Room<OfficeState> {
     const executor = roomOptions?.workExecutor;
     if (isWorkExecutor(executor)) {
       this.brainHost = {
-        tickets: ticketHost,
+        work: workHost,
         layout: OFFICE_LAYOUT,
         motion: this.agentMotion,
         executor,
@@ -329,7 +338,6 @@ export class OfficeRoom extends Room<OfficeState> {
     hired.forEach((agent) => this.startBrain(agent.id));
     this.staff = {
       state: this.state,
-      now: () => Date.now(),
       hiresSoFar: hired.length,
       hired: (agentId) => this.startBrain(agentId),
       departed: (agentId) => this.dismissAgent(agentId),
@@ -450,6 +458,7 @@ export class OfficeRoom extends Room<OfficeState> {
     }
     this.manager?.stop();
     this.stopRelayingProjectBoard?.();
+    this.stopReleasingWork?.();
     this.stopWatchingLiveAgents?.();
   }
 
@@ -482,7 +491,7 @@ export class OfficeRoom extends Room<OfficeState> {
    *
    * Synchronous, allocation-light, and with nothing awaited anywhere inside it.
    * That is a deliberate boundary, not an accident of the current scope: agent
-   * employees work their tickets by calling a model, on their own loops, and
+   * employees work their issues by calling a model, on their own loops, and
    * what they decide lands on the intent queue `agentMotion.step` drains here
    * without ever waiting on them. If the tick were allowed to await, a slow
    * model would stall every player in the room.
@@ -524,7 +533,7 @@ export class OfficeRoom extends Room<OfficeState> {
     // many agents are walking a player's pose is validated exactly as before.
     this.agentMotion.step(now);
 
-    stepCompany(this.state, this.companyClock, now);
+    stepCompany(this.companyOffice, this.companyClock, now);
     resolveStaffQuits(this, this.staff);
   }
 
@@ -560,7 +569,7 @@ export class OfficeRoom extends Room<OfficeState> {
    * The chair is held from the start, through the same registry players use,
    * so nobody can sit in it and every client sees it taken.
    */
-  private openManagersDesk(tickets: TicketHost, options: Partial<OfficeRoomOptions> | undefined): void {
+  private openManagersDesk(work: WorkHost, options: Partial<OfficeRoomOptions> | undefined): void {
     const advisor = options?.manager;
     const manager = employManager(OFFICE_LAYOUT);
     const seat = managerSeat(OFFICE_LAYOUT);
@@ -572,9 +581,8 @@ export class OfficeRoom extends Room<OfficeState> {
 
     const assignments = isLiveAssignmentQueue(options?.liveAssignments) ? options.liveAssignments : undefined;
     this.manager = new OfficeManager({
-      tickets,
+      work,
       advisor,
-      projectBoard: () => this.projectBoard?.current(),
       liveAgents: this.liveAgents,
       assignments,
       origin: this.roomId,

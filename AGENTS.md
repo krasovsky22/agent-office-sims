@@ -6,14 +6,14 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 ## Project
 
-Browser-based 3D multiplayer office simulator prototype (TypeScript, Three.js client, Colyseus server); AI-agent employees work a ticket board, the human player is CEO.
+Browser-based 3D multiplayer office simulator prototype (TypeScript, Three.js client, Colyseus server); AI-agent employees work the project board's GitHub issues, the human player is CEO.
 `README.md` is the long-form reference for running, the two-tab manual check, deployment, and the design rules; read it before structural changes.
 
 ## Layout
 
 pnpm workspace (`pnpm-workspace.yaml`: `packages/*`, `apps/*`); the README's Layout section maps individual files.
-- `packages/shared` (`@sim/shared`): the contract both sides import — Colyseus schema, message parsers, ticket rules, floor plan, props, collision, nav, constants. Shipped as TypeScript source (`main`/`exports` point at `src/index.ts`); there is no build step.
-- `apps/server` (`@sim/server`): Colyseus server; `src/index.ts` boots it, `src/rooms/OfficeRoom.ts` is the single room and tick, `src/rooms/ticketHandlers.ts` the thin ticket handlers, `src/sim/` movement validation and expression budgets, `src/config.ts`/`origins.ts`/`http.ts` env, origin allowlist, `/health`.
+- `packages/shared` (`@sim/shared`): the contract both sides import — Colyseus schema, message parsers, work rules, floor plan, props, collision, nav, constants. Shipped as TypeScript source (`main`/`exports` point at `src/index.ts`); there is no build step.
+- `apps/server` (`@sim/server`): Colyseus server; `src/index.ts` boots it, `src/rooms/OfficeRoom.ts` is the single room and tick, `src/rooms/workHandlers.ts` the thin work handlers, `src/sim/` movement validation and expression budgets, `src/config.ts`/`origins.ts`/`http.ts` env, origin allowlist, `/health`.
 - `apps/client` (`@sim/client`): Vite app; `src/main.ts` holds the imperative render/game loop, `src/scene/` Three.js meshes, avatars, props, `src/net/` Colyseus connection and server URL, `src/player/` local prediction, `src/ui/` the React HUD mounted over the canvas.
 - Assets: vendored props in `apps/client/src/assets/office-kit/` (keep its `README.md` provenance record current), avatar model in `apps/client/public/models/`.
 
@@ -40,7 +40,7 @@ Run from the repo root; all verified.
 - Shared code is the single source of truth: the floor plan (`shared/src/layout.ts`), props, and collision run unchanged on client and server; never add a client-only or server-only branch.
 - Movement: client predicts locally; the server clamps speed and re-runs the shared collision before publishing (`apps/server/src/sim/movement.ts`).
 - Replicated state is the schema in `shared/src/state.ts`; emotes and chat are server broadcasts, not state, and rate limits live server-side in `apps/server/src/sim/expression.ts`.
-- Ticket board is server-authoritative: rules, transitions and the single `mayActOnTicket` gate live in `shared/src/tickets.ts`; handlers only parse, resolve the actor, and call `applyTicketCommand`.
+- Agent work on GitHub issues is server-authoritative: rules, transitions and the single `mayActOnWork` gate live in `shared/src/work.ts`; handlers only parse, resolve the actor, and call `applyWorkCommand`. GitHub itself is read-only.
 - Untrusted client payloads go through the parsers in `shared/src/messages.ts` before use.
 
 ## Conventions

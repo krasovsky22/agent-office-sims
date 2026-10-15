@@ -13,12 +13,12 @@ import {
   type WorkContext,
   type WorkProvider,
   WorkProviderError,
-  type WorkTicket,
+  type WorkBrief,
   createWorkExecutor,
 } from "./executor.js";
 import { createMockProvider } from "./mockProvider.js";
 
-const TICKET: WorkTicket = { id: "t-1", title: "Design the onboarding flow", body: "New hires get lost on day one." };
+const BRIEF: WorkBrief = { number: 12, title: "Design the onboarding flow", body: "New hires get lost on day one." };
 const CONTEXT: WorkContext = { agentName: "Ada", jobTitle: "Product Manager" };
 
 /** No real waiting between retries, but a record of how long each would have been. */
@@ -32,7 +32,7 @@ function hanging(): { provider: WorkProvider; aborted: AbortSignal[] } {
   const aborted: AbortSignal[] = [];
   return {
     aborted,
-    provider: (_ticket, _context, signal) =>
+    provider: (_brief, _context, signal) =>
       new Promise(() => {
         signal.addEventListener("abort", () => aborted.push(signal));
       }),
@@ -54,7 +54,7 @@ describe("a mock work cycle", () => {
     });
 
     let settled = false;
-    const pending = executor.work(TICKET, CONTEXT).finally(() => (settled = true));
+    const pending = executor.work(BRIEF, CONTEXT).finally(() => (settled = true));
     await vi.advanceTimersByTimeAsync(4_999);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
@@ -75,7 +75,7 @@ describe("a mock work cycle", () => {
     ["Why did signups drop?", /^# Analysis: /],
   ])("writes a deliverable that fits %j", async (title, opening) => {
     const executor = createWorkExecutor({ provider: createMockProvider({ minDelayMs: 0, maxDelayMs: 0 }) });
-    const result = await executor.work({ ...TICKET, title, body: "" }, CONTEXT);
+    const result = await executor.work({ ...BRIEF, title, body: "" }, CONTEXT);
     expect(result.ok && result.artifact).toMatch(opening);
   });
 });
@@ -88,8 +88,8 @@ describe("budget exhaustion", () => {
       budget: new CallBudget({ perDay: 1, perRun: 10 }, () => 0),
     });
 
-    expect((await executor.work(TICKET, CONTEXT)).ok).toBe(true);
-    const result = await executor.work(TICKET, CONTEXT);
+    expect((await executor.work(BRIEF, CONTEXT)).ok).toBe(true);
+    const result = await executor.work(BRIEF, CONTEXT);
 
     expect(result).toMatchObject({
       ok: false,
@@ -114,7 +114,7 @@ describe("budget exhaustion", () => {
       budget: new CallBudget({ perDay: 2, perRun: 10 }, () => 0),
     });
 
-    const result = await executor.work(TICKET, CONTEXT);
+    const result = await executor.work(BRIEF, CONTEXT);
 
     expect(result).toMatchObject({ ok: false, reason: WORK_FAILURE.budgetExhausted, attempts: 2 });
     expect(result.ok === false && result.message).toMatch(/503/);
@@ -128,7 +128,7 @@ describe("timeout", () => {
     const { provider, aborted } = hanging();
     const executor = createWorkExecutor({ provider, sleep, timeoutMs: 10, maxAttempts: 2, random: () => 0 });
 
-    const result = await executor.work(TICKET, CONTEXT);
+    const result = await executor.work(BRIEF, CONTEXT);
 
     expect(result).toMatchObject({ ok: false, reason: WORK_FAILURE.timeout, attempts: 2, tokensUsed: 0 });
     expect(aborted).toHaveLength(2);
@@ -141,7 +141,7 @@ describe("timeout", () => {
       timeoutMs: 10,
       maxAttempts: 1,
     });
-    expect(await executor.work(TICKET, CONTEXT)).toMatchObject({ ok: false, reason: WORK_FAILURE.timeout });
+    expect(await executor.work(BRIEF, CONTEXT)).toMatchObject({ ok: false, reason: WORK_FAILURE.timeout });
   });
 });
 
@@ -161,7 +161,7 @@ describe("provider errors", () => {
     };
     const executor = createWorkExecutor({ provider, sleep, backoffMs: 1_000, random: () => 0 });
 
-    const result = await executor.work(TICKET, CONTEXT);
+    const result = await executor.work(BRIEF, CONTEXT);
 
     expect(result).toEqual({ ok: true, artifact: "The plan.", summary: "A plan", tokensUsed: 120, attempts: 3 });
     // The first wait is the provider's 9s; the second is the doubled base, halved by zero jitter.
@@ -170,14 +170,14 @@ describe("provider errors", () => {
 
   it("does not retry an error that a retry cannot fix", async () => {
     const provider = vi.fn<WorkProvider>(async () => {
-      throw new WorkProviderError("the model declined this ticket", { retryable: false, tokensUsed: 40 });
+      throw new WorkProviderError("the model declined this issue", { retryable: false, tokensUsed: 40 });
     });
     const executor = createWorkExecutor({ provider });
 
-    expect(await executor.work(TICKET, CONTEXT)).toEqual({
+    expect(await executor.work(BRIEF, CONTEXT)).toEqual({
       ok: false,
       reason: WORK_FAILURE.providerError,
-      message: "the model declined this ticket",
+      message: "the model declined this issue",
       tokensUsed: 40,
       attempts: 1,
       retryAt: undefined,
@@ -189,13 +189,13 @@ describe("provider errors", () => {
     const provider: WorkProvider = () => {
       throw new TypeError("boom");
     };
-    const result = await createWorkExecutor({ provider }).work(TICKET, CONTEXT);
+    const result = await createWorkExecutor({ provider }).work(BRIEF, CONTEXT);
     expect(result).toMatchObject({ ok: false, reason: WORK_FAILURE.providerError, message: "boom" });
   });
 
   it("refuses an empty artifact", async () => {
     const provider: WorkProvider = async () => ({ artifact: "   ", summary: "", tokensUsed: 5 });
-    const result = await createWorkExecutor({ provider }).work(TICKET, CONTEXT);
+    const result = await createWorkExecutor({ provider }).work(BRIEF, CONTEXT);
     expect(result).toMatchObject({ ok: false, reason: WORK_FAILURE.providerError, tokensUsed: 5 });
   });
 });
@@ -207,7 +207,7 @@ describe("cancellation", () => {
     const executor = createWorkExecutor({ provider, timeoutMs: 60_000 });
     const controller = new AbortController();
 
-    const pending = executor.work(TICKET, CONTEXT, controller.signal);
+    const pending = executor.work(BRIEF, CONTEXT, controller.signal);
     await vi.advanceTimersByTimeAsync(1_000);
     controller.abort();
     const result = await pending;
@@ -224,7 +224,7 @@ describe("cancellation", () => {
     });
     const controller = new AbortController();
 
-    const pending = executor.work(TICKET, CONTEXT, controller.signal);
+    const pending = executor.work(BRIEF, CONTEXT, controller.signal);
     await vi.advanceTimersByTimeAsync(2_000);
     controller.abort();
 
@@ -240,7 +240,7 @@ describe("cancellation", () => {
     const executor = createWorkExecutor({ provider, backoffMs: 10_000, random: () => 0.5 });
     const controller = new AbortController();
 
-    const pending = executor.work(TICKET, CONTEXT, controller.signal);
+    const pending = executor.work(BRIEF, CONTEXT, controller.signal);
     await vi.advanceTimersByTimeAsync(1_000);
     controller.abort();
 
@@ -254,7 +254,7 @@ describe("cancellation", () => {
     const provider = vi.fn<WorkProvider>();
     const executor = createWorkExecutor({ provider, budget });
 
-    const result = await executor.work(TICKET, CONTEXT, AbortSignal.abort());
+    const result = await executor.work(BRIEF, CONTEXT, AbortSignal.abort());
 
     expect(result).toMatchObject({ ok: false, reason: WORK_FAILURE.cancelled, attempts: 0 });
     expect(provider).not.toHaveBeenCalled();

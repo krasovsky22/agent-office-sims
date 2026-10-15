@@ -5,18 +5,23 @@
  * line tells fresh from stale.
  */
 
-import { EMPTY_BOARD_LISTS, type ProjectBoardSnapshot } from "@sim/shared";
+import { AGENT_ACTIVITY, EMPTY_BOARD_LISTS, type ProjectBoardSnapshot, WORK_ACTION, WORK_STATUS, type WorkData } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import {
+  type BoardAgent,
   NO_BOARD_FILTER,
   boardColumns,
+  boardIssue,
   boardLabels,
   boardStatus,
   filterBoardColumns,
   githubItemUrl,
   isFiltering,
   labelColours,
+  workBadge,
+  workMoveLabel,
+  workStatusText,
 } from "./projectBoard.js";
 
 const time = (epochMs: number) => `t${epochMs}`;
@@ -35,6 +40,7 @@ const SNAPSHOT: ProjectBoardSnapshot = {
     {
       number: 31,
       title: "Desk screens face away",
+      body: "They should face the chair.",
       labels: [WAVE_2, CLIENT],
       assignees: [],
       pullRequests: [],
@@ -42,9 +48,9 @@ const SNAPSHOT: ProjectBoardSnapshot = {
     },
   ],
   inProgress: [
-    { number: 32, title: "Project board", labels: [WAVE_1], assignees: ["milo"], pullRequests: [40], closedAt: null },
+    { number: 32, title: "Project board", body: "", labels: [WAVE_1], assignees: ["milo"], pullRequests: [40], closedAt: null },
   ],
-  closed: [{ number: 2, title: "Floor plan", labels: [WAVE_10], assignees: [], pullRequests: [], closedAt: 500 }],
+  closed: [{ number: 2, title: "Floor plan", body: "", labels: [WAVE_10], assignees: [], pullRequests: [], closedAt: 500 }],
   pullRequests: [
     { number: 40, title: "Add the board", labels: [CLIENT, WAVE_1], author: "milo", draft: true, checks: "failing" },
   ],
@@ -211,5 +217,55 @@ describe("githubItemUrl", () => {
   it("builds no link from a number that is not a positive integer", () => {
     expect(githubItemUrl("a/b", "pull", 0)).toBeNull();
     expect(githubItemUrl("a/b", "pull", 1.5)).toBeNull();
+  });
+});
+
+describe("the office's work on an issue", () => {
+  const ada: BoardAgent = { id: "agent-1", name: "Ada Byrne", activity: AGENT_ACTIVITY.working };
+  const work: WorkData = {
+    issueNumber: 31,
+    title: "Desk screens face away",
+    status: WORK_STATUS.in_progress,
+    assigneeId: ada.id,
+    outputArtifact: "",
+    note: "",
+    assignedAt: 1,
+    updatedAt: 1,
+  };
+
+  it("says who has it and how far they have got", () => {
+    expect(workBadge(work, [ada])).toEqual({ text: "Ada Byrne · In progress", tone: "plain" });
+    expect(workBadge({ ...work, status: WORK_STATUS.review }, [ada])).toEqual({
+      text: "Ada Byrne · Waiting for review",
+      tone: "pending",
+    });
+    expect(workBadge({ ...work, status: WORK_STATUS.done }, [ada]).tone).toBe("good");
+    expect(workBadge(work, []).text).toBe("Left the office · In progress");
+  });
+
+  it("shows an agent stuck on it as blocked", () => {
+    const stuck = { ...ada, activity: AGENT_ACTIVITY.blocked };
+    expect(workStatusText(work, [stuck])).toBe("Blocked");
+    expect(workBadge(work, [stuck]).tone).toBe("bad");
+  });
+
+  it("names each move for what it does to the work", () => {
+    const review = { ...work, status: WORK_STATUS.review };
+    expect(workMoveLabel({ action: WORK_ACTION.moveStatus, to: WORK_STATUS.done }, review)).toBe("Approve");
+    expect(workMoveLabel({ action: WORK_ACTION.moveStatus, to: WORK_STATUS.in_progress }, review)).toBe(
+      "Send back for rework",
+    );
+    expect(workMoveLabel({ action: WORK_ACTION.moveStatus, to: WORK_STATUS.assigned }, work)).toBe(
+      "Have them start again",
+    );
+    expect(workMoveLabel({ action: WORK_ACTION.release }, work)).toBe("Unassign");
+  });
+
+  it("finds an issue in any column, and carries its number on its card", () => {
+    expect(boardIssue(SNAPSHOT, 2)?.title).toBe("Floor plan");
+    expect(boardIssue(SNAPSHOT, 99)).toBeUndefined();
+    const [open, , , pulls] = boardColumns(SNAPSHOT, time);
+    expect(open?.rows[0]?.issueNumber).toBe(31);
+    expect(pulls?.rows[0]?.issueNumber).toBeNull();
   });
 });

@@ -6,7 +6,7 @@
  * server when they are wrong rather than polling a repository nobody meant or
  * hiring a staff nobody asked for, or about the live agents' `LIVE_AGENTS_*`,
  * which refuse a secret too short to be one. The agent work variables follow
- * the same rule: a model mode with no key stops the boot, not a ticket, and so
+ * the same rule: a model mode with no key stops the boot, not an issue, and so
  * do the AI manager's `MOCK_MANAGER` and `MANAGER_*`.
  */
 

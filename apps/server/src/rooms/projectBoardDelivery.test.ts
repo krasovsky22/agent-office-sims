@@ -46,7 +46,7 @@ function feedOf(...answers: (number | Error)[]): ProjectFeed {
     }
     return {
       ...EMPTY_BOARD_LISTS,
-      open: [{ number: answer, title: `Issue ${answer}`, labels: [], assignees: [], pullRequests: [], closedAt: null }],
+      open: [{ number: answer, title: `Issue ${answer}`, body: "", labels: [], assignees: [], pullRequests: [], closedAt: null }],
     };
   };
   return new ProjectFeed({ repository: REPO, load, intervalMs: 60_000, now: () => 42 });

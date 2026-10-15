@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { AGENT_ACTIVITY_APPEARANCE, MANAGER_STATUS_APPEARANCE } from "../agentActivity.js";
 
-import { type RosterEntry, assignableRoster, groupRoster } from "./Hud.js";
+import { type RosterEntry, assignableAgents, groupRoster } from "./Hud.js";
 
 function person(id: string, isCeo = false): RosterEntry {
   return {
@@ -105,10 +105,9 @@ describe("groupRoster", () => {
   });
 });
 
-describe("assignableRoster", () => {
-  it("offers everyone a ticket can go to, and never the manager", () => {
-    expect(assignableRoster([manager(), person("Dana", true), agent("agent-1")]).map((entry) => entry.id)).toEqual([
-      "Dana",
+describe("assignableAgents", () => {
+  it("offers an issue only to agent employees, never a player or the manager", () => {
+    expect(assignableAgents([manager(), person("Dana", true), agent("agent-1")]).map((entry) => entry.id)).toEqual([
       "agent-1",
     ]);
   });

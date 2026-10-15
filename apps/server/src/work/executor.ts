@@ -1,15 +1,16 @@
 /**
- * The ticket work executor: given a ticket and the agent holding it, produce
- * the deliverable.
+ * The work executor: given a GitHub issue from the project board and the
+ * agent holding it, produce the deliverable.
  *
  * What an agent produces is a text artifact — a specification, an analysis, an
  * email, a plan — because it reads directly in the board panel and needs no
- * sandbox. Producing code changes is a different and much larger feature.
+ * sandbox. Producing code changes is a different and much larger feature, and
+ * nothing here writes to GitHub.
  *
  * The interface is one function, {@link WorkExecutor.work}, and its promise is
  * the module's contract: **it always resolves, never rejects.** A timeout, a
  * spent budget, a refusal or an unreachable provider all come back as a
- * {@link WorkFailure} the caller can show on the ticket, because whatever calls
+ * {@link WorkFailure} the caller can show on the work, because whatever calls
  * this sits on the path that feeds the simulation, and an exception escaping
  * there would take the room down with it.
  *
@@ -26,12 +27,16 @@
  * cleared, rather than leaving a provider running for a room that is gone.
  */
 
-import { type Ticket } from "@sim/shared";
-
 import { type BudgetDecision, type CallBudget } from "./budget.js";
 
-/** The part of a board ticket the work depends on. */
-export type WorkTicket = Pick<Ticket, "id" | "title" | "body">;
+/** The part of a GitHub issue the work depends on, as the project board carries it. */
+export interface WorkBrief {
+  readonly number: number;
+  /** Sanitized by the server's GitHub feed. */
+  readonly title: string;
+  /** Sanitized and capped by the feed; `""` when the issue has no description. */
+  readonly body: string;
+}
 
 /** Who is doing the work. */
 export interface WorkContext {
@@ -42,7 +47,7 @@ export interface WorkContext {
 
 /** One provider attempt's output, before the executor accepts it. */
 export interface WorkOutput {
-  /** The deliverable itself, ready to store on the ticket. */
+  /** The deliverable itself, ready to store on the work. */
   readonly artifact: string;
   /** One line saying what the artifact is, for a card or a log. */
   readonly summary: string;
@@ -89,7 +94,7 @@ export interface WorkExecutor {
    * Resolves with the deliverable or a structured failure. Never rejects.
    * An aborted `signal` resolves it promptly as {@link WORK_FAILURE.cancelled}.
    */
-  work(ticket: WorkTicket, context: WorkContext, signal?: AbortSignal): Promise<WorkResult>;
+  work(brief: WorkBrief, context: WorkContext, signal?: AbortSignal): Promise<WorkResult>;
 }
 
 /**
@@ -105,11 +110,11 @@ export function isWorkExecutor(value: unknown): value is WorkExecutor {
 }
 
 /**
- * One attempt at a ticket. It should stop when `signal` aborts; the executor
+ * One attempt at an issue. It should stop when `signal` aborts; the executor
  * stops waiting at the timeout either way.
  */
 export type WorkProvider = (
-  ticket: WorkTicket,
+  brief: WorkBrief,
   context: WorkContext,
   signal: AbortSignal,
 ) => Promise<WorkOutput>;
@@ -144,7 +149,7 @@ export interface WorkExecutorOptions {
   readonly budget?: CallBudget | undefined;
   /** How long one attempt may take before it counts as timed out. */
   readonly timeoutMs?: number;
-  /** Attempts per ticket, the first included. */
+  /** Attempts per issue, the first included. */
   readonly maxAttempts?: number;
   /** Wait before the first retry; it doubles on each one after. */
   readonly backoffMs?: number;
@@ -236,7 +241,7 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
   const random = options.random ?? Math.random;
 
   async function attempt(
-    ticket: WorkTicket,
+    brief: WorkBrief,
     context: WorkContext,
     cancel: AbortSignal,
   ): Promise<AttemptOutcome> {
@@ -258,7 +263,7 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
     // Started inside a promise chain so a provider that throws synchronously
     // still lands in the catch below, and given a handler at once so one that
     // rejects after losing the race is not an unhandled rejection.
-    const pending = Promise.resolve().then(() => options.provider(ticket, context, controller.signal));
+    const pending = Promise.resolve().then(() => options.provider(brief, context, controller.signal));
     pending.catch(() => undefined);
 
     try {
@@ -331,7 +336,7 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
   }
 
   async function work(
-    ticket: WorkTicket,
+    brief: WorkBrief,
     context: WorkContext,
     signal: AbortSignal,
   ): Promise<WorkResult> {
@@ -360,7 +365,7 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
       }
 
       attempts += 1;
-      const outcome = await attempt(ticket, context, signal);
+      const outcome = await attempt(brief, context, signal);
       tokensUsed += outcome.kind === "ok" ? outcome.output.tokensUsed : outcome.tokensUsed;
       if (outcome.kind === "ok") {
         return { ok: true, ...outcome.output, tokensUsed, attempts };
@@ -386,9 +391,9 @@ export function createWorkExecutor(options: WorkExecutorOptions): WorkExecutor {
   }
 
   return {
-    async work(ticket, context, signal) {
+    async work(brief, context, signal) {
       try {
-        return await work(ticket, context, signal ?? NEVER);
+        return await work(brief, context, signal ?? NEVER);
       } catch (error) {
         // Unreachable by construction; the guarantee is worth one more net.
         return {

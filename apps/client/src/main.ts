@@ -21,7 +21,6 @@ import {
   type OfficeLayout,
   PROJECT_BOARD_ID,
   STARTING_MINUTE_OF_DAY,
-  TICKET_BOARD_ID,
   STAFF_CHANGE,
   authorizeInteract,
   describeLiveAgentTask,
@@ -166,7 +165,7 @@ function captionOf(view: OccupantView): string {
 
 /** Whether a panel takes the keyboard, and so is closed with `Esc` rather than `E`. */
 function closesWithEscape(interactableId: string): boolean {
-  return interactableId === TICKET_BOARD_ID || interactableId === MANAGER_INTERACTABLE_ID;
+  return interactableId === MANAGER_INTERACTABLE_ID;
 }
 
 function createCamera(canvas: HTMLCanvasElement, layout: OfficeLayout): THREE.PerspectiveCamera {
@@ -374,15 +373,13 @@ function start(): void {
       showNotice(
         event.command === CLIENT_MESSAGE.chat
           ? "Too many messages — that one was dropped."
-          : event.command === CLIENT_MESSAGE.ticketComment
-            ? "Too many comments — that one was dropped."
-            : event.command === CLIENT_MESSAGE.managerSay
-              ? "Too many messages to the manager — that one was dropped."
-              : "Too many emotes — that one was dropped.",
+          : event.command === CLIENT_MESSAGE.managerSay
+            ? "Too many messages to the manager — that one was dropped."
+            : "Too many emotes — that one was dropped.",
       );
     },
 
-    onTicketRejected: (event) => {
+    onWorkRejected: (event) => {
       showNotice(rejectionText(event.rejection));
     },
 
@@ -398,7 +395,7 @@ function start(): void {
         isSystem: true,
       });
       if (isLocal) {
-        showNotice("The CEO left — you are now the CEO and run the ticket board.");
+        showNotice("The CEO left — you are now the CEO and hand out the project board's work.");
       }
     },
 
@@ -445,8 +442,8 @@ function start(): void {
       }
     },
 
-    onTicketsChanged: (tickets) => {
-      publishHud({ tickets });
+    onWorkChanged: (work) => {
+      publishHud({ work });
     },
 
     // Handed over whole on every join, a reconnection included, so it replaces
@@ -468,7 +465,7 @@ function start(): void {
     },
   });
 
-  // The wall board, whiteboard or manager's desk whose panel is open, or `""`.
+  // The wall board or manager's desk whose panel is open, or `""`.
   // Local to this tab: reading a board or talking to the manager holds
   // nothing, so there is nothing for the server to know.
   let readingBoard = "";
@@ -488,13 +485,10 @@ function start(): void {
             showNotice(command.text);
           }
         },
-        ticketBoard: {
-          createTicket: (title, body) => room.sendTicketCreate(title, body),
-          moveTicket: (ticketId, status) => room.sendTicketMove(ticketId, status),
-          assignTicket: (ticketId, assigneeId) => room.sendTicketAssign(ticketId, assigneeId),
-          close: () => {
-            readingBoard = "";
-          },
+        projectBoard: {
+          assign: (issueNumber, agentId) => room.sendWorkAssign(issueNumber, agentId),
+          move: (issueNumber, status) => room.sendWorkMove(issueNumber, status),
+          release: (issueNumber) => room.sendWorkRelease(issueNumber),
         },
         hire: (candidateId) => room.sendHire(candidateId),
         fire: (agentId) => room.sendFire(agentId),
@@ -615,13 +609,9 @@ function start(): void {
       if (target.id === readingBoard) {
         readingBoard = "";
       } else {
-        // The whiteboard is the ticket board, read up close like a wall board,
-        // and the manager's desk opens the conversation the same way.
-        if (
-          target.kind === INTERACTION_KIND.board ||
-          target.kind === INTERACTION_KIND.whiteboard ||
-          target.kind === INTERACTION_KIND.manager
-        ) {
+        // A wall board is read up close, and the manager's desk opens the
+        // conversation the same way.
+        if (target.kind === INTERACTION_KIND.board || target.kind === INTERACTION_KIND.manager) {
           readingBoard = target.id;
         }
         room.sendInteract(target.id);
@@ -630,10 +620,6 @@ function start(): void {
     const closeUp = readingBoard === PROJECT_BOARD_ID;
     if (closeUp !== hud.boardCloseUp) {
       publishHud({ boardCloseUp: closeUp });
-    }
-    const ticketBoardOpen = readingBoard === TICKET_BOARD_ID;
-    if (ticketBoardOpen !== hud.ticketBoardOpen) {
-      publishHud({ ticketBoardOpen });
     }
     const managerOpen = readingBoard === MANAGER_INTERACTABLE_ID;
     if (managerOpen !== hud.managerOpen) {

@@ -2,11 +2,12 @@
  * The project board's contract: what the server tells every client about this
  * repository's own development.
  *
- * The board is not the in-game ticket board. That one is the simulated
- * company's work, held in replicated state and changed by commands; this one is
- * a read-only window onto real GitHub issues and pull requests, fetched by the
- * server and handed to clients whole. Nothing a client does changes it, and
- * nothing here can write to GitHub.
+ * The board is a read-only window onto real GitHub issues and pull requests,
+ * fetched by the server and handed to clients whole. Its open issues are the
+ * work the agent employees do, but what they have done about one is the
+ * office's own replicated state (`IssueWork` in `state.ts`), not part of this
+ * snapshot. Nothing a client does changes the snapshot, and nothing here can
+ * write to GitHub.
  *
  * It travels as a server broadcast rather than as schema. A snapshot is
  * replaced wholesale on every poll, so there is nothing for per-field change
@@ -45,6 +46,12 @@ export interface BoardIssue {
   readonly number: number;
   /** Sanitized and length-capped by the server. Safe to render as text. */
   readonly title: string;
+  /**
+   * The issue's description, sanitized and capped at {@link MAX_ISSUE_BODY_LENGTH},
+   * which is the brief an agent works from. `""` for a closed issue, which
+   * nobody works.
+   */
+  readonly body: string;
   /** In the order GitHub lists them, capped at {@link MAX_ITEM_LABELS}. */
   readonly labels: readonly BoardLabel[];
   readonly assignees: readonly string[];
@@ -112,6 +119,12 @@ export const MAX_ITEM_LABELS = 8;
 /** Longest label name a snapshot carries, which is also GitHub's own limit. */
 export const MAX_LABEL_LENGTH = 50;
 
+/**
+ * Longest issue description a snapshot carries: enough for an agent's brief,
+ * short enough that a board of open issues stays a small message.
+ */
+export const MAX_ISSUE_BODY_LENGTH = 1000;
+
 /** Recently closed issues kept on the board. Enough to show momentum, not a history. */
 export const MAX_CLOSED_ISSUES = 10;
 
@@ -123,3 +136,44 @@ export const EMPTY_BOARD_LISTS: ProjectBoardLists = {
   pullRequests: [],
   counts: { open: 0, inProgress: 0, pullRequests: 0 },
 };
+
+/**
+ * The open issue with this number, if the snapshot lists one.
+ *
+ * Open means in the board's open or in-progress list: those are the issues
+ * there is still work to do on. A closed issue, or one the snapshot does not
+ * carry, is not one an agent can be given.
+ */
+export function openBoardIssue(
+  snapshot: ProjectBoardSnapshot | undefined,
+  issueNumber: number,
+): BoardIssue | undefined {
+  if (snapshot === undefined) {
+    return undefined;
+  }
+  return (
+    snapshot.open.find((issue) => issue.number === issueNumber) ??
+    snapshot.inProgress.find((issue) => issue.number === issueNumber)
+  );
+}
+
+/**
+ * Whether a snapshot says an issue is finished with: closed on GitHub, or gone
+ * from a list that would show it.
+ *
+ * Only a fresh snapshot can say so. A stale one is the last good lists, which
+ * may be old news, and an issue missing from a list that was cut at
+ * {@link MAX_BOARD_ITEMS} may simply not have fitted; neither is evidence the
+ * issue went anywhere, so both answer no rather than take work off an agent.
+ */
+export function isIssueGone(snapshot: ProjectBoardSnapshot | undefined, issueNumber: number): boolean {
+  if (snapshot === undefined || snapshot.stale || snapshot.updatedAt === null) {
+    return false;
+  }
+  if (snapshot.closed.some((issue) => issue.number === issueNumber)) {
+    return true;
+  }
+  const complete =
+    snapshot.counts.open === snapshot.open.length && snapshot.counts.inProgress === snapshot.inProgress.length;
+  return complete && openBoardIssue(snapshot, issueNumber) === undefined;
+}

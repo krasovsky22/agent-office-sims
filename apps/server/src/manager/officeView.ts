@@ -4,26 +4,25 @@
  * Both ways the manager answers — by rule (`./rulePlanner.ts`) and through a
  * model (`./modelPlanner.ts`) — read the same view, so a mock answer and a
  * model's answer are about the same office. It covers what the CEO asks about:
- * the agent employees and their tickets, the live coding agents and their
- * tasks, the ticket board, and this repository's issues and pull requests from
- * the project board's feed.
+ * the agent employees and the issues they are on, the live coding agents and
+ * their tasks, and this repository's issues and pull requests from the project
+ * board's feed, each issue with whatever the office is doing about it.
  *
  * Built synchronously, in one pass over the room's state, between ticks. It
  * holds no schema objects: the model is handed it as JSON, and nothing the
- * manager does while it waits can be confused by a ticket that moved under it.
+ * manager does while it waits can be confused by work that moved under it.
  * Every string in it was sanitized by whoever wrote it into the office.
  */
 
 import {
   type AgentActivity,
+  type BoardIssue,
   type CheckStatus,
   type LiveAgentStatus,
   type OfficeState,
   type ProjectBoardSnapshot,
-  SYSTEM_AUTHOR_ID,
-  TICKET_STATUSES,
-  type TicketPriority,
-  type TicketStatus,
+  WORK_STATUSES,
+  type WorkStatus,
   isAgentEmployee,
   isCeo,
   taskReference,
@@ -31,14 +30,14 @@ import {
 
 import type { LiveAgentRecord } from "../agents/registry.js";
 
-/** An agent employee, simulated, working the in-game ticket board. */
+/** An agent employee, simulated, working the project board's issues. */
 export interface AgentView {
   readonly id: string;
   readonly name: string;
   readonly jobTitle: string;
   readonly activity: AgentActivity;
-  /** The ticket it is holding, if any. */
-  readonly ticketId: string | undefined;
+  /** The issue it is holding, if any. */
+  readonly issueNumber: number | undefined;
 }
 
 /** A link with the short handle a person would say: `#33`, `PR #40`, or `""`. */
@@ -59,18 +58,18 @@ export interface LiveAgentView {
   readonly assigned: LinkView | undefined;
 }
 
-export interface TicketView {
-  readonly id: string;
+/** What an agent employee is doing about one issue. */
+export interface WorkView {
+  readonly issueNumber: number;
+  /** The issue's title, as of the last snapshot that listed it. */
   readonly title: string;
-  readonly status: TicketStatus;
-  readonly priority: TicketPriority;
-  /** `""` when unassigned. */
+  readonly status: WorkStatus;
   readonly assigneeId: string;
-  /** The assignee's name; `undefined` when unassigned or no longer in the office. */
+  /** The assignee's name; `undefined` when they are no longer in the office. */
   readonly assignee: string | undefined;
   readonly hasDeliverable: boolean;
-  /** The newest comment, by an agent or the system, which is where "Blocked: …" lands. */
-  readonly latestNote: string | undefined;
+  /** The latest word on it, which is where "Blocked: …" lands; `undefined` when there is none. */
+  readonly note: string | undefined;
 }
 
 export type IssueColumn = "open" | "in progress" | "closed";
@@ -79,17 +78,22 @@ export interface IssueView {
   readonly number: number;
   readonly title: string;
   readonly url: string;
+  /** The project board's column, which is GitHub's view: assigned there, or a linked PR. */
   readonly column: IssueColumn;
   readonly labels: readonly string[];
+  /** GitHub logins it is assigned to on GitHub, which the office never changes. */
   readonly assignees: readonly string[];
   /** Open pull requests that say they close it. */
   readonly pullRequests: readonly number[];
+  /** What an agent employee is doing about it, if anyone is. */
+  readonly work: WorkView | undefined;
 }
 
 export interface PullRequestView {
   readonly number: number;
   readonly title: string;
   readonly url: string;
+  readonly labels: readonly string[];
   readonly author: string;
   readonly draft: boolean;
   readonly checks: CheckStatus;
@@ -100,8 +104,11 @@ export interface ProjectView {
   readonly repository: string;
   /** Whether the feed's last poll failed, so these lists may be out of date. */
   readonly stale: boolean;
+  /** In progress, then open, then closed, each by number. */
   readonly issues: readonly IssueView[];
   readonly pullRequests: readonly PullRequestView[];
+  /** GitHub's uncapped totals, which may be more than the lists carry. */
+  readonly counts: ProjectBoardSnapshot["counts"];
 }
 
 export interface OfficeView {
@@ -109,8 +116,11 @@ export interface OfficeView {
   readonly ceo: string | undefined;
   readonly agents: readonly AgentView[];
   readonly liveAgents: readonly LiveAgentView[];
-  /** In board order: by column, then by id. */
-  readonly tickets: readonly TicketView[];
+  /**
+   * Every piece of work in the office, by status then issue number, including
+   * finished work on an issue the board no longer lists.
+   */
+  readonly work: readonly WorkView[];
   /** `undefined` until the project board's first poll lands. */
   readonly project: ProjectView | undefined;
   /** Whether issues can be handed to live agents: an orchestrator is configured. */
@@ -128,12 +138,6 @@ function link(title: string, url: string): LinkView {
   return { title, url, reference: taskReference(url) };
 }
 
-/** `ticket-12` sorts after `ticket-9`. */
-function ticketNumber(id: string): number {
-  const number = Number(/(\d+)$/.exec(id)?.[1] ?? Number.NaN);
-  return Number.isFinite(number) ? number : Number.MAX_SAFE_INTEGER;
-}
-
 export function readOfficeView(sources: OfficeViewSources): OfficeView {
   const { state } = sources;
   const agents: AgentView[] = [];
@@ -148,32 +152,23 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
         name: occupant.name,
         jobTitle: occupant.jobTitle,
         activity: occupant.activity,
-        ticketId: occupant.currentTicketId === "" ? undefined : occupant.currentTicketId,
+        issueNumber: occupant.currentIssueNumber === 0 ? undefined : occupant.currentIssueNumber,
       });
     }
   }
 
-  const tickets: TicketView[] = [...state.tickets.values()].map((ticket) => {
-    const note = ticket.comments.at(-1);
-    const assignee = ticket.assigneeId === "" ? undefined : state.occupants.get(ticket.assigneeId)?.name;
-    return {
-      id: ticket.id,
-      title: ticket.title,
-      status: ticket.status,
-      priority: ticket.priority,
-      assigneeId: ticket.assigneeId,
-      assignee,
-      hasDeliverable: ticket.outputArtifact !== "",
-      latestNote:
-        note === undefined
-          ? undefined
-          : `${note.authorId === SYSTEM_AUTHOR_ID ? "Office" : (state.occupants.get(note.authorId)?.name ?? "Someone")}: ${note.text}`,
-    };
-  });
-  tickets.sort(
+  const work: WorkView[] = [...state.work.values()].map((entry) => ({
+    issueNumber: entry.issueNumber,
+    title: entry.title,
+    status: entry.status,
+    assigneeId: entry.assigneeId,
+    assignee: state.occupants.get(entry.assigneeId)?.name,
+    hasDeliverable: entry.outputArtifact !== "",
+    note: entry.note === "" ? undefined : entry.note,
+  }));
+  work.sort(
     (a, b) =>
-      TICKET_STATUSES.indexOf(a.status) - TICKET_STATUSES.indexOf(b.status) ||
-      ticketNumber(a.id) - ticketNumber(b.id),
+      WORK_STATUSES.indexOf(a.status) - WORK_STATUSES.indexOf(b.status) || a.issueNumber - b.issueNumber,
   );
 
   const liveAgents = (sources.liveAgents ?? []).map(
@@ -190,15 +185,15 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
     ceo,
     agents,
     liveAgents,
-    tickets,
-    project: sources.project === undefined ? undefined : readProject(sources.project),
+    work,
+    project: sources.project === undefined ? undefined : readProject(sources.project, work),
     orchestrator: sources.liveAgents !== undefined,
   };
 }
 
-function readProject(snapshot: ProjectBoardSnapshot): ProjectView {
+function readProject(snapshot: ProjectBoardSnapshot, work: readonly WorkView[]): ProjectView {
   const base = `https://github.com/${snapshot.repository}`;
-  const issues = (column: IssueColumn, list: ProjectBoardSnapshot["open"]): IssueView[] =>
+  const issues = (column: IssueColumn, list: readonly BoardIssue[]): IssueView[] =>
     list.map((issue) => ({
       number: issue.number,
       title: issue.title,
@@ -207,6 +202,7 @@ function readProject(snapshot: ProjectBoardSnapshot): ProjectView {
       labels: issue.labels.map((label) => label.name),
       assignees: issue.assignees,
       pullRequests: issue.pullRequests,
+      work: work.find((entry) => entry.issueNumber === issue.number),
     }));
   return {
     repository: snapshot.repository,
@@ -220,9 +216,11 @@ function readProject(snapshot: ProjectBoardSnapshot): ProjectView {
       number: pull.number,
       title: pull.title,
       url: `${base}/pull/${pull.number}`,
+      labels: pull.labels.map((label) => label.name),
       author: pull.author,
       draft: pull.draft,
       checks: pull.checks,
     })),
+    counts: snapshot.counts,
   };
 }

@@ -28,13 +28,26 @@ import {
   STARTING_MORALE,
   type StaffChangedEvent,
   type StaffRejectedEvent,
-  TICKET_STATUS,
+  EMPTY_BOARD_LISTS,
+  type ProjectBoardSnapshot,
+  WORK_STATUS,
   isAgentEmployee,
+  workKey,
 } from "@sim/shared";
 import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { OfficeRoom, type OfficeRoomOptions } from "./OfficeRoom.js";
+
+/** One open issue, for an agent to be in the middle of when it is fired. */
+const BOARD: ProjectBoardSnapshot = {
+  ...EMPTY_BOARD_LISTS,
+  open: [{ number: 1, title: "Fix the login redirect loop", body: "", labels: [], assignees: [], pullRequests: [], closedAt: null }],
+  counts: { open: 1, inProgress: 0, pullRequests: 0 },
+  repository: "acme/office",
+  updatedAt: 1,
+  stale: false,
+};
 
 let server: Server;
 let endpoint: string;
@@ -43,6 +56,7 @@ beforeAll(async () => {
   server = new Server({ transport: new WebSocketTransport(), greet: false });
   server.define(OFFICE_ROOM_NAME, OfficeRoom, {
     agentCount: DEFAULT_AGENT_COUNT,
+    projectBoard: { current: () => BOARD, subscribe: () => () => undefined },
   } satisfies Partial<OfficeRoomOptions>);
   await server.listen(0);
   const address = server.transport.server?.address();
@@ -71,7 +85,8 @@ function listen(room: Room<OfficeState>): Tab {
     tab.changes.push(event);
   });
   room.onMessage(SERVER_MESSAGE.ceoChanged, () => undefined);
-  room.onMessage(SERVER_MESSAGE.ticketRejected, () => undefined);
+  room.onMessage(SERVER_MESSAGE.workRejected, () => undefined);
+  room.onMessage(SERVER_MESSAGE.projectBoard, () => undefined);
   return tab;
 }
 
@@ -166,13 +181,10 @@ describe("staffing over a live socket", () => {
     await leave(milo, dana);
   });
 
-  it("fires an agent mid-ticket and leaves the ticket in the backlog for someone else", async () => {
+  it("fires an agent mid-issue and leaves the issue free for someone else", async () => {
     const { dana, milo } = await openOffice();
-    dana.room.send(CLIENT_MESSAGE.ticketAssign, { ticketId: "ticket-1", assigneeId: "agent-1" });
-    dana.room.send(CLIENT_MESSAGE.ticketMoveStatus, {
-      ticketId: "ticket-1",
-      status: TICKET_STATUS.in_progress,
-    });
+    dana.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 1, assigneeId: "agent-1" });
+    dana.room.send(CLIENT_MESSAGE.workMove, { issueNumber: 1, status: WORK_STATUS.in_progress });
     dana.room.send(CLIENT_MESSAGE.staffFire, { agentId: "agent-1" });
     await settled(() => milo.changes.length === 1);
 
@@ -180,19 +192,17 @@ describe("staffing over a live socket", () => {
       change: STAFF_CHANGE.fired,
       agentId: "agent-1",
       moraleLost: MORALE_LOSS_PER_FIRING,
-      releasedTickets: 1,
+      releasedIssues: 1,
     });
     const state = serverRoom(dana).state;
     expect(state.occupants.has("agent-1")).toBe(false);
     expect(state.company.morale).toBe(STARTING_MORALE - MORALE_LOSS_PER_FIRING);
-    const ticket = state.tickets.get("ticket-1");
-    expect(ticket?.status).toBe(TICKET_STATUS.backlog);
-    expect(ticket?.assigneeId).toBe("");
+    expect(state.work.has(workKey(1))).toBe(false);
 
     // Recoverable: the CEO can hand it straight to someone still here.
-    dana.room.send(CLIENT_MESSAGE.ticketAssign, { ticketId: "ticket-1", assigneeId: "agent-2" });
+    dana.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 1, assigneeId: "agent-2" });
     await roundTrip(dana);
-    expect(state.tickets.get("ticket-1")?.assigneeId).toBe("agent-2");
+    expect(state.work.get(workKey(1))?.assigneeId).toBe("agent-2");
 
     await leave(milo, dana);
   });

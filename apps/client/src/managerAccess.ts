@@ -4,14 +4,14 @@
  * The decision is not made here: `mayInstructManager` in `@sim/shared` is the
  * rule the server enforces, and this module only asks it about the local
  * player, so the composer is disabled exactly when the server would refuse the
- * message, and says why. Like `boardAccess.ts` for the ticket board.
+ * message, and says why. Like `boardAccess.ts` for the project board's work.
  */
 
 import {
   MANAGER_NAME,
   MANAGER_REJECTION,
   type ManagerRejection,
-  type TicketActor,
+  type OfficeActor,
   mayInstructManager,
 } from "@sim/shared";
 
@@ -28,7 +28,7 @@ export interface ManagerAccess {
  *
  * @param ceoName `undefined` while the roster has not shown who holds the role.
  */
-export function managerAccessFor(actor: TicketActor, ceoName: string | undefined): ManagerAccess {
+export function managerAccessFor(actor: OfficeActor, ceoName: string | undefined): ManagerAccess {
   if (mayInstructManager(actor)) {
     return {
       mayInstruct: true,

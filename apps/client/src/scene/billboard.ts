@@ -9,8 +9,8 @@
  *
  * The painters below are plain functions over a 2D context rather than
  * methods: a speech bubble, an emote, and an agent employee's activity badge
- * all share the sprite plumbing, and a new overhead display — a thought, a
- * ticket an agent picked up — is one more painter, with nothing else here
+ * all share the sprite plumbing, and a new overhead display — a thought, an
+ * issue an agent picked up — is one more painter, with nothing else here
  * changing.
  */
 

@@ -1,39 +1,33 @@
 /**
- * Turning what someone wrote — `ticket-3`, `#39`, "the onboarding email",
- * "Ada", "someone" — into the work and the agents it means.
+ * Turning what someone wrote — `#39`, `PR 40`, "the lighting cycle", "Ada",
+ * "someone" — into the work and the agents it means.
  *
  * The rule planner reads the CEO's message with these, and the manager reads a
  * model's plan with the same ones before carrying it out, so a model never gets
- * an id it invented acted on: whatever it names has to resolve against the live
- * view, or the assignment is refused with the reason.
+ * a number it invented acted on: whatever it names has to resolve against the
+ * live view, or the assignment is refused with the reason.
  *
- * `#N` is GitHub's: the project board's issue or pull request with that number,
- * falling back to the in-game `ticket-N` only when the board has no such item.
- * The in-game board's own ids are `ticket-N`, which is how the manager writes
- * them in its answers.
+ * All the work there is lives on the project board, so every reference is
+ * GitHub's: `#N` is the issue or pull request with that number, `issue N` and
+ * `PR N` say which, and an issue can also be named by its title.
  */
 
-import type { AgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, TicketView } from "./officeView.js";
+import type { AgentView, IssueView, LiveAgentView, OfficeView, PullRequestView } from "./officeView.js";
 
-/** A GitHub item, an issue or a pull request, on the project board. */
-export type GithubItem =
+/** Work the manager can talk about or hand out: an issue or a pull request on the project board. */
+export type WorkRef =
   | { readonly kind: "issue"; readonly issue: IssueView }
   | { readonly kind: "pull"; readonly pull: PullRequestView };
-
-/** Work the manager can talk about or hand out. */
-export type WorkRef = { readonly kind: "ticket"; readonly ticket: TicketView } | GithubItem;
 
 /** Someone the manager can hand work to. */
 export type AgentRef =
   | { readonly kind: "agent"; readonly agent: AgentView }
   | { readonly kind: "live"; readonly agent: LiveAgentView };
 
-/** `ticket-3`, `ticket 3`, `ticket #3`. */
-const TICKET_ID = /\bticket[-\s]?#?(\d+)\b/gi;
 /** `#39`, `issue 39`, `issue #39`, `PR 40`, `PR #40`, `pull request 40`. */
 const GITHUB_NUMBER = /(?:\b(issue|pr|pull request|pull)\s*#?|#)(\d+)\b/gi;
 
-/** Words too common to tell one ticket title from another. */
+/** Words too common to tell one issue title from another. */
 const STOPWORDS = new Set([
   "the", "and", "for", "with", "from", "into", "onto", "that", "this", "fix", "add", "make", "write", "draft",
   "cut", "get", "put", "set", "new", "our", "all", "out", "off", "up",
@@ -43,7 +37,7 @@ function words(text: string): string[] {
   return text.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 3 && !STOPWORDS.has(word));
 }
 
-/** Every adjacent pair of a title's telling words: "login redirect", "redirect loop". */
+/** Every adjacent pair of a title's telling words: "lighting cycle", "night lighting". */
 function titlePairs(title: string): string[] {
   const telling = words(title);
   const pairs: string[] = [];
@@ -53,11 +47,7 @@ function titlePairs(title: string): string[] {
   return pairs;
 }
 
-function ticketById(view: OfficeView, number: string): TicketView | undefined {
-  return view.tickets.find((ticket) => ticket.id === `ticket-${Number(number)}`);
-}
-
-function githubItem(view: OfficeView, number: number, wanted: "issue" | "pull" | undefined): GithubItem | undefined {
+function githubItem(view: OfficeView, number: number, wanted: "issue" | "pull" | undefined): WorkRef | undefined {
   const project = view.project;
   if (project === undefined) {
     return undefined;
@@ -78,9 +68,6 @@ function githubItem(view: OfficeView, number: number, wanted: "issue" | "pull" |
 }
 
 function sameRef(a: WorkRef, b: WorkRef): boolean {
-  if (a.kind === "ticket" && b.kind === "ticket") {
-    return a.ticket.id === b.ticket.id;
-  }
   if (a.kind === "issue" && b.kind === "issue") {
     return a.issue.number === b.issue.number;
   }
@@ -90,12 +77,18 @@ function sameRef(a: WorkRef, b: WorkRef): boolean {
   return false;
 }
 
+/** What a number reference's prefix asks for: `issue`, a pull request, or either. */
+function wantedBy(prefix: string | undefined): "issue" | "pull" | undefined {
+  const lower = prefix?.toLowerCase();
+  return lower === undefined ? undefined : lower === "issue" ? "issue" : "pull";
+}
+
 /**
  * Every piece of work a message mentions, in the order it mentions them.
  *
- * By id first — `ticket-3`, `#39`, `PR 40` — then by title, for a ticket whose
- * title shares two adjacent telling words with the message, which is how
- * someone who has only read the board names a card.
+ * By number first — `#39`, `PR 40` — then by title, for an issue whose title
+ * shares two adjacent telling words with the message, which is how someone
+ * who has only read the board names a card.
  */
 export function findWork(message: string, view: OfficeView): WorkRef[] {
   const found: { readonly at: number; readonly ref: WorkRef }[] = [];
@@ -105,61 +98,31 @@ export function findWork(message: string, view: OfficeView): WorkRef[] {
     }
   };
 
-  const ticketSpans: [number, number][] = [];
-  for (const match of message.matchAll(TICKET_ID)) {
-    const ticket = ticketById(view, match[1] ?? "");
-    ticketSpans.push([match.index, match.index + match[0].length]);
-    add(match.index, ticket === undefined ? undefined : { kind: "ticket", ticket });
-  }
   for (const match of message.matchAll(GITHUB_NUMBER)) {
-    // `ticket #3` is a ticket, already read above.
-    if (ticketSpans.some(([start, end]) => match.index >= start && match.index < end)) {
-      continue;
-    }
-    const prefix = match[1]?.toLowerCase();
-    const wanted = prefix === undefined ? undefined : prefix === "issue" ? "issue" : "pull";
-    const number = Number(match[2]);
-    const item = githubItem(view, number, wanted);
-    if (item !== undefined) {
-      add(match.index, item);
-    } else if (wanted === undefined) {
-      const ticket = ticketById(view, String(number));
-      add(match.index, ticket === undefined ? undefined : { kind: "ticket", ticket });
-    }
+    add(match.index, githubItem(view, Number(match[2]), wantedBy(match[1])));
   }
 
   const said = ` ${words(message).join(" ")} `;
-  for (const ticket of view.tickets) {
-    const pair = titlePairs(ticket.title).find((candidate) => said.includes(` ${candidate} `));
+  for (const issue of view.project?.issues ?? []) {
+    const pair = titlePairs(issue.title).find((candidate) => said.includes(` ${candidate} `));
     if (pair !== undefined) {
-      add(message.length + said.indexOf(pair), { kind: "ticket", ticket });
+      add(message.length + said.indexOf(pair), { kind: "issue", issue });
     }
   }
   return found.sort((a, b) => a.at - b.at).map((entry) => entry.ref);
 }
 
 /**
- * The references a message makes by id or number that name nothing on either
- * board, as written: `#999`, `ticket-42`. So "status of #999" can be told it
- * does not exist rather than answered about something else.
+ * The references a message makes by number that name nothing on the project
+ * board, as written: `#999`, `PR #42`. So "status of #999" can be told it does
+ * not exist rather than answered about something else.
  */
 export function findUnknownWork(message: string, view: OfficeView): string[] {
   const unknown: string[] = [];
-  const ticketSpans: [number, number][] = [];
-  for (const match of message.matchAll(TICKET_ID)) {
-    ticketSpans.push([match.index, match.index + match[0].length]);
-    if (ticketById(view, match[1] ?? "") === undefined) {
-      unknown.push(`ticket-${Number(match[1])}`);
-    }
-  }
   for (const match of message.matchAll(GITHUB_NUMBER)) {
-    if (ticketSpans.some(([start, end]) => match.index >= start && match.index < end)) {
-      continue;
-    }
-    const prefix = match[1]?.toLowerCase();
-    const wanted = prefix === undefined ? undefined : prefix === "issue" ? "issue" : "pull";
+    const wanted = wantedBy(match[1]);
     const number = Number(match[2]);
-    if (githubItem(view, number, wanted) === undefined && (wanted !== undefined || ticketById(view, String(number)) === undefined)) {
+    if (githubItem(view, number, wanted) === undefined) {
       unknown.push(wanted === "pull" ? `PR #${number}` : `#${number}`);
     }
   }
@@ -167,22 +130,18 @@ export function findUnknownWork(message: string, view: OfficeView): string[] {
 }
 
 /**
- * The work one reference names, as a planner wrote it: an id, a number, or a
- * ticket's title. `undefined` when it names nothing on either board.
+ * The work one reference names, as a planner wrote it: a number, `#N`,
+ * `PR #N`, or an issue's title. `undefined` when it names nothing on the
+ * project board.
  */
 export function resolveWork(reference: string, view: OfficeView): WorkRef | undefined {
   const trimmed = reference.trim();
-  const exact = view.tickets.find(
-    (ticket) => ticket.id === trimmed || ticket.title.toLowerCase() === trimmed.toLowerCase(),
-  );
-  if (exact !== undefined) {
-    return { kind: "ticket", ticket: exact };
-  }
   if (/^\d+$/.test(trimmed)) {
-    const number = Number(trimmed);
-    const item = githubItem(view, number, undefined);
-    const ticket = ticketById(view, trimmed);
-    return item ?? (ticket === undefined ? undefined : { kind: "ticket", ticket });
+    return githubItem(view, Number(trimmed), undefined);
+  }
+  const titled = view.project?.issues.find((issue) => issue.title.toLowerCase() === trimmed.toLowerCase());
+  if (titled !== undefined) {
+    return { kind: "issue", issue: titled };
   }
   return findWork(trimmed, view)[0];
 }
@@ -232,11 +191,9 @@ export function findAgents(message: string, view: OfficeView): AgentRef[] {
   return found.sort((a, b) => a.at - b.at).map((entry) => entry.ref);
 }
 
-/** How the manager writes a piece of work: `ticket-3 “Title”`, `#39 “Title”`, `PR #40 “Title”`. */
+/** How the manager writes a piece of work: `#39 “Title”`, `PR #40 “Title”`. */
 export function describeWork(ref: WorkRef): string {
   switch (ref.kind) {
-    case "ticket":
-      return `${ref.ticket.id} “${ref.ticket.title}”`;
     case "issue":
       return `#${ref.issue.number} “${ref.issue.title}”`;
     case "pull":

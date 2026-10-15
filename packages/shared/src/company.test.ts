@@ -15,10 +15,10 @@ import {
   METRIC_MAX,
   METRIC_MIN,
   MORALE_DAILY_RECOVERY,
-  MORALE_LOSS_PER_EXCESS_TICKET,
+  MORALE_LOSS_PER_EXCESS_ISSUE,
   MORALE_LOSS_PER_FIRING,
   PRODUCTIVITY_DAILY_DECAY,
-  PRODUCTIVITY_PER_COMPLETED_TICKET,
+  PRODUCTIVITY_PER_COMPLETED_ISSUE,
   QUIT_AFTER_LOW_MORALE_DAYS,
   QUIT_MORALE_THRESHOLD,
   SIM_MINUTES_PER_REAL_SECOND,
@@ -42,10 +42,10 @@ const PAYROLL = dailyPayroll(
   AGENT_ROSTER.slice(0, DEFAULT_AGENT_COUNT).map((profile) => profile.salary),
 );
 
-const QUIET_DAY = { completedTickets: 0, openTickets: BACKLOG_TOLERANCE, payroll: PAYROLL };
+const QUIET_DAY = { completedIssues: 0, openIssues: BACKLOG_TOLERANCE, payroll: PAYROLL };
 
 /** A day that ends with morale far under the quitting threshold. */
-const GRIM_DAY = { ...QUIET_DAY, openTickets: BACKLOG_TOLERANCE + 1_000 };
+const GRIM_DAY = { ...QUIET_DAY, openIssues: BACKLOG_TOLERANCE + 1_000 };
 
 describe("a new company", () => {
   it("starts from the tunables, trading, on the morning of day 1", () => {
@@ -82,11 +82,11 @@ describe("closeDay", () => {
     expect(company.cash).toBe(STARTING_CASH - PAYROLL);
   });
 
-  it("raises productivity for each completed ticket, net of the daily decay", () => {
+  it("raises productivity for each completed issue, net of the daily decay", () => {
     const company = new Company();
-    closeDay(company, { ...QUIET_DAY, completedTickets: 3 });
+    closeDay(company, { ...QUIET_DAY, completedIssues: 3 });
     expect(company.productivity).toBe(
-      STARTING_PRODUCTIVITY + 3 * PRODUCTIVITY_PER_COMPLETED_TICKET - PRODUCTIVITY_DAILY_DECAY,
+      STARTING_PRODUCTIVITY + 3 * PRODUCTIVITY_PER_COMPLETED_ISSUE - PRODUCTIVITY_DAILY_DECAY,
     );
   });
 
@@ -96,10 +96,10 @@ describe("closeDay", () => {
     expect(company.productivity).toBe(STARTING_PRODUCTIVITY - PRODUCTIVITY_DAILY_DECAY);
   });
 
-  it("erodes morale for every open ticket beyond the tolerated backlog", () => {
+  it("erodes morale for every open issue beyond the tolerated backlog", () => {
     const company = new Company();
-    closeDay(company, { ...QUIET_DAY, openTickets: BACKLOG_TOLERANCE + 4 });
-    expect(company.morale).toBe(STARTING_MORALE - 4 * MORALE_LOSS_PER_EXCESS_TICKET);
+    closeDay(company, { ...QUIET_DAY, openIssues: BACKLOG_TOLERANCE + 4 });
+    expect(company.morale).toBe(STARTING_MORALE - 4 * MORALE_LOSS_PER_EXCESS_ISSUE);
   });
 
   it("lets morale recover while the backlog is within tolerance", () => {
@@ -110,7 +110,7 @@ describe("closeDay", () => {
 
   it("keeps morale and productivity inside their range", () => {
     const company = new Company();
-    closeDay(company, { ...GRIM_DAY, completedTickets: 1_000 });
+    closeDay(company, { ...GRIM_DAY, completedIssues: 1_000 });
     expect(company.productivity).toBe(METRIC_MAX);
     expect(company.morale).toBe(METRIC_MIN);
   });
@@ -137,7 +137,7 @@ describe("closeDay", () => {
     company.cash = PAYROLL;
     closeDay(company, QUIET_DAY);
     const ended = company.toJSON();
-    closeDay(company, { completedTickets: 5, openTickets: 50, payroll: PAYROLL });
+    closeDay(company, { completedIssues: 5, openIssues: 50, payroll: PAYROLL });
     expect(company.toJSON()).toEqual(ended);
   });
 

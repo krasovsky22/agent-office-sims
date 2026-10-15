@@ -5,12 +5,11 @@
  * Every tunable in the company simulation lives in this module, and so does
  * every formula that reads one — with one exception: what each job pays is
  * listed beside the job itself, in `agents.ts`'s hiring candidates. None of the
- * values are balanced yet — that waits until agents actually work the board —
- * so the point is that rebalancing is an edit to these two files and to nothing
+ * values are balanced yet, so the point is that rebalancing is an edit to these two files and to nothing
  * else: not the room, not a handler, not the HUD.
  *
  * `state.ts` says what the company *is*; this module says what a day *does* to
- * it, in the same split as `tickets.ts`. The formulas are pure functions of the
+ * it, in the same split as `work.ts`. The formulas are pure functions of the
  * company and a summary of the day, so they can be tested without a room, and
  * they are synchronous and allocation-free so the simulation tick can run them
  * without waiting on anything. Only the server calls them.
@@ -93,8 +92,8 @@ export const METRIC_MAX = 100;
 export const STARTING_MORALE = 70;
 export const STARTING_PRODUCTIVITY = 50;
 
-/** Productivity gained for each ticket that reached `done` during the day. */
-export const PRODUCTIVITY_PER_COMPLETED_TICKET = 5;
+/** Productivity gained for each issue whose work reached `done` during the day. */
+export const PRODUCTIVITY_PER_COMPLETED_ISSUE = 5;
 
 /**
  * Productivity lost every day regardless.
@@ -105,25 +104,27 @@ export const PRODUCTIVITY_PER_COMPLETED_TICKET = 5;
 export const PRODUCTIVITY_DAILY_DECAY = 2;
 
 /**
- * Unfinished tickets the office carries without it weighing on anyone.
- *
- * Set to the size of the starter board, so a fresh company's morale holds
- * steady until the backlog actually grows.
+ * Unfinished issues the office carries without it weighing on anyone, so a
+ * repository with a handful of open issues does not wear morale down until
+ * its backlog actually grows.
  */
 export const BACKLOG_TOLERANCE = 5;
 
-/** Morale lost per day for each unfinished ticket beyond {@link BACKLOG_TOLERANCE}. */
-export const MORALE_LOSS_PER_EXCESS_TICKET = 2;
+/** Morale lost per day for each unfinished issue beyond {@link BACKLOG_TOLERANCE}. */
+export const MORALE_LOSS_PER_EXCESS_ISSUE = 2;
 
 /** Morale regained per day while the backlog is within {@link BACKLOG_TOLERANCE}. */
 export const MORALE_DAILY_RECOVERY = 1;
 
 /** What the office looked like when a day ended, which is all a day's close reads. */
 export interface DayReport {
-  /** Tickets that reached `done` since the previous close. */
-  readonly completedTickets: number;
-  /** Tickets on the board that are not `done`, whatever column they are in. */
-  readonly openTickets: number;
+  /** Issues whose work reached `done` since the previous close. */
+  readonly completedIssues: number;
+  /**
+   * Issues still to finish: open on the project board, whether or not anyone
+   * is on them, and not yet `done` in the office.
+   */
+  readonly openIssues: number;
   /** What the day costs: the {@link dailyPayroll} of the staff on the floor at midnight. */
   readonly payroll: number;
 }
@@ -155,13 +156,13 @@ function clampMetric(value: number): number {
 /**
  * How much a day's backlog moves morale.
  *
- * Counts unfinished work rather than the `backlog` column alone: assigning a
- * ticket does not make the work go away, so it should not make the office feel
- * better either.
+ * Counts unfinished work rather than only the issues nobody is on: assigning
+ * an issue does not make the work go away, so it should not make the office
+ * feel better either.
  */
-export function moraleChange(openTickets: number): number {
-  const excess = openTickets - BACKLOG_TOLERANCE;
-  return excess > 0 ? -excess * MORALE_LOSS_PER_EXCESS_TICKET : MORALE_DAILY_RECOVERY;
+export function moraleChange(openIssues: number): number {
+  const excess = openIssues - BACKLOG_TOLERANCE;
+  return excess > 0 ? -excess * MORALE_LOSS_PER_EXCESS_ISSUE : MORALE_DAILY_RECOVERY;
 }
 
 /**
@@ -202,8 +203,8 @@ export function isDueToQuit(company: Company): boolean {
 }
 
 /** How much a day's finished work moves productivity. */
-export function productivityChange(completedTickets: number): number {
-  return completedTickets * PRODUCTIVITY_PER_COMPLETED_TICKET - PRODUCTIVITY_DAILY_DECAY;
+export function productivityChange(completedIssues: number): number {
+  return completedIssues * PRODUCTIVITY_PER_COMPLETED_ISSUE - PRODUCTIVITY_DAILY_DECAY;
 }
 
 /**
@@ -226,9 +227,9 @@ export function closeDay(company: Company, report: DayReport): void {
     return;
   }
   company.productivity = clampMetric(
-    company.productivity + productivityChange(report.completedTickets),
+    company.productivity + productivityChange(report.completedIssues),
   );
-  company.morale = clampMetric(company.morale + moraleChange(report.openTickets));
+  company.morale = clampMetric(company.morale + moraleChange(report.openIssues));
   company.lowMoraleDays =
     company.morale < QUIT_MORALE_THRESHOLD ? company.lowMoraleDays + 1 : 0;
   company.day += 1;

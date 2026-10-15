@@ -15,7 +15,7 @@
  */
 
 import { type InteractableSpec, INTERACTION_KIND, type OfficeLayout, interactables, roomAt } from "./layout.js";
-import { sanitizeName, sanitizeTicketTitle } from "./messages.js";
+import { sanitizeName, sanitizeTitle } from "./messages.js";
 import { LIVE_AGENT_STATUS, type LiveAgentStatus } from "./state.js";
 
 /** What an orchestrator may report: one of the two live states, or that the agent has gone. */
@@ -120,7 +120,7 @@ export function parseLiveAgentReport(raw: unknown): LiveAgentReport | undefined 
       return undefined;
     }
     const { title: rawTitle, url: rawUrl } = rawTask as Record<string, unknown>;
-    const title = sanitizeTicketTitle(rawTitle);
+    const title = sanitizeTitle(rawTitle);
     const url = parseTaskUrl(rawUrl);
     if (title === "" || url === undefined) {
       return undefined;

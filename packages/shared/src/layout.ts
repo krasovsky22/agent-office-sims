@@ -28,8 +28,8 @@ export interface Aabb2 {
 
 /**
  * An axis-aligned box in the world, for the few things that are not simply
- * standing on the floor. A whiteboard hangs at chest height, so a footprint
- * alone would not say where to draw it.
+ * standing on the floor. A fixture hung on a wall at chest height needs one,
+ * since a footprint alone would not say where to draw it.
  */
 export interface Aabb3 {
   readonly minX: number;
@@ -197,7 +197,6 @@ export interface SpawnSpec {
 export const INTERACTION_KIND = {
   seat: "seat",
   coffee: "coffee",
-  whiteboard: "whiteboard",
   board: "board",
   manager: "manager",
 } as const;
@@ -345,9 +344,6 @@ const READING_GAP = 1;
 /** The open floor's wall board that shows this repository's own GitHub issues and pull requests. */
 export const PROJECT_BOARD_ID = "project-board";
 
-/** The meeting room's whiteboard, which is where the ticket board is read and worked. */
-export const TICKET_BOARD_ID = "whiteboard-meeting";
-
 /** The AI manager's desk in the lobby, where it sits for good. */
 export const MANAGER_DESK_ID = "desk-manager";
 
@@ -398,17 +394,6 @@ function counterRun(prefix: string, first: Vec2, yaw: number, count: number): Pr
     const centre = localToWorld(first, yaw, index * KITCHEN_CABINET.width, 0);
     return prop(`${prefix}-${index + 1}`, "cabinet", centre.x, centre.z, yaw, KITCHEN_CABINET);
   });
-}
-
-function box3(
-  minX: number,
-  minY: number,
-  minZ: number,
-  maxX: number,
-  maxY: number,
-  maxZ: number,
-): Aabb3 {
-  return { minX, minY, minZ, maxX, maxY, maxZ };
 }
 
 /**
@@ -591,10 +576,10 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     // Meeting room.
     { id: "wp-meeting-table", x: -2.85, z: -6.4, links: ["wp-meeting-door", "wp-meeting-east"] },
     { id: "wp-meeting-door", x: -2.85, z: -4.85, links: ["wp-meeting-table", "wp-corridor-meeting"] },
-    // Round the table's east end to the whiteboard, which the table hides from
+    // Round the table's east end to the far wall, which the table hides from
     // the door.
-    { id: "wp-meeting-east", x: -0.6, z: -6.4, links: ["wp-meeting-table", "wp-meeting-whiteboard"] },
-    { id: "wp-meeting-whiteboard", x: -0.6, z: -10.7, links: ["wp-meeting-east"] },
+    { id: "wp-meeting-east", x: -0.6, z: -6.4, links: ["wp-meeting-table", "wp-meeting-north"] },
+    { id: "wp-meeting-north", x: -0.6, z: -10.7, links: ["wp-meeting-east"] },
 
     // Kitchen.
     { id: "wp-kitchen-coffee", x: 3.15, z: -10, links: ["wp-kitchen-door"] },
@@ -712,17 +697,6 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     "desk-south-4",
   ],
   fixtures: [
-    // Hung on the meeting room's stretch of the north wall, across the table
-    // from its chairs, so it needs no footprint of its own — the wall is
-    // already solid. The reader stands between the table and the wall.
-    {
-      id: TICKET_BOARD_ID,
-      kind: INTERACTION_KIND.whiteboard,
-      anchor: { x: -2.85, z: -10.7, yaw: 0 },
-      volume: box3(-4.35, 1, -11.7, -1.35, 2.1, -11.62),
-      exit: undefined,
-      deskId: undefined,
-    },
     // Across the manager's desk from its chair, facing it. The desk and the
     // manager sitting at it are what show it, so it needs no volume.
     {

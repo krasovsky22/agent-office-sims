@@ -23,8 +23,8 @@
 import { dailyPayroll } from "./company.js";
 import {
   type DeskSpec,
-  INTERACTION_KIND,
   type OfficeLayout,
+  PROJECT_BOARD_ID,
   type SpawnSpec,
   type Vec2,
   interactables,
@@ -288,7 +288,7 @@ export function employAgent(hire: AgentHire): AgentEmployee {
   agent.yaw = normalizeYaw(hire.stand.yaw);
   agent.animation = ANIMATION_STATE.idle;
   agent.activity = AGENT_ACTIVITY.idle;
-  agent.currentTicketId = "";
+  agent.currentIssueNumber = 0;
   agent.morale = AGENT_STAT_MAX;
   agent.energy = AGENT_STAT_MAX;
   return agent;
@@ -298,7 +298,7 @@ export function employAgent(hire: AgentHire): AgentEmployee {
  * Where an agent stands at its desk when it is not sitting at it: behind the
  * chair of the desk's first workstation, facing the desk.
  *
- * Where it is hired, and where it goes back to between tickets, so an agent
+ * Where it is hired, and where it goes back to between issues, so an agent
  * with nothing to do is always found at its own desk.
  */
 export function deskStand(layout: OfficeLayout, deskId: string): SpawnSpec | undefined {
@@ -311,14 +311,14 @@ export function deskStand(layout: OfficeLayout, deskId: string): SpawnSpec | und
 }
 
 /**
- * Where an agent carries a deliverable: the reader's spot at the layout's
- * whiteboard, facing it, which is where the ticket board is read and worked.
+ * Where an agent carries a deliverable: the reader's spot at the project
+ * board, facing it, which is where the CEO reads and judges the work.
  *
  * Read from the layout rather than written down here, so moving the board
  * moves where the agents walk to.
  */
-export function ticketBoardStand(layout: OfficeLayout): SpawnSpec | undefined {
-  const board = layout.fixtures.find((spec) => spec.kind === INTERACTION_KIND.whiteboard);
+export function projectBoardStand(layout: OfficeLayout): SpawnSpec | undefined {
+  const board = interactables(layout).find((spec) => spec.id === PROJECT_BOARD_ID);
   return board === undefined ? undefined : { ...board.anchor };
 }
 

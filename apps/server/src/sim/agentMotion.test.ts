@@ -445,7 +445,7 @@ describe("sitting and standing", () => {
 describe("the tick, with everyone walking", () => {
   it("keeps well inside the tick budget with every agent pathing at once", () => {
     const office = createOffice(MAX_AGENT_COUNT);
-    const far = ["wp-ceo-desk", "wp-meeting-whiteboard", "wp-kitchen-coffee", "wp-lobby-centre"];
+    const far = ["wp-ceo-desk", "wp-meeting-north", "wp-kitchen-coffee", "wp-lobby-centre"];
     office.agents.forEach((agent, index) => {
       office.motion.enqueue(agent.id, intent.goto(far[index % far.length] ?? "wp-ceo-desk"));
       office.motion.enqueue(agent.id, intent.goto("wp-floor-back"));

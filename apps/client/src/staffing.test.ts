@@ -10,15 +10,15 @@ import {
   QUIT_REASON,
   STAFF_CHANGE,
   STAFF_REJECTION,
-  type TicketActor,
+  type OfficeActor,
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import { formatCash } from "./companyReadout.js";
 import { readStaff, sameStaff, staffChangeText, staffRejectionText } from "./staffing.js";
 
-const DANA: TicketActor = { id: "dana", kind: OCCUPANT_KIND.human, isCeo: true };
-const MILO: TicketActor = { id: "milo", kind: OCCUPANT_KIND.human, isCeo: false };
+const DANA: OfficeActor = { id: "dana", kind: OCCUPANT_KIND.human, isCeo: true };
+const MILO: OfficeActor = { id: "milo", kind: OCCUPANT_KIND.human, isCeo: false };
 
 describe("readStaff", () => {
   it("lets the CEO manage staff and nobody else", () => {
@@ -73,16 +73,16 @@ describe("staff wording", () => {
 
   it("announces a firing with the morale it cost and the work handed back", () => {
     expect(
-      staffChangeText({ ...ada, change: STAFF_CHANGE.fired, moraleLost: 8, releasedTickets: 1 }),
+      staffChangeText({ ...ada, change: STAFF_CHANGE.fired, moraleLost: 8, releasedIssues: 1 }),
     ).toBe(
       "Ada Byrne (Backend Engineer) was let go. Morale fell 8 points. " +
-        "Their unfinished ticket is back in the backlog.",
+        "The issue they were on is free on the project board.",
     );
   });
 
   it("says why someone quit", () => {
     expect(
-      staffChangeText({ ...ada, change: STAFF_CHANGE.quit, reason: QUIT_REASON, releasedTickets: 0 }),
+      staffChangeText({ ...ada, change: STAFF_CHANGE.quit, reason: QUIT_REASON, releasedIssues: 0 }),
     ).toBe(`Ada Byrne (Backend Engineer) quit: ${QUIT_REASON}.`);
   });
 });

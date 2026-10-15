@@ -3,35 +3,41 @@
  *
  * This is the part of the company simulation that needs a room: it measures
  * real time against the room clock, keeps the seconds the schema does not
- * replicate, and summarises the ticket board and the payroll when a day ends.
+ * replicate, and summarises the agents' work, the project board's open issues
+ * and the payroll when a day ends.
  * What any of that does to the numbers is `@sim/shared`'s `company.ts`, which
  * is also where every tunable lives; nothing here is one.
  *
  * It runs inside the tick, so it is synchronous and cheap by construction. An
- * ordinary step is an addition and a comparison. The board and the staff are
- * read only at midnight, once every in-game day, in one pass each that
- * allocates nothing but the day's report, the payroll's iterator, and a set
- * entry per newly finished ticket.
+ * ordinary step is an addition and a comparison. The work, the board and the
+ * staff are read only at midnight, once every in-game day, in one pass each
+ * that allocates little beyond the day's report and a set entry per finished
+ * issue. The board is the snapshot the feed already holds in memory; reading
+ * it waits on nothing.
  */
 
 import { type MapSchema } from "@colyseus/schema";
 import {
   type Company,
+  type DayReport,
+  type IssueWork,
   type Occupant,
+  type ProjectBoardSnapshot,
   SECONDS_PER_DAY,
-  TICKET_STATUS,
-  type Ticket,
+  WORK_STATUS,
   closeDay,
   isTrading,
   payrollOf,
   simSecondsFor,
 } from "@sim/shared";
 
-/** The parts of the room state a day's close reads and writes. */
+/** The parts of the room a day's close reads and writes. */
 export interface CompanyOffice {
   readonly company: Company;
-  readonly tickets: MapSchema<Ticket>;
+  readonly work: MapSchema<IssueWork>;
   readonly occupants: MapSchema<Occupant>;
+  /** The project board as the feed last published it; `undefined` with no feed or before its first poll. */
+  readonly board: () => ProjectBoardSnapshot | undefined;
 }
 
 /** The room's server-only half of the company clock. */
@@ -41,10 +47,11 @@ export interface CompanyClock {
   /** In-game seconds into the current day, which the schema replicates only to the minute. */
   seconds: number;
   /**
-   * Tickets already counted as completed, so a ticket is credited to the day it
-   * was finished and never again. `done` is terminal, so this only grows.
+   * Issues whose work was already counted as completed, so an issue is
+   * credited to the day it was finished and never again. `done` is terminal,
+   * so this only grows.
    */
-  readonly credited: Set<string>;
+  readonly credited: Set<number>;
 }
 
 export function createCompanyClock(company: Company, now: number): CompanyClock {
@@ -87,17 +94,44 @@ export function stepCompany(office: CompanyOffice, clock: CompanyClock, now: num
   }
 }
 
-/** Counts the day's completions and the open work, in one pass over the board, and the payroll. */
-function reportDay(office: CompanyOffice, credited: Set<string>) {
-  let completedTickets = 0;
-  let openTickets = 0;
-  for (const ticket of office.tickets.values()) {
-    if (ticket.status !== TICKET_STATUS.done) {
-      openTickets += 1;
-    } else if (!credited.has(ticket.id)) {
-      credited.add(ticket.id);
-      completedTickets += 1;
+/**
+ * Counts the day's completions in one pass over the work, the issues still to
+ * finish, and the payroll.
+ *
+ * Still to finish is every open issue on the project board less the ones the
+ * office has finished, since an issue stays open on GitHub after its work is
+ * approved here; and never fewer than the unfinished work in hand, which is
+ * all there is to count before the board's first poll.
+ */
+function reportDay(office: CompanyOffice, credited: Set<number>): DayReport {
+  let completedIssues = 0;
+  let unfinished = 0;
+  const finished = new Set<number>();
+  for (const work of office.work.values()) {
+    if (work.status !== WORK_STATUS.done) {
+      unfinished += 1;
+      continue;
+    }
+    finished.add(work.issueNumber);
+    if (!credited.has(work.issueNumber)) {
+      credited.add(work.issueNumber);
+      completedIssues += 1;
     }
   }
-  return { completedTickets, openTickets, payroll: payrollOf(office.occupants.values()) };
+
+  const board = office.board();
+  let openOnBoard = 0;
+  if (board !== undefined) {
+    openOnBoard = board.counts.open + board.counts.inProgress;
+    for (const issue of [...board.open, ...board.inProgress]) {
+      if (finished.has(issue.number)) {
+        openOnBoard -= 1;
+      }
+    }
+  }
+  return {
+    completedIssues,
+    openIssues: Math.max(unfinished, openOnBoard),
+    payroll: payrollOf(office.occupants.values()),
+  };
 }

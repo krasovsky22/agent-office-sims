@@ -39,7 +39,7 @@ import { type OccupantMotion, applyPose, createMotion, recordPose } from "./move
 const SEAT = "seat-desk-north-3-1";
 const FAR_SEAT = "seat-desk-ceo-1";
 const COFFEE = "coffee-machine";
-const WHITEBOARD = "whiteboard-meeting";
+const BOARD = "project-board";
 
 function specOf(id: string): InteractableSpec {
   const spec = interactableById(OFFICE_LAYOUT, id);
@@ -212,37 +212,37 @@ describe("requestInteract", () => {
     expect(room.holds.holderOf(neighbour)).toBeUndefined();
   });
 
-  it("uses the whiteboard without holding anyone or changing any state", () => {
+  it("uses the project board without holding anyone or changing any state", () => {
     const room = createRoom();
-    const alice = join(room, "alice", WHITEBOARD);
+    const alice = join(room, "alice", BOARD);
     const before = snapshot(alice);
 
-    const outcome = requestInteract(room, "alice", WHITEBOARD, 0);
+    const outcome = requestInteract(room, "alice", BOARD, 0);
 
     expect(outcome.result).toBe("used");
     expect(snapshot(alice)).toEqual(before);
     expect(room.holds.heldBy("alice")).toBeUndefined();
   });
 
-  it("drops repeat whiteboard uses inside the cooldown, per session, with no state change", () => {
+  it("drops repeat project board uses inside the cooldown, per session, with no state change", () => {
     const room = createRoom();
-    const alice = join(room, "alice", WHITEBOARD);
-    const bob = join(room, "bob", WHITEBOARD, 0.5);
-    expect(requestInteract(room, "alice", WHITEBOARD, 0).result).toBe("used");
+    const alice = join(room, "alice", BOARD);
+    const bob = join(room, "bob", BOARD, 0.5);
+    expect(requestInteract(room, "alice", BOARD, 0).result).toBe("used");
     const before = snapshot(alice);
 
     for (let at = 1; at < USE_COOLDOWN_MS; at += 100) {
-      expect(requestInteract(room, "alice", WHITEBOARD, at).result).toBe("cooling");
+      expect(requestInteract(room, "alice", BOARD, at).result).toBe("cooling");
     }
     expect(snapshot(alice)).toEqual(before);
     expect(room.holds.heldBy("alice")).toBeUndefined();
 
-    expect(requestInteract(room, "bob", WHITEBOARD, 10).result).toBe("used");
+    expect(requestInteract(room, "bob", BOARD, 10).result).toBe("used");
     expect(bob.interactableId).toBe("");
-    expect(requestInteract(room, "alice", WHITEBOARD, USE_COOLDOWN_MS).result).toBe("used");
+    expect(requestInteract(room, "alice", BOARD, USE_COOLDOWN_MS).result).toBe("used");
   });
 
-  it("does not put desks or the coffee machine behind the whiteboard cooldown", () => {
+  it("does not put desks or the coffee machine behind the project board cooldown", () => {
     const room = createRoom();
     join(room, "alice", SEAT);
 

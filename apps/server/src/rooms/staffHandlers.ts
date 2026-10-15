@@ -1,7 +1,7 @@
 /**
  * The room's hire and fire handlers, and the announcement of every staff change.
  *
- * Thin for the same reason the ticket handlers are: each one parses the
+ * Thin for the same reason the work handlers are: each one parses the
  * untrusted payload, resolves the sender to an actor, and hands both to
  * `applyStaffCommand` in `@sim/shared`'s `staffing.ts`, which decides whether
  * the sender may and whether there is a desk.
@@ -35,8 +35,8 @@ import {
   isDueToQuit,
   parseStaffFireMessage,
   parseStaffHireMessage,
+  actorOf,
   resolveQuitting,
-  ticketActorOf,
 } from "@sim/shared";
 
 import { recordOfficeEvent } from "../sim/events.js";
@@ -44,8 +44,6 @@ import { recordOfficeEvent } from "../sim/events.js";
 /** What the handlers need from the room, named so a test can supply it. */
 export interface StaffHost {
   readonly state: OfficeState;
-  /** Epoch milliseconds to stamp on a ticket a departure hands back. */
-  readonly now: () => number;
   /**
    * Agents hired since the room opened, the starting staff included. Bumped by
    * every successful hire and never lowered, so a firing frees a desk without
@@ -78,10 +76,9 @@ export function runStaffCommand(
   const result = applyStaffCommand(command, {
     layout: OFFICE_LAYOUT,
     occupants: host.state.occupants,
-    board: host.state.tickets,
+    work: host.state.work,
     company: host.state.company,
-    actor: ticketActorOf(occupant),
-    now: host.now(),
+    actor: actorOf(occupant),
     hiresSoFar: host.hiresSoFar,
   });
   if (!result.ok) {
@@ -115,7 +112,7 @@ export function runStaffCommand(
       change: STAFF_CHANGE.fired,
       ...departed(departure),
       moraleLost,
-      releasedTickets: departure.releasedTicketIds.length,
+      releasedIssues: departure.releasedIssues.length,
     });
   }
   return result;
@@ -133,9 +130,8 @@ export function resolveStaffQuits(room: Announcer, host: StaffHost): void {
   }
   const departure: Departure | undefined = resolveQuitting({
     occupants: host.state.occupants,
-    board: host.state.tickets,
+    work: host.state.work,
     company: host.state.company,
-    now: host.now(),
   });
   if (departure !== undefined) {
     host.departed(departure.agent.id);
@@ -143,7 +139,7 @@ export function resolveStaffQuits(room: Announcer, host: StaffHost): void {
       change: STAFF_CHANGE.quit,
       ...departed(departure),
       reason: QUIT_REASON,
-      releasedTickets: departure.releasedTicketIds.length,
+      releasedIssues: departure.releasedIssues.length,
     });
   }
 }

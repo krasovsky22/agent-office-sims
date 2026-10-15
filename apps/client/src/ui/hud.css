@@ -190,7 +190,7 @@
   color: #9aa0aa;
 }
 
-/* What the local player may do at the ticket board. An executive's read-only
+/* What the local player may do about the project board's work. An executive's read-only
    line gets the CEO gold's muted border, so the reason a control is disabled
    is on screen before anyone has to ask. */
 .hud__role {
@@ -810,19 +810,8 @@
   margin-top: 7px;
 }
 
-/* The ticket board reuses the project board's frame and columns. It differs in
-   having five columns, cards you can open, and a detail pane beside them. */
-.tickets:focus {
-  outline: none;
-}
-
-.tickets__toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.tickets__button {
+/* A panel's buttons: the project board's work controls and the manager's. */
+.panel__button {
   padding: 4px 10px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
@@ -833,75 +822,60 @@
   cursor: pointer;
 }
 
-.tickets__button:hover:not(:disabled) {
+.panel__button:hover:not(:disabled) {
   background: rgba(58, 58, 68, 0.9);
 }
 
-.tickets__button:disabled {
+.panel__button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.tickets__button:focus-visible,
-.tickets__card:focus-visible {
+.panel__button:focus-visible {
   outline: 2px solid rgba(243, 207, 106, 0.6);
   outline-offset: 1px;
 }
 
-.tickets__composer {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 640px;
-}
-
-.tickets__textarea {
-  resize: vertical;
-}
-
-.tickets__body {
+/* The project board's columns, with the detail of one issue's work beside
+   them when one is open. Rows of minmax(0, 1fr) so each column still scrolls
+   by itself rather than growing the panel. */
+.work__body {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 10px;
   min-height: 0;
 }
 
-.tickets__body--detail {
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 340px);
+.work__body--detail {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
 }
 
-.tickets__columns {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+.work__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  min-width: 0;
 }
 
-.tickets__card {
-  display: block;
-  width: 100%;
-  padding: 6px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  overflow-wrap: anywhere;
-  cursor: pointer;
+.work__badge {
+  display: inline;
+  font-weight: 600;
 }
 
-.tickets__card:hover {
-  background: rgba(255, 255, 255, 0.09);
+.work__open {
+  padding: 0 8px;
+  font-size: 11px;
 }
 
-.tickets__card--open {
+.work__open--on {
   border-color: #f3cf6a;
 }
 
-.tickets__cardTitle {
-  display: block;
-}
-
-.tickets__detail {
+.work__detail {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
@@ -914,7 +888,7 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
-.tickets__detailTitle {
+.work__detailTitle {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
@@ -922,7 +896,7 @@
   overflow-wrap: anywhere;
 }
 
-.tickets__facts {
+.work__facts {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 2px 10px;
@@ -930,24 +904,28 @@
   font-size: 12px;
 }
 
-.tickets__facts dt {
+.work__facts dt {
   color: #9aa0aa;
 }
 
-.tickets__facts dd {
+.work__facts dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
 
-/* A body keeps the paragraphs its author wrote; the sanitizer already caps
-   how much blank space that can be. */
-.tickets__text {
+/* A description keeps the paragraphs its author wrote; the sanitizer already
+   caps how much blank space that can be. */
+.work__text {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.tickets__artifact {
+.work__note {
+  color: #f08a7a;
+}
+
+.work__artifact {
   padding: 6px 8px;
   border-left: 2px solid #7fd18b;
   background: rgba(0, 0, 0, 0.2);
@@ -955,13 +933,13 @@
   font-size: 12px;
 }
 
-.tickets__moves {
+.work__moves {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.tickets__assign {
+.work__assign {
   display: flex;
   gap: 6px;
   min-width: 0;

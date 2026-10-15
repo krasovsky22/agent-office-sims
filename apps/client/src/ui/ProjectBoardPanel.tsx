@@ -15,26 +15,43 @@
  * Each issue and pull request links to its page on GitHub in a new tab, so a
  * card read here is one click from the discussion behind it.
  *
- * Every string is a React text node, from a snapshot the server sanitized, so
- * an issue title containing markup is shown rather than interpreted.
+ * The open issues are the work the office's agents do, so an issue an agent has
+ * says who and how far they have got, and opening its detail shows the agent's
+ * note and deliverable. The CEO's controls live in that detail: hand the issue
+ * to an agent, approve the work, send it back. What is offered comes from
+ * `boardAccess.ts`, so the panel never shows a move the server will refuse,
+ * and an executive sees the same detail with no controls. None of it writes to
+ * GitHub.
+ *
+ * Every string is a React text node, from a snapshot or state the server
+ * sanitized, so an issue title containing markup is shown rather than
+ * interpreted.
  */
 
-import type { BoardLabel, ProjectBoardSnapshot } from "@sim/shared";
+import { type BoardLabel, type ProjectBoardSnapshot, WORK_ACTION, type WorkData, type WorkStatus } from "@sim/shared";
 import { useEffect, useRef, useState } from "react";
 
+import type { BoardAccess } from "../boardAccess.js";
 import { isTypingTarget } from "../keys.js";
 import {
+  type BoardAgent,
   type BoardColumnKey,
   type BoardFilter,
   NO_BOARD_FILTER,
   boardColumns,
+  boardIssue,
   boardLabels,
   boardStatus,
   filterBoardColumns,
   formatClockTime,
   formatShortDate,
+  githubItemUrl,
   isFiltering,
   labelColours,
+  workAgentName,
+  workBadge,
+  workMoveLabel,
+  workStatusText,
 } from "../projectBoard.js";
 
 /** The key that puts the cursor in the search field, as `Enter` does for chat. */
@@ -49,8 +66,27 @@ function LabelChip({ label }: { label: BoardLabel }) {
   );
 }
 
-export function ProjectBoardPanel({ snapshot }: { snapshot: ProjectBoardSnapshot | undefined }) {
+/** What the CEO's controls send; the replicated work is the reply. */
+export interface ProjectBoardActions {
+  readonly assign: (issueNumber: number, agentId: string) => void;
+  readonly move: (issueNumber: number, status: WorkStatus) => void;
+  readonly release: (issueNumber: number) => void;
+}
+
+interface ProjectBoardPanelProps {
+  readonly snapshot: ProjectBoardSnapshot | undefined;
+  /** The office's work on the board's issues, in no particular order. */
+  readonly work: readonly WorkData[];
+  /** The agent employees on the floor, who are who an issue can be given to. */
+  readonly agents: readonly BoardAgent[];
+  /** `undefined` before the local player has joined, when nothing is offered. */
+  readonly access: BoardAccess | undefined;
+  readonly actions: ProjectBoardActions;
+}
+
+export function ProjectBoardPanel({ snapshot, work, agents, access, actions }: ProjectBoardPanelProps) {
   const [filter, setFilter] = useState<BoardFilter>(NO_BOARD_FILTER);
+  const [openIssue, setOpenIssue] = useState<number | undefined>(undefined);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // The pointer lock swallows clicks, so a player who walked up while looking
@@ -84,6 +120,13 @@ export function ProjectBoardPanel({ snapshot }: { snapshot: ProjectBoardSnapshot
   const filtering = isFiltering(filter);
   const columns =
     snapshot === undefined ? [] : filterBoardColumns(boardColumns(snapshot, formatShortDate), filter);
+
+  const workOn = (issueNumber: number | null) =>
+    issueNumber === null ? undefined : work.find((entry) => entry.issueNumber === issueNumber);
+  // Looked up on every render, so the detail tracks the live issue and work.
+  const detailIssue = openIssue === undefined ? undefined : boardIssue(snapshot, openIssue);
+  const detailWork = openIssue === undefined ? undefined : workOn(openIssue);
+  const detailOpen = openIssue !== undefined && (detailIssue !== undefined || detailWork !== undefined);
 
   const toggleLabel = (name: string) => {
     const next = new Set(filter.labels);
@@ -160,6 +203,7 @@ export function ProjectBoardPanel({ snapshot }: { snapshot: ProjectBoardSnapshot
           </button>
         ) : null}
       </div>
+      <div className={detailOpen ? "work__body work__body--detail" : "work__body"}>
       <div className="board__columns">
         {columns.map((column) => {
           const unsearched = column.total - (snapshot === undefined ? 0 : carried(snapshot, column.key));
@@ -204,6 +248,14 @@ export function ProjectBoardPanel({ snapshot }: { snapshot: ProjectBoardSnapshot
                       {row.detail === "" ? null : (
                         <span className={`board__detail board__detail--${row.tone}`}>{row.detail}</span>
                       )}
+                      <RowWork
+                        issueNumber={row.issueNumber}
+                        work={workOn(row.issueNumber)}
+                        agents={agents}
+                        assignable={column.key !== "closed" && access?.mayAssign === true}
+                        open={row.issueNumber !== null && row.issueNumber === openIssue}
+                        onToggle={(issueNumber) => setOpenIssue(issueNumber === openIssue ? undefined : issueNumber)}
+                      />
                     </li>
                   ))}
                 </ol>
@@ -217,6 +269,22 @@ export function ProjectBoardPanel({ snapshot }: { snapshot: ProjectBoardSnapshot
           );
         })}
       </div>
+      {!detailOpen || openIssue === undefined ? null : (
+        <IssueDetail
+          key={openIssue}
+          issueNumber={openIssue}
+          title={detailIssue?.title ?? detailWork?.title ?? ""}
+          body={detailIssue?.body ?? ""}
+          url={snapshot === undefined ? null : githubItemUrl(snapshot.repository, "issues", openIssue)}
+          open={detailIssue !== undefined && detailIssue.closedAt === null}
+          work={detailWork}
+          agents={agents}
+          access={access}
+          actions={actions}
+          onClose={() => setOpenIssue(undefined)}
+        />
+      )}
+      </div>
       <p className="board__hint">
         <span className="hud__keys">{SEARCH_KEY}</span> to search · step back from the board to close this.
       </p>
@@ -227,4 +295,198 @@ export function ProjectBoardPanel({ snapshot }: { snapshot: ProjectBoardSnapshot
 /** How many of a column's items the snapshot actually carries, before any filter. */
 function carried(snapshot: ProjectBoardSnapshot, key: BoardColumnKey): number {
   return snapshot[key].length;
+}
+
+/**
+ * What an issue card says about the office's work on it, and the button that
+ * opens its detail: offered when there is work to read, or to the CEO on an
+ * open issue nobody has yet.
+ */
+function RowWork({
+  issueNumber,
+  work,
+  agents,
+  assignable,
+  open,
+  onToggle,
+}: {
+  issueNumber: number | null;
+  work: WorkData | undefined;
+  agents: readonly BoardAgent[];
+  assignable: boolean;
+  open: boolean;
+  onToggle: (issueNumber: number) => void;
+}) {
+  if (issueNumber === null || (work === undefined && !assignable)) {
+    return null;
+  }
+  const badge = work === undefined ? undefined : workBadge(work, agents);
+  return (
+    <span className="work__row">
+      {badge === undefined ? null : (
+        <span className={`board__detail board__detail--${badge.tone} work__badge`}>{badge.text}</span>
+      )}
+      <button
+        className={open ? "panel__button work__open work__open--on" : "panel__button work__open"}
+        type="button"
+        aria-pressed={open}
+        // Blurred like the label toggles, so the next key goes to the game.
+        onClick={(event) => {
+          event.currentTarget.blur();
+          onToggle(issueNumber);
+        }}
+      >
+        {work === undefined ? "Assign…" : "Work"}
+      </button>
+    </span>
+  );
+}
+
+/**
+ * One issue up close: its description, what the office is doing about it, and
+ * the CEO's controls. Every control comes from `boardAccess.ts`.
+ */
+function IssueDetail({
+  issueNumber,
+  title,
+  body,
+  url,
+  open,
+  work,
+  agents,
+  access,
+  actions,
+  onClose,
+}: {
+  issueNumber: number;
+  title: string;
+  body: string;
+  url: string | null;
+  open: boolean;
+  work: WorkData | undefined;
+  agents: readonly BoardAgent[];
+  access: BoardAccess | undefined;
+  actions: ProjectBoardActions;
+  onClose: () => void;
+}) {
+  const moves = work === undefined ? [] : (access?.movesFor(work, agents) ?? []);
+  return (
+    <aside className="work__detail" aria-label="Issue detail">
+      <header className="board__header">
+        <h3 className="work__detailTitle">
+          {url === null ? (
+            `#${issueNumber} ${title}`
+          ) : (
+            <a className="board__link" href={url} target="_blank" rel="noopener noreferrer">
+              <span className="board__label">#{issueNumber}</span> {title}
+            </a>
+          )}
+        </h3>
+        <button
+          className="panel__button"
+          type="button"
+          onClick={(event) => {
+            event.currentTarget.blur();
+            onClose();
+          }}
+        >
+          Back
+        </button>
+      </header>
+      <dl className="work__facts">
+        <dt>Work</dt>
+        <dd>{work === undefined ? "Nobody in the office has it" : workStatusText(work, agents)}</dd>
+        {work === undefined ? null : (
+          <>
+            <dt>Agent</dt>
+            <dd>{workAgentName(work, agents)}</dd>
+          </>
+        )}
+      </dl>
+      {work === undefined || work.note === "" ? null : <p className="work__text work__note">{work.note}</p>}
+      {body === "" ? <p className="board__empty">No description on GitHub.</p> : <p className="work__text">{body}</p>}
+      {work === undefined || work.outputArtifact === "" ? null : (
+        <>
+          <h4 className="board__columnTitle">Deliverable</h4>
+          <p className="work__text work__artifact">{work.outputArtifact}</p>
+        </>
+      )}
+      {work === undefined && open && access?.mayAssign === true ? (
+        <AssignPicker agents={agents} onAssign={(agentId) => actions.assign(issueNumber, agentId)} />
+      ) : null}
+      {moves.length === 0 || work === undefined ? null : (
+        <div className="work__moves">
+          {moves.map((move) => (
+            <button
+              key={move.action === WORK_ACTION.release ? "release" : move.to}
+              className="panel__button"
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.blur();
+                if (move.action === WORK_ACTION.release) {
+                  actions.release(issueNumber);
+                } else {
+                  actions.move(issueNumber, move.to);
+                }
+              }}
+            >
+              {workMoveLabel(move, work)}
+            </button>
+          ))}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+/**
+ * Who to give an issue to.
+ *
+ * Offers only the agent employees in the office, since the server refuses
+ * anyone else, and re-checks the choice against them as they stand when sent:
+ * an agent picked and then gone is no longer one the server will take.
+ */
+function AssignPicker({ agents, onAssign }: { agents: readonly BoardAgent[]; onAssign: (agentId: string) => void }) {
+  const [choice, setChoice] = useState("");
+  const present = agents.some((agent) => agent.id === choice);
+  if (agents.length === 0) {
+    return <p className="board__empty">There are no agents to give it to; hire one first.</p>;
+  }
+  return (
+    <div className="work__assign">
+      <select
+        className="hud__input"
+        name="work-assignee"
+        aria-label="Agent"
+        value={present ? choice : ""}
+        onChange={(event) => setChoice(event.target.value)}
+        onKeyDown={(event) => {
+          // Hands the keyboard back to walking, as the search field does.
+          if (event.key === "Escape") {
+            event.currentTarget.blur();
+          }
+        }}
+      >
+        <option value="" disabled>
+          Give it to…
+        </option>
+        {agents.map((agent) => (
+          <option key={agent.id} value={agent.id}>
+            {agent.name}
+          </option>
+        ))}
+      </select>
+      <button
+        className="panel__button"
+        type="button"
+        disabled={!present}
+        onClick={(event) => {
+          event.currentTarget.blur();
+          onAssign(choice);
+        }}
+      >
+        Assign
+      </button>
+    </div>
+  );
 }

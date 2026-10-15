@@ -26,7 +26,7 @@ import {
   OCCUPANT_KIND,
   type OccupantKind,
   type ProjectBoardSnapshot,
-  type TicketData,
+  type WorkData,
 } from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
@@ -45,8 +45,7 @@ import { isTypingTarget } from "../keys.js";
 import type { ConnectionStatus } from "../net/room.js";
 import { CompanyEndState, CompanyPanel } from "./CompanyPanel.js";
 import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
-import { ProjectBoardPanel } from "./ProjectBoardPanel.js";
-import { type TicketBoardActions, TicketBoardPanel } from "./TicketBoardPanel.js";
+import { type ProjectBoardActions, ProjectBoardPanel } from "./ProjectBoardPanel.js";
 import { StaffPanel } from "./StaffPanel.js";
 
 import "./hud.css";
@@ -91,9 +90,12 @@ export function groupRoster(roster: readonly RosterEntry[]): {
   };
 }
 
-/** Everyone a ticket can be given to: the manager hands work out and takes none. */
-export function assignableRoster(roster: readonly RosterEntry[]): readonly RosterEntry[] {
-  return roster.filter((entry) => entry.kind !== OCCUPANT_KIND.manager);
+/**
+ * Everyone an issue can be given to: the agent employees. A player has no desk
+ * to work one at, and the manager hands work out and takes none.
+ */
+export function assignableAgents(roster: readonly RosterEntry[]): readonly RosterEntry[] {
+  return roster.filter((entry) => entry.kind === OCCUPANT_KIND.agent);
 }
 
 /** One line in the chat scrollback. */
@@ -159,12 +161,10 @@ export interface HudSnapshot {
   readonly boardCloseUp: boolean;
   /** The company's numbers as shown; absent until the first patch carries them. */
   readonly company?: CompanyReadout;
-  /** What the local player may do at the ticket board; absent until they are in the office. */
+  /** What the local player may do about the project board's work; absent until they are in the office. */
   readonly boardAccess?: BoardAccess | undefined;
-  /** The ticket board as last replicated, in no particular order. */
-  readonly tickets: readonly TicketData[];
-  /** Whether the local player opened the ticket board with `E` at the whiteboard. */
-  readonly ticketBoardOpen: boolean;
+  /** The agents' work on the project board's issues as last replicated, in no particular order. */
+  readonly work: readonly WorkData[];
   /** The payroll, the desks, and whether the local player may hire; absent until they are in. */
   readonly staff?: StaffReadout | undefined;
   /**
@@ -186,7 +186,7 @@ export interface HudActions {
   readonly sendEmote: (emote: Emote) => void;
   /** Called with the raw input text; the server sanitizes it. */
   readonly sendChat: (text: string) => void;
-  readonly ticketBoard: TicketBoardActions;
+  readonly projectBoard: ProjectBoardActions;
   /** Asks the server to hire for a candidate job; it decides. */
   readonly hire: (candidateId: string) => void;
   /** Asks the server to let an agent go; it decides. */
@@ -207,8 +207,7 @@ const INITIAL: HudSnapshot = {
   chatLog: [],
   assets: "loading",
   boardCloseUp: false,
-  tickets: [],
-  ticketBoardOpen: false,
+  work: [],
   managerOpen: false,
   managerLog: [],
   managerUnread: 0,
@@ -594,8 +593,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     boardCloseUp,
     company,
     boardAccess,
-    tickets,
-    ticketBoardOpen,
+    work,
     staff,
     moraleHit,
     managerOpen,
@@ -639,18 +637,16 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       </div>
 
       {boardCloseUp ? (
-        <ProjectBoardPanel snapshot={projectBoard} />
+        <ProjectBoardPanel
+          snapshot={projectBoard}
+          work={work}
+          agents={assignableAgents(roster)}
+          access={boardAccess}
+          actions={actions.projectBoard}
+        />
       ) : null}
 
       {company?.bankrupt === true ? <CompanyEndState readout={company} /> : null}
-      {ticketBoardOpen ? (
-        <TicketBoardPanel
-          tickets={tickets}
-          people={assignableRoster(roster)}
-          access={boardAccess}
-          actions={actions.ticketBoard}
-        />
-      ) : null}
       {managerOpen ? (
         <ManagerPanel
           entries={managerLog}

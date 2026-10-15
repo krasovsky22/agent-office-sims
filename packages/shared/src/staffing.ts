@@ -3,16 +3,16 @@
  *
  * `agents.ts` says who the office could hire and where they would sit; this
  * module says when the CEO may, what firing costs in morale, and what an agent
- * leaving does to the board. It is the staffing counterpart of `tickets.ts`, in the same
- * shape: one authority gate the client also asks, and one applier that
+ * leaving does to their work. It is the staffing counterpart of `work.ts`, in
+ * the same shape: one authority gate the client also asks, and one applier that
  * validates a parsed command against the live room and mutates it, or rejects
  * it and changes nothing.
  *
  * An agent leaving — fired, or quitting — goes through {@link removeAgent}
- * either way, so the two departures treat the board identically: every ticket
- * the agent was still working is returned to the backlog with a note saying
- * why, so the work is waiting for the CEO to hand on rather than pointing at
- * somebody who is no longer there.
+ * either way, so the two departures treat the work identically: every issue
+ * the agent was still working is released, so it is free on the project board
+ * for the CEO to hand on rather than pointing at somebody who is no longer
+ * there.
  *
  * Everything is synchronous and allocation-light: the room calls the applier
  * from a message handler and {@link resolveQuitting} from the simulation tick,
@@ -40,12 +40,12 @@ import type { StaffFireMessage, StaffHireMessage } from "./messages.js";
 import {
   type AgentEmployee,
   type Company,
+  type IssueWork,
   type Occupant,
-  TICKET_STATUS,
-  type Ticket,
+  WORK_STATUS,
   isAgentEmployee,
 } from "./state.js";
-import { type TicketActor, noteOnTicket } from "./tickets.js";
+import type { OfficeActor } from "./work.js";
 
 /** What a staffing command wants to do. */
 export const STAFF_ACTION = {
@@ -58,12 +58,12 @@ export type StaffAction = (typeof STAFF_ACTION)[keyof typeof STAFF_ACTION];
 /**
  * Whether an actor may hire or fire. **The one staffing authority gate.**
  *
- * Both are the CEO's, for the same reason every board write but a comment is:
+ * Both are the CEO's, for the same reason handing out and judging the work is:
  * spending the company's cash and deciding who works there are the decisions
  * the role exists to make. The client asks this too, to decide whether to
  * offer the controls at all.
  */
-export function mayManageStaff(actor: TicketActor): boolean {
+export function mayManageStaff(actor: OfficeActor): boolean {
   return actor.isCeo;
 }
 
@@ -94,11 +94,9 @@ export type StaffCommand =
 export interface StaffCommandContext {
   readonly layout: OfficeLayout;
   readonly occupants: MapSchema<Occupant>;
-  readonly board: MapSchema<Ticket>;
+  readonly work: MapSchema<IssueWork>;
   readonly company: Company;
-  readonly actor: TicketActor;
-  /** Epoch milliseconds to stamp on any ticket the command changes. */
-  readonly now: number;
+  readonly actor: OfficeActor;
   /**
    * How many agents the room has hired so far, the ones it opened with
    * included. A hire is numbered one past it; see {@link planHire}.
@@ -109,8 +107,8 @@ export interface StaffCommandContext {
 /** What an agent leaving did, for the announcement. */
 export interface Departure {
   readonly agent: AgentEmployee;
-  /** Ids of the tickets returned to the backlog, in board order. */
-  readonly releasedTicketIds: readonly string[];
+  /** Numbers of the issues released, in the order the work was kept. */
+  readonly releasedIssues: readonly number[];
 }
 
 export type StaffCommandResult =
@@ -192,7 +190,7 @@ function fire(payload: StaffFireMessage, context: StaffCommandContext): StaffCom
   if (agent === undefined || !isAgentEmployee(agent)) {
     return reject(STAFF_REJECTION.unknownAgent);
   }
-  const departure = removeAgent(agent, context, `${agent.name} was let go`);
+  const departure = removeAgent(agent, context);
   const moraleLost = applyFiringMorale(context.company);
   return { ok: true, action: STAFF_ACTION.fire, departure, moraleLost };
 }
@@ -200,43 +198,38 @@ function fire(payload: StaffFireMessage, context: StaffCommandContext): StaffCom
 /**
  * Takes an agent off the floor and hands their unfinished work back.
  *
- * Every ticket the agent is still working — `assigned` or `in_progress` —
- * goes to `backlog` with no assignee and gets a system comment saying why, so
- * it is never left waiting on someone who has gone, and the reason is on the
- * card for whoever picks it up. This deliberately steps outside the transition
- * table, which only walks `in_progress` back a column at a time: that rule is
- * for a player's command, and the person whose work it was is no longer there
- * to walk it.
+ * Every issue the agent is still working — `assigned` or `in_progress` — is
+ * released, so it is never left waiting on someone who has gone and is free on
+ * the project board for whoever the CEO hands it to next. This deliberately
+ * steps outside the transition table, which only walks `in_progress` back a
+ * step at a time: that rule is for a player's command, and the person whose
+ * work it was is no longer there to walk it.
  *
- * A `review` or `done` ticket keeps the agent as its assignee, which is the
- * record of who did the work: a review is already handed in with its
- * deliverable, so the CEO can still approve it after the agent has left, or
- * send it back to the backlog; see `ticketTransitions`.
+ * `review` and `done` work keeps the agent as its assignee, which is the
+ * record of who did it: a review is already handed in with its deliverable, so
+ * the CEO can still approve it after the agent has left, or release it; see
+ * `workTransitions`.
  */
 export function removeAgent(
   agent: AgentEmployee,
-  context: Pick<StaffCommandContext, "occupants" | "board" | "now">,
-  reason: string,
+  context: Pick<StaffCommandContext, "occupants" | "work">,
 ): Departure {
-  const releasedTicketIds: string[] = [];
-  for (const ticket of context.board.values()) {
+  const releasedIssues: number[] = [];
+  for (const [key, work] of context.work) {
     if (
-      ticket.assigneeId !== agent.id ||
-      (ticket.status !== TICKET_STATUS.assigned && ticket.status !== TICKET_STATUS.in_progress)
+      work.assigneeId !== agent.id ||
+      (work.status !== WORK_STATUS.assigned && work.status !== WORK_STATUS.in_progress)
     ) {
       continue;
     }
-    ticket.status = TICKET_STATUS.backlog;
-    ticket.assigneeId = "";
-    ticket.updatedAt = context.now;
-    noteOnTicket(ticket, `Returned to the backlog: ${reason}.`, context.now);
-    releasedTicketIds.push(ticket.id);
+    context.work.delete(key);
+    releasedIssues.push(work.issueNumber);
   }
   context.occupants.delete(agent.id);
-  return { agent, releasedTicketIds };
+  return { agent, releasedIssues };
 }
 
-/** The reason an agent who quit gives, for the ticket note and the announcement. */
+/** The reason an agent who quit gives, for the announcement. */
 export const QUIT_REASON = `morale stayed under ${QUIT_MORALE_THRESHOLD}% for ${QUIT_AFTER_LOW_MORALE_DAYS} days`;
 
 /**
@@ -250,7 +243,7 @@ export const QUIT_REASON = `morale stayed under ${QUIT_MORALE_THRESHOLD}% for ${
  * @returns the departure, or `undefined` if nobody quit.
  */
 export function resolveQuitting(
-  context: Pick<StaffCommandContext, "occupants" | "board" | "company" | "now">,
+  context: Pick<StaffCommandContext, "occupants" | "work" | "company">,
 ): Departure | undefined {
   if (!isDueToQuit(context.company)) {
     return undefined;
@@ -262,7 +255,5 @@ export function resolveQuitting(
     }
   }
   context.company.lowMoraleDays = 0;
-  return leaving === undefined
-    ? undefined
-    : removeAgent(leaving, context, `${leaving.name} quit because ${QUIT_REASON}`);
+  return leaving === undefined ? undefined : removeAgent(leaving, context);
 }

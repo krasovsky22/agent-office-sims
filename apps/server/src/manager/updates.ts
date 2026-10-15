@@ -13,21 +13,24 @@
  * and it costs nothing to say.
  */
 
-import { AGENT_ACTIVITY, type AgentActivity, TICKET_STATUS, type TicketStatus } from "@sim/shared";
+import { AGENT_ACTIVITY, type AgentActivity, WORK_STATUS, type WorkStatus } from "@sim/shared";
 
 import { LIVE_ASSIGNMENT_STATUS, type LiveAssignment, type LiveAssignmentStatus } from "./liveAssignments.js";
 import type { LinkView, OfficeView } from "./officeView.js";
 
 /** What the manager remembers between looks. */
 export interface Observation {
-  readonly agents: ReadonlyMap<string, { readonly name: string; readonly activity: AgentActivity; readonly ticketId: string | undefined }>;
-  readonly tickets: ReadonlyMap<
+  readonly agents: ReadonlyMap<
     string,
+    { readonly name: string; readonly activity: AgentActivity; readonly issueNumber: number | undefined }
+  >;
+  readonly work: ReadonlyMap<
+    number,
     {
       readonly label: string;
-      readonly status: TicketStatus;
+      readonly status: WorkStatus;
       readonly assignee: string | undefined;
-      readonly latestNote: string | undefined;
+      readonly note: string | undefined;
     }
   >;
   readonly liveAgents: ReadonlyMap<
@@ -49,16 +52,16 @@ export function observe(view: OfficeView, assignments: readonly LiveAssignment[]
   const liveNames = new Map(view.liveAgents.map((agent) => [agent.id, agent.name]));
   return {
     agents: new Map(
-      view.agents.map((agent) => [agent.id, { name: agent.name, activity: agent.activity, ticketId: agent.ticketId }]),
+      view.agents.map((agent) => [agent.id, { name: agent.name, activity: agent.activity, issueNumber: agent.issueNumber }]),
     ),
-    tickets: new Map(
-      view.tickets.map((ticket) => [
-        ticket.id,
+    work: new Map(
+      view.work.map((work) => [
+        work.issueNumber,
         {
-          label: `${ticket.id} “${ticket.title}”`,
-          status: ticket.status,
-          assignee: ticket.assignee,
-          latestNote: ticket.latestNote,
+          label: `#${work.issueNumber} “${work.title}”`,
+          status: work.status,
+          assignee: work.assignee,
+          note: work.note,
         },
       ]),
     ),
@@ -82,21 +85,21 @@ export function observe(view: OfficeView, assignments: readonly LiveAssignment[]
 export function describeChanges(before: Observation, after: Observation): string[] {
   const lines: string[] = [];
 
-  for (const [id, ticket] of after.tickets) {
-    const previous = before.tickets.get(id);
-    if (previous?.status === TICKET_STATUS.in_progress && ticket.status === TICKET_STATUS.review) {
-      lines.push(`${ticket.assignee ?? "Its assignee"} handed in ${ticket.label} for your review.`);
+  for (const [number, work] of after.work) {
+    const previous = before.work.get(number);
+    if (previous?.status === WORK_STATUS.in_progress && work.status === WORK_STATUS.review) {
+      lines.push(`${work.assignee ?? "Its assignee"} handed in ${work.label} for your review.`);
     }
   }
 
   for (const [id, agent] of after.agents) {
     const previous = before.agents.get(id);
     if (previous !== undefined && previous.activity !== AGENT_ACTIVITY.blocked && agent.activity === AGENT_ACTIVITY.blocked) {
-      const ticket = agent.ticketId === undefined ? undefined : after.tickets.get(agent.ticketId);
+      const work = agent.issueNumber === undefined ? undefined : after.work.get(agent.issueNumber);
       lines.push(
-        ticket === undefined
+        work === undefined
           ? `${agent.name} is stuck.`
-          : `${agent.name} is stuck on ${ticket.label} — ${ticket.latestNote ?? "no reason given"}`,
+          : `${agent.name} is stuck on ${work.label} — ${work.note ?? "no reason given"}`,
       );
     }
   }

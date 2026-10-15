@@ -66,7 +66,7 @@ function addWall(parent: THREE.Object3D, spec: WallSpec, material: THREE.Materia
  * Adds an interactable's box, scaled and positioned from its layout volume.
  *
  * Placed by a 3D box rather than a footprint and a height because not every
- * fixture stands on the floor — the whiteboard hangs at chest height. Only
+ * fixture stands on the floor — one hung on a wall sits at chest height. Only
  * fixtures the asset kit has no model for carry a volume, so this stays up
  * whether or not the kit loads.
  */

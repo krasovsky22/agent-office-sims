@@ -1,7 +1,7 @@
 /**
  * The model provider without the network: the SDK call is replaced, so each
  * test chooses the reply or the error. The claims are that the request carries
- * the agent's role and the ticket, that a reply becomes an artifact, and that
+ * the agent's role and the issue, that a reply becomes an artifact, and that
  * every way the API can fail reaches the caller as a structured failure that
  * says whether it was worth retrying.
  */
@@ -9,12 +9,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it } from "vitest";
 
-import { WORK_FAILURE, type WorkContext, WorkProviderError, type WorkTicket, createWorkExecutor } from "./executor.js";
+import { WORK_FAILURE, type WorkContext, WorkProviderError, type WorkBrief, createWorkExecutor } from "./executor.js";
 import { type SendMessage, classifyError, createModelProvider, readReply } from "./modelProvider.js";
 
 type ModelMessage = Anthropic.Message;
 
-const TICKET: WorkTicket = { id: "t-1", title: "Write the launch email", body: "We ship on Friday." };
+const BRIEF: WorkBrief = { number: 12, title: "Write the launch email", body: "We ship on Friday." };
 const CONTEXT: WorkContext = { agentName: "Grace", jobTitle: "Marketing Lead" };
 const SIGNAL = new AbortController().signal;
 
@@ -40,7 +40,7 @@ function apiError(status: number, headers: Record<string, string> = {}): Error {
 }
 
 describe("the request", () => {
-  it("puts the agent's role in the system prompt and the ticket in the user turn, with the SDK's retries left to the executor", async () => {
+  it("puts the agent's role in the system prompt and the issue in the user turn, with the SDK's retries left to the executor", async () => {
     const sent: Parameters<SendMessage>[0][] = [];
     const send: SendMessage = async (params) => {
       sent.push(params);
@@ -48,7 +48,7 @@ describe("the request", () => {
     };
     const provider = createModelProvider({ apiKey: "test-key", model: "claude-opus-5-5", send });
 
-    const output = await provider(TICKET, CONTEXT, SIGNAL);
+    const output = await provider(BRIEF, CONTEXT, SIGNAL);
 
     expect(output).toEqual({ summary: "Launch email", artifact: "Subject: We ship Friday", tokensUsed: 1000 });
     const params = sent[0];
@@ -110,7 +110,7 @@ describe("through the executor", () => {
       provider: createModelProvider({ apiKey: "bad-key", model: "claude-opus-5-5", send }),
     });
 
-    const result = await executor.work(TICKET, CONTEXT);
+    const result = await executor.work(BRIEF, CONTEXT);
 
     expect(result).toMatchObject({ ok: false, reason: WORK_FAILURE.providerError, attempts: 1 });
     expect(result.ok === false && result.message).toMatch(/API key/);
@@ -131,7 +131,7 @@ describe("through the executor", () => {
       maxAttempts: 1,
     });
 
-    expect(await executor.work(TICKET, CONTEXT)).toMatchObject({ ok: false, reason: WORK_FAILURE.timeout });
+    expect(await executor.work(BRIEF, CONTEXT)).toMatchObject({ ok: false, reason: WORK_FAILURE.timeout });
     expect(signals[0]?.aborted).toBe(true);
   });
 });

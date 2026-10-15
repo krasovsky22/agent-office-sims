@@ -1,7 +1,7 @@
 /**
  * Hiring, firing and quitting, against the real schema and the shipped floor
  * plan: who may do it, what firing costs in morale, where a hire is put, what a
- * departure does to the board, and that a refusal changes nothing.
+ * departure does to their work, and that a refusal changes nothing.
  *
  * Written against the tunables rather than literal numbers, like the company
  * tests, so a rebalance does not have to be repeated here.
@@ -42,13 +42,15 @@ import {
 import {
   type AgentEmployee,
   HumanPlayer,
+  IssueWork,
   OfficeState,
   PLAYER_ROLE,
-  SYSTEM_AUTHOR_ID,
-  TICKET_STATUS,
+  WORK_STATUS,
+  type WorkStatus,
   isAgentEmployee,
+  workKey,
 } from "./state.js";
-import { describeBoardProblems, seedBoard, ticketActorOf } from "./tickets.js";
+import { actorOf, describeWorkProblems } from "./work.js";
 
 const CEO_ID = "session-ceo";
 const EXEC_ID = "session-exec";
@@ -59,11 +61,9 @@ interface Office {
   hiresSoFar: number;
 }
 
-/** A room as it opens: the starter board, the default agents, a CEO and an executive. */
+/** A room as it opens: the default agents, a CEO and an executive. */
 function openOffice(agentCount = DEFAULT_AGENT_COUNT): Office {
   const state = new OfficeState();
-  let next = 1;
-  seedBoard(state.tickets, T0, () => `ticket-${next++}`);
   for (const hire of planAgentHires(OFFICE_LAYOUT, agentCount)) {
     state.occupants.set(hire.id, employAgent(hire));
   }
@@ -80,6 +80,19 @@ function openOffice(agentCount = DEFAULT_AGENT_COUNT): Office {
   return { state, hiresSoFar: agentCount };
 }
 
+/** Puts an agent on an issue, at whatever stage the test wants. */
+function giveWork(office: Office, issueNumber: number, assigneeId: string, status: WorkStatus): IssueWork {
+  const work = new IssueWork();
+  work.issueNumber = issueNumber;
+  work.title = `Issue ${issueNumber}`;
+  work.status = status;
+  work.assigneeId = assigneeId;
+  work.assignedAt = T0;
+  work.updatedAt = T0;
+  office.state.work.set(workKey(issueNumber), work);
+  return work;
+}
+
 function run(office: Office, command: StaffCommand, actorId = CEO_ID): StaffCommandResult {
   const actor = office.state.occupants.get(actorId);
   if (actor === undefined) {
@@ -88,10 +101,9 @@ function run(office: Office, command: StaffCommand, actorId = CEO_ID): StaffComm
   const result = applyStaffCommand(command, {
     layout: OFFICE_LAYOUT,
     occupants: office.state.occupants,
-    board: office.state.tickets,
+    work: office.state.work,
     company: office.state.company,
-    actor: ticketActorOf(actor),
-    now: T0 + 1,
+    actor: actorOf(actor),
     hiresSoFar: office.hiresSoFar,
   });
   if (result.ok && result.action === STAFF_ACTION.hire) {
@@ -126,8 +138,8 @@ describe("who may manage staff", () => {
     const office = openOffice();
     const ceo = office.state.occupants.get(CEO_ID);
     const exec = office.state.occupants.get(EXEC_ID);
-    expect(ceo !== undefined && mayManageStaff(ticketActorOf(ceo))).toBe(true);
-    expect(exec !== undefined && mayManageStaff(ticketActorOf(exec))).toBe(false);
+    expect(ceo !== undefined && mayManageStaff(actorOf(ceo))).toBe(true);
+    expect(exec !== undefined && mayManageStaff(actorOf(exec))).toBe(false);
   });
 
   it("refuses an executive's hire and fire and changes nothing", () => {
@@ -267,51 +279,37 @@ describe("firing", () => {
     expect(office.state.company.morale).toBe(STARTING_MORALE - MORALE_LOSS_PER_FIRING);
   });
 
-  it("returns the agent's in-flight work to the backlog with a note, and keeps handed-in work", () => {
+  it("releases the agent's in-flight issues, and keeps handed-in work", () => {
     const office = openOffice();
-    const statuses = [
-      TICKET_STATUS.assigned,
-      TICKET_STATUS.in_progress,
-      TICKET_STATUS.review,
-      TICKET_STATUS.done,
-    ];
-    const tickets = [...office.state.tickets.values()];
-    if (tickets.length < statuses.length) {
-      throw new Error("the starter board is too small");
-    }
-    statuses.forEach((status, index) => {
-      const ticket = tickets[index];
-      if (ticket !== undefined) {
-        ticket.assigneeId = "agent-1";
-        ticket.status = status;
-      }
-    });
-    const [, , inReview, finished] = tickets;
-    if (inReview === undefined || finished === undefined) {
+    const [assigned, started, inReview, finished] = [
+      WORK_STATUS.assigned,
+      WORK_STATUS.in_progress,
+      WORK_STATUS.review,
+      WORK_STATUS.done,
+    ].map((status, index) => giveWork(office, 10 + index, "agent-1", status));
+    if (assigned === undefined || started === undefined || inReview === undefined || finished === undefined) {
       return;
     }
     inReview.outputArtifact = "the finished work";
+    giveWork(office, 20, "agent-2", WORK_STATUS.in_progress);
 
     const result = run(office, fire("agent-1"));
     expect(result.ok && result.action === STAFF_ACTION.fire).toBe(true);
     if (!result.ok || result.action !== STAFF_ACTION.fire) {
       return;
     }
-    expect(result.departure.releasedTicketIds).toEqual(tickets.slice(0, 2).map((t) => t.id));
-    for (const ticket of tickets.slice(0, 2)) {
-      expect(ticket.status).toBe(TICKET_STATUS.backlog);
-      expect(ticket.assigneeId).toBe("");
-      const note = ticket.comments.at(-1);
-      expect(note?.authorId).toBe(SYSTEM_AUTHOR_ID);
-      expect(note?.text).toContain("Ada Byrne was let go");
-    }
+    expect(result.departure.releasedIssues).toEqual([10, 11]);
+    expect(office.state.work.has(workKey(10))).toBe(false);
+    expect(office.state.work.has(workKey(11))).toBe(false);
+    // Someone else's work is theirs still.
+    expect(office.state.work.get(workKey(20))?.assigneeId).toBe("agent-2");
     // Handed-in and finished work keep the record of who did it.
-    expect(inReview.status).toBe(TICKET_STATUS.review);
+    expect(inReview.status).toBe(WORK_STATUS.review);
     expect(inReview.assigneeId).toBe("agent-1");
     expect(inReview.outputArtifact).toBe("the finished work");
     expect(finished.assigneeId).toBe("agent-1");
-    expect(finished.status).toBe(TICKET_STATUS.done);
-    expect(describeBoardProblems(office.state.tickets)).toEqual([]);
+    expect(finished.status).toBe(WORK_STATUS.done);
+    expect(describeWorkProblems(office.state.work)).toEqual([]);
   });
 
   it("refuses to fire a player or someone not in the office", () => {
@@ -327,9 +325,8 @@ describe("quitting", () => {
   function context(office: Office) {
     return {
       occupants: office.state.occupants,
-      board: office.state.tickets,
+      work: office.state.work,
       company: office.state.company,
-      now: T0 + 1,
     };
   }
 
@@ -342,32 +339,22 @@ describe("quitting", () => {
 
   it("loses the newest hire, hands their work back, and starts the streak again", () => {
     const office = openOffice();
-    const ticket = office.state.tickets.get("ticket-1");
-    if (ticket === undefined) {
-      throw new Error("the starter board is empty");
-    }
     const newest = `agent-${DEFAULT_AGENT_COUNT}`;
-    ticket.assigneeId = newest;
-    ticket.status = TICKET_STATUS.in_progress;
-    const inReview = office.state.tickets.get("ticket-2");
-    if (inReview === undefined) {
-      throw new Error("the starter board is too small");
-    }
-    inReview.assigneeId = newest;
-    inReview.status = TICKET_STATUS.review;
+    giveWork(office, 1, newest, WORK_STATUS.in_progress);
+    const inReview = giveWork(office, 2, newest, WORK_STATUS.review);
     office.state.company.lowMoraleDays = QUIT_AFTER_LOW_MORALE_DAYS;
 
     const departure = resolveQuitting(context(office));
     expect(departure?.agent.id).toBe(newest);
-    expect(departure?.releasedTicketIds).toEqual(["ticket-1"]);
+    expect(departure?.releasedIssues).toEqual([1]);
     expect(office.state.occupants.has(newest)).toBe(false);
-    expect(ticket.status).toBe(TICKET_STATUS.backlog);
-    expect(ticket.comments.at(-1)?.text).toContain(QUIT_REASON);
-    expect(inReview.status).toBe(TICKET_STATUS.review);
+    expect(office.state.work.has(workKey(1))).toBe(false);
+    expect(inReview.status).toBe(WORK_STATUS.review);
     expect(inReview.assigneeId).toBe(newest);
     expect(office.state.company.lowMoraleDays).toBe(0);
     // Quitting is its own cost; it does not also take the firing's morale.
     expect(office.state.company.morale).toBe(STARTING_MORALE);
+    expect(QUIT_REASON).toContain(String(QUIT_AFTER_LOW_MORALE_DAYS));
   });
 
   it("resets the streak even when there is nobody left to quit", () => {
