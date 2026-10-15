@@ -12,6 +12,9 @@
  * unfiltered. It narrows only this tab's view: the wall board everyone sees
  * stays whole.
  *
+ * Each issue and pull request links to its page on GitHub in a new tab, so a
+ * card read here is one click from the discussion behind it.
+ *
  * Every string is a React text node, from a snapshot the server sanitized, so
  * an issue title containing markup is shown rather than interpreted.
  */
@@ -49,6 +52,15 @@ function LabelChip({ label }: { label: BoardLabel }) {
 export function ProjectBoardPanel({ snapshot }: { snapshot: ProjectBoardSnapshot | undefined }) {
   const [filter, setFilter] = useState<BoardFilter>(NO_BOARD_FILTER);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // The pointer lock swallows clicks, so a player who walked up while looking
+  // around could not reach the links or label toggles. Closing does not take the
+  // lock back: a click on the canvas does that, as it always has.
+  useEffect(() => {
+    if (document.pointerLockElement !== null) {
+      document.exitPointerLock();
+    }
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -165,7 +177,23 @@ export function ProjectBoardPanel({ snapshot }: { snapshot: ProjectBoardSnapshot
                 <ol className="board__rows">
                   {column.rows.map((row) => (
                     <li className="board__row" key={row.key}>
-                      <span className="board__label">{row.label}</span> {row.title}
+                      {row.url === null ? (
+                        <>
+                          <span className="board__label">{row.label}</span> {row.title}
+                        </>
+                      ) : (
+                        <a
+                          className="board__link"
+                          href={row.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          // Blurred like the label toggles, so a later Enter goes
+                          // to the game instead of opening the tab again.
+                          onClick={(event) => event.currentTarget.blur()}
+                        >
+                          <span className="board__label">{row.label}</span> {row.title}
+                        </a>
+                      )}
                       {row.labels.length === 0 ? null : (
                         <span className="board__chips">
                           {row.labels.map((label) => (

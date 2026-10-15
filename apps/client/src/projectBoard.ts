@@ -28,6 +28,8 @@ export interface BoardRow {
   /** `#32`, so a row is findable on GitHub. */
   readonly label: string;
   readonly title: string;
+  /** The item's page on GitHub, or `null` when the repository name is not one a link can be built from. */
+  readonly url: string | null;
   /** Who and what, in a few words. Empty when there is nothing to add. */
   readonly detail: string;
   readonly tone: BoardTone;
@@ -66,7 +68,22 @@ function searchTextOf(label: string, title: string, labels: readonly BoardLabel[
   return [label, title, ...labels.map((tag) => tag.name), detail].join(" ").toLowerCase();
 }
 
-function issueRow(issue: BoardIssue, formatDate: TimeFormatter): BoardRow {
+/**
+ * GitHub's `owner/name` shape. The repository comes from server config, but a
+ * link opens a browser tab, so anything else gets no link rather than one that
+ * could point off github.com.
+ */
+const REPOSITORY_PATTERN = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+
+/** An issue's or pull request's page on GitHub; `null` for a repository name that is not `owner/name`. */
+export function githubItemUrl(repository: string, kind: "issues" | "pull", number: number): string | null {
+  if (!REPOSITORY_PATTERN.test(repository) || !Number.isSafeInteger(number) || number <= 0) {
+    return null;
+  }
+  return `https://github.com/${repository}/${kind}/${number}`;
+}
+
+function issueRow(issue: BoardIssue, repository: string, formatDate: TimeFormatter): BoardRow {
   const parts = [
     ...issue.assignees.map((login) => `@${login}`),
     ...issue.pullRequests.map((number) => `PR #${number}`),
@@ -80,6 +97,7 @@ function issueRow(issue: BoardIssue, formatDate: TimeFormatter): BoardRow {
     key: `issue-${issue.number}`,
     label,
     title: issue.title,
+    url: githubItemUrl(repository, "issues", issue.number),
     detail,
     tone: "plain",
     labels: issue.labels,
@@ -87,7 +105,7 @@ function issueRow(issue: BoardIssue, formatDate: TimeFormatter): BoardRow {
   };
 }
 
-function pullRequestRow(pull: BoardPullRequest): BoardRow {
+function pullRequestRow(pull: BoardPullRequest, repository: string): BoardRow {
   const checks = CHECK_TEXT[pull.checks];
   const parts = [`@${pull.author}`, ...(pull.draft ? ["draft"] : []), ...(checks.text === "" ? [] : [checks.text])];
   const label = `#${pull.number}`;
@@ -96,6 +114,7 @@ function pullRequestRow(pull: BoardPullRequest): BoardRow {
     key: `pull-${pull.number}`,
     label,
     title: pull.title,
+    url: githubItemUrl(repository, "pull", pull.number),
     detail,
     tone: checks.tone,
     labels: pull.labels,
@@ -110,25 +129,25 @@ export function boardColumns(snapshot: ProjectBoardSnapshot, formatDate: TimeFor
       key: "open",
       title: "Open",
       total: snapshot.counts.open,
-      rows: snapshot.open.map((issue) => issueRow(issue, formatDate)),
+      rows: snapshot.open.map((issue) => issueRow(issue, snapshot.repository, formatDate)),
     },
     {
       key: "inProgress",
       title: "In progress",
       total: snapshot.counts.inProgress,
-      rows: snapshot.inProgress.map((issue) => issueRow(issue, formatDate)),
+      rows: snapshot.inProgress.map((issue) => issueRow(issue, snapshot.repository, formatDate)),
     },
     {
       key: "closed",
       title: "Closed",
       total: snapshot.closed.length,
-      rows: snapshot.closed.map((issue) => issueRow(issue, formatDate)),
+      rows: snapshot.closed.map((issue) => issueRow(issue, snapshot.repository, formatDate)),
     },
     {
       key: "pullRequests",
       title: "Open PRs",
       total: snapshot.counts.pullRequests,
-      rows: snapshot.pullRequests.map(pullRequestRow),
+      rows: snapshot.pullRequests.map((pull) => pullRequestRow(pull, snapshot.repository)),
     },
   ];
 }
