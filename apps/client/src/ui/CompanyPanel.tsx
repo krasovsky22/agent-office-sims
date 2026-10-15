@@ -59,8 +59,8 @@ export function CompanyEndState({ readout }: { readout: CompanyReadout }) {
     <div className="company__end" role="status">
       <h2 className="company__endTitle">Out of cash</h2>
       <p className="company__endText">
-        The company could not make payroll on {readout.day.toLowerCase()} and has folded. The
-        clock has stopped.
+        The company ran out of cash on {readout.day.toLowerCase()} and has folded. The clock
+        has stopped.
       </p>
     </div>
   );
