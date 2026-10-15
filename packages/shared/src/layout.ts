@@ -344,6 +344,9 @@ const READING_GAP = 1;
 /** The open floor's wall board that shows this repository's own GitHub issues and pull requests. */
 export const PROJECT_BOARD_ID = "project-board";
 
+/** The meeting room's whiteboard, which is where the ticket board is read and worked. */
+export const TICKET_BOARD_ID = "whiteboard-meeting";
+
 /**
  * Gap between the back of a chair and the occupant who just got up from it.
  *
@@ -699,7 +702,7 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     // from its chairs, so it needs no footprint of its own — the wall is
     // already solid. The reader stands between the table and the wall.
     {
-      id: "whiteboard-meeting",
+      id: TICKET_BOARD_ID,
       kind: INTERACTION_KIND.whiteboard,
       anchor: { x: -2.85, z: -10.7, yaw: 0 },
       volume: box3(-4.35, 1, -11.7, -1.35, 2.1, -11.62),

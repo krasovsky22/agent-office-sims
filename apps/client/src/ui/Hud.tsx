@@ -21,6 +21,7 @@ import {
   OCCUPANT_KIND,
   type OccupantKind,
   type ProjectBoardSnapshot,
+  type TicketData,
 } from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
@@ -32,6 +33,7 @@ import { isTypingTarget } from "../keys.js";
 import type { ConnectionStatus } from "../net/room.js";
 import { CompanyEndState, CompanyPanel } from "./CompanyPanel.js";
 import { ProjectBoardPanel } from "./ProjectBoardPanel.js";
+import { type TicketBoardActions, TicketBoardPanel } from "./TicketBoardPanel.js";
 
 import "./hud.css";
 
@@ -123,12 +125,17 @@ export interface HudSnapshot {
   readonly company?: CompanyReadout;
   /** What the local player may do at the ticket board; absent until they are in the office. */
   readonly boardAccess?: BoardAccess | undefined;
+  /** The ticket board as last replicated, in no particular order. */
+  readonly tickets: readonly TicketData[];
+  /** Whether the local player opened the ticket board with `E` at the whiteboard. */
+  readonly ticketBoardOpen: boolean;
 }
 
 export interface HudActions {
   readonly sendEmote: (emote: Emote) => void;
   /** Called with the raw input text; the server sanitizes it. */
   readonly sendChat: (text: string) => void;
+  readonly ticketBoard: TicketBoardActions;
 }
 
 export interface HudStore {
@@ -144,6 +151,8 @@ const INITIAL: HudSnapshot = {
   chatLog: [],
   assets: "loading",
   boardCloseUp: false,
+  tickets: [],
+  ticketBoardOpen: false,
 };
 
 export function createHudStore(): HudStore {
@@ -454,6 +463,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     boardCloseUp,
     company,
     boardAccess,
+    tickets,
+    ticketBoardOpen,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
 
@@ -495,6 +506,9 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       ) : null}
 
       {company?.bankrupt === true ? <CompanyEndState readout={company} /> : null}
+      {ticketBoardOpen ? (
+        <TicketBoardPanel tickets={tickets} people={roster} actions={actions.ticketBoard} />
+      ) : null}
 
       <div className="hud__column hud__column--right">
         <div className="hud__panel hud__panel--chat">

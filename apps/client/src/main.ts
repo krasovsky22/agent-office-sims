@@ -17,6 +17,7 @@ import {
   OFFICE_PROPS,
   type OfficeLayout,
   PROJECT_BOARD_ID,
+  TICKET_BOARD_ID,
   authorizeInteract,
   heldAnimationFor,
   interactableById,
@@ -352,7 +353,16 @@ function start(): void {
         publishHud({ company });
       }
     },
+
+    onTicketsChanged: (tickets) => {
+      publishHud({ tickets });
+    },
   });
+
+  // The wall board or whiteboard whose close-up is open, or `""`. Local to this
+  // tab: reading a board holds nothing, so there is nothing for the server to
+  // know.
+  let readingBoard = "";
 
   createRoot(requireHudMount()).render(
     createElement(Hud, {
@@ -368,6 +378,14 @@ function start(): void {
           } else {
             showNotice(command.text);
           }
+        },
+        ticketBoard: {
+          createTicket: (title, body) => room.sendTicketCreate(title, body),
+          moveTicket: (ticketId, status) => room.sendTicketMove(ticketId, status),
+          assignTicket: (ticketId, assigneeId) => room.sendTicketAssign(ticketId, assigneeId),
+          close: () => {
+            readingBoard = "";
+          },
         },
       },
     }),
@@ -386,10 +404,6 @@ function start(): void {
   let promptKeys = "";
   let promptLabel = "";
   let promptBlocked = false;
-
-  // The wall board whose close-up is open, or `""`. Local to this tab: reading
-  // a board holds nothing, so there is nothing for the server to know.
-  let readingBoard = "";
 
   /**
    * Works out what the player can do from where they are standing, and tells
@@ -479,7 +493,8 @@ function start(): void {
       if (target.id === readingBoard) {
         readingBoard = "";
       } else {
-        if (target.kind === INTERACTION_KIND.board) {
+        // The whiteboard is the ticket board, read up close like a wall board.
+        if (target.kind === INTERACTION_KIND.board || target.kind === INTERACTION_KIND.whiteboard) {
           readingBoard = target.id;
         }
         room.sendInteract(target.id);
@@ -488,6 +503,10 @@ function start(): void {
     const closeUp = readingBoard === PROJECT_BOARD_ID;
     if (closeUp !== hud.boardCloseUp) {
       publishHud({ boardCloseUp: closeUp });
+    }
+    const ticketBoardOpen = readingBoard === TICKET_BOARD_ID;
+    if (ticketBoardOpen !== hud.ticketBoardOpen) {
+      publishHud({ ticketBoardOpen });
     }
 
     room.sendPose(controller.pose, nowMs);

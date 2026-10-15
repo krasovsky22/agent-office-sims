@@ -34,6 +34,7 @@ import {
   SYSTEM_AUTHOR_ID,
   TICKET_PRIORITIES,
   TICKET_STATUS,
+  TICKET_STATUSES,
   Ticket,
   TicketComment,
   type TicketStatus,
@@ -182,12 +183,34 @@ export function ticketActorOf(occupant: Occupant): TicketActor {
   return { id: occupant.id, kind: occupant.kind, isCeo: isCeo(occupant) };
 }
 
+/**
+ * A ticket's fields, without the schema around them.
+ *
+ * The server judges a live {@link Ticket}; the board panel judges the plain copy
+ * it renders from. Both satisfy this, so the authority seam and the move
+ * planner below answer the same question for either side.
+ */
+export type TicketData = Readonly<
+  Pick<
+    Ticket,
+    | "id"
+    | "title"
+    | "body"
+    | "status"
+    | "assigneeId"
+    | "createdById"
+    | "outputArtifact"
+    | "createdAt"
+    | "updatedAt"
+  >
+>;
+
 /** A single authority question: may this actor do this to this ticket? */
 export interface TicketPermissionQuery {
   readonly actor: TicketActor;
   readonly action: TicketAction;
   /** The ticket being acted on; absent for {@link TICKET_ACTION.create}. */
-  readonly ticket?: Ticket;
+  readonly ticket?: TicketData;
 }
 
 /** The shape {@link mayActOnTicket} satisfies, so a caller can substitute one. */
@@ -224,6 +247,60 @@ export function mayActOnTicket(query: TicketPermissionQuery): boolean {
         query.ticket.assigneeId === query.actor.id
       );
   }
+}
+
+/**
+ * A column change the board panel may offer, and the command that makes it.
+ *
+ * Most moves are a `move-status`. The one exception is leaving `backlog`, which
+ * needs somebody to own the ticket and so is an `assign`: the panel has to ask
+ * who before it can send it.
+ */
+export type TicketMove =
+  | { readonly action: typeof TICKET_ACTION.moveStatus; readonly to: TicketStatus }
+  | { readonly action: typeof TICKET_ACTION.assign; readonly to: TicketStatus };
+
+/**
+ * Every column a ticket can move to right now, in board order, for this actor.
+ *
+ * The client's mirror of {@link applyTicketCommand}, built from the same
+ * transition table, assignee invariant and authority seam, so the panel never
+ * offers a move the server will refuse. An edge the table lists but the rules
+ * cannot reach — a `move-status` into a column that needs an assignee the
+ * ticket does not have — is left out rather than offered and then rejected.
+ */
+export function ticketMoves(
+  ticket: TicketData,
+  actor: TicketActor,
+  permit: TicketPermission = mayActOnTicket,
+): TicketMove[] {
+  const moves: TicketMove[] = [];
+  for (const to of TICKET_TRANSITIONS[ticket.status]) {
+    const needsOwner = assigneeInvariant(to) && ticket.assigneeId === "";
+    let move: TicketMove;
+    if (!needsOwner) {
+      move = { action: TICKET_ACTION.moveStatus, to };
+    } else if (ticket.status === TICKET_STATUS.backlog && to === TICKET_STATUS.assigned) {
+      // The only status change `assign` makes; see `assignTicket`.
+      move = { action: TICKET_ACTION.assign, to };
+    } else {
+      continue;
+    }
+    if (permit({ actor, action: move.action, ticket })) {
+      moves.push(move);
+    }
+  }
+  return moves.sort(
+    (a, b) => TICKET_STATUSES.indexOf(a.to) - TICKET_STATUSES.indexOf(b.to),
+  );
+}
+
+/** Whether the panel should offer this actor a way to file a ticket. */
+export function mayCreateTicket(
+  actor: TicketActor,
+  permit: TicketPermission = mayActOnTicket,
+): boolean {
+  return permit({ actor, action: TICKET_ACTION.create });
 }
 
 /** Why a command was refused. Rejection never changes the board. */

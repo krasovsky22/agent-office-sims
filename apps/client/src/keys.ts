@@ -8,8 +8,13 @@
  * `1` is a digit, not a wave.
  *
  * The focused element already answers the question, so this asks it rather than
- * having the two layers agree about a mode flag.
+ * having the two layers agree about a mode flag. A panel that wants every key
+ * while it has focus — buttons and all, not just its text fields — marks itself
+ * with {@link KEYBOARD_OWNER_ATTRIBUTE}.
  */
+
+/** Set on a container whose descendants keep every key they are given. */
+export const KEYBOARD_OWNER_ATTRIBUTE = "data-owns-keyboard";
 
 export function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -19,6 +24,7 @@ export function isTypingTarget(target: EventTarget | null): boolean {
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
     target instanceof HTMLSelectElement ||
-    target.isContentEditable
+    target.isContentEditable ||
+    target.closest(`[${KEYBOARD_OWNER_ATTRIBUTE}]`) !== null
   );
 }
