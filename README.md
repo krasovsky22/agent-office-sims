@@ -142,9 +142,10 @@ Then confirm all thirteen:
 12. **The agents are at their desks, in both tabs.** Four agent employees
     stand behind the chairs of open-floor desks, the same four in the same
     places in both tabs: translucent teal bodies, a name over a job title
-    tagged `SIMULATED` on each nameplate, and an `Idle` badge over each head that reads from where you
-    spawn. The roster lists Dana and Milo under **People** and the agents under
-    **Agents**, each with its title, a `Simulated` tag and its activity. Reload a tab and the same
+    tagged `SIMULATED` on each nameplate, and an `Idle` badge over each head
+    that reads from where you spawn. The roster lists Dana and Milo under
+    **People** and the agents under **Agents**, each with its title, a
+    `SIMULATED` tag and its activity. Reload a tab and the same
     names come back at the same desks. Walk up to an agent's chair and the
     prompt reads `Sit down — taken`; `E` does nothing. Start the server with `AGENT_COUNT=0`
     and the floor is empty of them, or with `AGENT_COUNT=8` and every agent
