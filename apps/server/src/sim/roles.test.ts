@@ -36,7 +36,7 @@ describe("roleForArrival", () => {
 describe("appointSuccessor", () => {
   const joined: Record<string, number> = { milo: 200, ines: 100, theo: 300 };
   const joinedAtOf = (id: string) => joined[id];
-  const connected = () => false;
+  const noneHeld = () => false;
 
   it("promotes exactly the longest-connected player", () => {
     const occupants = office(
@@ -45,7 +45,7 @@ describe("appointSuccessor", () => {
       player("theo", PLAYER_ROLE.exec),
     );
 
-    expect(appointSuccessor(occupants, joinedAtOf, connected)?.id).toBe("ines");
+    expect(appointSuccessor(occupants, joinedAtOf, noneHeld)?.id).toBe("ines");
     expect(findCeo(occupants)?.id).toBe("ines");
     expect(describeRoleProblems(occupants)).toEqual([]);
   });
@@ -53,20 +53,20 @@ describe("appointSuccessor", () => {
   it("does nothing while someone still holds the role", () => {
     const occupants = office(player("milo", PLAYER_ROLE.ceo), player("ines", PLAYER_ROLE.exec));
 
-    expect(appointSuccessor(occupants, joinedAtOf, connected)).toBeUndefined();
+    expect(appointSuccessor(occupants, joinedAtOf, noneHeld)).toBeUndefined();
     expect(findCeo(occupants)?.id).toBe("milo");
   });
 
   it("ranks a player with no known join time last, not first", () => {
     const occupants = office(player("ghost", PLAYER_ROLE.exec), player("theo", PLAYER_ROLE.exec));
 
-    expect(appointSuccessor(occupants, joinedAtOf, connected)?.id).toBe("theo");
+    expect(appointSuccessor(occupants, joinedAtOf, noneHeld)?.id).toBe("theo");
   });
 
   it("still appoints someone when nobody's join time is known", () => {
     const occupants = office(player("ghost", PLAYER_ROLE.exec));
 
-    expect(appointSuccessor(occupants, () => undefined, connected)?.id).toBe("ghost");
+    expect(appointSuccessor(occupants, () => undefined, noneHeld)?.id).toBe("ghost");
     expect(describeRoleProblems(occupants)).toEqual([]);
   });
 
@@ -89,7 +89,7 @@ describe("appointSuccessor", () => {
   });
 
   it("appoints nobody in an empty office", () => {
-    expect(appointSuccessor(office(), joinedAtOf, connected)).toBeUndefined();
+    expect(appointSuccessor(office(), joinedAtOf, noneHeld)).toBeUndefined();
   });
 });
 
