@@ -28,6 +28,7 @@ import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import * as THREE from "three";
 
+import { boardAccessFor, rejectionText } from "./boardAccess.js";
 import { readCompany, sameReadout } from "./companyReadout.js";
 import { RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
@@ -266,6 +267,8 @@ function start(): void {
         }
       }
 
+      const local = present.find((view) => view.isLocal);
+      const ceo = present.find((view) => view.isCeo);
       publishHud({
         roster: present.map((view) => ({
           id: view.id,
@@ -276,6 +279,7 @@ function start(): void {
           activity: view.activity,
           isLocal: view.isLocal,
         })),
+        boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name),
       });
     },
 
@@ -302,8 +306,30 @@ function start(): void {
       showNotice(
         event.command === CLIENT_MESSAGE.chat
           ? "Too many messages — that one was dropped."
-          : "Too many emotes — that one was dropped.",
+          : event.command === CLIENT_MESSAGE.ticketComment
+            ? "Too many comments — that one was dropped."
+            : "Too many emotes — that one was dropped.",
       );
+    },
+
+    onTicketRejected: (event) => {
+      showNotice(rejectionText(event.rejection));
+    },
+
+    // Announced in the chat log, where everyone in the office is already
+    // looking, rather than only in the roster badge that silently moves.
+    onCeoChanged: (event) => {
+      const isLocal = event.ceoId === room.sessionId;
+      appendChatLine({
+        id: nextChatId++,
+        author: "Office",
+        text: `${isLocal ? "You are" : `${room.occupantName(event.ceoId) ?? "Someone"} is`} now the CEO.`,
+        isLocal: false,
+        isSystem: true,
+      });
+      if (isLocal) {
+        showNotice("The CEO left — you are now the CEO and run the ticket board.");
+      }
     },
 
     // The same snapshot goes to the wall and to the close-up panel, so what

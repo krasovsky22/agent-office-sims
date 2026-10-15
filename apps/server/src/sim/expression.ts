@@ -1,5 +1,6 @@
 /**
- * Rate limiting for the things an occupant does on purpose: emotes and chat.
+ * Rate limiting for the things an occupant does on purpose: emotes, chat, and
+ * comments on tickets.
  *
  * Movement is limited by physics — the speed clamp in `movement.ts` bounds how
  * much of it the server will accept. Expression has no physics to lean on, so a
@@ -25,8 +26,12 @@
 import {
   CHAT_BURST_ALLOWANCE,
   CHAT_REFILL_PER_SECOND,
+  CLIENT_MESSAGE,
+  COMMENT_BURST_ALLOWANCE,
+  COMMENT_REFILL_PER_SECOND,
   EMOTE_BURST_ALLOWANCE,
   EMOTE_REFILL_PER_SECOND,
+  type ThrottledEvent,
 } from "@sim/shared";
 
 /**
@@ -76,15 +81,22 @@ export function tryConsume(bucket: TokenBucket, now: number): boolean {
   return true;
 }
 
-/** One occupant's expression budgets. */
-export interface ExpressionBudget {
-  readonly emote: TokenBucket;
-  readonly chat: TokenBucket;
-}
+/**
+ * One occupant's expression budgets, keyed by the command each one limits.
+ *
+ * Keyed by the message type rather than a name of its own so that a refusal
+ * can tell the client which command was dropped without a lookup table.
+ */
+export type ExpressionBudget = Readonly<Record<ThrottledEvent["command"], TokenBucket>>;
 
 export function createExpressionBudget(now: number): ExpressionBudget {
   return {
-    emote: createTokenBucket(EMOTE_BURST_ALLOWANCE, EMOTE_REFILL_PER_SECOND, now),
-    chat: createTokenBucket(CHAT_BURST_ALLOWANCE, CHAT_REFILL_PER_SECOND, now),
+    [CLIENT_MESSAGE.emote]: createTokenBucket(EMOTE_BURST_ALLOWANCE, EMOTE_REFILL_PER_SECOND, now),
+    [CLIENT_MESSAGE.chat]: createTokenBucket(CHAT_BURST_ALLOWANCE, CHAT_REFILL_PER_SECOND, now),
+    [CLIENT_MESSAGE.ticketComment]: createTokenBucket(
+      COMMENT_BURST_ALLOWANCE,
+      COMMENT_REFILL_PER_SECOND,
+      now,
+    ),
   };
 }

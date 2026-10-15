@@ -4,8 +4,12 @@
  * Thin by design. Each handler does three things and nothing else: parse the
  * untrusted payload, resolve the sender to a {@link TicketActor}, and hand both
  * to `applyTicketCommand`, which owns every rule. No handler reads a status, a
- * transition or an authority rule of its own, so the CEO-authority issue has
- * one place to change and this file is not it.
+ * transition or an authority rule of its own: who may do what is decided once,
+ * by `mayActOnTicket` in `@sim/shared`'s `tickets.ts`, and this file is not it.
+ *
+ * A refused command is answered, to its sender only, with the reason. The
+ * board is unchanged either way; the answer is what lets an executive's client
+ * say "only the CEO can do that" instead of nothing.
  *
  * All of it is synchronous. Colyseus delivers a room's messages one at a time,
  * so the board is only ever mutated between simulation ticks and the tick never
@@ -16,18 +20,23 @@ import { type Client, type Room } from "@colyseus/core";
 import {
   CLIENT_MESSAGE,
   type OfficeState,
+  SERVER_MESSAGE,
   TICKET_ACTION,
+  type TicketAction,
   type TicketActor,
   type TicketCommand,
   type TicketCommandResult,
+  type TicketRejectedEvent,
   applyTicketCommand,
-  isHumanPlayer,
   parseTicketAssignMessage,
+  parseTicketCommentMessage,
   parseTicketCreateMessage,
   parseTicketEditMessage,
   parseTicketMoveStatusMessage,
+  parseTicketSetPriorityMessage,
   parseTicketUnassignMessage,
   seedBoard,
+  ticketActorOf,
 } from "@sim/shared";
 
 /** What the handlers need from the room, named so a test can supply it. */
@@ -37,6 +46,12 @@ export interface TicketHost {
   readonly now: () => number;
   /** Mints an id for a created ticket. */
   readonly nextTicketId: () => string;
+  /**
+   * Charges a command against the sender's rate limit, after it has parsed.
+   * `false` drops the command unapplied and unanswered; the limiter tells the
+   * client itself. Absent means nothing is limited.
+   */
+  readonly allow?: (client: Client, action: TicketAction) => boolean;
 }
 
 /**
@@ -66,24 +81,19 @@ export function createTicketIdFactory(): () => string {
  */
 function actorFor(state: OfficeState, client: Client): TicketActor | undefined {
   const occupant = state.occupants.get(client.sessionId);
-  if (occupant === undefined) {
-    return undefined;
-  }
-  return {
-    id: occupant.id,
-    kind: occupant.kind,
-    isCeo: isHumanPlayer(occupant) && occupant.isCeo,
-  };
+  return occupant === undefined ? undefined : ticketActorOf(occupant);
 }
 
 /**
  * Runs one command on behalf of a client.
  *
- * @returns the result, or `undefined` if the payload or the sender did not
- * resolve. A rejection leaves the board unchanged; like a malformed pose, it is
- * dropped rather than answered. Telling the sender why would need a
- * server -> client message, which the board panel issue can add once it knows
- * what it wants to show.
+ * The actor is resolved from the replicated occupant at the moment the command
+ * arrives, so the role it is judged by is the role the server holds now — not
+ * one the client claims, and not one it held before a succession.
+ *
+ * @returns the result, or `undefined` if the sender did not resolve or the
+ * rate limit dropped the command. A rejection leaves the board unchanged and
+ * is reported to the sender as a {@link TicketRejectedEvent}.
  */
 export function runTicketCommand(
   host: TicketHost,
@@ -91,16 +101,23 @@ export function runTicketCommand(
   command: TicketCommand,
 ): TicketCommandResult | undefined {
   const actor = actorFor(host.state, client);
-  if (actor === undefined) {
+  if (actor === undefined || host.allow?.(client, command.action) === false) {
     return undefined;
   }
-  return applyTicketCommand(command, {
+  const result = applyTicketCommand(command, {
     board: host.state.tickets,
     occupants: host.state.occupants,
     actor,
     now: host.now(),
     nextTicketId: host.nextTicketId,
   });
+  if (!result.ok) {
+    client.send(SERVER_MESSAGE.ticketRejected, {
+      action: command.action,
+      rejection: result.rejection,
+    } satisfies TicketRejectedEvent);
+  }
+  return result;
 }
 
 /** Puts the starter tickets on an empty board. */
@@ -109,7 +126,7 @@ export function seedTicketBoard(host: TicketHost): void {
 }
 
 /**
- * Registers the five ticket handlers on a room.
+ * Registers the seven ticket handlers on a room.
  *
  * Takes the room's `onMessage` rather than the room, so the host object above
  * stays the whole of what these handlers can reach.
@@ -150,6 +167,20 @@ export function registerTicketHandlers(
     const payload = parseTicketEditMessage(raw);
     if (payload !== undefined) {
       runTicketCommand(host, client, { action: TICKET_ACTION.edit, payload });
+    }
+  });
+
+  room.onMessage(CLIENT_MESSAGE.ticketSetPriority, (client, raw: unknown) => {
+    const payload = parseTicketSetPriorityMessage(raw);
+    if (payload !== undefined) {
+      runTicketCommand(host, client, { action: TICKET_ACTION.setPriority, payload });
+    }
+  });
+
+  room.onMessage(CLIENT_MESSAGE.ticketComment, (client, raw: unknown) => {
+    const payload = parseTicketCommentMessage(raw);
+    if (payload !== undefined) {
+      runTicketCommand(host, client, { action: TICKET_ACTION.comment, payload });
     }
   });
 }

@@ -24,10 +24,16 @@
  * were still happening. The server validates, sanitizes and rate-limits, then
  * broadcasts; clients draw what they receive and forget it when it expires.
  *
- * The board's rules are not here. `ticketHandlers.ts` wires the five commands
+ * The board's rules are not here. `ticketHandlers.ts` wires the seven commands
  * up and `@sim/shared`'s `tickets.ts` decides what each one is allowed to do.
  * Nor are the company's: the tick steps `sim/company.ts`'s clock, and every
  * number that clock moves is decided in `@sim/shared`'s `company.ts`.
+ * Who holds the CEO role those rules turn on is `sim/roles.ts`'s call; this
+ * room only tells it when someone arrives or leaves.
+ *
+ * A player whose socket drops without leaving keeps their place, role
+ * included, for {@link RECONNECT_GRACE_SECONDS}. Only a player who left on
+ * purpose, or did not come back in time, is removed.
  *
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
  * one feed polls GitHub on its own timer and is handed to every room as a room option;
@@ -37,6 +43,7 @@
 import { type Client, Room } from "@colyseus/core";
 import {
   ANIMATION_STATE,
+  type CeoChangedEvent,
   type ChatEvent,
   CLIENT_MESSAGE,
   type EmoteEvent,
@@ -44,10 +51,12 @@ import {
   OCCUPANT_KIND,
   OFFICE_LAYOUT,
   OfficeState,
+  RECONNECT_GRACE_SECONDS,
   SERVER_MESSAGE,
+  TICKET_ACTION,
   TICK_INTERVAL_MS,
   type ThrottledEvent,
-  isHumanPlayer,
+  isCeo,
   normalizeYaw,
   parseChatMessage,
   parseEmoteMessage,
@@ -69,6 +78,7 @@ import {
   requestInteract,
 } from "../sim/interaction.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
+import { appointSuccessor, roleForArrival } from "../sim/roles.js";
 import {
   isProjectBoardSource,
   relayProjectBoard,
@@ -95,6 +105,27 @@ export interface OfficeRoomOptions {
   readonly projectBoard: ProjectBoardSource;
   /** Agent employees to hire on opening, already validated by `config.ts`. */
   readonly agentCount: number;
+  /**
+   * How long a dropped player's place is held, in seconds. Defaults to
+   * {@link RECONNECT_GRACE_SECONDS}, and can only be shortened: a test sets it
+   * low to watch a grace period run out without waiting for the real one.
+   */
+  readonly reconnectGraceSeconds?: number;
+}
+
+/**
+ * Reads the grace period off the room's options.
+ *
+ * Bounded rather than trusted because Colyseus merges the creating client's
+ * join options into these. `index.ts` always sets the value, which wins that
+ * merge, but a room defined without it must not let a client hold its place
+ * open for an hour.
+ */
+function graceSecondsOf(options: Partial<OfficeRoomOptions> | undefined): number {
+  const requested = options?.reconnectGraceSeconds;
+  return typeof requested === "number" && requested >= 0 && requested <= RECONNECT_GRACE_SECONDS
+    ? requested
+    : RECONNECT_GRACE_SECONDS;
 }
 
 export class OfficeRoom extends Room<OfficeState> {
@@ -121,6 +152,11 @@ export class OfficeRoom extends Room<OfficeState> {
   private projectBoard: ProjectBoardSource | undefined;
   private stopRelayingProjectBoard: (() => void) | undefined;
 
+  private reconnectGraceSeconds = RECONNECT_GRACE_SECONDS;
+
+  /** Session ids whose socket has dropped and whose place is being held. */
+  private readonly held = new Set<string>();
+
   public override onCreate(options?: unknown): void {
     this.state = new OfficeState();
     this.patchRate = TICK_INTERVAL_MS;
@@ -134,6 +170,8 @@ export class OfficeRoom extends Room<OfficeState> {
     this.companyClock = createCompanyClock(this.state.company, this.clock.currentTime);
 
     const roomOptions = options as Partial<OfficeRoomOptions> | undefined;
+    this.reconnectGraceSeconds = graceSecondsOf(roomOptions);
+
     const source = roomOptions?.projectBoard;
     if (isProjectBoardSource(source)) {
       this.projectBoard = source;
@@ -146,6 +184,10 @@ export class OfficeRoom extends Room<OfficeState> {
       state: this.state,
       now: () => Date.now(),
       nextTicketId: createTicketIdFactory(),
+      // Comments are the one board write open to everyone, so they are the one
+      // a client could flood; the rest are the CEO's, and refused otherwise.
+      allow: (client, action) =>
+        action !== TICKET_ACTION.comment || this.spend(client, CLIENT_MESSAGE.ticketComment),
     };
     seedTicketBoard(ticketHost);
     registerTicketHandlers(this, ticketHost);
@@ -198,7 +240,7 @@ export class OfficeRoom extends Room<OfficeState> {
 
     this.onMessage(CLIENT_MESSAGE.emote, (client, raw: unknown) => {
       const message = parseEmoteMessage(raw);
-      if (message === undefined || !this.spend(client, "emote")) {
+      if (message === undefined || !this.spend(client, CLIENT_MESSAGE.emote)) {
         return;
       }
       this.broadcast(SERVER_MESSAGE.emote, {
@@ -211,7 +253,7 @@ export class OfficeRoom extends Room<OfficeState> {
       // The text is sanitized by the parser, so what goes out over the wire is
       // already capped and stripped. No client ever has to re-check it.
       const message = parseChatMessage(raw);
-      if (message === undefined || !this.spend(client, "chat")) {
+      if (message === undefined || !this.spend(client, CLIENT_MESSAGE.chat)) {
         return;
       }
       this.broadcast(SERVER_MESSAGE.chat, {
@@ -239,7 +281,7 @@ export class OfficeRoom extends Room<OfficeState> {
     player.z = spawn.z;
     player.yaw = normalizeYaw(spawn.yaw);
     player.animation = ANIMATION_STATE.idle;
-    player.isCeo = this.findCeo() === undefined;
+    player.role = roleForArrival(this.state.occupants);
 
     this.state.occupants.set(client.sessionId, player);
     this.motions.set(client.sessionId, createMotion(spawn.x, spawn.z, spawn.yaw, now));
@@ -254,20 +296,28 @@ export class OfficeRoom extends Room<OfficeState> {
     this.stopRelayingProjectBoard?.();
   }
 
-  public override onLeave(client: Client): void {
-    const departing = this.state.occupants.get(client.sessionId);
-    // Before the occupant goes, so a closed tab does not leave its chair
-    // reserved for the rest of the session.
-    this.holds.release(client.sessionId);
-    this.interaction.lastUsedAt.delete(client.sessionId);
-    this.state.occupants.delete(client.sessionId);
-    this.motions.delete(client.sessionId);
-    this.budgets.delete(client.sessionId);
-
-    // The office should not be left without a CEO just because one tab closed.
-    if (departing !== undefined && isHumanPlayer(departing) && departing.isCeo) {
-      this.promoteLongestServing();
+  /**
+   * A client's socket closed.
+   *
+   * `consented` is a deliberate leave — the client called `leave()`, as a
+   * closing tab does — and removes the player at once. Anything else is a
+   * drop, and the player's place is held for the grace period:
+   * their occupant stays in the office, their role with it, and a client that
+   * reconnects in time resumes as the same session. The wait is a deferred the
+   * room resolves on reconnection; nothing in the simulation tick waits on it.
+   */
+  public override async onLeave(client: Client, consented?: boolean): Promise<void> {
+    if (consented !== true) {
+      this.held.add(client.sessionId);
+      try {
+        await this.allowReconnection(client, this.reconnectGraceSeconds);
+        this.held.delete(client.sessionId);
+        return;
+      } catch {
+        // The grace period ran out, or the room is closing: gone for good.
+      }
     }
+    this.depart(client.sessionId);
   }
 
   /**
@@ -341,32 +391,37 @@ export class OfficeRoom extends Room<OfficeState> {
     return point ?? { x: 0, z: 0, yaw: 0 };
   }
 
-  private findCeo(): HumanPlayer | undefined {
-    for (const occupant of this.state.occupants.values()) {
-      if (isHumanPlayer(occupant) && occupant.isCeo) {
-        return occupant;
-      }
+  /**
+   * Removes a player for good, and passes the CEO role on if they held it.
+   *
+   * The removal and the promotion happen in this one synchronous call, so they
+   * reach every client in the same patch: nobody sees an office with no CEO,
+   * or with two.
+   */
+  private depart(sessionId: string): void {
+    const departing = this.state.occupants.get(sessionId);
+    // Before the occupant goes, so a closed tab does not leave its chair
+    // reserved for the rest of the session.
+    this.holds.release(sessionId);
+    this.interaction.lastUsedAt.delete(sessionId);
+    this.state.occupants.delete(sessionId);
+    this.motions.delete(sessionId);
+    this.budgets.delete(sessionId);
+    this.held.delete(sessionId);
+
+    if (departing === undefined || !isCeo(departing)) {
+      return;
     }
-    return undefined;
-  }
-
-  private promoteLongestServing(): void {
-    let successor: HumanPlayer | undefined;
-    let successorJoinedAt = Number.POSITIVE_INFINITY;
-
-    for (const [sessionId, occupant] of this.state.occupants) {
-      if (!isHumanPlayer(occupant)) {
-        continue;
-      }
-      const joinedAt = this.motions.get(sessionId)?.joinedAt ?? Number.POSITIVE_INFINITY;
-      if (joinedAt < successorJoinedAt) {
-        successor = occupant;
-        successorJoinedAt = joinedAt;
-      }
-    }
-
+    const successor = appointSuccessor(
+      this.state.occupants,
+      (id) => this.motions.get(id)?.joinedAt,
+      (id) => this.held.has(id),
+    );
     if (successor !== undefined) {
-      successor.isCeo = true;
+      this.broadcast(SERVER_MESSAGE.ceoChanged, {
+        ceoId: successor.id,
+        previousCeoId: sessionId,
+      } satisfies CeoChangedEvent);
     }
   }
 }

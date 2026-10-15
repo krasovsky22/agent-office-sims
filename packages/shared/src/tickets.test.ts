@@ -1,7 +1,7 @@
 /**
  * The board rules are the contract four later issues are being written
  * against, so they are the part of this milestone with tests: the transition
- * table, the assignee invariant, the authority seam, and the parsers that
+ * table, the assignee invariant, the CEO authority rules, and the parsers that
  * decide what counts as a command at all.
  *
  * Everything runs against the real schema classes rather than a plain-object
@@ -11,10 +11,14 @@
 
 import { describe, expect, it } from "vitest";
 
+import { MAX_COMMENT_LENGTH, MAX_TICKET_COMMENTS } from "./constants.js";
 import {
   type TicketAction,
+  type TicketActor,
   STARTER_TICKETS,
   TICKET_ACTION,
+  TICKET_ACTION_AUTHORITY,
+  TICKET_AUTHORITY,
   TICKET_REJECTION,
   TICKET_TRANSITIONS,
   type TicketCommand,
@@ -25,21 +29,26 @@ import {
   isLegalTicketTransition,
   mayActOnTicket,
   seedBoard,
+  ticketActorOf,
 } from "./tickets.js";
 import {
   HumanPlayer,
   OCCUPANT_KIND,
   OfficeState,
+  PLAYER_ROLE,
   SYSTEM_AUTHOR_ID,
+  TICKET_PRIORITY,
   TICKET_STATUS,
   TICKET_STATUSES,
   type Ticket,
   type TicketStatus,
 } from "./state.js";
 import {
+  parseTicketCommentMessage,
   parseTicketCreateMessage,
   parseTicketEditMessage,
   parseTicketMoveStatusMessage,
+  parseTicketSetPriorityMessage,
   sanitizeTicketBody,
   sanitizeTicketTitle,
 } from "./messages.js";
@@ -57,23 +66,33 @@ interface Harness {
   readonly ticket: (id: string) => Ticket;
 }
 
-function occupant(id: string, name: string, isCeo: boolean): HumanPlayer {
+function occupant(id: string, name: string, ceo: boolean): HumanPlayer {
   const player = new HumanPlayer();
   player.id = id;
   player.name = name;
   player.kind = OCCUPANT_KIND.human;
-  player.isCeo = isCeo;
+  player.role = ceo ? PLAYER_ROLE.ceo : PLAYER_ROLE.exec;
   return player;
 }
+
+/** Dana, who holds the role. */
+const CEO_ACTOR: TicketActor = { id: CEO_ID, kind: OCCUPANT_KIND.human, isCeo: true };
+
+/** Milo, an executive. */
+const EXEC_ACTOR: TicketActor = { id: WORKER_ID, kind: OCCUPANT_KIND.human, isCeo: false };
 
 /**
  * A room's worth of state with two occupants and the starter board.
  *
- * `actor` defaults to the CEO because that is who the game points at the board;
- * the authority seam is permissive today, so which one it is only matters to
- * the tests that pass their own `permit`.
+ * `actor` defaults to the CEO because that is who may run the board; the tests
+ * about who is refused pass Milo instead.
  */
-function harness(options: { readonly permit?: TicketCommandContext["permit"] } = {}): Harness {
+function harness(
+  options: {
+    readonly permit?: TicketCommandContext["permit"];
+    readonly actor?: TicketActor;
+  } = {},
+): Harness {
   const state = new OfficeState();
   state.occupants.set(CEO_ID, occupant(CEO_ID, "Dana", true));
   state.occupants.set(WORKER_ID, occupant(WORKER_ID, "Milo", false));
@@ -89,7 +108,7 @@ function harness(options: { readonly permit?: TicketCommandContext["permit"] } =
   const base = {
     board: state.tickets,
     occupants: state.occupants,
-    actor: { id: CEO_ID, kind: OCCUPANT_KIND.human, isCeo: true },
+    actor: options.actor ?? CEO_ACTOR,
     now: T0,
     nextTicketId,
     ...(options.permit === undefined ? {} : { permit: options.permit }),
@@ -118,6 +137,8 @@ function snapshot(ticket: Ticket) {
     assigneeId: ticket.assigneeId,
     createdById: ticket.createdById,
     outputArtifact: ticket.outputArtifact,
+    priority: ticket.priority,
+    comments: ticket.comments.map((comment) => ({ ...comment.toJSON() })),
     createdAt: ticket.createdAt,
     updatedAt: ticket.updatedAt,
   };
@@ -488,17 +509,196 @@ describe("edit", () => {
   });
 });
 
-describe("the authority seam", () => {
+describe("set-priority", () => {
+  it("re-ranks a ticket and stamps the change", () => {
+    const board = harness();
+    expect(board.ticket("ticket-1").priority).toBe(TICKET_PRIORITY.normal);
+
+    const result = board.run(
+      {
+        action: TICKET_ACTION.setPriority,
+        payload: { ticketId: "ticket-1", priority: TICKET_PRIORITY.high },
+      },
+      5,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(board.ticket("ticket-1").priority).toBe(TICKET_PRIORITY.high);
+    expect(board.ticket("ticket-1").updatedAt).toBe(T0 + 5);
+  });
+
+  it("refuses a change to the priority it already has", () => {
+    const board = harness();
+    const before = snapshot(board.ticket("ticket-1"));
+
+    expect(
+      board.run({
+        action: TICKET_ACTION.setPriority,
+        payload: { ticketId: "ticket-1", priority: TICKET_PRIORITY.normal },
+      }),
+    ).toEqual({ ok: false, rejection: TICKET_REJECTION.emptyEdit });
+    expect(snapshot(board.ticket("ticket-1"))).toEqual(before);
+  });
+});
+
+describe("comment", () => {
+  it("appends a comment attributed to the actor, open to an executive", () => {
+    const board = harness({ actor: EXEC_ACTOR });
+
+    const result = board.run(
+      { action: TICKET_ACTION.comment, payload: { ticketId: "ticket-1", text: "Measure first." } },
+      7,
+    );
+
+    expect(result.ok).toBe(true);
+    const comments = board.ticket("ticket-1").comments.map((comment) => comment.toJSON());
+    expect(comments).toEqual([{ authorId: WORKER_ID, text: "Measure first.", createdAt: T0 + 7 }]);
+    expect(board.ticket("ticket-1").updatedAt).toBe(T0 + 7);
+  });
+
+  it("drops the oldest comment once the ticket is full", () => {
+    const board = harness();
+    for (let i = 0; i <= MAX_TICKET_COMMENTS; i += 1) {
+      board.run({ action: TICKET_ACTION.comment, payload: { ticketId: "ticket-1", text: `c${i}` } });
+    }
+
+    const texts = board.ticket("ticket-1").comments.map((comment) => comment.text);
+    expect(texts).toHaveLength(MAX_TICKET_COMMENTS);
+    expect(texts[0]).toBe("c1");
+    expect(texts.at(-1)).toBe(`c${MAX_TICKET_COMMENTS}`);
+    expect(describeBoardProblems(board.state.tickets)).toEqual([]);
+  });
+
+  it("rejects a ticket id the board does not hold", () => {
+    expect(
+      harness().run({ action: TICKET_ACTION.comment, payload: { ticketId: "ticket-99", text: "x" } }),
+    ).toEqual({ ok: false, rejection: TICKET_REJECTION.unknownTicket });
+  });
+});
+
+describe("CEO authority", () => {
   const ACTIONS: readonly TicketAction[] = Object.values(TICKET_ACTION);
 
-  it("is permissive by default, for every action", () => {
-    const actor = { id: CEO_ID, kind: OCCUPANT_KIND.human, isCeo: false };
+  /** One valid instance of every command, each of which the CEO may run. */
+  const COMMANDS: readonly TicketCommand[] = [
+    { action: TICKET_ACTION.create, payload: { title: "Denied", body: "" } },
+    { action: TICKET_ACTION.assign, payload: { ticketId: "ticket-1", assigneeId: WORKER_ID } },
+    { action: TICKET_ACTION.unassign, payload: { ticketId: "ticket-2" } },
+    {
+      action: TICKET_ACTION.moveStatus,
+      payload: { ticketId: "ticket-3", status: TICKET_STATUS.done },
+    },
+    { action: TICKET_ACTION.edit, payload: { ticketId: "ticket-1", title: "Denied" } },
+    {
+      action: TICKET_ACTION.setPriority,
+      payload: { ticketId: "ticket-1", priority: TICKET_PRIORITY.high },
+    },
+    { action: TICKET_ACTION.comment, payload: { ticketId: "ticket-1", text: "Advice." } },
+  ];
+
+  /** Puts ticket-2 in `assigned` and ticket-3 in `review`, as the CEO. */
+  function prepared(actor: TicketActor): Harness {
+    const setup = harness();
+    advanceTo(setup, "ticket-2", TICKET_STATUS.assigned);
+    advanceTo(setup, "ticket-3", TICKET_STATUS.review);
+    // The same board, judged as someone else from here on.
+    return {
+      ...setup,
+      run: (command, step = 0) =>
+        applyTicketCommand(command, {
+          board: setup.state.tickets,
+          occupants: setup.state.occupants,
+          actor,
+          now: T0 + step,
+          nextTicketId: () => "ticket-new",
+        }),
+    };
+  }
+
+  it("names who may perform every action", () => {
+    expect(Object.keys(TICKET_ACTION_AUTHORITY).sort()).toEqual([...ACTIONS].sort());
+    expect(COMMANDS.map((command) => command.action).sort()).toEqual([...ACTIONS].sort());
+  });
+
+  it("gives the CEO every action", () => {
     for (const action of ACTIONS) {
-      expect(mayActOnTicket({ actor, action }), action).toBe(true);
+      expect(mayActOnTicket({ actor: CEO_ACTOR, action }), action).toBe(true);
     }
   });
 
-  it("is the only gate: denying it refuses all five commands and changes nothing", () => {
+  it("leaves an executive only the actions open to anyone", () => {
+    for (const action of ACTIONS) {
+      expect(mayActOnTicket({ actor: EXEC_ACTOR, action }), action).toBe(
+        TICKET_ACTION_AUTHORITY[action] === TICKET_AUTHORITY.anyone,
+      );
+    }
+    expect(mayActOnTicket({ actor: EXEC_ACTOR, action: TICKET_ACTION.comment })).toBe(true);
+  });
+
+  it("refuses an executive every CEO-only command and changes nothing", () => {
+    const board = prepared(EXEC_ACTOR);
+    const before = [...board.state.tickets.values()].map(snapshot);
+
+    for (const command of COMMANDS) {
+      if (TICKET_ACTION_AUTHORITY[command.action] !== TICKET_AUTHORITY.ceo) {
+        continue;
+      }
+      expect(board.run(command), command.action).toEqual({
+        ok: false,
+        rejection: TICKET_REJECTION.forbidden,
+      });
+    }
+
+    expect(board.state.tickets.size).toBe(STARTER_TICKETS.length);
+    expect([...board.state.tickets.values()].map(snapshot)).toEqual(before);
+  });
+
+  it("refuses an executive approving or rejecting a ticket in review", () => {
+    const board = prepared(EXEC_ACTOR);
+    for (const status of [TICKET_STATUS.done, TICKET_STATUS.in_progress]) {
+      expect(
+        board.run({ action: TICKET_ACTION.moveStatus, payload: { ticketId: "ticket-3", status } }),
+        status,
+      ).toEqual({ ok: false, rejection: TICKET_REJECTION.forbidden });
+    }
+    expect(board.ticket("ticket-3").status).toBe(TICKET_STATUS.review);
+  });
+
+  it("lets the CEO run the same commands", () => {
+    const board = prepared(CEO_ACTOR);
+    for (const command of COMMANDS) {
+      expect(board.run(command).ok, command.action).toBe(true);
+    }
+    expect(describeBoardProblems(board.state.tickets)).toEqual([]);
+  });
+
+  it("refuses an agent the CEO's actions, since it holds no role", () => {
+    const agent: TicketActor = { id: "agent-1", kind: OCCUPANT_KIND.agent, isCeo: false };
+    expect(mayActOnTicket({ actor: agent, action: TICKET_ACTION.assign })).toBe(false);
+  });
+
+  it("checks authority before anything else, so a refusal reveals nothing", () => {
+    // An executive asking about a ticket in an impossible state learns only
+    // that they may not, not whether the move would have been legal.
+    const board = prepared(EXEC_ACTOR);
+    expect(
+      board.run({
+        action: TICKET_ACTION.moveStatus,
+        payload: { ticketId: "ticket-1", status: TICKET_STATUS.done },
+      }),
+    ).toEqual({ ok: false, rejection: TICKET_REJECTION.forbidden });
+  });
+
+  it("projects an occupant's role onto the actor", () => {
+    const dana = occupant(CEO_ID, "Dana", true);
+    const milo = occupant(WORKER_ID, "Milo", false);
+    expect(ticketActorOf(dana)).toEqual(CEO_ACTOR);
+    expect(ticketActorOf(milo)).toEqual(EXEC_ACTOR);
+  });
+});
+
+describe("the authority seam", () => {
+  it("is the only gate: denying it refuses all seven commands, even the CEO's", () => {
     const board = harness({ permit: () => false });
     const before = [...board.state.tickets.values()].map(snapshot);
 
@@ -511,8 +711,15 @@ describe("the authority seam", () => {
         payload: { ticketId: "ticket-1", status: TICKET_STATUS.assigned },
       },
       { action: TICKET_ACTION.edit, payload: { ticketId: "ticket-1", title: "Denied" } },
+      {
+        action: TICKET_ACTION.setPriority,
+        payload: { ticketId: "ticket-1", priority: TICKET_PRIORITY.low },
+      },
+      { action: TICKET_ACTION.comment, payload: { ticketId: "ticket-1", text: "Denied" } },
     ];
-    expect(commands.map((command) => command.action).sort()).toEqual([...ACTIONS].sort());
+    expect(commands.map((command) => command.action).sort()).toEqual(
+      [...Object.values(TICKET_ACTION)].sort(),
+    );
 
     for (const command of commands) {
       expect(board.run(command), command.action).toEqual({
@@ -633,5 +840,24 @@ describe("the command parsers", () => {
     expect(sanitizeTicketTitle("  Fix\nthe\tredirect  ")).toBe("Fix the redirect");
     expect(sanitizeTicketBody("one\r\n\r\n\r\n\r\ntwo")).toBe("one\n\ntwo");
     expect(sanitizeTicketBody("a\u0000b\u001fc")).toBe("a b c");
+  });
+
+  it("refuse a priority that is not one of the known values", () => {
+    expect(parseTicketSetPriorityMessage({ ticketId: "ticket-1", priority: "critical" })).toBeUndefined();
+    expect(parseTicketSetPriorityMessage({ ticketId: "ticket-1", priority: TICKET_PRIORITY.low })).toEqual({
+      ticketId: "ticket-1",
+      priority: TICKET_PRIORITY.low,
+    });
+  });
+
+  it("flatten and cap a comment, and refuse one with nothing left", () => {
+    expect(parseTicketCommentMessage({ ticketId: "ticket-1", text: "  ship\nit  " })).toEqual({
+      ticketId: "ticket-1",
+      text: "ship it",
+    });
+    expect(parseTicketCommentMessage({ ticketId: "ticket-1", text: "\u0000\u0007" })).toBeUndefined();
+    expect(parseTicketCommentMessage({ text: "no ticket" })).toBeUndefined();
+    const long = parseTicketCommentMessage({ ticketId: "ticket-1", text: "x".repeat(1000) });
+    expect(long?.text).toHaveLength(MAX_COMMENT_LENGTH);
   });
 });

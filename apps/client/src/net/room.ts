@@ -21,12 +21,18 @@
  * project board's GitHub snapshot arrives the same way, whole, on joining and on
  * every change. The company's numbers do not: they are state, and are copied out
  * of each patch.
+ *
+ * A dropped socket is reconnected rather than given up on. The server holds a
+ * dropped player's place, and with it their role, for
+ * {@link RECONNECT_GRACE_SECONDS}; reconnecting inside that window resumes the
+ * same session, so a CEO whose wifi blinks is still the CEO afterwards.
  */
 
 import {
   type AgentActivity,
   ANIMATION_STATE,
   type AnimationState,
+  type CeoChangedEvent,
   type ChatEvent,
   type ChatMessage,
   CLIENT_MESSAGE,
@@ -45,18 +51,35 @@ import {
   POSE_SEND_INTERVAL_MS,
   type PoseMessage,
   type ProjectBoardSnapshot,
+  RECONNECT_GRACE_SECONDS,
   type ReportedAnimation,
   SERVER_MESSAGE,
   type ThrottledEvent,
+  type TicketRejectedEvent,
   agentAtDesk,
   isAgentEmployee,
-  isHumanPlayer,
+  isCeo,
   normalizeYaw,
   shortestYawDelta,
 } from "@sim/shared";
 import { Client, type Room, getStateCallbacks } from "colyseus.js";
 
-export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "failed";
+export type ConnectionStatus =
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected"
+  | "failed";
+
+/**
+ * The close code of a deliberate `leave()`, which is not worth reconnecting
+ * from. Colyseus' `CloseCode.CONSENTED`, which the client library does not
+ * export.
+ */
+const CONSENTED_CLOSE_CODE = 4000;
+
+/** Pause between reconnection attempts while the server's grace period lasts. */
+const RECONNECT_RETRY_MS = 1000;
 
 /** One pose as received, stamped with local arrival time. */
 interface PoseSample {
@@ -140,13 +163,20 @@ export interface RoomConnectionEvents {
    * times a second. The caller decides what is worth re-rendering.
    */
   onCompanyChanged?: (company: CompanyView) => void;
+  /** The board refused one of the local client's own ticket commands. */
+  onTicketRejected?: (event: TicketRejectedEvent) => void;
+  /** The CEO left and the role passed to someone else. */
+  onCeoChanged?: (event: CeoChangedEvent) => void;
 }
 
 export class RoomConnection {
   /** Authoritative pose of the local player, for reconciliation. */
   public readonly localServerPose = { x: 0, z: 0, yaw: 0, known: false };
 
+  private client: Client | undefined;
   private room: Room<OfficeState> | undefined;
+  /** Set by {@link leave}, so a deliberate exit is never reconnected. */
+  private leaving = false;
   private readonly views = new Map<string, OccupantView>();
   private readonly buffers = new Map<string, PoseSample[]>();
 
@@ -168,10 +198,8 @@ export class RoomConnection {
     this.events.onStatusChanged?.("connecting");
     try {
       const client = new Client(serverUrl);
-      const room = await client.joinOrCreate<OfficeState>(OFFICE_ROOM_NAME, { name });
-      this.room = room;
-      this.bind(room);
-      this.events.onStatusChanged?.("connected");
+      this.client = client;
+      this.attach(await client.joinOrCreate<OfficeState>(OFFICE_ROOM_NAME, { name }));
     } catch (error) {
       this.events.onStatusChanged?.("failed", describeError(error));
       throw error;
@@ -179,6 +207,7 @@ export class RoomConnection {
   }
 
   public async leave(): Promise<void> {
+    this.leaving = true;
     await this.room?.leave();
     this.room = undefined;
     this.views.clear();
@@ -336,6 +365,44 @@ export class RoomConnection {
     return true;
   }
 
+  private attach(room: Room<OfficeState>): void {
+    this.room = room;
+    this.bind(room);
+    this.events.onStatusChanged?.("connected");
+  }
+
+  /**
+   * Tries to resume a dropped session until the server's grace period ends.
+   *
+   * Runs on its own async path, between frames; the game loop keeps drawing
+   * the office it last knew, and nothing is sent until a room is attached
+   * again.
+   */
+  private async reconnect(token: string): Promise<void> {
+    const client = this.client;
+    if (client === undefined) {
+      return;
+    }
+    this.events.onStatusChanged?.("reconnecting");
+    const deadline = Date.now() + RECONNECT_GRACE_SECONDS * 1000;
+    while (!this.leaving && Date.now() < deadline) {
+      try {
+        const room = await client.reconnect<OfficeState>(token);
+        if (this.leaving) {
+          void room.leave();
+          return;
+        }
+        this.attach(room);
+        return;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, RECONNECT_RETRY_MS));
+      }
+    }
+    if (!this.leaving) {
+      this.events.onStatusChanged?.("disconnected");
+    }
+  }
+
   private bind(room: Room<OfficeState>): void {
     const $ = getStateCallbacks(room);
 
@@ -345,7 +412,7 @@ export class RoomConnection {
         id: sessionId,
         name: occupant.name,
         kind: occupant.kind,
-        isCeo: isHumanPlayer(occupant) && occupant.isCeo,
+        isCeo: isCeo(occupant),
         jobTitle: isAgentEmployee(occupant) ? occupant.jobTitle : "",
         activity: isAgentEmployee(occupant) ? occupant.activity : undefined,
         isLocal,
@@ -403,15 +470,34 @@ export class RoomConnection {
       this.events.onProjectBoard?.(snapshot);
     });
 
+    room.onMessage<TicketRejectedEvent>(SERVER_MESSAGE.ticketRejected, (event) => {
+      this.events.onTicketRejected?.(event);
+    });
+
+    room.onMessage<CeoChangedEvent>(SERVER_MESSAGE.ceoChanged, (event) => {
+      this.events.onCeoChanged?.(event);
+    });
+
     room.onError((code, message) => {
       this.events.onStatusChanged?.("failed", message ?? `error ${code}`);
     });
 
-    room.onLeave(() => {
+    room.onLeave((code) => {
+      // A room this connection has already moved on from has nothing to clear.
+      if (this.room !== room && this.room !== undefined) {
+        return;
+      }
       this.views.clear();
       this.buffers.clear();
       this.events.onOccupantsChanged?.();
-      this.events.onStatusChanged?.("disconnected");
+      this.room = undefined;
+      if (this.leaving || code === CONSENTED_CLOSE_CODE) {
+        this.events.onStatusChanged?.("disconnected");
+        return;
+      }
+      // Rebuilt from the full state the server sends on reconnection, which
+      // re-adds every occupant through the handlers above.
+      void this.reconnect(room.reconnectionToken);
     });
   }
 
@@ -421,19 +507,19 @@ export class RoomConnection {
     isLocal: boolean,
     view: OccupantView,
   ): void {
-    const isCeo = isHumanPlayer(occupant) && occupant.isCeo;
+    const ceo = isCeo(occupant);
     const jobTitle = isAgentEmployee(occupant) ? occupant.jobTitle : "";
     const activity = isAgentEmployee(occupant) ? occupant.activity : undefined;
     if (
       view.name !== occupant.name ||
-      view.isCeo !== isCeo ||
+      view.isCeo !== ceo ||
       view.kind !== occupant.kind ||
       view.jobTitle !== jobTitle ||
       view.activity !== activity
     ) {
       view.name = occupant.name;
       view.kind = occupant.kind;
-      view.isCeo = isCeo;
+      view.isCeo = ceo;
       view.jobTitle = jobTitle;
       view.activity = activity;
       this.events.onOccupantsChanged?.();

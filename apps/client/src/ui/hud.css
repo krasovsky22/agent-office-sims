@@ -164,6 +164,21 @@
   color: #9aa0aa;
 }
 
+/* What the local player may do at the ticket board. An executive's read-only
+   line gets the CEO gold's muted border, so the reason a control is disabled
+   is on screen before anyone has to ask. */
+.hud__role {
+  margin: 8px 0 0;
+  color: #cfd3da;
+  font-size: 11px;
+}
+
+.hud__role--readonly {
+  padding: 6px 8px;
+  border-left: 2px solid rgba(243, 207, 106, 0.5);
+  background: rgba(243, 207, 106, 0.06);
+}
+
 .hud__status--failed {
   color: #f08a7a;
 }
@@ -222,6 +237,14 @@
 
 .hud__author--you {
   color: #cfd3da;
+}
+
+/* An announcement, such as the CEO role passing on: set apart from what
+   players said so it cannot be mistaken for one of them. */
+.hud__line--system .hud__author,
+.hud__line--system .hud__said {
+  color: #f3cf6a;
+  font-style: italic;
 }
 
 .hud__said {

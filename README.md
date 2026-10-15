@@ -82,7 +82,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all thirteen:
+Then confirm all fourteen:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -97,7 +97,12 @@ Then confirm all thirteen:
    reachable through a doorway.
 4. **Closing a tab removes that avatar** from the other tab within about a
    second, and reopening it rejoins cleanly. If the CEO is the one who left, the
-   title passes to the player who has been in the office longest.
+   title passes to the connected player who has been in the office longest
+   (one whose connection has dropped is passed over while anyone else is
+   left), and every tab's chat log announces who the new CEO is. A dropped
+   connection is not a leave: the server holds the player's place, role
+   included, for `RECONNECT_GRACE_SECONDS`, and the client reconnects as the
+   same person.
 5. **An emote in one tab appears in the other.** Press `1`; the other tab shows
    it above that avatar within normal latency, and it clears after a couple of
    seconds. Say something and the bubble does the same, for longer, and the line
@@ -150,13 +155,20 @@ Then confirm all thirteen:
     prompt reads `Sit down — taken`; `E` does nothing. Start the server with `AGENT_COUNT=0`
     and the floor is empty of them, or with `AGENT_COUNT=8` and every agent
     desk is taken.
-13. **`pnpm typecheck` passes** across the whole repository.
+13. **Only the CEO runs the ticket board.** Milo's roster panel says the board
+    is read-only for him, names Dana as the CEO, and says what he can still do:
+    read it and comment. Dana's says she runs it. The rule is the server's, not
+    the panel's — a ticket command Milo sends straight down the socket is
+    refused with the board unchanged, and his tab says "Only the CEO can do
+    that." `apps/server/src/rooms/OfficeRoom.test.ts` checks exactly that
+    against a live room.
+14. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets, company metrics and clock, messages, expression limits, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing
+pnpm test        # collision, floor plan, pathfinding, interaction, tickets and CEO authority, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the project board's GitHub feed and filters, agent staffing
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -284,7 +296,7 @@ thing the page talks to is the WebSocket.
 - `GET /health` on the server returns `{"status":"ok"}`. This is what the
   platform probes, and the only HTTP the server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same twelve things.
+  [The two-tab check](#the-two-tab-check), and confirm the same thirteen things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -308,12 +320,14 @@ packages/shared/   @sim/shared   the contract both sides import
   src/interaction.ts  what each interactable does, and who may use it
   src/constants.ts    tick rate, speeds, radii, ranges, expression limits
 apps/server/       @sim/server   Colyseus room and simulation tick
-  src/sim/expression.ts   per-occupant emote and chat budgets
+  src/sim/expression.ts   per-occupant emote, chat and comment budgets
   src/sim/company.ts      the company clock, stepped by the simulation tick
   src/sim/agents.ts       hiring the agent employees when a room opens
+  src/sim/roles.ts        who holds the CEO role, and who inherits it
   src/github/             the project board's feed: fetch, bucket, poll
   src/work/               ticket work: the executor, its budget, mock and model providers
 apps/client/       @sim/client   Three.js scene, React HUD overlay
+  src/boardAccess.ts      what the local player may do at the ticket board, and why
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
@@ -343,9 +357,14 @@ Nine things are worth knowing before changing anything:
   is what everyone else sees.
 - **The board is server-authoritative, and has one gate.** A client asks; the
   server decides. `shared/tickets.ts` holds the legal status transitions and
-  `mayActOnTicket`, the single predicate every command is checked against. It is
-  permissive for now; the CEO-only rules replace that one body rather than
-  adding a check anywhere else.
+  `mayActOnTicket`, the single predicate every command is checked against. It
+  reads `TICKET_ACTION_AUTHORITY`: creating, assigning, moving (approving and
+  rejecting included), editing and prioritising tickets are the CEO's, and
+  commenting is open to everyone. The client asks the same predicate, through
+  `client/boardAccess.ts`, to disable a control and say why — never to decide.
+  Exactly one player holds the CEO role while anyone is in the office;
+  `server/sim/roles.ts` assigns it on arrival and passes it on, in the same
+  patch as the departure, when its holder leaves.
 - **The furniture is data too, and only some of it collides.** `shared/props.ts`
   derives every prop from the floor plan — a chair and a screen per workstation, a
   frame in every doorway gap, a plant in each room — so a layout change furnishes

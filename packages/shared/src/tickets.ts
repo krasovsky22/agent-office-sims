@@ -11,10 +11,10 @@
  *
  * - {@link TICKET_TRANSITIONS}, the legal status edges, so a client that asks
  *   for an arbitrary jump is rejected rather than obeyed.
- * - {@link mayActOnTicket}, the one place authority is decided. It is
- *   permissive today; the CEO-only rules are a later issue, and the point of
- *   funnelling every command through one predicate is that the issue is a
- *   single edit rather than a hunt.
+ * - {@link mayActOnTicket}, the one place authority is decided, reading the
+ *   {@link TICKET_ACTION_AUTHORITY} table: the CEO runs the board, and everyone
+ *   else may read it and comment. The client runs the same predicate to grey
+ *   out a control, so what the panel offers is what the server will accept.
  * - {@link applyTicketCommand}, which validates a parsed command against the
  *   live board and mutates it, or rejects it and leaves the board untouched.
  *
@@ -24,19 +24,25 @@
 
 import { type MapSchema } from "@colyseus/schema";
 
+import { MAX_TICKET_COMMENTS } from "./constants.js";
 import {
   type Occupant,
   SYSTEM_AUTHOR_ID,
   TICKET_STATUS,
   Ticket,
+  TicketComment,
   type TicketStatus,
   type OccupantKind,
+  isCeo,
+  isTicketPriority,
 } from "./state.js";
 import {
   type TicketAssignMessage,
+  type TicketCommentMessage,
   type TicketCreateMessage,
   type TicketEditMessage,
   type TicketMoveStatusMessage,
+  type TicketSetPriorityMessage,
   type TicketUnassignMessage,
 } from "./messages.js";
 
@@ -89,20 +95,70 @@ export const TICKET_ACTION = {
   unassign: "unassign",
   moveStatus: "move-status",
   edit: "edit",
+  setPriority: "set-priority",
+  comment: "comment",
 } as const;
 
 export type TicketAction = (typeof TICKET_ACTION)[keyof typeof TICKET_ACTION];
+
+/** Who an action is open to. */
+export const TICKET_AUTHORITY = {
+  /** Only the player holding the CEO role. */
+  ceo: "ceo",
+  /** Anyone in the office. */
+  anyone: "anyone",
+} as const;
+
+export type TicketAuthority = (typeof TICKET_AUTHORITY)[keyof typeof TICKET_AUTHORITY];
+
+/**
+ * Who may perform each action: the board's authority rules, as data.
+ *
+ * The CEO decides and everyone else watches and advises, so every action that
+ * changes what a ticket is, who owns it, where it stands or how much it matters
+ * is the CEO's. That covers approving (`review` -> `done`) and rejecting
+ * (`review` -> `in_progress`) along with every other status move: in this
+ * milestone the only people in the office are players, and the assignee's own
+ * moves — starting work, handing it in — belong to the agent employees, whose
+ * authority is added here when they arrive rather than guessed at now.
+ *
+ * Commenting is the exception, open to everyone, because it is how an
+ * executive advises on a ticket they may not move.
+ *
+ * Typed as a full record so that adding an action without deciding who may
+ * perform it does not compile.
+ */
+export const TICKET_ACTION_AUTHORITY: Readonly<Record<TicketAction, TicketAuthority>> = {
+  [TICKET_ACTION.create]: TICKET_AUTHORITY.ceo,
+  [TICKET_ACTION.assign]: TICKET_AUTHORITY.ceo,
+  [TICKET_ACTION.unassign]: TICKET_AUTHORITY.ceo,
+  [TICKET_ACTION.moveStatus]: TICKET_AUTHORITY.ceo,
+  [TICKET_ACTION.edit]: TICKET_AUTHORITY.ceo,
+  [TICKET_ACTION.setPriority]: TICKET_AUTHORITY.ceo,
+  [TICKET_ACTION.comment]: TICKET_AUTHORITY.anyone,
+};
 
 /**
  * Who is asking.
  *
  * A projection of {@link Occupant} rather than the occupant itself, so the
  * authority rules cannot come to depend on a position or an animation state.
+ * Build one with {@link ticketActorOf} rather than by hand.
  */
 export interface TicketActor {
   readonly id: string;
   readonly kind: OccupantKind;
   readonly isCeo: boolean;
+}
+
+/**
+ * Projects an occupant to the actor the authority rule judges.
+ *
+ * Shared so that the server judging a command and the client deciding whether
+ * to offer it read the role the same way.
+ */
+export function ticketActorOf(occupant: Occupant): TicketActor {
+  return { id: occupant.id, kind: occupant.kind, isCeo: isCeo(occupant) };
 }
 
 /** A single authority question: may this actor do this to this ticket? */
@@ -117,20 +173,26 @@ export interface TicketPermissionQuery {
 export type TicketPermission = (query: TicketPermissionQuery) => boolean;
 
 /**
- * Whether an actor may perform an action. **The seam, and permissive for now.**
+ * Whether an actor may perform an action. **The one authority gate.**
  *
  * Every path in {@link applyTicketCommand} consults this exactly once, before
  * it validates anything else, and nothing else in the codebase decides ticket
- * authority. The issue that makes the board CEO-only replaces this body; it
- * should not need to touch a handler, a message parser, or the transition
- * table.
+ * authority: not a handler, not a message parser, not the transition table.
+ * The client asks it too, to show a control as disabled rather than to decide
+ * anything.
  *
- * It returns a plain boolean on purpose. A reason string would be a second
- * thing for the replacement to get right, and the caller already turns a `false`
- * into {@link TICKET_REJECTION.forbidden}.
+ * Reads {@link TICKET_ACTION_AUTHORITY} and nothing about the ticket, which is
+ * passed so that a later rule — an agent moving the ticket it owns — can be
+ * added here without changing a caller.
+ *
+ * It returns a plain boolean on purpose. The caller already turns a `false`
+ * into {@link TICKET_REJECTION.forbidden}, and the reason a player is refused
+ * is always the same one: they are not the CEO.
  */
-export function mayActOnTicket(_query: TicketPermissionQuery): boolean {
-  return true;
+export function mayActOnTicket(query: TicketPermissionQuery): boolean {
+  return (
+    TICKET_ACTION_AUTHORITY[query.action] === TICKET_AUTHORITY.anyone || query.actor.isCeo
+  );
 }
 
 /** Why a command was refused. Rejection never changes the board. */
@@ -145,7 +207,10 @@ export const TICKET_REJECTION = {
   unknownAssignee: "unknown-assignee",
   /** The move would leave a non-`backlog` ticket with no assignee. */
   missingAssignee: "missing-assignee",
-  /** An edit that would change nothing, or clear the title entirely. */
+  /**
+   * An edit that would change nothing, or clear the title entirely; also a
+   * priority change to the priority the ticket already has.
+   */
   emptyEdit: "empty-edit",
 } as const;
 
@@ -160,7 +225,12 @@ export type TicketCommand =
       readonly action: typeof TICKET_ACTION.moveStatus;
       readonly payload: TicketMoveStatusMessage;
     }
-  | { readonly action: typeof TICKET_ACTION.edit; readonly payload: TicketEditMessage };
+  | { readonly action: typeof TICKET_ACTION.edit; readonly payload: TicketEditMessage }
+  | {
+      readonly action: typeof TICKET_ACTION.setPriority;
+      readonly payload: TicketSetPriorityMessage;
+    }
+  | { readonly action: typeof TICKET_ACTION.comment; readonly payload: TicketCommentMessage };
 
 /**
  * Everything a command needs that is not in its own payload.
@@ -234,6 +304,10 @@ export function applyTicketCommand(
       return moveTicketStatus(ticket, command.payload, context);
     case TICKET_ACTION.edit:
       return editTicket(ticket, command.payload, context);
+    case TICKET_ACTION.setPriority:
+      return setTicketPriority(ticket, command.payload, context);
+    case TICKET_ACTION.comment:
+      return commentOnTicket(ticket, command.payload, context);
   }
 }
 
@@ -365,6 +439,46 @@ function editTicket(
   return { ok: true, ticket };
 }
 
+/** Re-ranks a ticket. Finished work may be re-ranked; it changes no record. */
+function setTicketPriority(
+  ticket: Ticket,
+  payload: TicketSetPriorityMessage,
+  context: TicketCommandContext,
+): TicketCommandResult {
+  if (payload.priority === ticket.priority) {
+    return reject(TICKET_REJECTION.emptyEdit);
+  }
+
+  ticket.priority = payload.priority;
+  ticket.updatedAt = context.now;
+  return { ok: true, ticket };
+}
+
+/**
+ * Appends a comment, dropping the oldest once the ticket is at
+ * {@link MAX_TICKET_COMMENTS}.
+ *
+ * Allowed on a ticket in any status, `done` included: a remark about finished
+ * work changes no record of who did it.
+ */
+function commentOnTicket(
+  ticket: Ticket,
+  payload: TicketCommentMessage,
+  context: TicketCommandContext,
+): TicketCommandResult {
+  const comment = new TicketComment();
+  comment.authorId = context.actor.id;
+  comment.text = payload.text;
+  comment.createdAt = context.now;
+
+  while (ticket.comments.length >= MAX_TICKET_COMMENTS) {
+    ticket.comments.shift();
+  }
+  ticket.comments.push(comment);
+  ticket.updatedAt = context.now;
+  return { ok: true, ticket };
+}
+
 /**
  * Text of the tickets a fresh room starts with.
  *
@@ -405,7 +519,7 @@ export const STARTER_TICKETS: readonly { readonly title: string; readonly body: 
  * Attributed to {@link SYSTEM_AUTHOR_ID} rather than to a player, since the
  * room writes them before anyone has joined. Bypasses
  * {@link applyTicketCommand} deliberately: a seed is not an actor's command and
- * should not be subject to an authority rule that a later issue may tighten.
+ * is not subject to the authority rule, which no actor exists yet to satisfy.
  */
 export function seedBoard(
   board: MapSchema<Ticket>,
@@ -446,6 +560,12 @@ export function describeBoardProblems(board: MapSchema<Ticket>): string[] {
     }
     if (ticket.updatedAt < ticket.createdAt) {
       problems.push(`ticket ${ticket.id} was updated before it was created`);
+    }
+    if (!isTicketPriority(ticket.priority)) {
+      problems.push(`ticket ${ticket.id} has unknown priority "${ticket.priority}"`);
+    }
+    if (ticket.comments.length > MAX_TICKET_COMMENTS) {
+      problems.push(`ticket ${ticket.id} holds ${ticket.comments.length} comments`);
     }
   }
   return problems;

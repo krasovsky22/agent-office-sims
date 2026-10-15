@@ -10,6 +10,8 @@
 import {
   CHAT_BURST_ALLOWANCE,
   CHAT_REFILL_PER_SECOND,
+  CLIENT_MESSAGE,
+  COMMENT_BURST_ALLOWANCE,
   EMOTE_BURST_ALLOWANCE,
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
@@ -95,10 +97,19 @@ describe("createExpressionBudget", () => {
     expect(tryConsume(budget.emote, 0)).toBe(true);
   });
 
-  it("starts both buckets full, from the shared allowances", () => {
+  it("starts every bucket full, from the shared allowances", () => {
     const budget = createExpressionBudget(0);
     expect(allowedOf(budget.emote, 50, 0)).toBe(EMOTE_BURST_ALLOWANCE);
     expect(allowedOf(budget.chat, 50, 0)).toBe(CHAT_BURST_ALLOWANCE);
+    expect(allowedOf(budget[CLIENT_MESSAGE.ticketComment], 50, 0)).toBe(COMMENT_BURST_ALLOWANCE);
+  });
+
+  it("limits ticket comments apart from chat", () => {
+    const budget = createExpressionBudget(0);
+    allowedOf(budget[CLIENT_MESSAGE.ticketComment], COMMENT_BURST_ALLOWANCE, 0);
+
+    expect(tryConsume(budget[CLIENT_MESSAGE.ticketComment], 0)).toBe(false);
+    expect(tryConsume(budget.chat, 0)).toBe(true);
   });
 
   it("refills chat at the shared rate", () => {
