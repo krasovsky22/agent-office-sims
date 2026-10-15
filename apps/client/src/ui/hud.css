@@ -137,6 +137,22 @@
   color: #7fe3d6;
 }
 
+.hud__occupant--simulated .hud__name {
+  opacity: 0.7;
+}
+
+/* Grey and outlined, unlike the CEO badge, so it reads as "not live". */
+.hud__simulated {
+  padding: 0 5px;
+  border: 1px solid rgba(180, 185, 196, 0.5);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #b4b9c4;
+}
+
 .hud__activity {
   margin-left: auto;
   font-size: 11px;

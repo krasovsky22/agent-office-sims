@@ -25,7 +25,7 @@ import {
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { CompanyReadout } from "../companyReadout.js";
-import { AGENT_ACTIVITY_APPEARANCE } from "../agentActivity.js";
+import { AGENT_ACTIVITY_APPEARANCE, SIMULATED_LABEL, isSimulated } from "../agentActivity.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ConnectionStatus } from "../net/room.js";
@@ -363,14 +363,21 @@ function PersonRow({ entry }: { entry: RosterEntry }) {
   );
 }
 
-/** One agent's line: its name and title, and the same activity its badge shows. */
+/**
+ * One agent's line: its name and title, the simulated tag its nameplate also
+ * carries when it is simulated, and the same activity its badge shows.
+ */
 function AgentRow({ entry }: { entry: RosterEntry }) {
   const appearance =
     entry.activity === undefined ? undefined : AGENT_ACTIVITY_APPEARANCE[entry.activity];
+  const simulated = isSimulated(entry.kind);
   return (
-    <li className="hud__occupant hud__occupant--agent">
+    <li
+      className={`hud__occupant hud__occupant--agent${simulated ? " hud__occupant--simulated" : ""}`}
+    >
       <span className="hud__name">{entry.name}</span>
       <span className="hud__title-of">{entry.jobTitle}</span>
+      {simulated ? <span className="hud__simulated">{SIMULATED_LABEL}</span> : null}
       {appearance === undefined ? null : (
         <span className="hud__activity" style={{ color: appearance.colour }}>
           {appearance.label}
