@@ -29,6 +29,15 @@
 
 import { MapSchema, Schema, defineTypes } from "@colyseus/schema";
 
+import {
+  COMPANY_STATUS,
+  type CompanyStatus,
+  STARTING_CASH,
+  STARTING_MINUTE_OF_DAY,
+  STARTING_MORALE,
+  STARTING_PRODUCTIVITY,
+} from "./company.js";
+
 /** What sort of thing an occupant is. */
 export const OCCUPANT_KIND = {
   human: "human",
@@ -226,16 +235,61 @@ defineTypes(Ticket, {
  */
 export const SYSTEM_AUTHOR_ID = "system";
 
+/**
+ * The company's vital signs and the in-game clock that moves them.
+ *
+ * Only the server writes these. The numbers come from `company.ts`, where every
+ * starting value and every formula lives, so the constructor reads its defaults
+ * from there rather than writing a second copy of them here.
+ *
+ * Cash is whole currency units under `number`, which is variable-length on the
+ * wire and exact as a double; morale and productivity are 0–100 under `number`
+ * too, so a formula that produces a fraction replicates it rather than having a
+ * narrower type truncate it. The clock replicates at whole-minute resolution:
+ * the server keeps the fraction to itself.
+ */
+export class Company extends Schema {
+  declare public cash: number;
+  declare public morale: number;
+  declare public productivity: number;
+  /** The in-game day, counting from 1. */
+  declare public day: number;
+  /** Minutes since midnight of {@link day}, 0 to 1439. */
+  declare public minuteOfDay: number;
+  declare public status: CompanyStatus;
+
+  public constructor() {
+    super();
+    this.cash = STARTING_CASH;
+    this.morale = STARTING_MORALE;
+    this.productivity = STARTING_PRODUCTIVITY;
+    this.day = 1;
+    this.minuteOfDay = STARTING_MINUTE_OF_DAY;
+    this.status = COMPANY_STATUS.operating;
+  }
+}
+
+defineTypes(Company, {
+  cash: "number",
+  morale: "number",
+  productivity: "number",
+  day: "uint16",
+  minuteOfDay: "uint16",
+  status: "string",
+});
+
 export class OfficeState extends Schema {
   declare public occupants: MapSchema<Occupant>;
   /** The ticket board, keyed by {@link Ticket.id}. */
   declare public tickets: MapSchema<Ticket>;
+  declare public company: Company;
   declare public tick: number;
 
   public constructor() {
     super();
     this.occupants = new MapSchema<Occupant>();
     this.tickets = new MapSchema<Ticket>();
+    this.company = new Company();
     this.tick = 0;
   }
 }
@@ -243,6 +297,7 @@ export class OfficeState extends Schema {
 defineTypes(OfficeState, {
   occupants: { map: Occupant },
   tickets: { map: Ticket },
+  company: Company,
   tick: "uint32",
 });
 

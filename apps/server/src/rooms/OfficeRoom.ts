@@ -21,6 +21,8 @@
  *
  * The board's rules are not here. `ticketHandlers.ts` wires the five commands
  * up and `@sim/shared`'s `tickets.ts` decides what each one is allowed to do.
+ * Nor are the company's: the tick steps `sim/company.ts`'s clock, and every
+ * number that clock moves is decided in `@sim/shared`'s `company.ts`.
  *
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
  * one feed polls GitHub on its own timer and is handed to every room as a room option;
@@ -50,6 +52,7 @@ import {
 } from "@sim/shared";
 
 import type { ProjectBoardSource } from "../github/feed.js";
+import { type CompanyClock, createCompanyClock, stepCompany } from "../sim/company.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import { type ExpressionBudget, createExpressionBudget, tryConsume } from "../sim/expression.js";
 import {
@@ -101,6 +104,9 @@ export class OfficeRoom extends Room<OfficeState> {
   /** Assigned in `onCreate`, once the state it reads exists. */
   private interaction!: InteractionHost;
 
+  /** The server-only half of the company clock; assigned in `onCreate`. */
+  private companyClock!: CompanyClock;
+
   private spawnCursor = 0;
   private hireCount = 0;
 
@@ -117,6 +123,7 @@ export class OfficeRoom extends Room<OfficeState> {
       holds: this.holds,
       lastUsedAt: new Map(),
     };
+    this.companyClock = createCompanyClock(this.state.company, this.clock.currentTime);
 
     const source = (options as Partial<OfficeRoomOptions> | undefined)?.projectBoard;
     if (isProjectBoardSource(source)) {
@@ -282,6 +289,8 @@ export class OfficeRoom extends Room<OfficeState> {
         occupant.animation = ANIMATION_STATE.idle;
       }
     }
+
+    stepCompany(this.state.company, this.companyClock, this.state.tickets, now);
   }
 
   /**

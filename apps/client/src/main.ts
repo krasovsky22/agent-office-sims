@@ -28,6 +28,7 @@ import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import * as THREE from "three";
 
+import { readCompany, sameReadout } from "./companyReadout.js";
 import { RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
 import { PlayerController } from "./player/controller.js";
@@ -303,6 +304,15 @@ function start(): void {
     onProjectBoard: (snapshot) => {
       wallBoard?.show(snapshot);
       publishHud({ projectBoard: snapshot });
+    },
+
+    // Arrives with nearly every patch, because the clock is in it; React only
+    // hears about the ones that change what is on screen.
+    onCompanyChanged: (view) => {
+      const company = readCompany(view);
+      if (!sameReadout(hud.company, company)) {
+        publishHud({ company });
+      }
     },
   });
 

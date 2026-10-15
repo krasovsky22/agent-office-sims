@@ -3,9 +3,9 @@
  *
  * React's whole job in this prototype is this layer. The scene is an imperative
  * Three.js loop and stays that way: the loop runs every frame, while the HUD
- * re-renders only when the roster, the connection state, or the chat log
- * actually changes. Driving the scene through React would put a reconciler on
- * the frame budget for no benefit.
+ * re-renders only when the roster, the connection state, the chat log, or what
+ * the company readout shows actually changes. Driving the scene through React
+ * would put a reconciler on the frame budget for no benefit.
  *
  * The store below is the seam between the two. The game loop pushes snapshots
  * into it; React subscribes. Chat and emotes travel the other way, through
@@ -16,9 +16,11 @@
 import { EMOTES, type Emote, MAX_CHAT_LENGTH, type ProjectBoardSnapshot } from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import type { CompanyReadout } from "../companyReadout.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ConnectionStatus } from "../net/room.js";
+import { CompanyEndState, CompanyPanel } from "./CompanyPanel.js";
 import { ProjectBoardPanel } from "./ProjectBoardPanel.js";
 
 import "./hud.css";
@@ -89,6 +91,8 @@ export interface HudSnapshot {
   readonly projectBoard?: ProjectBoardSnapshot;
   /** Whether the local player opened the board's close-up with `E` at its prompt. */
   readonly boardCloseUp: boolean;
+  /** The company's numbers as shown; absent until the first patch carries them. */
+  readonly company?: CompanyReadout;
 }
 
 export interface HudActions {
@@ -335,6 +339,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     debug,
     projectBoard,
     boardCloseUp,
+    company,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
 
@@ -346,6 +351,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       </div>
 
       <div className="hud__column">
+        <CompanyPanel readout={company} />
+
         <div className="hud__panel">
           <h2 className="hud__title">In the office ({roster.length})</h2>
           {roster.length === 0 ? (
@@ -387,6 +394,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       {boardCloseUp ? (
         <ProjectBoardPanel snapshot={projectBoard} />
       ) : null}
+
+      {company?.bankrupt === true ? <CompanyEndState readout={company} /> : null}
 
       <div className="hud__column hud__column--right">
         <div className="hud__panel hud__panel--chat">
