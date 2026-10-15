@@ -23,7 +23,9 @@
  *
  * After every wait the ticket is checked again, because the CEO may have
  * moved or reassigned it in the meantime; a ticket that is no longer this
- * agent's to work is put down, not finished.
+ * agent's to work is put down, not finished. The work call is watched the
+ * same way while it runs, and cancelled the moment the ticket moves on, so a
+ * reassigned ticket is free for its new owner at once.
  *
  * A failed work call — a provider error, a timeout, a spent budget — leaves
  * the agent `blocked` and the ticket where it was, still assigned, with the
@@ -121,12 +123,8 @@ export class AgentBrain {
       return;
     }
     this.stopped = true;
-    clearTimeout(this.timer);
-    this.timer = undefined;
     this.abort.abort();
-    const wake = this.wake;
-    this.wake = undefined;
-    wake?.();
+    this.interrupt();
   }
 
   /** Whether the loop is going: started, and not yet stopped. */
@@ -198,15 +196,23 @@ export class AgentBrain {
 
     // The ticket as it reads now, in case the CEO edited it during the walk.
     const brief = this.host.tickets.state.tickets.get(ticketId) ?? ticket;
-    const result = await this.host.executor.work(
-      { id: ticketId, title: brief.title, body: brief.body },
-      { agentName: seated.name, jobTitle: seated.jobTitle },
-      this.abort.signal,
+    const work = new AbortController();
+    const finished = await this.whileWorkable(
+      ticketId,
+      this.host.executor.work(
+        { id: ticketId, title: brief.title, body: brief.body },
+        { agentName: seated.name, jobTitle: seated.jobTitle },
+        AbortSignal.any([this.abort.signal, work.signal]),
+      ),
     );
+    if (finished === undefined) {
+      work.abort();
+    }
     const worked = this.resume(ticketId);
-    if (worked === undefined) {
+    if (worked === undefined || finished === undefined) {
       return;
     }
+    const { result } = finished;
     if (worked.interactableId !== "" && worked.animation === ANIMATION_STATE.typing) {
       worked.animation = ANIMATION_STATE.sitting;
     }
@@ -355,6 +361,46 @@ export class AgentBrain {
         return;
       }
     }
+  }
+
+  /**
+   * Waits on `work`, checking on the brain's own timer that the ticket is
+   * still this agent's to work. `undefined` when it stopped being so, or the
+   * brain stopped, before the work was done.
+   */
+  private async whileWorkable<T>(
+    ticketId: string,
+    work: Promise<T>,
+  ): Promise<{ readonly result: T } | undefined> {
+    let watching = true;
+    let settled = false;
+    const done = work.finally(() => {
+      settled = true;
+      if (watching) {
+        this.interrupt();
+      }
+    });
+    done.catch(() => undefined);
+    try {
+      while (!settled) {
+        await this.sleep(SETTLE_POLL_MS);
+        if (!settled && (this.stopped || !this.isWorkable(ticketId))) {
+          return undefined;
+        }
+      }
+      return { result: await done };
+    } finally {
+      watching = false;
+    }
+  }
+
+  /** Ends the wait in progress, if there is one, now. */
+  private interrupt(): void {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    const wake = this.wake;
+    this.wake = undefined;
+    wake?.();
   }
 
   /** A wait {@link stop} can end early, and the brain's only timer. */

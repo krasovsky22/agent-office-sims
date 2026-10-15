@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type TicketHost, createTicketIdFactory, seedTicketBoard } from "../rooms/ticketHandlers.js";
 import { WORK_FAILURE, type WorkContext, type WorkExecutor, type WorkResult, type WorkTicket } from "../work/executor.js";
-import { AgentBrain, BRAIN_POLL_MS } from "./agentBrain.js";
+import { AgentBrain, BRAIN_POLL_MS, SETTLE_POLL_MS } from "./agentBrain.js";
 import { AgentMotion } from "./agentMotion.js";
 import { hireAgentEmployees } from "./agents.js";
 import { HoldRegistry, type InteractionHost } from "./interaction.js";
@@ -308,6 +308,54 @@ describe("every agent at once", () => {
     clearInterval(watch);
     expect(both).toBe(false);
     expect(office.ticket("ticket-1").outputArtifact).toBe("Bo's draft.");
+  });
+
+  it("drops work in flight the moment its ticket is reassigned, so the new owner starts at once", async () => {
+    const office = openOffice(2);
+    const ada = agentAt(office, 0);
+    const bo = agentAt(office, 1);
+    assign(office, "ticket-1", ada);
+    await until(() => office.calls.length === 1);
+
+    assign(office, "ticket-1", bo);
+    // Ada's call never answers on its own; she still lets go of the ticket.
+    await vi.advanceTimersByTimeAsync(2 * SETTLE_POLL_MS);
+    expect(office.calls[0]?.signal?.aborted).toBe(true);
+    expect(ada.currentTicketId).toBe("");
+    expect(ada.activity).not.toBe(AGENT_ACTIVITY.working);
+
+    await until(() => office.calls.length === 2);
+    expect(office.calls[1]?.context.agentName).toBe(bo.name);
+    expect(office.ticket("ticket-1").outputArtifact).toBe("");
+    await until(() => ada.activity === AGENT_ACTIVITY.idle);
+
+    office.calls[0]?.finish(success("Ada's draft, too late."));
+    office.calls[1]?.finish(success("Bo's draft."));
+    await until(() => office.ticket("ticket-1").status === TICKET_STATUS.review);
+    expect(office.ticket("ticket-1").outputArtifact).toBe("Bo's draft.");
+  });
+
+  it("drops work in flight when the CEO moves its ticket back to assigned, then starts over", async () => {
+    const office = openOffice();
+    const ada = agentAt(office, 0);
+    assign(office, "ticket-1", ada);
+    await until(() => office.calls.length === 1);
+
+    office.ceo({
+      action: TICKET_ACTION.moveStatus,
+      payload: { ticketId: "ticket-1", status: TICKET_STATUS.assigned },
+    });
+    await vi.advanceTimersByTimeAsync(2 * SETTLE_POLL_MS);
+    expect(office.calls[0]?.signal?.aborted).toBe(true);
+    expect(ada.currentTicketId).toBe("");
+    expect(office.ticket("ticket-1").outputArtifact).toBe("");
+
+    await until(() => office.calls.length === 2);
+    expect(office.calls[1]?.signal?.aborted).toBe(false);
+    office.calls[0]?.finish(success("Stale draft."));
+    office.calls[1]?.finish(success("Fresh draft."));
+    await until(() => office.ticket("ticket-1").status === TICKET_STATUS.review);
+    expect(office.ticket("ticket-1").outputArtifact).toBe("Fresh draft.");
   });
 });
 
