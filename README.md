@@ -376,7 +376,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/assets/office-kit/ the vendored models, and their licence
 ```
 
-Ten things are worth knowing before changing anything:
+Eleven things are worth knowing before changing anything:
 
 - **The floor plan is data.** `shared/layout.ts` is the only place a wall
   position exists. The client builds meshes from it and the server collides
@@ -448,7 +448,8 @@ Ten things are worth knowing before changing anything:
   `applyTicketCommand` and authority gate as a player's, with the agent as the
   actor: the assignee may claim, attach a deliverable and hand in, and nothing
   else, so assignment and approval stay the CEO's. The ticket is re-checked
-  after every wait, so work the CEO moved or reassigned meanwhile is put down
+  after every wait, and watched while the work call runs, so work the CEO
+  moved or reassigned meanwhile is put down — the call cancelled at once —
   rather than delivered, and closing the room stops every brain, aborting work
   in flight, before anything else is torn down.
 - **The company's numbers have one home.** Every starting value, the clock's
