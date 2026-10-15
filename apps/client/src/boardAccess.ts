@@ -64,6 +64,7 @@ const REJECTION_TEXT: Readonly<Record<TicketRejection, string>> = {
   [TICKET_REJECTION.unknownAssignee]: "That person is no longer in the office.",
   [TICKET_REJECTION.missingAssignee]: "Assign the ticket to someone first.",
   [TICKET_REJECTION.emptyEdit]: "That would not change anything.",
+  [TICKET_REJECTION.missingArtifact]: "That ticket has no deliverable to hand in yet.",
 };
 
 /** What to tell the player when the server refuses one of their commands. */

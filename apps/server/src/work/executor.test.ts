@@ -199,3 +199,65 @@ describe("provider errors", () => {
     expect(result).toMatchObject({ ok: false, reason: WORK_FAILURE.providerError, tokensUsed: 5 });
   });
 });
+
+describe("cancellation", () => {
+  it("ends a call in flight at once, aborting the provider and leaving no timer", async () => {
+    vi.useFakeTimers();
+    const { provider, aborted } = hanging();
+    const executor = createWorkExecutor({ provider, timeoutMs: 60_000 });
+    const controller = new AbortController();
+
+    const pending = executor.work(TICKET, CONTEXT, controller.signal);
+    await vi.advanceTimersByTimeAsync(1_000);
+    controller.abort();
+    const result = await pending;
+
+    expect(result).toMatchObject({ ok: false, reason: WORK_FAILURE.cancelled, attempts: 1 });
+    expect(aborted).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("stops a mock mid-delay", async () => {
+    vi.useFakeTimers();
+    const executor = createWorkExecutor({
+      provider: createMockProvider({ minDelayMs: 5_000, maxDelayMs: 5_000 }),
+    });
+    const controller = new AbortController();
+
+    const pending = executor.work(TICKET, CONTEXT, controller.signal);
+    await vi.advanceTimersByTimeAsync(2_000);
+    controller.abort();
+
+    expect(await pending).toMatchObject({ ok: false, reason: WORK_FAILURE.cancelled });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cuts a backoff short, and makes no further attempt", async () => {
+    vi.useFakeTimers();
+    const provider = vi.fn<WorkProvider>(() =>
+      Promise.reject(new WorkProviderError("overloaded", { retryable: true })),
+    );
+    const executor = createWorkExecutor({ provider, backoffMs: 10_000, random: () => 0.5 });
+    const controller = new AbortController();
+
+    const pending = executor.work(TICKET, CONTEXT, controller.signal);
+    await vi.advanceTimersByTimeAsync(1_000);
+    controller.abort();
+
+    expect(await pending).toMatchObject({ ok: false, reason: WORK_FAILURE.cancelled, attempts: 1 });
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("spends nothing when the signal has already aborted", async () => {
+    const budget = new CallBudget({ perDay: 1, perRun: 1 });
+    const provider = vi.fn<WorkProvider>();
+    const executor = createWorkExecutor({ provider, budget });
+
+    const result = await executor.work(TICKET, CONTEXT, AbortSignal.abort());
+
+    expect(result).toMatchObject({ ok: false, reason: WORK_FAILURE.cancelled, attempts: 0 });
+    expect(provider).not.toHaveBeenCalled();
+    expect(budget.take()).toEqual({ ok: true });
+  });
+});

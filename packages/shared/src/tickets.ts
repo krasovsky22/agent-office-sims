@@ -7,16 +7,19 @@
  * a drag target, but the copy here is the authority and the only one that
  * decides whether state changes.
  *
- * Three things live here:
+ * Four things live here:
  *
  * - {@link TICKET_TRANSITIONS}, the legal status edges, so a client that asks
  *   for an arbitrary jump is rejected rather than obeyed.
  * - {@link mayActOnTicket}, the one place authority is decided, reading the
- *   {@link TICKET_ACTION_AUTHORITY} table: the CEO runs the board, and everyone
- *   else may read it and comment. The client runs the same predicate to grey
- *   out a control, so what the panel offers is what the server will accept.
+ *   {@link TICKET_ACTION_AUTHORITY} table: the CEO runs the board, the agent
+ *   employee a ticket is assigned to does the work on it, and everyone else
+ *   may read it and comment. The client runs the same predicate to grey out a
+ *   control, so what the panel offers is what the server will accept.
  * - {@link applyTicketCommand}, which validates a parsed command against the
  *   live board and mutates it, or rejects it and leaves the board untouched.
+ * - {@link ticketForAgent}, which ticket an agent employee should pick up
+ *   next, so that two agents can never be working the same one.
  *
  * Everything is synchronous and allocation-light, so a command handler can run
  * inside the room without the simulation tick ever having to wait on it.
@@ -26,13 +29,16 @@ import { type MapSchema } from "@colyseus/schema";
 
 import { MAX_TICKET_COMMENTS } from "./constants.js";
 import {
+  OCCUPANT_KIND,
   type Occupant,
   SYSTEM_AUTHOR_ID,
+  TICKET_PRIORITIES,
   TICKET_STATUS,
   Ticket,
   TicketComment,
   type TicketStatus,
   type OccupantKind,
+  isAgentEmployee,
   isCeo,
   isTicketPriority,
 } from "./state.js";
@@ -97,6 +103,12 @@ export const TICKET_ACTION = {
   edit: "edit",
   setPriority: "set-priority",
   comment: "comment",
+  /** An agent starts on a ticket it was given: `assigned` -> `in_progress`. */
+  claim: "claim",
+  /** An agent writes its deliverable onto a ticket it is working. */
+  attachOutput: "attach-output",
+  /** An agent hands finished work in for review: `in_progress` -> `review`. */
+  handIn: "hand-in",
 } as const;
 
 export type TicketAction = (typeof TICKET_ACTION)[keyof typeof TICKET_ACTION];
@@ -107,6 +119,8 @@ export const TICKET_AUTHORITY = {
   ceo: "ceo",
   /** Anyone in the office. */
   anyone: "anyone",
+  /** Only the agent employee the ticket is assigned to. */
+  assignee: "assignee",
 } as const;
 
 export type TicketAuthority = (typeof TICKET_AUTHORITY)[keyof typeof TICKET_AUTHORITY];
@@ -117,13 +131,17 @@ export type TicketAuthority = (typeof TICKET_AUTHORITY)[keyof typeof TICKET_AUTH
  * The CEO decides and everyone else watches and advises, so every action that
  * changes what a ticket is, who owns it, where it stands or how much it matters
  * is the CEO's. That covers approving (`review` -> `done`) and rejecting
- * (`review` -> `in_progress`) along with every other status move: in this
- * milestone the only people in the office are players, and the assignee's own
- * moves — starting work, handing it in — belong to the agent employees, whose
- * authority is added here when they arrive rather than guessed at now.
+ * (`review` -> `in_progress`) along with every other status move.
  *
- * Commenting is the exception, open to everyone, because it is how an
- * executive advises on a ticket they may not move.
+ * The assignee's own moves — starting work, attaching the deliverable, handing
+ * it in — are the agent employee's, and only for a ticket the CEO gave it.
+ * They are separate actions rather than a wider `move-status` because each is
+ * exactly one step of the work: an agent can start what it was given and hand
+ * in what it started, and nothing else, so it can neither pick its own work
+ * from the backlog nor approve itself.
+ *
+ * Commenting is open to everyone, because it is how an executive advises on a
+ * ticket they may not move, and how an agent says why it is stuck.
  *
  * Typed as a full record so that adding an action without deciding who may
  * perform it does not compile.
@@ -136,6 +154,9 @@ export const TICKET_ACTION_AUTHORITY: Readonly<Record<TicketAction, TicketAuthor
   [TICKET_ACTION.edit]: TICKET_AUTHORITY.ceo,
   [TICKET_ACTION.setPriority]: TICKET_AUTHORITY.ceo,
   [TICKET_ACTION.comment]: TICKET_AUTHORITY.anyone,
+  [TICKET_ACTION.claim]: TICKET_AUTHORITY.assignee,
+  [TICKET_ACTION.attachOutput]: TICKET_AUTHORITY.assignee,
+  [TICKET_ACTION.handIn]: TICKET_AUTHORITY.assignee,
 };
 
 /**
@@ -181,18 +202,28 @@ export type TicketPermission = (query: TicketPermissionQuery) => boolean;
  * The client asks it too, to show a control as disabled rather than to decide
  * anything.
  *
- * Reads {@link TICKET_ACTION_AUTHORITY} and nothing about the ticket, which is
- * passed so that a later rule — an agent moving the ticket it owns — can be
- * added here without changing a caller.
+ * Reads {@link TICKET_ACTION_AUTHORITY}, and the ticket only to see whether an
+ * agent asking is the one it is assigned to. A player is never an assignee in
+ * this sense, CEO included: the work on a ticket is the agent's, not a
+ * shortcut the CEO can take past it.
  *
  * It returns a plain boolean on purpose. The caller already turns a `false`
  * into {@link TICKET_REJECTION.forbidden}, and the reason a player is refused
  * is always the same one: they are not the CEO.
  */
 export function mayActOnTicket(query: TicketPermissionQuery): boolean {
-  return (
-    TICKET_ACTION_AUTHORITY[query.action] === TICKET_AUTHORITY.anyone || query.actor.isCeo
-  );
+  switch (TICKET_ACTION_AUTHORITY[query.action]) {
+    case TICKET_AUTHORITY.anyone:
+      return true;
+    case TICKET_AUTHORITY.ceo:
+      return query.actor.isCeo;
+    case TICKET_AUTHORITY.assignee:
+      return (
+        query.actor.kind === OCCUPANT_KIND.agent &&
+        query.ticket !== undefined &&
+        query.ticket.assigneeId === query.actor.id
+      );
+  }
 }
 
 /** Why a command was refused. Rejection never changes the board. */
@@ -212,9 +243,31 @@ export const TICKET_REJECTION = {
    * priority change to the priority the ticket already has.
    */
   emptyEdit: "empty-edit",
+  /** A hand-in with no deliverable attached, or an attachment with no text. */
+  missingArtifact: "missing-artifact",
 } as const;
 
 export type TicketRejection = (typeof TICKET_REJECTION)[keyof typeof TICKET_REJECTION];
+
+/**
+ * The ticket an agent's own command is about.
+ *
+ * Not a client message: no client message is an agent's, so these commands
+ * are only ever built by the server, for the agent it is running.
+ */
+export interface TicketClaimPayload {
+  readonly ticketId: string;
+}
+
+export interface TicketAttachOutputPayload {
+  readonly ticketId: string;
+  /** The deliverable, as the work executor returned it. Never empty. */
+  readonly artifact: string;
+}
+
+export interface TicketHandInPayload {
+  readonly ticketId: string;
+}
 
 /** A parsed command, tagged so the applier can switch on it. */
 export type TicketCommand =
@@ -230,7 +283,13 @@ export type TicketCommand =
       readonly action: typeof TICKET_ACTION.setPriority;
       readonly payload: TicketSetPriorityMessage;
     }
-  | { readonly action: typeof TICKET_ACTION.comment; readonly payload: TicketCommentMessage };
+  | { readonly action: typeof TICKET_ACTION.comment; readonly payload: TicketCommentMessage }
+  | { readonly action: typeof TICKET_ACTION.claim; readonly payload: TicketClaimPayload }
+  | {
+      readonly action: typeof TICKET_ACTION.attachOutput;
+      readonly payload: TicketAttachOutputPayload;
+    }
+  | { readonly action: typeof TICKET_ACTION.handIn; readonly payload: TicketHandInPayload };
 
 /**
  * Everything a command needs that is not in its own payload.
@@ -308,6 +367,12 @@ export function applyTicketCommand(
       return setTicketPriority(ticket, command.payload, context);
     case TICKET_ACTION.comment:
       return commentOnTicket(ticket, command.payload, context);
+    case TICKET_ACTION.claim:
+      return claimTicket(ticket, context);
+    case TICKET_ACTION.attachOutput:
+      return attachTicketOutput(ticket, command.payload, context);
+    case TICKET_ACTION.handIn:
+      return handInTicket(ticket, context);
   }
 }
 
@@ -477,6 +542,124 @@ function commentOnTicket(
   ticket.comments.push(comment);
   ticket.updatedAt = context.now;
   return { ok: true, ticket };
+}
+
+/**
+ * An agent starts the ticket it was given.
+ *
+ * Only from `assigned`: a ticket already `in_progress` is being worked, by this
+ * agent or one it was taken from, and claiming it again would change nothing.
+ */
+function claimTicket(ticket: Ticket, context: TicketCommandContext): TicketCommandResult {
+  if (
+    ticket.status !== TICKET_STATUS.assigned ||
+    !isLegalTicketTransition(ticket.status, TICKET_STATUS.in_progress)
+  ) {
+    return reject(TICKET_REJECTION.illegalTransition);
+  }
+
+  ticket.status = TICKET_STATUS.in_progress;
+  ticket.updatedAt = context.now;
+  return { ok: true, ticket };
+}
+
+/**
+ * An agent writes its deliverable onto the ticket it is working.
+ *
+ * Only while `in_progress`, so a deliverable can never land on work that was
+ * pulled back to `assigned` or already approved. A rework replaces the last
+ * one: the ticket holds what is up for review, not a history.
+ */
+function attachTicketOutput(
+  ticket: Ticket,
+  payload: TicketAttachOutputPayload,
+  context: TicketCommandContext,
+): TicketCommandResult {
+  if (ticket.status !== TICKET_STATUS.in_progress) {
+    return reject(TICKET_REJECTION.illegalTransition);
+  }
+  if (payload.artifact.trim() === "") {
+    return reject(TICKET_REJECTION.missingArtifact);
+  }
+
+  ticket.outputArtifact = payload.artifact;
+  ticket.updatedAt = context.now;
+  return { ok: true, ticket };
+}
+
+/**
+ * An agent hands its work in for the CEO to approve or send back.
+ *
+ * Refused without a deliverable on the ticket, so nothing reaches `review`
+ * with nothing in it to review.
+ */
+function handInTicket(ticket: Ticket, context: TicketCommandContext): TicketCommandResult {
+  if (
+    ticket.status !== TICKET_STATUS.in_progress ||
+    !isLegalTicketTransition(ticket.status, TICKET_STATUS.review)
+  ) {
+    return reject(TICKET_REJECTION.illegalTransition);
+  }
+  if (ticket.outputArtifact === "") {
+    return reject(TICKET_REJECTION.missingArtifact);
+  }
+
+  ticket.status = TICKET_STATUS.review;
+  ticket.updatedAt = context.now;
+  return { ok: true, ticket };
+}
+
+/**
+ * The ticket an agent employee should work on next, or `undefined`.
+ *
+ * Only tickets the CEO assigned to this agent, so an agent never chooses its
+ * own work from the backlog. Both `assigned` (new work, to claim) and
+ * `in_progress` (work sent back from review, or handed over from another agent)
+ * qualify; an `in_progress` ticket another agent still holds as its
+ * `currentTicketId` does not, so two agents can never be working the same
+ * ticket, even for the moment after a reassignment while the first one is
+ * still putting it down.
+ *
+ * Highest priority first, then oldest, then by id, so the choice is the same
+ * every time for the same board.
+ */
+export function ticketForAgent(
+  board: Iterable<Ticket>,
+  occupants: Iterable<Occupant>,
+  agentId: string,
+): Ticket | undefined {
+  const heldElsewhere = new Set<string>();
+  for (const occupant of occupants) {
+    if (isAgentEmployee(occupant) && occupant.id !== agentId && occupant.currentTicketId !== "") {
+      heldElsewhere.add(occupant.currentTicketId);
+    }
+  }
+
+  let best: Ticket | undefined;
+  for (const ticket of board) {
+    if (
+      ticket.assigneeId !== agentId ||
+      (ticket.status !== TICKET_STATUS.assigned && ticket.status !== TICKET_STATUS.in_progress) ||
+      heldElsewhere.has(ticket.id)
+    ) {
+      continue;
+    }
+    if (best === undefined || comesFirst(ticket, best)) {
+      best = ticket;
+    }
+  }
+  return best;
+}
+
+function comesFirst(a: Ticket, b: Ticket): boolean {
+  const rank = TICKET_PRIORITIES.indexOf(a.priority) - TICKET_PRIORITIES.indexOf(b.priority);
+  if (rank !== 0) {
+    return rank > 0;
+  }
+  if (a.createdAt !== b.createdAt) {
+    return a.createdAt < b.createdAt;
+  }
+  return a.id < b.id;
 }
 
 /**

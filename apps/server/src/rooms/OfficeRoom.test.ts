@@ -1,5 +1,6 @@
 /**
- * CEO authority, checked end to end against a real room over real sockets.
+ * CEO authority, and the agents working what the CEO assigns, checked end to
+ * end against a real room over real sockets.
  *
  * The rules themselves are tested in `@sim/shared`'s `tickets.test.ts`. What
  * only a running room can show is that they hold for a client that skips the
@@ -7,6 +8,11 @@
  * and passed on the way the issue says, and that a dropped connection comes
  * back with its role. So these tests boot a Colyseus server and drive it with
  * the same client library the browser uses.
+ *
+ * The agents' brains are tested in `sim/agentBrain.test.ts`. What only a room
+ * can show is that it starts them and stops them: that an assignment sent down
+ * a socket comes back as a ticket in review, and that closing the room cancels
+ * the work in flight.
  */
 
 import { Server, matchMaker } from "@colyseus/core";
@@ -29,10 +35,33 @@ import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { describeRoleProblems } from "../sim/roles.js";
+import { type WorkExecutor, createWorkExecutor } from "../work/executor.js";
+import { createMockProvider } from "../work/mockProvider.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./OfficeRoom.js";
 
 /** Short, so the test can watch a grace period run out. */
 const GRACE_SECONDS = 1;
+
+/** Offices with staff: one whose work is quick, and one whose work never ends in time. */
+const QUICK_AGENTS_ROOM = "office-quick-agents";
+const SLOW_AGENTS_ROOM = "office-slow-agents";
+
+/** Every signal a slow room's work was started with, to see that closing aborts it. */
+const slowWork: AbortSignal[] = [];
+
+function mockExecutor(delayMs: number, signals?: AbortSignal[]): WorkExecutor {
+  const executor = createWorkExecutor({
+    provider: createMockProvider({ minDelayMs: delayMs, maxDelayMs: delayMs }),
+  });
+  return {
+    work: (ticket, context, signal) => {
+      if (signal !== undefined) {
+        signals?.push(signal);
+      }
+      return executor.work(ticket, context, signal);
+    },
+  };
+}
 
 let server: Server;
 let endpoint: string;
@@ -41,6 +70,18 @@ beforeAll(async () => {
   server = new Server({ transport: new WebSocketTransport(), greet: false });
   server.define(OFFICE_ROOM_NAME, OfficeRoom, {
     reconnectGraceSeconds: GRACE_SECONDS,
+  } satisfies Partial<OfficeRoomOptions>);
+  server.define(QUICK_AGENTS_ROOM, OfficeRoom, {
+    reconnectGraceSeconds: GRACE_SECONDS,
+    agentCount: 2,
+    agentDebug: false,
+    workExecutor: mockExecutor(100),
+  } satisfies Partial<OfficeRoomOptions>);
+  server.define(SLOW_AGENTS_ROOM, OfficeRoom, {
+    reconnectGraceSeconds: GRACE_SECONDS,
+    agentCount: 1,
+    agentDebug: false,
+    workExecutor: mockExecutor(60_000, slowWork),
   } satisfies Partial<OfficeRoomOptions>);
   await server.listen(0);
   const address = server.transport.server?.address();
@@ -75,12 +116,12 @@ function listen(tab: Tab, room: Room<OfficeState>): void {
 }
 
 /** Opens a fresh office as its first, and so CEO, occupant. */
-async function openOffice(name: string): Promise<Tab> {
+async function openOffice(name: string, roomName = OFFICE_ROOM_NAME): Promise<Tab> {
   const client = new Client(endpoint);
-  const room = await client.create<OfficeState>(OFFICE_ROOM_NAME, { name });
+  const room = await client.create<OfficeState>(roomName, { name });
   const tab: Tab = { client, room, rejections: [], announcements: [] };
   listen(tab, room);
-  await settled(() => room.state.occupants?.size === 1);
+  await settled(() => room.state.occupants?.size === serverRoom(tab).state.occupants.size);
   return tab;
 }
 
@@ -354,4 +395,36 @@ describe("the role across a reconnect", () => {
 
     await milo.room.leave();
   });
+});
+
+describe("agents working the board", () => {
+  it("turns an assignment into a ticket in review with the deliverable attached", async () => {
+    const dana = await openOffice("Dana", QUICK_AGENTS_ROOM);
+
+    dana.room.send(CLIENT_MESSAGE.ticketAssign, { ticketId: "ticket-2", assigneeId: "agent-1" });
+    // Seen from Dana's tab, as the board panel would see it.
+    const ticket = () => dana.room.state.tickets.get("ticket-2");
+    await settled(() => ticket()?.status === TICKET_STATUS.in_progress);
+    await settled(() => ticket()?.status === TICKET_STATUS.review, 30_000);
+    expect(ticket()?.assigneeId).toBe("agent-1");
+    expect(ticket()?.outputArtifact).toContain("Write the onboarding email");
+    expect(dana.rejections).toEqual([]);
+
+    await dana.room.leave();
+  }, 40_000);
+
+  it("cancels the work in flight when the room closes, and writes nothing after", async () => {
+    const dana = await openOffice("Dana", SLOW_AGENTS_ROOM);
+    const room = serverRoom(dana);
+
+    dana.room.send(CLIENT_MESSAGE.ticketAssign, { ticketId: "ticket-1", assigneeId: "agent-1" });
+    await settled(() => slowWork.length === 1);
+    expect(room.state.tickets.get("ticket-1")?.status).toBe(TICKET_STATUS.in_progress);
+    const board = room.state.tickets.toJSON();
+
+    await dana.room.leave();
+    await settled(() => slowWork[0]?.aborted === true);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(room.state.tickets.toJSON()).toEqual(board);
+  }, 20_000);
 });

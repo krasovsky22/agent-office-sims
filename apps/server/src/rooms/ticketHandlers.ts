@@ -11,6 +11,10 @@
  * board is unchanged either way; the answer is what lets an executive's client
  * say "only the CEO can do that" instead of nothing.
  *
+ * Agent employees act on the board through the same rules, by
+ * {@link runAgentTicketCommand}: the only difference is who the actor is and
+ * that nobody needs answering.
+ *
  * All of it is synchronous. Colyseus delivers a room's messages one at a time,
  * so the board is only ever mutated between simulation ticks and the tick never
  * has to wait on a command.
@@ -28,6 +32,7 @@ import {
   type TicketCommandResult,
   type TicketRejectedEvent,
   applyTicketCommand,
+  isAgentEmployee,
   parseTicketAssignMessage,
   parseTicketCommentMessage,
   parseTicketCreateMessage,
@@ -118,6 +123,35 @@ export function runTicketCommand(
     } satisfies TicketRejectedEvent);
   }
   return result;
+}
+
+/**
+ * Runs one command on behalf of an agent employee.
+ *
+ * The agent's counterpart to {@link runTicketCommand}, judged by the same
+ * `applyTicketCommand` and the same authority gate, with the agent as the
+ * actor. An agent has no client, so a refusal is returned to its brain rather
+ * than sent anywhere; and it is not rate-limited, because a brain issues a
+ * handful of commands per ticket and no client can make it issue more.
+ *
+ * @returns the result, or `undefined` if `agentId` is not an agent in the office.
+ */
+export function runAgentTicketCommand(
+  host: TicketHost,
+  agentId: string,
+  command: TicketCommand,
+): TicketCommandResult | undefined {
+  const occupant = host.state.occupants.get(agentId);
+  if (occupant === undefined || !isAgentEmployee(occupant)) {
+    return undefined;
+  }
+  return applyTicketCommand(command, {
+    board: host.state.tickets,
+    occupants: host.state.occupants,
+    actor: ticketActorOf(occupant),
+    now: host.now(),
+    nextTicketId: host.nextTicketId,
+  });
 }
 
 /** Puts the starter tickets on an empty board. */

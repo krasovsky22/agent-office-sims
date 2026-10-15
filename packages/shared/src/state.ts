@@ -181,8 +181,10 @@ export function isCeo(occupant: Occupant): boolean {
  * still; this is the field that tells them apart, and it is what the badge
  * above an agent's head shows.
  *
- * Agent movement writes `walking` and `blocked`; every other value waits for
- * the issue that gives agents a brain.
+ * Agent movement writes `walking`, and `blocked` when a body cannot get where
+ * it was sent; an agent's brain (`apps/server/src/sim/agentBrain.ts`) writes
+ * `working` while it has a ticket, `blocked` when the work on one failed, and
+ * `idle` in between. `meeting` waits for the issue that gives agents meetings.
  */
 export const AGENT_ACTIVITY = {
   idle: "idle",
@@ -329,9 +331,8 @@ defineTypes(TicketComment, {
  * repairs.
  *
  * `outputArtifact` is the agent employee's deliverable — the thing a reviewer
- * reads before moving the ticket to `done`. Nothing writes it in this
- * milestone: the agents that will are a later issue, and the field is here so
- * that issue does not have to reshape the board to land it.
+ * reads before moving the ticket to `done`. Only the assignee's
+ * `attach-output` command writes it, from the agent's brain on the server.
  *
  * Timestamps are epoch milliseconds under the `number` type, which is
  * variable-length on the wire and so holds a value that `uint32` could not.
