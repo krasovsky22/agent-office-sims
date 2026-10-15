@@ -14,6 +14,9 @@
  *
  * The project board's GitHub feed is made here, once, rather than per room: one
  * poll loop serves every room, and its token stays in this process.
+ *
+ * How agents do ticket work is read here too, so a model mode with no API key
+ * stops the server at boot rather than failing the first ticket an agent takes.
  */
 
 import { Server } from "@colyseus/core";
@@ -26,8 +29,9 @@ import { ProjectFeed } from "./github/feed.js";
 import { createHealthServer } from "./http.js";
 import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
+import { describeAgentWork } from "./work/fromConfig.js";
 
-const { port, allowedOrigins, projectBoard } = readConfig();
+const { port, allowedOrigins, projectBoard, agentWork } = readConfig();
 
 const projectFeed = new ProjectFeed({
   repository: projectBoard.repository,
@@ -68,4 +72,5 @@ console.log(
   `project board: ${projectBoard.repository} every ${projectBoard.pollIntervalMs / 1000}s, ` +
     (projectBoard.token === undefined ? "anonymous" : "with a token"),
 );
+console.log(describeAgentWork(agentWork));
 /* eslint-enable no-console */

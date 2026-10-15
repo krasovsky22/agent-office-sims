@@ -42,6 +42,10 @@ has to set the first three — see [Deploying it](#deploying-it).
 The server polls GitHub for the project board as soon as it starts, anonymously
 unless `PROJECT_BOARD_TOKEN` is set.
 
+Agents do their ticket work with canned text by default (`MOCK_AGENTS` is on), so
+nothing in development calls a model or spends anything. `MOCK_AGENTS=off` with
+`ANTHROPIC_API_KEY` set switches to a real model.
+
 Walk with `W A S D` or the arrow keys. Click the canvas to capture the mouse,
 then move it to swing the camera; `Esc` releases it. Walk up to a desk chair, the
 coffee machine, the whiteboard or the project board and a prompt appears; `E` uses
@@ -155,6 +159,10 @@ public.
 | `PROJECT_BOARD_REPO` | server | runtime | No. The `owner/name` the project board shows. Defaults to this repository. |
 | `PROJECT_BOARD_TOKEN` | server | runtime | No, but recommended. A read-only GitHub token; see below. |
 | `PROJECT_BOARD_POLL_SECONDS` | server | runtime | No. Seconds between polls, at least 15. Defaults to 180, or 60 with a token. |
+| `MOCK_AGENTS` | server | runtime | No. `on` (the default) for canned agent work, `off` for a real model. |
+| `ANTHROPIC_API_KEY` | server | runtime | Only with `MOCK_AGENTS=off`, when the server refuses to start without it. A secret. |
+| `AGENT_MODEL` | server | runtime | No. The model agents use. Defaults to `claude-opus-5-5`. |
+| `AGENT_CALLS_PER_DAY` / `AGENT_CALLS_PER_RUN` | server | runtime | No. Model call ceilings per UTC day and per server process. Default 200 and 1000. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
 static file cannot be reconfigured afterwards. Changing it means rebuilding and
@@ -169,8 +177,9 @@ one that is not. Scheme and port are part of an origin, so `https://example.com`
 does not admit `http://example.com`. A request with no `Origin` header at all is
 allowed through — that is not a browser, and the header is a browser mechanism.
 
-`PROJECT_BOARD_TOKEN` is the one value here that is a secret, so it is the one to
-set with `fly secrets set` or the platform's equivalent rather than in a file.
+`PROJECT_BOARD_TOKEN` and `ANTHROPIC_API_KEY` are the values here that are
+secrets, so they are the ones to set with `fly secrets set` or the platform's
+equivalent rather than in a file.
 The server reads it and sends it only to GitHub's API; clients receive the board
 as finished lists and never see it. A fine-grained token with read-only repository
 access is enough — the server never writes to GitHub. Without a token the board still works: anonymous requests
@@ -179,6 +188,11 @@ cannot show check status or pull requests linked from GitHub's sidebar rather th
 by `Closes #N`. When GitHub refuses or cannot be reached, the board keeps its last
 lists and marks them stale; a spent rate limit also holds the next poll until the
 limit resets.
+
+With `MOCK_AGENTS=off`, every model call an agent makes is counted against the
+two `AGENT_CALLS_*` ceilings, retries included, and a ticket that would pass one
+fails with a budget message instead of being worked. The counters live in memory,
+so a restart resets them. The key is sent only to the model API.
 
 ### Order of operations
 
@@ -262,6 +276,7 @@ packages/shared/   @sim/shared   the contract both sides import
 apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/expression.ts   per-occupant emote and chat budgets
   src/github/             the project board's feed: fetch, bucket, poll
+  src/work/               ticket work: the executor, its budget, mock and model providers
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
   src/scene/propKit.ts   the asset registry: one model per prop kind
