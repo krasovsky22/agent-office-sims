@@ -17,6 +17,7 @@ import {
   OFFICE_PROPS,
   type OfficeLayout,
   PROJECT_BOARD_ID,
+  STARTING_MINUTE_OF_DAY,
   TICKET_BOARD_ID,
   authorizeInteract,
   describeLiveAgentTask,
@@ -32,6 +33,7 @@ import * as THREE from "three";
 
 import { boardAccessFor, rejectionText } from "./boardAccess.js";
 import { readCompany, sameReadout } from "./companyReadout.js";
+import { DayClock } from "./dayClock.js";
 import { parseDebugCommand } from "./debugCommand.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
@@ -39,8 +41,9 @@ import { PlayerController } from "./player/controller.js";
 import { Avatar } from "./scene/avatar.js";
 import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
 import { buildWallBoard } from "./scene/wallBoard.js";
+import { buildLighting } from "./scene/lighting.js";
 import { buildOffice } from "./scene/office.js";
-import { loadPropKit } from "./scene/propKit.js";
+import { loadPropKit, screenMaterialOf } from "./scene/propKit.js";
 import { buildProps } from "./scene/props.js";
 import {
   Hud,
@@ -58,8 +61,6 @@ import {
  * fling the player the length of the office.
  */
 const MAX_FRAME_SECONDS = 0.1;
-
-const BACKGROUND_COLOUR = 0x15151a;
 
 /**
  * Chat lines kept in the HUD log.
@@ -149,13 +150,16 @@ function start(): void {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   // One directional light casts, the floor receives, and nothing else
-  // participates — see the lighting note in `scene/office.ts`.
+  // participates — see the notes in `scene/office.ts` and `scene/lighting.ts`.
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(BACKGROUND_COLOUR);
   const office = buildOffice(scene, OFFICE_LAYOUT);
+  const lighting = buildLighting(scene, OFFICE_LAYOUT);
+  // Lit for opening time until the first patch says what time it really is.
+  const dayClock = new DayClock();
+  lighting.showMinute(STARTING_MINUTE_OF_DAY);
 
   const boardSpec = OFFICE_LAYOUT.boards.find((spec) => spec.id === PROJECT_BOARD_ID);
   const wallBoard =
@@ -230,6 +234,10 @@ function start(): void {
     try {
       const kit = await loadPropKit();
       placedProps = buildProps(scene, OFFICE_PROPS, kit).instances;
+      const screen = screenMaterialOf(kit);
+      if (screen !== undefined) {
+        lighting.lightScreens(screen);
+      }
       office.setGreyDesksVisible(false);
       publishHud({ assets: "ready" });
     } catch {
@@ -360,6 +368,7 @@ function start(): void {
     // Arrives with nearly every patch, because the clock is in it; React only
     // hears about the ones that change what is on screen.
     onCompanyChanged: (view) => {
+      dayClock.observe(view.minuteOfDay, performance.now());
       const company = readCompany(view);
       if (!sameReadout(hud.company, company)) {
         publishHud({ company });
@@ -564,6 +573,11 @@ function start(): void {
       // Overhead content is parented to the avatar, so it has already followed
       // the body; all that is left is retiring whatever has expired.
       avatar.updateExpressions(nowMs);
+    }
+
+    const minuteOfDay = dayClock.minuteAt(nowMs);
+    if (minuteOfDay !== undefined) {
+      lighting.showMinute(minuteOfDay);
     }
 
     renderer.render(scene, camera);
