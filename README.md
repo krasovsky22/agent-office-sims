@@ -117,7 +117,9 @@ Then confirm all twelve:
     the server starting, the wall board lists the repository's open,
     in-progress and recently closed issues and its open pull requests, each with
     its label chips, and the time it last updated; walk up to it and press `E`
-    at the `Read the project board` prompt to open the full view. `/` puts the
+    at the `Read the project board` prompt to open the full view, which frees
+    the mouse; clicking an issue or pull request opens its GitHub page in a new
+    tab. `/` puts the
     cursor in its search box, which matches numbers, titles, labels and people,
     and the label toggles narrow it to cards carrying every selected label;
     neither touches the wall board or the other tab. `E` again or stepping back
