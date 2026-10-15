@@ -36,7 +36,8 @@ That starts both halves: the Colyseus server on `ws://localhost:2567` and the
 Vite client on `http://localhost:5173`. Both have working defaults, so no
 configuration is required; `.env.example` lists the variables (`PORT`,
 `ALLOWED_ORIGINS`, and `VITE_SERVER_URL`, plus the project board's
-`PROJECT_BOARD_*`) if you need to point the client somewhere else. A deployment
+`PROJECT_BOARD_*` and the agents' `MOCK_AGENTS`, `ANTHROPIC_API_KEY` and
+`AGENT_*`) if you need to point the client somewhere else. A deployment
 has to set the first three — see [Deploying it](#deploying-it).
 
 The server polls GitHub for the project board as soon as it starts, anonymously
@@ -180,7 +181,7 @@ allowed through — that is not a browser, and the header is a browser mechanism
 `PROJECT_BOARD_TOKEN` and `ANTHROPIC_API_KEY` are the values here that are
 secrets, so they are the ones to set with `fly secrets set` or the platform's
 equivalent rather than in a file.
-The server reads it and sends it only to GitHub's API; clients receive the board
+The server reads the board token and sends it only to GitHub's API; clients receive the board
 as finished lists and never see it. A fine-grained token with read-only repository
 access is enough — the server never writes to GitHub. Without a token the board still works: anonymous requests
 are limited to 60 an hour per address, so it polls every three minutes, and it
