@@ -617,7 +617,9 @@ export class LiveAgentCrew {
       if (body.conversation === conversation) {
         body.conversation = undefined;
         body.chatReadyAt = now + CHAT_COOLDOWN_MS;
-        body.restUntil = now + STAND_UP_PAUSE_MS;
+        if (body.status !== LIVE_AGENT_STATUS.working) {
+          body.restUntil = now + STAND_UP_PAUSE_MS;
+        }
       }
     }
   }

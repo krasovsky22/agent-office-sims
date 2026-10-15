@@ -370,6 +370,24 @@ describe("two idle agents that meet", () => {
     expect(alpha.animation).toBe(ANIMATION_STATE.idle);
   });
 
+  it("break off when one picks up a task, which heads for a chair at once", () => {
+    const office = createOffice();
+    office.crew.sync(
+      [record("alpha", LIVE_AGENT_STATUS.idle), record("beta", LIVE_AGENT_STATUS.idle)],
+      office.now,
+    );
+    const alpha = agent(office, "alpha");
+    expect(runUntil(office, 60, () => office.said.length >= 1)).toBeDefined();
+
+    const before = { x: alpha.x, z: alpha.z };
+    office.crew.sync(
+      [record("alpha", LIVE_AGENT_STATUS.working), record("beta", LIVE_AGENT_STATUS.idle)],
+      office.now,
+    );
+    runUntil(office, STEP_SECONDS * 2, () => false);
+    expect({ x: alpha.x, z: alpha.z }).not.toEqual(before);
+  });
+
   it("do not talk while one of them is working", () => {
     const office = createOffice();
     office.crew.sync(
