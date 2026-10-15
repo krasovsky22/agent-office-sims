@@ -562,6 +562,16 @@
   overflow-wrap: anywhere;
 }
 
+.board__link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.board__link:hover,
+.board__link:focus-visible {
+  text-decoration: underline;
+}
+
 .board__label {
   font-weight: 700;
   color: #f3cf6a;

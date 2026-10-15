@@ -14,6 +14,7 @@ import {
   boardLabels,
   boardStatus,
   filterBoardColumns,
+  githubItemUrl,
   isFiltering,
   labelColours,
 } from "./projectBoard.js";
@@ -190,5 +191,25 @@ describe("boardStatus", () => {
 
   it("marks a board that has never had an answer as stale", () => {
     expect(boardStatus({ ...SNAPSHOT, updatedAt: null, stale: true }, time).stale).toBe(true);
+  });
+});
+
+describe("githubItemUrl", () => {
+  it("links issues and pull requests to their pages on GitHub", () => {
+    const [open, , , pulls] = boardColumns(SNAPSHOT, time);
+    expect(open?.rows[0]?.url).toBe("https://github.com/krasovsky22/agent-office-sims/issues/31");
+    expect(pulls?.rows[0]?.url).toBe("https://github.com/krasovsky22/agent-office-sims/pull/40");
+  });
+
+  it("builds no link from a repository name that is not owner/name", () => {
+    for (const repository of ["", "evil.com", "a/b/c", "//evil.com/x", "a/b?x", "a/b#x", "a b/c"]) {
+      expect(githubItemUrl(repository, "issues", 1)).toBeNull();
+    }
+    expect(boardColumns({ ...SNAPSHOT, repository: "../x" }, time)[0]?.rows[0]?.url).toBeNull();
+  });
+
+  it("builds no link from a number that is not a positive integer", () => {
+    expect(githubItemUrl("a/b", "pull", 0)).toBeNull();
+    expect(githubItemUrl("a/b", "pull", 1.5)).toBeNull();
   });
 });
