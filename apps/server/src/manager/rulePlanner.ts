@@ -58,6 +58,10 @@ const ANYONE = /^(someone|somebody|anyone|anybody|whoever)$/;
 const NOT_AN_AGENT = /^(me|us|you|myself|ourselves)$/;
 /** "someone who's free": a clause that says which someone. */
 const RELATIVE = /^(who|who's|that|that's|which)$/;
+/** "have someone who's free take #39": where the clause ends. */
+const HAVE_TAKE_STARTS: ReadonlySet<string> = new Set(["take", "pick", "do", "handle", "work", "look", "start"]);
+/** Words that can close an instruction without changing it. */
+const FILLER = /^(please|now|today|asap|thanks)$/;
 /** "who should I give #39 to?" asks for advice rather than an assignment. */
 const ASKING_ADVICE = /\b(should i|who should|who would|who could|who can)\b/i;
 const GREETING = /^\s*(hi|hello|hey|morning|good (morning|afternoon|evening)|help|\?)\b/i;
@@ -101,7 +105,7 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
 
   const instruction = readInstruction(message, view);
   if (instruction !== undefined) {
-    const backlog = work.length === 0 && instruction === "backlog";
+    const backlog = work.length === 0 && instruction.kind === "backlog";
     const targets: WorkRef[] = backlog
       ? view.tickets
           .filter((ticket) => ticket.status === TICKET_STATUS.backlog)
@@ -110,7 +114,7 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     if (targets.length > 0) {
       return {
         reply: backlog ? "Handing out the backlog:" : "Here's how that went:",
-        assignments: pair(targets, agents),
+        assignments: pair(targets, instruction.agents),
       };
     }
     if (backlog) {
@@ -149,7 +153,14 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   return { reply: `I didn't catch what you want me to look at. ${HELP_TEXT}`, assignments: [] };
 }
 
-type Instruction = "work" | "backlog";
+/** `undefined` for "someone": whoever is free, chosen against the live office. */
+type Assignee = AgentRef | undefined;
+
+interface Instruction {
+  readonly kind: "work" | "backlog";
+  /** Who the instruction names, in the order it names them, each for its own work. */
+  readonly agents: readonly Assignee[];
+}
 
 /**
  * What a message instructs, read by a small grammar over its words, or
@@ -162,24 +173,32 @@ function readInstruction(message: string, view: OfficeView): Instruction | undef
   if (QUESTION_START.test(rest)) {
     return undefined;
   }
-  if (WHOLE_BACKLOG.test(rest)) {
-    return "backlog";
+  const backlog = WHOLE_BACKLOG.exec(rest);
+  const words = rest
+    .slice(backlog?.[0].length ?? 0)
+    .split(/\s+/)
+    .map((word) => word.replace(/[.,;:!?]+$/, ""))
+    .filter((word) => word !== "");
+  while (words.length > 0 && FILLER.test(words[words.length - 1] ?? "")) {
+    words.pop();
   }
-  const words = rest.split(/\s+/).map((word) => word.replace(/[.,;:!?]+$/, "")).filter((word) => word !== "");
-  const [verb = ""] = words;
 
-  /** How many words from `at` name an agent or someone; 0 when they do not. */
-  const agentAt = (at: number): number => {
+  /** The agent, or someone, named by the words from `at`, and how many words that takes. */
+  const agentAt = (at: number): { readonly length: number; readonly agent: Assignee } | undefined => {
     for (const length of [2, 1]) {
       const phrase = words.slice(at, at + length).join(" ");
       if (at + length > words.length || NOT_AN_AGENT.test(phrase)) {
         continue;
       }
-      if ((length === 1 && ANYONE.test(phrase)) || resolveAgent(phrase, view) !== undefined) {
-        return length;
+      if (length === 1 && ANYONE.test(phrase)) {
+        return { length, agent: undefined };
+      }
+      const agent = resolveAgent(phrase, view);
+      if (agent !== undefined) {
+        return { length, agent };
       }
     }
-    return 0;
+    return undefined;
   };
   /** Past a "who's free" after someone, to the first of `stops`, or `at` when there is none. */
   const pastClause = (at: number, someone: boolean, stops: ReadonlySet<string>): number => {
@@ -190,34 +209,54 @@ function readInstruction(message: string, view: OfficeView): Instruction | undef
     return stop === -1 ? words.length : stop;
   };
 
+  if (backlog !== null) {
+    const found = words[0] === "to" ? agentAt(1) : undefined;
+    return { kind: "backlog", agents: found === undefined ? [] : [found.agent] };
+  }
+  const [verb = ""] = words;
   if (verb === "have") {
-    const length = agentAt(1);
-    return length > 0 && HAVE_TAKE.test(words.slice(1 + length).join(" ")) ? "work" : undefined;
+    const found = agentAt(1);
+    if (found === undefined) {
+      return undefined;
+    }
+    const next = pastClause(1 + found.length, found.agent === undefined, HAVE_TAKE_STARTS);
+    return HAVE_TAKE.test(words.slice(next).join(" ")) ? { kind: "work", agents: [found.agent] } : undefined;
   }
   if (AGENT_FIRST_VERBS.has(verb)) {
-    const length = agentAt(1);
-    const link = length === 0 ? -1 : pastClause(1 + length, ANYONE.test(words[1] ?? ""), AGENT_FIRST_LINKS);
-    if (link !== -1 && AGENT_FIRST_LINKS.has(words[link] ?? "")) {
-      return "work";
+    const found = agentAt(1);
+    const link = found === undefined ? -1 : pastClause(1 + found.length, found.agent === undefined, AGENT_FIRST_LINKS);
+    if (found !== undefined && AGENT_FIRST_LINKS.has(words[link] ?? "")) {
+      return { kind: "work", agents: [found.agent] };
     }
   }
   if (WORK_FIRST_VERBS.has(verb)) {
-    const to = words.lastIndexOf("to");
-    const length = to > 1 ? agentAt(to + 1) : 0;
-    const end = length === 0 ? -1 : pastClause(to + 1 + length, ANYONE.test(words[to + 1] ?? ""), new Set());
-    if (end === words.length && findWork(words.slice(1, to).join(" "), view).length > 0) {
-      return "work";
+    // "give ticket-1 to Bo and ticket-5 to Ada": each "to AGENT" closes the work before it.
+    const agents: Assignee[] = [];
+    let from = 1;
+    let someone = false;
+    for (let at = 1; at < words.length; at += 1) {
+      const found = words[at] === "to" ? agentAt(at + 1) : undefined;
+      if (found === undefined || findWork(words.slice(from, at).join(" "), view).length === 0) {
+        continue;
+      }
+      agents.push(found.agent);
+      someone = found.agent === undefined;
+      from = at + 1 + found.length;
+      at = from - 1;
+    }
+    if (agents.length > 0 && pastClause(from, someone, new Set()) === words.length) {
+      return { kind: "work", agents };
     }
   }
   return undefined;
 }
 
 /**
- * Who gets what: one named agent takes everything, as many names as pieces of
- * work pair up in order, and otherwise whoever is free, decided later against
- * the live office.
+ * Who gets what: one agent named takes everything, as many as pieces of work
+ * pair up in order, and otherwise whoever is free, decided later against the
+ * live office.
  */
-function pair(work: readonly WorkRef[], agents: readonly AgentRef[]): PlannedAssignment[] {
+function pair(work: readonly WorkRef[], agents: readonly Assignee[]): PlannedAssignment[] {
   return work.map((ref, index) => {
     const agent = agents.length === 1 ? agents[0] : agents.length === work.length ? agents[index] : undefined;
     return { work: workId(ref), agent: agent?.agent.id ?? "" };

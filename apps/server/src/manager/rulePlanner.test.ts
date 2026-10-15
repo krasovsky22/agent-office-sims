@@ -160,6 +160,13 @@ describe("planFromRules: assignments", () => {
     ["can you put Bo on ticket-1?", [{ work: "ticket-1", agent: "agent-2" }]],
     ["Firstmate, put Ada Byrne on ticket-5", [{ work: "ticket-5", agent: "agent-1" }]],
     ["have someone take #39", [{ work: "issue #39", agent: "" }]],
+    ["have someone who's free take #39", [{ work: "issue #39", agent: "" }]],
+    ["reassign ticket-1 from Bo to Ada", [{ work: "ticket-1", agent: "agent-1" }]],
+    ["give Bo's ticket-1 to Ada", [{ work: "ticket-1", agent: "agent-1" }]],
+    ["put Ada on ticket-2 instead of Bo", [{ work: "ticket-2", agent: "agent-1" }]],
+    ["assign #39 to Bo today", [{ work: "issue #39", agent: "agent-2" }]],
+    ["give ticket-1 to Bo please", [{ work: "ticket-1", agent: "agent-2" }]],
+    ["assign the backlog to Bo", [{ work: "ticket-1", agent: "agent-2" }, { work: "ticket-5", agent: "agent-2" }]],
     ["please have anyone pick up ticket-1", [{ work: "ticket-1", agent: "" }]],
     [
       "give ticket-1 to Bo and ticket-5 to Ada",
