@@ -120,10 +120,7 @@ export const MORALE_DAILY_RECOVERY = 1;
 export interface DayReport {
   /** Issues whose work reached `done` since the previous close. */
   readonly completedIssues: number;
-  /**
-   * Issues still to finish: open on the project board, whether or not anyone
-   * is on them, and not yet `done` in the office.
-   */
+  /** Issues no one is on: the project board's open column less those an agent here is working. */
   readonly openIssues: number;
   /** What the day costs: the {@link dailyPayroll} of the staff on the floor at midnight. */
   readonly payroll: number;
@@ -156,9 +153,8 @@ function clampMetric(value: number): number {
 /**
  * How much a day's backlog moves morale.
  *
- * Counts unfinished work rather than only the issues nobody is on: assigning
- * an issue does not make the work go away, so it should not make the office
- * feel better either.
+ * Counts only the issues nobody is on, so a backlog the office has taken on,
+ * or one someone outside it is working, does not wear the office down.
  */
 export function moraleChange(openIssues: number): number {
   const excess = openIssues - BACKLOG_TOLERANCE;

@@ -98,21 +98,18 @@ export function stepCompany(office: CompanyOffice, clock: CompanyClock, now: num
  * Counts the day's completions in one pass over the work, the issues still to
  * finish, and the payroll.
  *
- * Still to finish is every open issue on the project board less the ones the
- * office has finished, since an issue stays open on GitHub after its work is
- * approved here; and never fewer than the unfinished work in hand, which is
- * all there is to count before the board's first poll.
+ * Still to finish is the project board's open column less the issues an agent
+ * here is working: the issues no one is on. GitHub's in-progress column is
+ * someone else's work, and before the board's first poll there is none to count.
  */
 function reportDay(office: CompanyOffice, credited: Set<number>): DayReport {
   let completedIssues = 0;
-  let unfinished = 0;
-  const finished = new Set<number>();
+  const working = new Set<number>();
   for (const work of office.work.values()) {
     if (work.status !== WORK_STATUS.done) {
-      unfinished += 1;
+      working.add(work.issueNumber);
       continue;
     }
-    finished.add(work.issueNumber);
     if (!credited.has(work.issueNumber)) {
       credited.add(work.issueNumber);
       completedIssues += 1;
@@ -120,18 +117,18 @@ function reportDay(office: CompanyOffice, credited: Set<number>): DayReport {
   }
 
   const board = office.board();
-  let openOnBoard = 0;
+  let openIssues = 0;
   if (board !== undefined) {
-    openOnBoard = board.counts.open + board.counts.inProgress;
-    for (const issue of [...board.open, ...board.inProgress]) {
-      if (finished.has(issue.number)) {
-        openOnBoard -= 1;
+    openIssues = board.counts.open;
+    for (const issue of board.open) {
+      if (working.has(issue.number)) {
+        openIssues -= 1;
       }
     }
   }
   return {
     completedIssues,
-    openIssues: Math.max(unfinished, openOnBoard),
+    openIssues,
     payroll: payrollOf(office.occupants.values()),
   };
 }

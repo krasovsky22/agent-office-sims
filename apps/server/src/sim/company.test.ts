@@ -166,27 +166,37 @@ describe("stepCompany", () => {
     expect(office.state.company.productivity).toBe(afterFirst - PRODUCTIVITY_DAILY_DECAY);
   });
 
-  it("wears morale down for open issues beyond the tolerated backlog, less the finished ones", () => {
+  it("wears morale down for open issues no one is on beyond the tolerated backlog", () => {
     const office = openOffice();
     office.board = boardWith(BACKLOG_TOLERANCE + 3);
-    giveWork(office, 1, WORK_STATUS.done);
+    giveWork(office, 1, WORK_STATUS.in_progress);
+    giveWork(office, 2, WORK_STATUS.done);
 
     run(office, FIRST_DAY_MS);
     expect(office.state.company.morale).toBe(STARTING_MORALE - 2 * MORALE_LOSS_PER_EXCESS_ISSUE);
   });
 
-  it("counts the unfinished work in hand when the board has not loaded", () => {
+  it("does not count GitHub's in-progress issues", () => {
+    const office = openOffice();
+    const board = boardWith(BACKLOG_TOLERANCE);
+    office.board = {
+      ...board,
+      inProgress: [issue(100), issue(101)],
+      counts: { ...board.counts, inProgress: 30 },
+    };
+
+    run(office, FIRST_DAY_MS);
+    expect(office.state.company.morale).toBe(STARTING_MORALE + MORALE_DAILY_RECOVERY);
+  });
+
+  it("counts no backlog before the board has loaded", () => {
     const office = openOffice();
     office.board = undefined;
     for (let number = 1; number <= BACKLOG_TOLERANCE + 1; number += 1) {
       giveWork(office, number, WORK_STATUS.in_progress);
     }
     run(office, FIRST_DAY_MS);
-    expect(office.state.company.morale).toBe(STARTING_MORALE - MORALE_LOSS_PER_EXCESS_ISSUE);
-
-    office.state.work.clear();
-    run(office, DAY_MS);
-    expect(office.state.company.morale).toBe(STARTING_MORALE - MORALE_LOSS_PER_EXCESS_ISSUE + MORALE_DAILY_RECOVERY);
+    expect(office.state.company.morale).toBe(STARTING_MORALE + MORALE_DAILY_RECOVERY);
   });
 
   it("does not let a stalled process fast-forward through paydays", () => {
