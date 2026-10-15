@@ -244,14 +244,18 @@ function start(): void {
         if (existing === undefined) {
           const avatar = new Avatar({
             name: view.name,
+            kind: view.kind,
             isCeo: view.isCeo,
+            jobTitle: view.jobTitle,
+            activity: view.activity,
             isLocal: view.isLocal,
             model: avatarModel,
           });
           scene.add(avatar.group);
           avatars.set(view.id, avatar);
         } else {
-          existing.setLabel(view.name, view.isCeo);
+          existing.setLabel(view.name, view.isCeo, view.jobTitle);
+          existing.setActivity(view.activity);
         }
       }
 
@@ -266,7 +270,10 @@ function start(): void {
         roster: present.map((view) => ({
           id: view.id,
           name: view.name,
+          kind: view.kind,
           isCeo: view.isCeo,
+          jobTitle: view.jobTitle,
+          activity: view.activity,
           isLocal: view.isLocal,
         })),
       });

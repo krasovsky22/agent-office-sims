@@ -6,6 +6,11 @@
  * the CEO, which of them is sitting at or standing over something, what they
  * are expressing, and the ticket board they work from.
  *
+ * "Who is in the office" includes the agent employees, which the room hires
+ * itself when it opens — see `sim/agents.ts`. They are occupants like any
+ * player, so the board can assign to them and every client draws them, but no
+ * session drives them, so nothing below that is keyed by session ever sees one.
+ *
  * Interactions are server-decided, not client-reported. A client may ask to use
  * an interactable; it may not say that it is in reach of one, that the chair is
  * free, or that it is now seated. Each of those is re-derived in
@@ -53,6 +58,7 @@ import {
 
 import type { ProjectBoardSource } from "../github/feed.js";
 import { type CompanyClock, createCompanyClock, stepCompany } from "../sim/company.js";
+import { hireAgentEmployees } from "../sim/agents.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import { type ExpressionBudget, createExpressionBudget, tryConsume } from "../sim/expression.js";
 import {
@@ -87,6 +93,8 @@ const IDLE_AFTER_MS = 400;
 /** What `index.ts` hands the room type when it defines it. */
 export interface OfficeRoomOptions {
   readonly projectBoard: ProjectBoardSource;
+  /** Agent employees to hire on opening, already validated by `config.ts`. */
+  readonly agentCount: number;
 }
 
 export class OfficeRoom extends Room<OfficeState> {
@@ -125,7 +133,8 @@ export class OfficeRoom extends Room<OfficeState> {
     };
     this.companyClock = createCompanyClock(this.state.company, this.clock.currentTime);
 
-    const source = (options as Partial<OfficeRoomOptions> | undefined)?.projectBoard;
+    const roomOptions = options as Partial<OfficeRoomOptions> | undefined;
+    const source = roomOptions?.projectBoard;
     if (isProjectBoardSource(source)) {
       this.projectBoard = source;
       this.stopRelayingProjectBoard = relayProjectBoard(this, source);
@@ -140,6 +149,12 @@ export class OfficeRoom extends Room<OfficeState> {
     };
     seedTicketBoard(ticketHost);
     registerTicketHandlers(this, ticketHost);
+
+    // Before anyone can join, so nobody's first patch is an empty office.
+    const agentCount = roomOptions?.agentCount;
+    if (typeof agentCount === "number") {
+      hireAgentEmployees(this.state.occupants, OFFICE_LAYOUT, agentCount);
+    }
 
     this.onMessage(CLIENT_MESSAGE.pose, (client, raw: unknown) => {
       const pose = parsePoseMessage(raw);

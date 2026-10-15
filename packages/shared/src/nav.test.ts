@@ -85,6 +85,7 @@ const FIXTURE_LAYOUT: OfficeLayout = {
     { id: "wp-closet-far", x: 9, z: 2.5, links: ["wp-closet-near"] },
   ],
   spawnPoints: [{ x: -3, z: 0, yaw: 0 }],
+  agentDesks: [],
   fixtures: [],
 };
 

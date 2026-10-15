@@ -2,6 +2,12 @@
  * An occupant's body: a rigged humanoid, a floating nameplate, a CEO marker,
  * and whatever the occupant is currently expressing.
  *
+ * Players and agent employees are both built here, so the two cannot drift
+ * apart in how they move, sit or emote. What differs is identity, and it is
+ * meant to read at a glance: an agent wears the agents' colour rather than the
+ * players', its nameplate carries its job title under its name, and a badge
+ * over its head says what it is doing.
+ *
  * Three things about the shape of this file are load-bearing:
  *
  * - **The capsule is still here, as the fallback.** An avatar built without a
@@ -9,8 +15,8 @@
  *   model that never arrives therefore leaves a body you can see and walk,
  *   rather than an invisible player.
  * - **Head-height attachments hang off {@link Avatar.headAnchor}.** The
- *   nameplate, the CEO marker, the emote sprite and the chat bubble are all
- *   children of it. It is a plain object whose height follows the pose, so
+ *   nameplate, the CEO marker or an agent's badge, the emote sprite and the
+ *   chat bubble are all children of it. It is a plain object whose height follows the pose, so
  *   nothing outside this file has to know whether the body underneath is a
  *   capsule, a standing humanoid or a seated one.
  * - **Speed is derived here, from the pose.** The walk cycle has to be played at
@@ -23,27 +29,32 @@
  * avatar is built or renamed, not per frame.
  *
  * Expression is the same for every occupant, so an agent employee gets emotes
- * and chat bubbles by being given an {@link Avatar}, with no extra work here.
+ * and chat bubbles by being given an {@link Avatar}, with no extra work here;
+ * they only sit higher, above its badge and its title.
  */
 
 import {
+  type AgentActivity,
   ANIMATION_STATE,
   type AnimationState,
   CHAT_BUBBLE_LIFETIME_MS,
   type Emote,
   EMOTE_LIFETIME_MS,
   OCCUPANT_HEIGHT,
+  OCCUPANT_KIND,
   OCCUPANT_RADIUS,
+  type OccupantKind,
   SPEED_TOLERANCE,
   WALK_SPEED,
 } from "@sim/shared";
 import * as THREE from "three";
 
+import { AGENT_ACTIVITY_APPEARANCE } from "../agentActivity.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 
 import { AvatarAnimator } from "./avatarAnimator.js";
-import type { AvatarModel } from "./avatarModel.js";
-import { Billboard, paintEmote, paintSpeechBubble } from "./billboard.js";
+import type { AvatarLook, AvatarModel } from "./avatarModel.js";
+import { Billboard, paintActivityBadge, paintEmote, paintSpeechBubble } from "./billboard.js";
 
 /**
  * Offsets of the expression sprites above the head anchor.
@@ -63,6 +74,29 @@ const EMOTE_WORLD_HEIGHT = 0.46;
 const CHAT_CANVAS_WIDTH = 512;
 const CHAT_CANVAS_HEIGHT = 224;
 const CHAT_WORLD_HEIGHT = 0.62;
+
+/**
+ * An agent's activity badge, in the slot just over the head where a player's
+ * CEO marker would be — no agent is ever CEO.
+ *
+ * Its lettering is a little taller than a nameplate's, because it is the one
+ * thing on an agent that changes and the floor is read by it.
+ */
+const BADGE_OFFSET_Y = 0.18;
+const BADGE_CANVAS_WIDTH = 384;
+const BADGE_CANVAS_HEIGHT = 72;
+const BADGE_WORLD_HEIGHT = 0.28;
+
+/**
+ * How much higher an agent's nameplate, and then its emotes and bubbles, sit
+ * than a player's.
+ *
+ * The nameplate clears the badge beneath it; the expressions clear the
+ * nameplate's extra line on top of that. An agent saying something mid-task
+ * therefore shows all four, stacked, without any overlapping.
+ */
+const AGENT_NAMEPLATE_LIFT = 0.2;
+const AGENT_EXPRESSION_LIFT = 0.31;
 
 /**
  * Height of the attachment point everything above the head hangs from: the
@@ -114,15 +148,27 @@ const NAMEPLATE_HEIGHT = 0.3;
  * dimensions, which WebGL rejects. The pill is drawn centred inside it and the
  * surrounding margin stays transparent. Wide enough for the longest name the
  * server will accept plus the CEO suffix.
+ *
+ * An agent's is taller by a line, for its job title, and fixed the same way;
+ * an occupant's kind never changes, so neither does which of the two it has.
  */
 const NAMEPLATE_CANVAS_WIDTH = 640;
 const NAMEPLATE_CANVAS_HEIGHT = 64;
+const AGENT_NAMEPLATE_CANVAS_HEIGHT = 108;
+
+/** Lettering of each nameplate line, as a fraction of a one-line plate's height. */
+const NAME_FONT_SCALE = 0.52;
+const TITLE_FONT_SCALE = 0.42;
 
 /** Expiry sentinel for "not showing anything". */
 const NOT_SHOWING = Number.NEGATIVE_INFINITY;
 
 const LOCAL_BODY_COLOUR = 0xcfd3da;
 const REMOTE_BODY_COLOUR = 0x9aa0aa;
+/** The fallback capsule's version of the agents' teal shell in `avatarModel.ts`. */
+const AGENT_BODY_COLOUR = 0x2bb3a3;
+/** An agent's job title on its nameplate: the same teal, lifted to read on the dark pill. */
+const JOB_TITLE_COLOUR = "#7fe3d6";
 const FACING_COLOUR = 0x5e6470;
 const CEO_MARKER_COLOUR = 0xf0c650;
 const CUP_COLOUR = 0xe8dcc4;
@@ -159,7 +205,12 @@ const CUP_MATERIAL = new THREE.MeshLambertMaterial({ color: CUP_COLOUR });
 
 export interface AvatarOptions {
   readonly name: string;
+  readonly kind: OccupantKind;
   readonly isCeo: boolean;
+  /** An agent's job title, shown under its name; `""` for a player. */
+  readonly jobTitle: string;
+  /** An agent's activity, shown on its badge; `undefined` for a player. */
+  readonly activity: AgentActivity | undefined;
   /** The local player's body is lighter, so you can pick yourself out. */
   readonly isLocal: boolean;
   /**
@@ -186,42 +237,71 @@ interface AvatarBody {
   dispose: () => void;
 }
 
-function drawNameplate(canvas: HTMLCanvasElement, name: string, isCeo: boolean): void {
+/**
+ * Paints a nameplate: the name, with a CEO suffix for the CEO, and an agent's
+ * job title on a second line beneath it.
+ */
+function drawNameplate(
+  canvas: HTMLCanvasElement,
+  name: string,
+  isCeo: boolean,
+  jobTitle: string,
+): void {
   const label = isCeo ? `${name}  ·  CEO` : name;
   const context = canvas.getContext("2d");
   if (context === null) {
     return;
   }
 
+  const nameFont = `600 ${Math.round(NAMEPLATE_CANVAS_HEIGHT * NAME_FONT_SCALE)}px ui-sans-serif, system-ui, sans-serif`;
+  const titleFont = `500 ${Math.round(NAMEPLATE_CANVAS_HEIGHT * TITLE_FONT_SCALE)}px ui-sans-serif, system-ui, sans-serif`;
+
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.font = `600 ${Math.round(NAMEPLATE_CANVAS_HEIGHT * 0.52)}px ui-sans-serif, system-ui, sans-serif`;
   context.textAlign = "center";
   context.textBaseline = "middle";
 
   const padding = NAMEPLATE_CANVAS_HEIGHT * 0.38;
-  const pillWidth = Math.min(
-    canvas.width,
-    Math.ceil(context.measureText(label).width + padding * 2),
-  );
+  context.font = titleFont;
+  const titleWidth = jobTitle === "" ? 0 : context.measureText(jobTitle).width;
+  context.font = nameFont;
+  const textWidth = Math.max(context.measureText(label).width, titleWidth);
+  const pillWidth = Math.min(canvas.width, Math.ceil(textWidth + padding * 2));
   const centreX = canvas.width / 2;
-  const centreY = canvas.height / 2;
 
   context.fillStyle = "rgba(20, 20, 24, 0.72)";
   context.beginPath();
-  context.roundRect(centreX - pillWidth / 2, 0, pillWidth, canvas.height, canvas.height / 2);
+  context.roundRect(
+    centreX - pillWidth / 2,
+    0,
+    pillWidth,
+    canvas.height,
+    Math.min(canvas.height, NAMEPLATE_CANVAS_HEIGHT) / 2,
+  );
   context.fill();
 
-  context.fillStyle = isCeo ? "#f3cf6a" : "#eef0f4";
-  context.fillText(label, centreX, centreY + 1);
+  if (jobTitle === "") {
+    context.fillStyle = isCeo ? "#f3cf6a" : "#eef0f4";
+    context.fillText(label, centreX, canvas.height / 2 + 1);
+    return;
+  }
+
+  // Two lines, split so the name keeps a one-line plate's lettering.
+  const nameY = canvas.height * 0.36;
+  const titleY = canvas.height * 0.73;
+  context.fillStyle = "#eef0f4";
+  context.fillText(label, centreX, nameY);
+  context.font = titleFont;
+  context.fillStyle = JOB_TITLE_COLOUR;
+  context.fillText(jobTitle, centreX, titleY);
 }
 
 /** The humanoid body, built once a model is available. */
 function createHumanoidBody(
   model: AvatarModel,
-  isLocal: boolean,
+  look: AvatarLook,
   initialAnimation: AnimationState,
 ): AvatarBody {
-  const instance = model.createInstance(isLocal);
+  const instance = model.createInstance(look);
   const animator = new AvatarAnimator(instance.root, instance.clips);
   animator.setState(initialAnimation);
 
@@ -237,14 +317,18 @@ function createHumanoidBody(
   };
 }
 
+const CAPSULE_COLOUR: Record<AvatarLook, number> = {
+  local: LOCAL_BODY_COLOUR,
+  remote: REMOTE_BODY_COLOUR,
+  agent: AGENT_BODY_COLOUR,
+};
+
 /** The capsule: the body an avatar has before the model arrives, or instead of it. */
-function createCapsuleBody(isLocal: boolean): AvatarBody {
+function createCapsuleBody(look: AvatarLook): AvatarBody {
   const root = new THREE.Group();
   root.name = "avatar-capsule";
 
-  const material = new THREE.MeshLambertMaterial({
-    color: isLocal ? LOCAL_BODY_COLOUR : REMOTE_BODY_COLOUR,
-  });
+  const material = new THREE.MeshLambertMaterial({ color: CAPSULE_COLOUR[look] });
   const capsule = new THREE.Mesh(BODY_GEOMETRY, material);
   capsule.position.y = OCCUPANT_HEIGHT / 2;
   // The body is the only part of an avatar that casts: a shadow under a player
@@ -276,8 +360,8 @@ export class Avatar {
   /**
    * Where everything that belongs above an occupant's head attaches.
    *
-   * Nameplate, CEO marker, emote sprite and chat bubble are all children of
-   * it. Its height tracks the pose, so a child at a fixed local offset keeps
+   * Nameplate, CEO marker, activity badge, emote sprite and chat bubble are
+   * all children of it. Its height tracks the pose, so a child at a fixed local offset keeps
    * sitting above the head, and when the capsule is replaced by a rigged
    * mesh, re-parenting this one group to a head bone moves all of it.
    */
@@ -301,14 +385,19 @@ export class Avatar {
     worldHeight: CHAT_WORLD_HEIGHT,
   });
 
+  /** An agent's activity badge; absent on a player. */
+  private readonly badge: Billboard | undefined;
+
   private emoteExpiresAt = NOT_SHOWING;
   private chatExpiresAt = NOT_SHOWING;
 
   private body: AvatarBody;
-  private readonly isLocal: boolean;
+  private readonly look: AvatarLook;
 
   private name: string;
   private isCeo: boolean;
+  private jobTitle: string;
+  private activity: AgentActivity | undefined;
   private animation: AnimationState = ANIMATION_STATE.idle;
 
   private speed = 0;
@@ -324,14 +413,17 @@ export class Avatar {
   private glideZ = 0;
 
   public constructor(options: AvatarOptions) {
+    const isAgent = options.kind === OCCUPANT_KIND.agent;
     this.name = options.name;
     this.isCeo = options.isCeo;
-    this.isLocal = options.isLocal;
+    this.jobTitle = options.jobTitle;
+    this.activity = undefined;
+    this.look = isAgent ? "agent" : options.isLocal ? "local" : "remote";
 
     this.body =
       options.model !== undefined
-        ? createHumanoidBody(options.model, options.isLocal, this.animation)
-        : createCapsuleBody(options.isLocal);
+        ? createHumanoidBody(options.model, this.look, this.animation)
+        : createCapsuleBody(this.look);
     this.group.add(this.body.root);
 
     // Held out to one side rather than straight ahead: a cup in front of the
@@ -345,10 +437,22 @@ export class Avatar {
     this.headAnchor.position.y = HEAD_ANCHOR_Y;
     this.group.add(this.headAnchor);
 
-    this.emoteBillboard.sprite.position.y = EMOTE_OFFSET_Y;
+    const lift = isAgent ? AGENT_EXPRESSION_LIFT : 0;
+    this.emoteBillboard.sprite.position.y = EMOTE_OFFSET_Y + lift;
     this.headAnchor.add(this.emoteBillboard.sprite);
-    this.chatBillboard.sprite.position.y = CHAT_OFFSET_Y;
+    this.chatBillboard.sprite.position.y = CHAT_OFFSET_Y + lift;
     this.headAnchor.add(this.chatBillboard.sprite);
+
+    if (isAgent) {
+      this.badge = new Billboard({
+        canvasWidth: BADGE_CANVAS_WIDTH,
+        canvasHeight: BADGE_CANVAS_HEIGHT,
+        worldHeight: BADGE_WORLD_HEIGHT,
+      });
+      this.badge.sprite.position.y = BADGE_OFFSET_Y;
+      this.headAnchor.add(this.badge.sprite);
+      this.setActivity(options.activity);
+    }
 
     this.ceoMarker = new THREE.Mesh(CEO_MARKER_GEOMETRY, CEO_MARKER_MATERIAL);
     this.ceoMarker.position.y = CEO_MARKER_OFFSET_Y;
@@ -356,14 +460,16 @@ export class Avatar {
     this.headAnchor.add(this.ceoMarker);
 
     this.nameplateCanvas.width = NAMEPLATE_CANVAS_WIDTH;
-    this.nameplateCanvas.height = NAMEPLATE_CANVAS_HEIGHT;
-    drawNameplate(this.nameplateCanvas, this.name, this.isCeo);
+    this.nameplateCanvas.height = isAgent
+      ? AGENT_NAMEPLATE_CANVAS_HEIGHT
+      : NAMEPLATE_CANVAS_HEIGHT;
+    drawNameplate(this.nameplateCanvas, this.name, this.isCeo, this.jobTitle);
     this.nameplateTexture = new THREE.CanvasTexture(this.nameplateCanvas);
     this.nameplateTexture.colorSpace = THREE.SRGBColorSpace;
     this.nameplate = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: this.nameplateTexture, transparent: true, depthTest: false }),
     );
-    this.nameplate.position.y = NAMEPLATE_OFFSET_Y;
+    this.nameplate.position.y = NAMEPLATE_OFFSET_Y + (isAgent ? AGENT_NAMEPLATE_LIFT : 0);
     this.applyNameplateScale();
     this.headAnchor.add(this.nameplate);
   }
@@ -449,7 +555,7 @@ export class Avatar {
       return;
     }
 
-    const next = createHumanoidBody(model, this.isLocal, this.animation);
+    const next = createHumanoidBody(model, this.look, this.animation);
     this.body.dispose();
     this.body = next;
     this.group.add(this.body.root);
@@ -495,15 +601,36 @@ export class Avatar {
   }
 
   /** Re-renders the nameplate only when something it shows has changed. */
-  public setLabel(name: string, isCeo: boolean): void {
-    if (name === this.name && isCeo === this.isCeo) {
+  public setLabel(name: string, isCeo: boolean, jobTitle: string): void {
+    if (name === this.name && isCeo === this.isCeo && jobTitle === this.jobTitle) {
       return;
     }
     this.name = name;
     this.isCeo = isCeo;
+    this.jobTitle = jobTitle;
     this.ceoMarker.visible = isCeo;
-    drawNameplate(this.nameplateCanvas, name, isCeo);
+    drawNameplate(this.nameplateCanvas, name, isCeo, jobTitle);
     this.nameplateTexture.needsUpdate = true;
+  }
+
+  /**
+   * Repaints an agent's badge, only when the activity has changed.
+   *
+   * Does nothing on a player, who has no badge. An agent whose activity is
+   * somehow unknown shows no badge rather than a wrong one.
+   */
+  public setActivity(activity: AgentActivity | undefined): void {
+    const badge = this.badge;
+    if (badge === undefined || activity === this.activity) {
+      return;
+    }
+    this.activity = activity;
+    const appearance = activity === undefined ? undefined : AGENT_ACTIVITY_APPEARANCE[activity];
+    if (appearance === undefined) {
+      badge.hide();
+      return;
+    }
+    badge.show(paintActivityBadge(appearance.label, appearance.colour));
   }
 
   public dispose(): void {
@@ -513,6 +640,7 @@ export class Avatar {
     this.nameplateTexture.dispose();
     this.emoteBillboard.dispose();
     this.chatBillboard.dispose();
+    this.badge?.dispose();
   }
 
   /**
@@ -529,9 +657,14 @@ export class Avatar {
     this.body.root.position.y = seated ? CAPSULE_SEATED_LIFT : 0;
   }
 
+  /** Keeps the lettering one size: a taller canvas makes a taller sprite. */
   private applyNameplateScale(): void {
-    const aspect = NAMEPLATE_CANVAS_WIDTH / NAMEPLATE_CANVAS_HEIGHT;
-    this.nameplate.scale.set(NAMEPLATE_HEIGHT * aspect, NAMEPLATE_HEIGHT, 1);
+    const unit = NAMEPLATE_HEIGHT / NAMEPLATE_CANVAS_HEIGHT;
+    this.nameplate.scale.set(
+      this.nameplateCanvas.width * unit,
+      this.nameplateCanvas.height * unit,
+      1,
+    );
   }
 }
 

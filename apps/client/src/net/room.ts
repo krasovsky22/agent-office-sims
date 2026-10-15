@@ -24,6 +24,7 @@
  */
 
 import {
+  type AgentActivity,
   ANIMATION_STATE,
   type AnimationState,
   type ChatEvent,
@@ -47,6 +48,7 @@ import {
   type ReportedAnimation,
   SERVER_MESSAGE,
   type ThrottledEvent,
+  isAgentEmployee,
   isHumanPlayer,
   normalizeYaw,
   shortestYawDelta,
@@ -71,12 +73,17 @@ interface PoseSample {
  * read one every frame without allocating. Only the fields the HUD renders
  * trigger an `onOccupantsChanged`; `interactableId` changes far too often for
  * that and is read from the loop instead.
+ *
+ * `jobTitle` and `activity` are an agent employee's: `""` and `undefined` for a
+ * player, so a consumer can branch on `kind` and never meet a half-agent.
  */
 export interface OccupantView {
   readonly id: string;
   name: string;
   kind: OccupantKind;
   isCeo: boolean;
+  jobTitle: string;
+  activity: AgentActivity | undefined;
   readonly isLocal: boolean;
   /** Interactable this occupant is engaged with, or `""` when free. */
   interactableId: string;
@@ -114,7 +121,7 @@ export interface RemotePose {
 }
 
 export interface RoomConnectionEvents {
-  /** An occupant arrived, left, was renamed, or became CEO. */
+  /** An occupant arrived, left, was renamed, became CEO, or an agent changed activity. */
   onOccupantsChanged?: () => void;
   onStatusChanged?: (status: ConnectionStatus, detail?: string) => void;
   /** The local player's starting pose, as the server assigned it. */
@@ -332,6 +339,8 @@ export class RoomConnection {
         name: occupant.name,
         kind: occupant.kind,
         isCeo: isHumanPlayer(occupant) && occupant.isCeo,
+        jobTitle: isAgentEmployee(occupant) ? occupant.jobTitle : "",
+        activity: isAgentEmployee(occupant) ? occupant.activity : undefined,
         isLocal,
         interactableId: occupant.interactableId,
       };
@@ -406,10 +415,20 @@ export class RoomConnection {
     view: OccupantView,
   ): void {
     const isCeo = isHumanPlayer(occupant) && occupant.isCeo;
-    if (view.name !== occupant.name || view.isCeo !== isCeo || view.kind !== occupant.kind) {
+    const jobTitle = isAgentEmployee(occupant) ? occupant.jobTitle : "";
+    const activity = isAgentEmployee(occupant) ? occupant.activity : undefined;
+    if (
+      view.name !== occupant.name ||
+      view.isCeo !== isCeo ||
+      view.kind !== occupant.kind ||
+      view.jobTitle !== jobTitle ||
+      view.activity !== activity
+    ) {
       view.name = occupant.name;
       view.kind = occupant.kind;
       view.isCeo = isCeo;
+      view.jobTitle = jobTitle;
+      view.activity = activity;
       this.events.onOccupantsChanged?.();
     }
 

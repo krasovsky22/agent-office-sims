@@ -6,6 +6,12 @@
  * skeleton and its own node transforms while sharing everything the GPU holds.
  * That is what keeps twenty avatars affordable.
  *
+ * Bodies come in three looks. A remote player wears the model as authored; the
+ * local player gets a lighter copy of its materials, so you can spot yourself;
+ * and every agent employee shares one recoloured copy of the shell, so an
+ * agent is never mistaken for a person and a floor of them costs one extra
+ * material, not one per agent.
+ *
  * The load is allowed to fail. Nothing here throws anything the caller cannot
  * handle by leaving the avatar as the capsule it was built as.
  */
@@ -33,6 +39,22 @@ const MODEL_FACING_YAW = Math.PI;
 /** How much brighter the local player's own body is, so you can spot yourself. */
 const LOCAL_BODY_BRIGHTNESS = 1.35;
 
+/**
+ * The material that makes up the robot's shell, and so its colour at a glance.
+ *
+ * A fact about this asset, like the clip names in `avatarClips.ts`: the model's
+ * three materials are `Main` (the orange shell), `Grey` and `Black`. A swapped
+ * asset without one leaves agents in the player colours, still told apart by
+ * their nameplates and badges.
+ */
+const SHELL_MATERIAL_NAME = "Main";
+
+/** The agents' shell: teal, as far from the players' orange as the wheel goes. */
+const AGENT_SHELL_COLOUR = 0x2bb3a3;
+
+/** Which coat of paint a body is stamped out with. */
+export type AvatarLook = "local" | "remote" | "agent";
+
 /** A body ready to be added to an avatar's group, with the clips that drive it. */
 export interface AvatarModelInstance {
   readonly root: THREE.Object3D;
@@ -44,8 +66,7 @@ export interface AvatarModelInstance {
 }
 
 export interface AvatarModel {
-  /** @param brighten whether this is the local player's own body. */
-  createInstance: (brighten: boolean) => AvatarModelInstance;
+  createInstance: (look: AvatarLook) => AvatarModelInstance;
 }
 
 /**
@@ -60,10 +81,19 @@ export async function loadAvatarModel(baseUrl: string): Promise<AvatarModel> {
   const seat = measureSeatPlacement(template, sourceSeatedClip(gltf.animations), DESK_CHAIR);
   const clips = buildAvatarClips(template, gltf.animations, seat);
 
+  // Made on the first agent and shared by every one after it, for the life of
+  // the page, like the template's own materials.
+  const agentPaint = new Map<THREE.Material, THREE.Material>();
+
   return {
-    createInstance: (brighten: boolean): AvatarModelInstance => {
+    createInstance: (look: AvatarLook): AvatarModelInstance => {
       const root = cloneSkinned(template);
-      const owned = brighten ? brightenMaterials(root) : [];
+      let owned: THREE.Material[] = [];
+      if (look === "local") {
+        owned = repaint(root, new Map(), brighten);
+      } else if (look === "agent") {
+        repaint(root, agentPaint, paintAgentShell);
+      }
       return {
         root,
         clips,
@@ -104,15 +134,47 @@ export function standAtOrigin(model: THREE.Object3D): THREE.Object3D {
 }
 
 /**
- * Gives one body its own, lighter, copy of the shared materials.
+ * Makes a recoloured copy of a template material, or declines to.
  *
- * Paid for by exactly one avatar — the local player's — so the office still
- * renders from a single material set.
- *
- * @returns the materials this body now owns and has to dispose.
+ * @returns the copy, or `undefined` to leave the body on the shared original.
  */
-function brightenMaterials(root: THREE.Object3D): THREE.Material[] {
-  const copies = new Map<THREE.Material, THREE.Material>();
+type MaterialPaint = (source: THREE.Material) => THREE.Material | undefined;
+
+/** The local player's paint: every material, lighter. */
+const brighten: MaterialPaint = (source) => {
+  const copy = source.clone();
+  if ("color" in copy && copy.color instanceof THREE.Color) {
+    copy.color.multiplyScalar(LOCAL_BODY_BRIGHTNESS);
+  }
+  return copy;
+};
+
+/** The agents' paint: the shell recoloured, everything else left shared. */
+const paintAgentShell: MaterialPaint = (source) => {
+  if (source.name !== SHELL_MATERIAL_NAME) {
+    return undefined;
+  }
+  const copy = source.clone();
+  if ("color" in copy && copy.color instanceof THREE.Color) {
+    copy.color.set(AGENT_SHELL_COLOUR);
+  }
+  return copy;
+};
+
+/**
+ * Swaps a body's materials for painted copies, reusing any already in `copies`.
+ *
+ * Pass a fresh map to give one body copies of its own, or a long-lived one to
+ * share a paint across every body that wears it.
+ *
+ * @returns the copies this call made, which whoever owns `copies` disposes.
+ */
+function repaint(
+  root: THREE.Object3D,
+  copies: Map<THREE.Material, THREE.Material>,
+  paint: MaterialPaint,
+): THREE.Material[] {
+  const made: THREE.Material[] = [];
 
   root.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) {
@@ -124,14 +186,16 @@ function brightenMaterials(root: THREE.Object3D): THREE.Material[] {
     }
     let copy = copies.get(source);
     if (copy === undefined) {
-      copy = source.clone();
-      if ("color" in copy && copy.color instanceof THREE.Color) {
-        copy.color.multiplyScalar(LOCAL_BODY_BRIGHTNESS);
+      copy = paint(source);
+      if (copy !== undefined) {
+        copies.set(source, copy);
+        made.push(copy);
       }
-      copies.set(source, copy);
     }
-    node.material = copy;
+    if (copy !== undefined) {
+      node.material = copy;
+    }
   });
 
-  return [...copies.values()];
+  return made;
 }
