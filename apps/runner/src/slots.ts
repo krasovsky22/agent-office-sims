@@ -13,6 +13,10 @@
  * Everything an agent says is cut to the contract's byte budgets here, before
  * it is queued: the server refuses a whole sync for one string too long, and
  * one chatty agent must not stall every slot's report.
+ *
+ * Each slot also has a terminal screen, `./terminal.ts`, which shows what its
+ * agent prints. A new run starts on a cleared screen, and the last run's
+ * screen stays up until then.
  */
 
 import { randomUUID } from "node:crypto";
@@ -33,6 +37,7 @@ import {
 } from "@sim/shared";
 
 import type { Agent, AgentReporter, AgentRun } from "./agents/types.js";
+import { ScreenMirror } from "./terminal.js";
 
 /**
  * Events held while the server cannot be reached. Far more than a few slots
@@ -69,6 +74,7 @@ interface Slot {
   activity: string;
   pr: RunnerPullRequest | undefined;
   run: ActiveRun | undefined;
+  readonly screen: ScreenMirror;
 }
 
 interface ActiveRun {
@@ -110,15 +116,27 @@ export class SlotPool {
   public constructor(private readonly options: SlotPoolOptions) {
     this.eventId = options.eventId ?? (() => `event-${randomUUID()}`);
     this.log = options.log ?? (() => undefined);
-    this.slots = Array.from({ length: options.count }, (_, index) => ({
-      id: `slot-${index + 1}`,
-      name: fitBytes(`${options.agent.label} ${index + 1}`, MAX_NAME_LENGTH),
-      status: RUNNER_SLOT_STATUS.idle,
-      issueNumber: undefined,
-      activity: "",
-      pr: undefined,
-      run: undefined,
-    }));
+    const now = Date.now();
+    this.slots = Array.from({ length: options.count }, (_, index) => {
+      const name = fitBytes(`${options.agent.label} ${index + 1}`, MAX_NAME_LENGTH);
+      const screen = new ScreenMirror(now);
+      screen.write(`\u001b[2m${name} is waiting for work.\u001b[0m\r\n`);
+      return {
+        id: `slot-${index + 1}`,
+        name,
+        status: RUNNER_SLOT_STATUS.idle,
+        issueNumber: undefined,
+        activity: "",
+        pr: undefined,
+        run: undefined,
+        screen,
+      };
+    });
+  }
+
+  /** Each slot's id and terminal screen. */
+  public screens(): Array<readonly [string, ScreenMirror]> {
+    return this.slots.map((slot) => [slot.id, slot.screen] as const);
   }
 
   /** Every slot as the sync reports it. */
@@ -197,6 +215,7 @@ export class SlotPool {
     timeout.unref();
 
     slot.status = RUNNER_SLOT_STATUS.starting;
+    slot.screen.reset();
     slot.issueNumber = task.issueNumber;
     slot.activity = "Making a worktree";
     slot.pr = undefined;
@@ -237,6 +256,11 @@ export class SlotPool {
         }
         slot.status = RUNNER_SLOT_STATUS.working;
         slot.activity = fitBytes(activity, MAX_TITLE_LENGTH);
+      },
+      output: (data) => {
+        if (run.live) {
+          slot.screen.write(data);
+        }
       },
       prOpened: (pr) => {
         if (!run.live) {

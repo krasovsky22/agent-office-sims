@@ -5,7 +5,9 @@
  * A mock runner's two slots reach the floor idle, a start command queued the
  * way the server queues one round-trips to `started` and back to idle, its
  * work done in a worktree of its own cut from a temporary origin, and a
- * runner that goes silent leaves the floor once the timeout passes. The
+ * runner that goes silent leaves the floor once the timeout passes. Its
+ * slots' screens reach the server's screen store as the mock prints, and the
+ * runner's secret never does, whatever an agent prints. The
  * server's route and link are imported from its source rather than started as
  * a process, so the test owns the clock the timeout is measured by; the
  * floor's rendering of those slots is the server's own tests'.
@@ -14,14 +16,20 @@
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 
-import { LIVE_AGENT_STATUS, RUNNER_SYNC_PATH } from "@sim/shared";
+import { LIVE_AGENT_STATUS, RUNNER_SCREENS_PATH, RUNNER_SYNC_PATH, type ScreenFramesEvent } from "@sim/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createHealthServer } from "../../server/src/http.js";
 import { createRunnerEndpoint } from "../../server/src/agents/runnerEndpoint.js";
 import { RunnerLink, type RunnerEventRecord } from "../../server/src/agents/runnerLink.js";
+import { ScreenStore } from "../../server/src/agents/screens.js";
+import { createScreensEndpoint } from "../../server/src/agents/screensEndpoint.js";
 import { createMockAgent } from "./agents/mock.js";
+import type { Agent } from "./agents/types.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
+import { createRedactor } from "./redact.js";
+import { ScreenLoop } from "./screenLoop.js";
+import { createScreensClient } from "./screensClient.js";
 import { SlotWorktrees } from "./slotWorktrees.js";
 import { SlotPool } from "./slots.js";
 import { createSyncClient } from "./syncClient.js";
@@ -37,7 +45,13 @@ const SYNC_GAP_MS = 100;
 
 const clock = { now: 1_000_000 };
 const link = new RunnerLink({ repository: REPO, timeoutMs: TIMEOUT_MS, now: () => clock.now });
-const server = createHealthServer(new Map([[RUNNER_SYNC_PATH, createRunnerEndpoint({ secret: SECRET, link })]]));
+const store = new ScreenStore({ slots: link });
+const server = createHealthServer(
+  new Map([
+    [RUNNER_SYNC_PATH, createRunnerEndpoint({ secret: SECRET, link })],
+    [RUNNER_SCREENS_PATH, createScreensEndpoint({ secret: SECRET, store })],
+  ]),
+);
 let serverUrl: URL;
 let fixture: GitFixture;
 let workspaces: SlotWorktrees;
@@ -63,10 +77,10 @@ afterAll(async () => {
   fixture.cleanup();
 });
 
-function runner(outcome: "failed" | "pr-opened") {
+function runner(outcome: "failed" | "pr-opened", agent?: Agent) {
   const pool = new SlotPool({
     count: 2,
-    agent: createMockAgent({ outcome, repo: REPO, stepMs: STEP_MS }),
+    agent: agent ?? createMockAgent({ outcome, repo: REPO, stepMs: STEP_MS }),
     workspaces,
     taskTimeoutMs: TIMEOUT_MS,
   });
@@ -76,7 +90,33 @@ function runner(outcome: "failed" | "pr-opened") {
     pool,
     client: createSyncClient({ serverUrl, secret: SECRET }),
   });
-  return { pool, loop };
+  const screens = new ScreenLoop({
+    runnerId: "runner-1",
+    screens: () => pool.screens(),
+    redactor: createRedactor([SECRET]),
+    client: createScreensClient({ serverUrl, secret: SECRET }),
+  });
+  return { pool, loop, screens };
+}
+
+/** The text on a slot's screen as the server's store holds it, row by row. */
+function storedText(slotId: string): string[] {
+  const screen = store.fullScreens().screens.find((candidate) => candidate.occupantId === `agent:runner:runner-1:${slotId}`);
+  return Object.values(screen?.frame.lines ?? {})
+    .map((runs) => runs.map((run) => run[0]).join(""))
+    .filter((text) => text !== "");
+}
+
+/** Posts screens until `done` holds, the way the loop would a quarter second apart. */
+async function postUntil(screens: ScreenLoop, done: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    await screens.flushOnce();
+    if (done()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, STEP_MS / 2));
+  }
+  throw new Error("the screens never got there");
 }
 
 /** Syncs until `done` holds, the way the loop would a second apart. */
@@ -165,5 +205,80 @@ describe("the mock runner and the server's runner link", () => {
     const logged: string[] = [];
     expect(await loop.syncOnce()).toBe(false);
     expect(logged).toEqual(["sync failed: refused with HTTP 401: unauthorized; retrying with backoff"]);
+  });
+});
+
+describe("the mock runner's screens and the server's screen store", () => {
+  it("puts each slot's screen in the store, then the mock's work as diffs, the same for every room", async () => {
+    const heard: ScreenFramesEvent[] = [];
+    const stopHearing = store.onScreens((event) => heard.push(event));
+    const { loop, screens } = runner("pr-opened");
+    await loop.syncOnce();
+
+    await postUntil(screens, () => storedText("slot-2").length > 0);
+    expect(storedText("slot-1")).toEqual(["Mock 1 is waiting for work."]);
+    expect(storedText("slot-2")).toEqual(["Mock 2 is waiting for work."]);
+    expect(heard[0]?.screens.map((screen) => screen.frame.full)).toEqual([true, true]);
+
+    link.enqueue("runner-1", {
+      kind: "start",
+      slotId: "slot-1",
+      issueNumber: 39,
+      title: "Night shift",
+      url: `https://github.com/${REPO}/issues/39`,
+      note: "",
+      requestedBy: "Dana",
+    });
+    await loop.syncOnce();
+    await postUntil(screens, () => storedText("slot-1").some((row) => row.startsWith("✓ Opened")));
+    expect(storedText("slot-1")).toEqual([
+      "mock agent on #39: Night shift",
+      "for Dana",
+      "● Reading issue #39",
+      "● Edit: .sims-mock/issue-39.md",
+      "● Bash: git commit",
+      "● Bash: pnpm test",
+      `✓ Opened https://github.com/${REPO}/pull/1000039`,
+    ]);
+    // After the first whole screens, only diffs, and only for the slot at work.
+    const later = heard.slice(1).flatMap((event) => event.screens);
+    expect(later.length).toBeGreaterThan(0);
+    expect(later.every((screen) => !screen.frame.full && screen.occupantId === "agent:runner:runner-1:slot-1")).toBe(true);
+    stopHearing();
+  });
+
+  it("never lets the runner's secret reach the server, however an agent prints it", async () => {
+    const heard: ScreenFramesEvent[] = [];
+    const stopHearing = store.onScreens((event) => heard.push(event));
+    const leaky: Agent = {
+      label: "Leaky",
+      start: (_task, reporter) => {
+        reporter.started();
+        reporter.output(`$ env\r\nRUNNER_SECRET=${SECRET}\r\n`);
+        reporter.output(`\u001b[33m${SECRET.slice(0, 9)}\u001b[1m${SECRET.slice(9)}\u001b[0m\r\n`);
+        reporter.output(`${"x".repeat(90)}${SECRET}\r\n`);
+        return { stop: () => undefined };
+      },
+    };
+    const { loop, screens } = runner("failed", leaky);
+    await loop.syncOnce();
+    link.enqueue("runner-1", {
+      kind: "start",
+      slotId: "slot-1",
+      issueNumber: 39,
+      title: "Night shift",
+      url: `https://github.com/${REPO}/issues/39`,
+      note: "",
+      requestedBy: "Dana",
+    });
+    await loop.syncOnce();
+    await postUntil(screens, () => storedText("slot-1").includes("$ env"));
+
+    expect(storedText("slot-1")[1]).toBe(`RUNNER_SECRET=${"*".repeat(SECRET.length)}`);
+    for (const seen of [JSON.stringify(store.fullScreens()), JSON.stringify(heard)]) {
+      expect(seen).not.toContain(SECRET.slice(0, 9));
+      expect(seen).not.toContain(SECRET.slice(9));
+    }
+    stopHearing();
   });
 });

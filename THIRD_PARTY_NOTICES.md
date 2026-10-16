@@ -6,7 +6,8 @@ reproduced as its licence requires.
 ## agent-office
 
 The agent runner (`apps/runner`) follows the design of agent-office, and code
-adapted from it is distributed under the MIT License below.
+adapted from it, in the runner and in the screen frames' contract
+(`packages/shared/src/screens.ts`), is distributed under the MIT License below.
 
 - Project: <https://github.com/AgentSystemLabs/agent-office>
 - Licence: MIT

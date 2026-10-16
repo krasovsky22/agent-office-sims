@@ -611,6 +611,10 @@ export class RoomConnection {
       this.events.onManagerRejected?.(event);
     });
 
+    // Agents' terminal screens arrive several times a second. Nothing draws
+    // them yet, and a type left unregistered would log a warning for each one.
+    room.onMessage(SERVER_MESSAGE.screens, () => undefined);
+
     room.onError((code, message) => {
       this.events.onStatusChanged?.("failed", message ?? `error ${code}`);
     });

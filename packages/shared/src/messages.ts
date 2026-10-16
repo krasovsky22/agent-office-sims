@@ -116,6 +116,12 @@ export const SERVER_MESSAGE = {
    * reason. Carries a {@link ManagerRejectedEvent}.
    */
   managerRejected: "manager:rejected",
+  /**
+   * Agent terminals, a `ScreenFramesEvent` from `screens.ts`: each batch of
+   * diffs the server accepts from a runner, broadcast to every client, and a
+   * full frame of every screen, sent to each client as it joins.
+   */
+  screens: "screens",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];
