@@ -597,12 +597,16 @@ Then confirm all seventeen:
     checks all of it against a live room, including that the passphrase is in
     no state, message or log line.
 16. **A live agent's monitor shows its terminal, in both tabs.** With the
-    server's `RUNNER_SECRET` set and the runner started as in
-    [Running the runner](#running-the-runner), Dana assigns an issue to
-    `Mock 1`. It sits at a free open-floor desk, and within a few seconds that
-    desk's monitor shows the mock's coloured steps, the same in both tabs, while
-    every other monitor stays blank. With `?debug` the draw-call count is the
-    same before any live agent sits as it was before the runner started.
+    server's `RUNNER_SECRET` set and no runner started, note the draw-call
+    count with `?debug`, then seat `Mock 1` through the
+    [runner link](#the-runner-link): send the sync `curl` there with the
+    first slot named `Mock 1` and `repo` set to `PROJECT_BOARD_REPO`. It sits
+    at a free open-floor desk and its monitor reads `connecting…`. Post the
+    [Screens](#screens) `curl` with `"full":true`: within a few seconds that
+    desk's monitor shows the coloured row, the same in both tabs, while every
+    other monitor stays as it was. Sync again with `slot-1` `idle`: it stands
+    up, its monitor goes back to the kit screen, and the draw-call count is
+    the one noted before it sat.
 17. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
