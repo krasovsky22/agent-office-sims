@@ -9,7 +9,7 @@
  * are `./slotWorktrees.test.ts`'s.
  */
 
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { MAX_NAME_LENGTH, MAX_TITLE_LENGTH, type RunnerCommand } from "@sim/shared";
@@ -145,6 +145,19 @@ describe("SlotPool", () => {
     slots.handle(START);
     await vi.advanceTimersByTimeAsync(STEP_MS * 3);
     expect(slots.pendingEvents()[1]?.message).toMatch(/^Bash: git commit failed: fatal: not a git repository/);
+  });
+
+  it("never commits in a repository above its workspace", async () => {
+    // A workspace that lost its own repository, inside someone else's.
+    const workdir = join(fixture.developer, "kept");
+    mkdirSync(workdir);
+    const head = fixture.git(fixture.developer, "rev-parse", "HEAD");
+    const slots = pool("failed", undefined, { open: async () => workdir, close: async () => undefined });
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(STEP_MS * 3);
+    expect(slots.pendingEvents()[1]?.message).toMatch(/^Bash: git commit failed: fatal: not a git repository/);
+    expect(fixture.git(fixture.developer, "rev-parse", "HEAD")).toBe(head);
+    expect(fixture.git(fixture.developer, "status", "--porcelain")).toBe("?? kept/");
   });
 
   it("hands the agent its workspace as its working directory", async () => {

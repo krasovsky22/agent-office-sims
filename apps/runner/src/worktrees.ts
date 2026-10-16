@@ -258,15 +258,7 @@ export class Worktrees {
   public async remove(ref: WorktreeRef): Promise<string | undefined> {
     try {
       if (existsSync(ref.path)) {
-        try {
-          await this.git(["worktree", "remove", "--force", "--force", ref.path]);
-        } catch (error) {
-          // Git will not (a lock, say), but it is the runner's own folder: take it out by hand.
-          if (!this.owns(ref.path)) {
-            throw error;
-          }
-          await rm(ref.path, { recursive: true, force: true });
-        }
+        await this.git(["worktree", "remove", "--force", "--force", ref.path]);
       }
       // Forget worktrees whose folders are gone: this one, and any deleted by hand.
       await this.git(["worktree", "prune"]);
@@ -308,11 +300,6 @@ export class Worktrees {
           .filter((path) => !known.has(path) && isDir(path))
       : [];
     return { worktrees, branches, strays };
-  }
-
-  /** True for a folder inside the worktrees dir, the only place this class deletes on its own. */
-  public owns(path: string): boolean {
-    return within(real(this.worktreesDir), real(path));
   }
 
   private async hasBranch(branch: string): Promise<boolean> {

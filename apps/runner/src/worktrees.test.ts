@@ -110,7 +110,7 @@ describe("Worktrees", () => {
     expect(describeWork({ exists: true, dirty: 2, unpushed: 1 })).toBe("2 uncommitted changes, 1 unpushed commit");
   });
 
-  it("removes a worktree with its branch, even one git will not remove", async () => {
+  it("removes a worktree with its branch, even a locked one", async () => {
     const trees = worktrees();
     await trees.ready();
     const made = await trees.create(39, "slot-1");

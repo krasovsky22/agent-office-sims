@@ -14,8 +14,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import { gitError } from "../worktrees.js";
 import type { Agent, AgentReporter, AgentRun, AgentTask } from "./types.js";
@@ -73,8 +73,10 @@ function script(task: AgentTask): readonly Step[] {
  * one small commit is milliseconds, and it keeps each step a single timer.
  */
 function commit(workdir: string, message: string): void {
+  // Only the worktree's own repository: never one git would find above it.
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: realpathSync(dirname(workdir)) };
   const git = (...args: string[]) =>
-    execFileSync("git", args, { cwd: workdir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 });
+    execFileSync("git", args, { cwd: workdir, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 });
   git("add", "--all");
   git(
     "-c",
