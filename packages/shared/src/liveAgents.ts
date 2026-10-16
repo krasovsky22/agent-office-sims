@@ -18,6 +18,26 @@ import { type InteractableSpec, INTERACTION_KIND, type OfficeLayout, interactabl
 import { sanitizeName, sanitizeTitle } from "./messages.js";
 import { LIVE_AGENT_STATUS, type LiveAgentStatus } from "./state.js";
 
+const LIVE_AGENT_KEY_PREFIX = "agent:";
+
+/**
+ * The occupant key a live agent is stored under.
+ *
+ * Prefixed so it can never collide with a session id — Colyseus mints those
+ * from an alphabet without a colon — nor with an agent employee's `agent-` id,
+ * and so the holds registry, which is keyed the same way, cannot confuse an
+ * agent with a player. Work keeps that key as its assignee after the agent has
+ * left, which is how {@link isLiveAgentKey} still tells whose it was.
+ */
+export function liveAgentKey(id: string): string {
+  return `${LIVE_AGENT_KEY_PREFIX}${id}`;
+}
+
+/** Whether an occupant key, present or long gone, is a live agent's. */
+export function isLiveAgentKey(key: string): boolean {
+  return key.startsWith(LIVE_AGENT_KEY_PREFIX);
+}
+
 /** What an orchestrator may report: one of the two live states, or that the agent has gone. */
 export const LIVE_AGENT_REPORT_STATUS = {
   ...LIVE_AGENT_STATUS,

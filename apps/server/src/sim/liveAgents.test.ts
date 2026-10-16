@@ -27,6 +27,7 @@ import {
   interactableById,
   isBlocked,
   liveAgentSeats,
+  liveAgentKey,
   roomAt,
   workKey,
 } from "@sim/shared";
@@ -39,7 +40,6 @@ import {
   LINE_GAP_MS,
   LiveAgentCrew,
   MEET_DISTANCE,
-  liveAgentKey,
 } from "./liveAgents.js";
 
 const STEP_SECONDS = TICK_INTERVAL_MS / 1000;

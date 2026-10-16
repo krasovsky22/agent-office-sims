@@ -40,6 +40,7 @@ import {
   type WorkReleaseMessage,
   sanitizeWorkNote,
 } from "./messages.js";
+import { isLiveAgentKey } from "./liveAgents.js";
 import { type ProjectBoardSnapshot, isIssueGone, openBoardIssue } from "./projectBoard.js";
 import {
   IssueWork,
@@ -641,8 +642,8 @@ export function workForAgent(
  * deliverable is a pull request, and that pull request merging is what closes
  * the issue, so releasing the work then would erase it at the moment it
  * shipped. It becomes `done` instead, and is collected into `shipped` so the
- * room can say so. Telling a live agent's work apart needs `occupants`;
- * without it, every piece of work is treated as an employee's.
+ * room can say so. Whose work it was is read from the assignee's key, so a
+ * review still ships after the live agent that handed it in has left.
  *
  * Run by the room when the feed publishes, never from the simulation tick.
  *
@@ -652,19 +653,17 @@ export function workForAgent(
 export function releaseGoneWork(
   work: MapSchema<IssueWork>,
   board: ProjectBoardSnapshot,
-  occupants?: MapSchema<Occupant>,
-  shipped?: IssueWork[],
+  shipped: IssueWork[],
 ): IssueWork[] {
   const released: IssueWork[] = [];
   for (const [key, candidate] of work) {
     if (candidate.status !== WORK_STATUS.done && isIssueGone(board, candidate.issueNumber)) {
       const closed = board.closed.find((issue) => issue.number === candidate.issueNumber);
-      const holder = occupants?.get(candidate.assigneeId);
-      if (closed !== undefined && candidate.status === WORK_STATUS.review && holder !== undefined && isLiveAgent(holder)) {
+      if (closed !== undefined && candidate.status === WORK_STATUS.review && isLiveAgentKey(candidate.assigneeId)) {
         candidate.status = WORK_STATUS.done;
         candidate.note = "";
         candidate.updatedAt = Math.max(candidate.updatedAt, closed.closedAt ?? board.updatedAt ?? 0);
-        shipped?.push(candidate);
+        shipped.push(candidate);
         continue;
       }
       work.delete(key);

@@ -333,7 +333,7 @@ describe("releaseGoneWork", () => {
         { ...issue(2), closedAt: T0 },
       ],
     });
-    expect(releaseGoneWork(at.work, board).map((work) => work.issueNumber)).toEqual([1]);
+    expect(releaseGoneWork(at.work, board, []).map((work) => work.issueNumber)).toEqual([1]);
     expect([...at.work.keys()].sort()).toEqual(["2", "3"]);
     expect(at.work.get(workKey(3))?.title).toBe("Renamed");
   });
@@ -345,8 +345,8 @@ describe("releaseGoneWork", () => {
     expect(isIssueGone(cut, 7)).toBe(false);
     expect(isIssueGone({ ...snapshot(), stale: true }, 7)).toBe(false);
     expect(isIssueGone({ ...snapshot(), updatedAt: null }, 7)).toBe(false);
-    expect(releaseGoneWork(at.work, cut)).toEqual([]);
-    expect(releaseGoneWork(at.work, snapshot()).map((work) => work.issueNumber)).toEqual([7]);
+    expect(releaseGoneWork(at.work, cut, [])).toEqual([]);
+    expect(releaseGoneWork(at.work, snapshot(), []).map((work) => work.issueNumber)).toEqual([7]);
   });
 
   it("finds an open issue in either open list", () => {
@@ -436,7 +436,7 @@ describe("a live agent", () => {
     });
 
     const shipped: IssueWork[] = [];
-    const released = releaseGoneWork(at.work, board, at.occupants, shipped);
+    const released = releaseGoneWork(at.work, board, shipped);
     expect(shipped).toEqual([shippedReview]);
     expect(shippedReview).toMatchObject({
       status: WORK_STATUS.done,
@@ -450,12 +450,27 @@ describe("a live agent", () => {
     expect(describeWorkProblems(at.work)).toEqual([]);
   });
 
+  it("still ships its review when it left the office before the issue closed", () => {
+    const at = office();
+    liveAgent(at, LIVE_ID, true);
+    const review = workAt(at, 1, WORK_STATUS.review, LIVE_ID);
+    review.outputArtifact = "PR #40";
+    releaseWorkOf(LIVE_ID, at.work);
+    at.occupants.delete(LIVE_ID);
+
+    const shipped: IssueWork[] = [];
+    const board = snapshot({ open: [], inProgress: [], closed: [{ ...issue(1), closedAt: T0 + 50 }] });
+    expect(releaseGoneWork(at.work, board, shipped)).toEqual([]);
+    expect(shipped).toEqual([review]);
+    expect(at.work.get(workKey(1))).toMatchObject({ status: WORK_STATUS.done, assigneeId: LIVE_ID, outputArtifact: "PR #40" });
+  });
+
   it("releases its review like anyone's when the issue only vanished from the board", () => {
     const at = office();
     liveAgent(at, LIVE_ID, true);
     workAt(at, 7, WORK_STATUS.review, LIVE_ID);
     const shipped: IssueWork[] = [];
-    expect(releaseGoneWork(at.work, snapshot(), at.occupants, shipped).map((work) => work.issueNumber)).toEqual([7]);
+    expect(releaseGoneWork(at.work, snapshot(), shipped).map((work) => work.issueNumber)).toEqual([7]);
     expect(shipped).toEqual([]);
   });
 

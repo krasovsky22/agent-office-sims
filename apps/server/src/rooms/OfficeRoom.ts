@@ -297,7 +297,7 @@ export class OfficeRoom extends Room<OfficeState> {
       // unless it was a live agent's review, which the closure shipped.
       this.stopReleasingWork = source.subscribe((snapshot) => {
         const shipped: IssueWork[] = [];
-        releaseGoneWork(this.state.work, snapshot, this.state.occupants, shipped);
+        releaseGoneWork(this.state.work, snapshot, shipped);
         for (const work of shipped) {
           this.announceShipped(work);
         }

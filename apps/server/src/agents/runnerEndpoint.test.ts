@@ -27,13 +27,13 @@ import {
   RUNNER_SYNC_PATH,
   type RunnerCommand,
   TICK_RATE_HZ,
+  liveAgentKey,
 } from "@sim/shared";
 import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { HEALTH_PATH, createHealthServer } from "../http.js";
 import { OfficeRoom, type OfficeRoomOptions } from "../rooms/OfficeRoom.js";
-import { liveAgentKey } from "../sim/liveAgents.js";
 import { CombinedLiveAgentSource } from "./combined.js";
 import { LIVE_AGENT_REPORT_PATH, createLiveAgentEndpoint } from "./endpoint.js";
 import { LiveAgentRegistry } from "./registry.js";

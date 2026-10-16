@@ -41,6 +41,7 @@ import {
   distanceToInteractable,
   findPath,
   isClearLine,
+  liveAgentKey,
   liveAgentSeats,
   nearestWaypoint,
   normalizeYaw,
@@ -51,17 +52,6 @@ import {
 
 import type { LiveAgentRecord } from "../agents/registry.js";
 import { type InteractionHost, releaseHold, requestInteract } from "./interaction.js";
-
-/**
- * The occupant key a live agent is stored under.
- *
- * Prefixed so it can never collide with a session id — Colyseus mints those
- * from an alphabet without a colon — and so the holds registry, which is keyed
- * the same way, cannot confuse an agent with a player.
- */
-export function liveAgentKey(id: string): string {
-  return `agent:${id}`;
-}
 
 /** Closer than this to a point on the route counts as having reached it. */
 const ARRIVE_DISTANCE = 0.05;
