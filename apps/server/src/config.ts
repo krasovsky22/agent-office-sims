@@ -92,6 +92,15 @@ export interface LiveAgentsConfig {
   readonly timeoutMs: number;
 }
 
+/** The runner link's sync route. */
+export interface RunnerConfig {
+  /**
+   * The shared secret an agent runner syncs with, or `undefined` to leave the
+   * route switched off. Server-side only, like the live agents' secret.
+   */
+  readonly secret: string | undefined;
+}
+
 export interface ServerConfig {
   readonly port: number;
   /** Origins permitted to matchmake and open a socket, already normalized. */
@@ -103,6 +112,7 @@ export interface ServerConfig {
   /** Whether the debug command that sends an agent walking is honoured. */
   readonly agentDebug: boolean;
   readonly liveAgents: LiveAgentsConfig;
+  readonly runner: RunnerConfig;
   readonly manager: ManagerConfig;
 }
 
@@ -115,6 +125,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     agentCount: readAgentCount(env),
     agentDebug: readAgentDebug(env),
     liveAgents: readLiveAgentsConfig(env),
+    runner: readRunnerConfig(env),
     manager: readManagerConfig(env),
   };
 }
@@ -325,6 +336,23 @@ export function readLiveAgentsConfig(env: NodeJS.ProcessEnv = process.env): Live
   }
 
   return { secret, timeoutMs: seconds * 1000 };
+}
+
+/**
+ * Reads `RUNNER_SECRET`: optional, at least {@link MIN_LIVE_AGENTS_SECRET_LENGTH}
+ * characters, for the same reason. Without it the runner link's route does not
+ * exist and no runner's slots appear.
+ */
+export function readRunnerConfig(env: NodeJS.ProcessEnv = process.env): RunnerConfig {
+  const raw = env["RUNNER_SECRET"]?.trim() ?? "";
+  const secret = raw === "" ? undefined : raw;
+  if (secret !== undefined && secret.length < MIN_LIVE_AGENTS_SECRET_LENGTH) {
+    // The value itself stays out of the message, which lands in a platform log.
+    throw new Error(
+      `RUNNER_SECRET must be at least ${MIN_LIVE_AGENTS_SECRET_LENGTH} characters, got ${secret.length}`,
+    );
+  }
+  return { secret };
 }
 
 /**

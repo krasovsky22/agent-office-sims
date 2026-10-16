@@ -76,7 +76,8 @@ configuration is required; `.env.example` lists the variables (`PORT`,
 `ALLOWED_ORIGINS`, and `VITE_SERVER_URL`, plus the project board's
 `PROJECT_BOARD_*`, the agents' `MOCK_AGENTS`, `ANTHROPIC_API_KEY` and
 `AGENT_*`, the manager's `MOCK_MANAGER` and `MANAGER_*`, the staff size,
-`AGENT_COUNT`, `AGENT_DEBUG`, and the live agents' `LIVE_AGENTS_*`) if you need
+`AGENT_COUNT`, `AGENT_DEBUG`, the live agents' `LIVE_AGENTS_*`, and the runner's
+`RUNNER_SECRET`) if you need
 to point the client somewhere else. A deployment
 has to set the first three — see [Deploying it](#deploying-it).
 
@@ -169,6 +170,62 @@ leaving means the assignment counts as not taken, and the manager says so.
 Until then its nameplate and roster line say `next #39`; its own task still
 comes only from its reports. The manager says in the conversation when the
 orchestrator picks an assignment up, and when the agent starts on it or does not.
+
+### The runner link
+
+An agent runner is the separate process that owns real coding agents, kept out
+of the game server. It talks to the server over one route. Set `RUNNER_SECRET`
+(16 characters or more) on the server, and the runner syncs about once a second
+to `/agents/runner/sync` with the secret as a bearer token:
+
+```sh
+curl -X POST localhost:2567/agents/runner/sync \
+  -H "Authorization: Bearer $RUNNER_SECRET" -H 'Content-Type: application/json' \
+  -d '{"runnerId":"runner-1","repo":"krasovsky22/agent-office-sims","acked":[],
+       "slots":[{"id":"slot-1","name":"Claude 1","status":"working","issueNumber":39,
+                 "activity":"Bash: pnpm test"},
+                {"id":"slot-2","name":"Claude 2","status":"idle"}],
+       "events":[{"id":"event-1","kind":"started","slotId":"slot-1","issueNumber":39}]}'
+# {"ok":true,"commands":[]}
+```
+
+Each sync carries the runner's whole state. `slots` lists every slot, at most
+4, each `idle`, `starting`, `working`, `needs-input` or `exited`, with an
+optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`).
+`events` lists what happened since the last answered sync, at most 8, each
+`started`, `pr-opened`, `failed` or `finished`, with an optional `pr` and
+`message`; `acked` holds at most 32 ids. Strings are measured in bytes: the
+UTF-8 of the string as `JSON.stringify` writes it, escapes included and quotes
+not. A `name` is at most 18 bytes, an `activity` or a `pr` title 90, a `message`
+280 and a `pr` link 300; a sync with a longer one is refused rather than cut,
+which keeps every sync the server takes under 16 KB whatever its characters,
+sent as `JSON.stringify` writes it. A runner re-sends an event until a sync
+carrying it is answered, and the server passes each event id on once. The shape is `RunnerSync` in
+`packages/shared/src/runner.ts`.
+
+Slots are live agents on the floor, beside the orchestrator's: a `starting`,
+`working` or `needs-input` slot with an issue sits at a desk working on it, and
+an `idle` or `exited` one wanders. Their ids are `runner:<runnerId>:<slotId>`,
+which no reported agent's id can be. A runner the server has not heard from for
+`LIVE_AGENTS_TIMEOUT_SECONDS` leaves with its slots. At most four slots are on
+the floor at once, across every runner, and that is also the most one runner
+may report (`MAX_RUNNER_SLOTS` in `packages/shared/src/runner.ts`): a runner
+must be configured with four slots or fewer, and a sync listing more is refused
+with `400` and `{"error":"a runner may report at most 4 slots"}`.
+
+The reply carries every command queued for that runner that it has not acked
+yet: `start` (`issueNumber`, `title`, `url`, `note`, `requestedBy`), `stop`
+(`reason`) or `prompt` (`text`, `requestedBy`), each with an `id` and a
+`slotId`. A command comes back in every reply until a sync lists its id in
+`acked`, and never after, so a lost reply loses nothing and a runner tells a
+repeat by its id. Ids are random, so a restarted server never reuses one.
+
+The route is refused as the report route is: `405` for anything but `POST`,
+`401` without the secret, `413` over 16 KB, `429` past about ten syncs a
+second, `400` for a body that is not a sync or lists too many slots, `403` for
+a runner whose `repo` is not `PROJECT_BOARD_REPO`, and `409` when the floor has
+no room for its slots.
+Without the secret the route does not exist.
 
 Two query parameters are useful while developing. `?props=off` renders the
 grey-box office instead of the asset kit, and `?debug` puts the draw-call count
@@ -355,7 +412,7 @@ Then confirm all twenty:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the AI manager's answers, assignments, updates and orchestrator queue
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the runner link's syncs, commands and events, the AI manager's answers, assignments, updates and orchestrator queue
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -399,7 +456,8 @@ public.
 | `AGENT_COUNT` | server | runtime | No. Agent employees each room hires, from 0 to 8. Defaults to 4. |
 | `AGENT_DEBUG` | server | runtime | No, and leave it off. `on` lets any connected client send agents walking with `/goto`; defaults to `off`. |
 | `LIVE_AGENTS_SECRET` | server | runtime | No. The shared secret an agent orchestrator reports with and collects the manager's assignments with, at least 16 characters; without it no live agents appear. |
-| `LIVE_AGENTS_TIMEOUT_SECONDS` | server | runtime | No. Silence after which a live agent leaves, at least 5. Defaults to 60. |
+| `LIVE_AGENTS_TIMEOUT_SECONDS` | server | runtime | No. Silence after which a live agent, or a runner with its slots, leaves, at least 5. Defaults to 60. |
+| `RUNNER_SECRET` | server | runtime | No. The shared secret an agent runner syncs with, at least 16 characters; without it the runner link is off. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
 static file cannot be reconfigured afterwards. Changing it means rebuilding and
@@ -437,7 +495,8 @@ fails, the manager answers by rule from live state and says so.
 `LIVE_AGENTS_SECRET` is the other secret, and is set the same way. It is compared
 against the report route's `Authorization` header in constant time and never
 leaves the server: clients see each agent's name, status and task and nothing
-about how they were reported.
+about how they were reported. `RUNNER_SECRET` is treated the same way on the
+runner's sync route.
 
 ### Order of operations
 
@@ -496,8 +555,8 @@ thing the page talks to is the WebSocket.
 
 - `GET /health` on the server returns `{"status":"ok"}`. This is what the
   platform probes, and with `POST /agents/report` and `POST /agents/assignments`
-  when `LIVE_AGENTS_SECRET` is set, the only HTTP the server serves; everything
-  else is 404.
+  when `LIVE_AGENTS_SECRET` is set, and `POST /agents/runner/sync` when
+  `RUNNER_SECRET` is set, the only HTTP the server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
   [The two-tab check](#the-two-tab-check), and confirm the same twenty things.
   Doing it from two different networks is the real test, since that is the one
@@ -518,6 +577,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/company.ts      the company's tunables, clock ratio, and daily formulas
   src/projectBoard.ts the project board's GitHub snapshot, and which issues are open or gone
   src/liveAgents.ts   a live agent's report, its label, and the chairs it may take
+  src/runner.ts       the runner link's wire contract: a sync, its slots and events, and the commands
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
@@ -537,7 +597,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/agentDebug.ts the `/goto` debug command
   src/github/             the project board's feed: fetch, bucket, poll
   src/work/               issue work: the executor, its budget, mock and model providers
-  src/agents/             the live agents' feed: the report and assignment routes, and the registry
+  src/agents/             the live agents' feeds: the report and assignment routes, the registry, and the runner link
   src/manager/            the AI manager: its view of the office, rule and model planners, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
@@ -663,7 +723,9 @@ Thirteen things are worth knowing before changing anything:
   through the shared interaction. The world side reads the feed through one
   small interface, `LiveAgentSource`, so another source — open pull requests
   with recent pushes, say — can stand in for the orchestrator without the
-  world side changing.
+  world side changing; the runner link's slots are one, combined with the
+  orchestrator's agents into the single source a room reads. A runner's events
+  land in one inbox per room, drained by its tick.
 - **The manager decides; the rules and the orchestrator act.** A message to
   the manager is taken synchronously — checked against `mayInstructManager`,
   the CEO-only gate in `shared/manager.ts`, recorded and queued — and answered

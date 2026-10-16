@@ -363,7 +363,11 @@ export interface StaffFireMessage {
   readonly agentId: string;
 }
 
-const MAX_NAME_LENGTH = 18;
+/**
+ * Longest name kept, in code points: what fits on a nameplate. A runner's sync
+ * holds a slot name to the same number in bytes instead; see `parseRunnerSync`.
+ */
+export const MAX_NAME_LENGTH = 18;
 
 /** Long enough for a real summary line, short enough for a board card. */
 export const MAX_TITLE_LENGTH = 90;

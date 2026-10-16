@@ -5,7 +5,7 @@
  * `PROJECT_BOARD_*` variables and `AGENT_COUNT`, which refuse to start the
  * server when they are wrong rather than polling a repository nobody meant or
  * hiring a staff nobody asked for, or about the live agents' `LIVE_AGENTS_*`,
- * which refuse a secret too short to be one. The agent work variables follow
+ * which refuse a secret too short to be one, as `RUNNER_SECRET` does. The agent work variables follow
  * the same rule: a model mode with no key stops the boot, not an issue, and so
  * do the AI manager's `MOCK_MANAGER` and `MANAGER_*`.
  */
@@ -24,6 +24,7 @@ import {
   readManagerConfig,
   readPort,
   readProjectBoardConfig,
+  readRunnerConfig,
 } from "./config.js";
 
 const SITE = "https://office.example.com";
@@ -292,6 +293,23 @@ describe("readLiveAgentsConfig", () => {
   it.each(["4", "1.5", "soon", "-30"])("refuses a timeout of %j", (value) => {
     expect(() => readLiveAgentsConfig({ LIVE_AGENTS_TIMEOUT_SECONDS: value })).toThrow(
       /LIVE_AGENTS_TIMEOUT_SECONDS/,
+    );
+  });
+});
+
+describe("readRunnerConfig", () => {
+  it("leaves the sync route off without a secret", () => {
+    expect(readRunnerConfig({})).toEqual({ secret: undefined });
+    expect(readRunnerConfig({ RUNNER_SECRET: "  " }).secret).toBeUndefined();
+  });
+
+  it("reads a secret", () => {
+    expect(readRunnerConfig({ RUNNER_SECRET: " 0123456789abcdef " })).toEqual({ secret: "0123456789abcdef" });
+  });
+
+  it("refuses a short secret without printing it", () => {
+    expect(() => readRunnerConfig({ RUNNER_SECRET: "hunter2" })).toThrow(
+      /RUNNER_SECRET must be at least 16 characters, got 7$/,
     );
   });
 });
