@@ -28,7 +28,13 @@
 
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
-import { MAX_RUNNER_SLOTS, OFFICE_ROOM_NAME, RECONNECT_GRACE_SECONDS, TICK_RATE_HZ } from "@sim/shared";
+import {
+  MAX_RUNNER_SLOTS,
+  OFFICE_ROOM_NAME,
+  RECONNECT_GRACE_SECONDS,
+  RUNNER_SYNC_PATH,
+  TICK_RATE_HZ,
+} from "@sim/shared";
 
 import {
   LIVE_AGENT_ASSIGNMENTS_PATH,
@@ -38,7 +44,7 @@ import {
 } from "./agents/endpoint.js";
 import { CombinedLiveAgentSource } from "./agents/combined.js";
 import { type LiveAgentSource, LiveAgentRegistry } from "./agents/registry.js";
-import { RUNNER_SYNC_PATH, createRunnerEndpoint } from "./agents/runnerEndpoint.js";
+import { createRunnerEndpoint } from "./agents/runnerEndpoint.js";
 import { RunnerLink } from "./agents/runnerLink.js";
 import { readConfig } from "./config.js";
 import { createGithubLoader } from "./github/client.js";

@@ -25,6 +25,9 @@ import {
   sanitizeWorkNote,
 } from "./messages.js";
 
+/** The route a runner syncs through, on the game server. */
+export const RUNNER_SYNC_PATH = "/agents/runner/sync";
+
 /** What one of a runner's slots is doing. */
 export const RUNNER_SLOT_STATUS = {
   idle: "idle",

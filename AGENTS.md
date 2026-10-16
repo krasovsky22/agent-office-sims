@@ -20,7 +20,7 @@ pnpm workspace (`pnpm-workspace.yaml`: `packages/*`, `apps/*`); the README's Lay
 ## Toolchain
 
 - Node >= 22 (`engines`), pnpm 10.28.2 (`packageManager`; Corepack picks it up).
-- pnpm 10.28 warns that the `pnpm` field in root `package.json` (`overrides`, `onlyBuiltDependencies`) is ignored; every package also pins `@colyseus/schema` to exactly `3.0.76`, so keep that pin identical in all three when changing it.
+- pnpm 10.28 warns that the `pnpm` field in root `package.json` (`overrides`, `onlyBuiltDependencies`) is ignored; every package also pins `@colyseus/schema` to exactly `3.0.76`, so keep that pin identical in all of them when changing it.
 - Strict TS from `tsconfig.base.json` (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, `noEmit`); each package extends it.
 - No CI workflows exist; run the checks below locally before opening a PR.
 
