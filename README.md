@@ -251,7 +251,7 @@ Without the secret the route does not exist.
 
 #### Screens
 
-Each slot has a terminal, and its laptop will show it. The runner mirrors what
+Each slot has a terminal, and the monitor at its agent's desk shows it. The runner mirrors what
 the slot's agent prints in a headless xterm and posts the rows that changed
 about four times a second, all slots in one batch, to `/agents/runner/screens`
 with the same bearer token:
@@ -286,6 +286,15 @@ the server does not hold, one posting before its first sync or one the floor
 refused, is refused whole with `409`, and the runner backs off and sends every
 screen whole once it gets through. A slot leaving the floor takes its screen
 with it.
+
+Each client keeps every screen it is sent, applying the diffs in order, and
+draws a seated live agent's screen on the monitor in front of its chair: a
+plane of its own laid over that one monitor's face, since every monitor shares
+a material. It reads `connecting…` until the first frame, shows the latest
+twenty-odd rows, and is repainted only when a frame changes it, at most every
+150 ms within 6 m of the camera, 600 ms within 14 m and 2 s beyond. It is
+taken down when the agent stands up or leaves, and nothing is drawn while no
+live agent sits, nor in the grey-box office, which has no monitors.
 
 The route is refused as the sync route is: `405`, `401`, `413` over 64 KB,
 `429` past about eight batches a second, and `400` for a body that is not a
@@ -464,7 +473,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all sixteen:
+Then confirm all seventeen:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -587,13 +596,20 @@ Then confirm all sixteen:
     `put <agent> on #N` is queued. `apps/server/src/rooms/operatorHandlers.test.ts`
     checks all of it against a live room, including that the passphrase is in
     no state, message or log line.
-16. **`pnpm typecheck` passes** across the whole repository.
+16. **A live agent's monitor shows its terminal, in both tabs.** With the
+    server's `RUNNER_SECRET` set and the runner started as in
+    [Running the runner](#running-the-runner), Dana assigns an issue to
+    `Mock 1`. It sits at a free open-floor desk, and within a few seconds that
+    desk's monitor shows the mock's coloured steps, the same in both tabs, while
+    every other monitor stays blank. With `?debug` the draw-call count is the
+    same before any live agent sits as it was before the runner started.
+17. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -738,7 +754,7 @@ thing the page talks to is the WebSocket.
   `POST /agents/runner/screens` when `RUNNER_SECRET` is set, the only HTTP the
   server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same sixteen things.
+  [The two-tab check](#the-two-tab-check), and confirm the same seventeen things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -805,6 +821,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
+  src/scene/agentScreen.ts  a seated live agent's terminal, painted on its desk's monitor
+  src/net/screens.ts      the live agents' terminals, built up from the server's frames
   src/projectBoard.ts     the project board's columns, filters, and how an issue's work reads
   src/ui/ProjectBoardPanel.tsx  the project board's close-up, with the agents' work and the CEO's controls
   src/managerAccess.ts    what the local player may say to the manager, and why

@@ -229,6 +229,72 @@ export function screenMaterialOf(kit: PropKit): THREE.MeshStandardMaterial | und
 }
 
 /**
+ * Where a monitor's display face is, in the normalised model's frame.
+ *
+ * `matrix` places a `width` by `height` plane centred on the face, its front
+ * facing out of the screen and its +X to a viewer's right, which is what a
+ * texture has to be drawn on to read the right way round. Measured off the
+ * face's own vertices, since this pack's screen leans back a little.
+ */
+export interface ScreenFace {
+  readonly width: number;
+  readonly height: number;
+  readonly matrix: THREE.Matrix4;
+}
+
+/**
+ * Measures the monitor's display face, or `undefined` without one.
+ *
+ * Only the vertices the face's triangles use count: the pack's parts index
+ * into one vertex buffer for the whole model.
+ */
+export function screenFaceOf(kit: PropKit): ScreenFace | undefined {
+  const material = screenMaterialOf(kit);
+  const face = kit.get("monitor")?.parts.find((part) => part.material === material);
+  if (face === undefined) {
+    return undefined;
+  }
+  const positions = face.geometry.getAttribute("position");
+  const normals = face.geometry.getAttribute("normal");
+  const index = face.geometry.getIndex();
+  const vertices = new Set(
+    index === null
+      ? Array.from({ length: positions.count }, (_, i) => i)
+      : Array.from({ length: index.count }, (_, i) => index.getX(i)),
+  );
+
+  const vertex = new THREE.Vector3();
+  const out = new THREE.Vector3();
+  for (const i of vertices) {
+    out.add(vertex.fromBufferAttribute(normals, i));
+  }
+  out.normalize();
+  // Upright on the face, so text on it stands the way the screen does.
+  const up = new THREE.Vector3(0, 1, 0).addScaledVector(out, -out.y).normalize();
+  const right = new THREE.Vector3().crossVectors(up, out);
+
+  const min = new THREE.Vector3(Infinity, Infinity, Infinity);
+  const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+  const local = new THREE.Vector3();
+  for (const i of vertices) {
+    vertex.fromBufferAttribute(positions, i);
+    local.set(vertex.dot(right), vertex.dot(up), vertex.dot(out));
+    min.min(local);
+    max.max(local);
+  }
+  const centre = new THREE.Vector3()
+    .addScaledVector(right, (min.x + max.x) / 2)
+    .addScaledVector(up, (min.y + max.y) / 2)
+    .addScaledVector(out, (min.z + max.z) / 2);
+
+  return {
+    width: max.x - min.x,
+    height: max.y - min.y,
+    matrix: new THREE.Matrix4().makeBasis(right, up, out).setPosition(centre),
+  };
+}
+
+/**
  * Loads every model in the registry.
  *
  * All ten at once and all-or-nothing: the caller shows one loading state and then
