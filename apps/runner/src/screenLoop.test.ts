@@ -120,23 +120,62 @@ describe("ScreenLoop", () => {
     ]);
   });
 
-  it("sends a slot whole again after its frame had to be fitted to the size limit", async () => {
-    const mirror = new ScreenMirror(0, 200, 60);
-    const row = Array.from({ length: 200 }, (_, index) => `\u001b[38;2;${index};1;2;48;2;3;${index};4;1;7mx`).join("");
-    mirror.write(Array.from({ length: 60 }, () => row).join("\r\n"));
-    await mirror.written();
+  /** A screen of single-character cells, each a different colour: far bigger than a post. */
+  const DENSE = Array.from({ length: 60 }, () =>
+    Array.from({ length: 200 }, (_, index) => `\u001b[38;2;${index};1;2;48;2;3;${index};4;1;7mx`).join(""),
+  ).join("\r\n");
+
+  function denseSetup(mirrors: Map<string, ScreenMirror>) {
     const { posts, client } = server();
     const loop = new ScreenLoop({
       runnerId: "runner-1",
-      screens: () => [["slot-1", mirror] as const],
+      screens: () => mirrors,
       redactor: createRedactor([SECRET]),
       client,
       now: () => 0,
     });
+    return { posts, loop };
+  }
+
+  it("sends a slot whole after its diff had to be fitted, and that whole screen only once", async () => {
+    const mirror = new ScreenMirror(0, 200, 60);
+    const { posts, loop } = denseSetup(new Map([["slot-1", mirror]]));
     await loop.flushOnce();
-    expect(posts[0]?.screens[0]?.frame.lines[0]).toEqual([["x".repeat(200), -1, -1, 0]]);
+    mirror.write(DENSE);
+    await mirror.written();
     await loop.flushOnce();
-    expect(kinds(posts[1])).toEqual([["slot-1", true]]);
+    expect(kinds(posts[1])).toEqual([["slot-1", false]]);
+    expect(posts[1]?.screens[0]?.frame.lines[0]).toEqual([["x".repeat(200), -1, -1, 0]]);
+
+    await loop.flushOnce();
+    expect(kinds(posts[2])).toEqual([["slot-1", true]]);
+    await loop.flushOnce();
+    expect(posts).toHaveLength(3);
+  });
+
+  it("posts an oversized screen beside the other slots, without sending it again every tick", async () => {
+    const dense = new ScreenMirror(0, 200, 60);
+    dense.write(DENSE);
+    const plain = new ScreenMirror(0, 30, 3);
+    plain.write("waiting for work");
+    await Promise.all([dense.written(), plain.written()]);
+    const { posts, loop } = denseSetup(
+      new Map([
+        ["slot-1", dense],
+        ["slot-2", plain],
+      ]),
+    );
+    await loop.flushOnce();
+    expect(kinds(posts[0])).toEqual([
+      ["slot-1", true],
+      ["slot-2", true],
+    ]);
+    expect(posts[0]?.screens[1]?.frame.lines[0]).toEqual([["waiting for work", -1, -1, 0]]);
+    expect(Buffer.byteLength(JSON.stringify(posts[0]))).toBeLessThanOrEqual(MAX_RUNNER_SCREENS_BYTES);
+
+    await loop.flushOnce();
+    await loop.flushOnce();
+    expect(posts).toHaveLength(1);
   });
 
   it("never posts the runner's secret", async () => {
@@ -181,13 +220,19 @@ describe("fitBatch", () => {
     expect(fitted?.frame.lines[0]?.[0]?.[0].length).toBeGreaterThan(0);
   });
 
-  it("leaves out the screens that do not fit beside the ones before them", () => {
+  it("fits every screen into its share of the post, leaving the small ones as they are", () => {
     const half = Object.fromEntries(Array.from({ length: 60 }, (_, row) => [row, [["y".repeat(200 * 3), -1, -1, 0]] as [string, number, number, number][]]));
     const screens: SlotScreen[] = [
       { slotId: "slot-1", frame: frame(half) },
       { slotId: "slot-2", frame: frame(half) },
       { slotId: "slot-3", frame: frame({ 0: [["small", -1, -1, 0]] }) },
     ];
-    expect(fitBatch("runner-1", screens).map((screen) => screen.slotId)).toEqual(["slot-1", "slot-3"]);
+    const fitted = fitBatch("runner-1", screens);
+    expect(fitted.map((screen) => screen.slotId)).toEqual(["slot-1", "slot-2", "slot-3"]);
+    expect(fitted[2]).toBe(screens[2]);
+    expect(fitted[0]?.frame.lines[0]?.[0]?.[0].length).toBeGreaterThan(0);
+    expect(Buffer.byteLength(JSON.stringify({ runnerId: "runner-1", screens: fitted }))).toBeLessThanOrEqual(
+      MAX_RUNNER_SCREENS_BYTES,
+    );
   });
 });

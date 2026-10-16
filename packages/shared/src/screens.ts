@@ -68,8 +68,10 @@ export interface RunnerScreens {
 export interface RunnerScreensReply {
   readonly ok: true;
   /**
-   * Slots whose diff the server could not apply, because it holds no screen
-   * for them yet or the size changed; the runner sends each a full frame next.
+   * Slots whose frame the server did not take: a diff it could not apply,
+   * because it holds no screen for the slot yet or the size changed, or any
+   * frame, full or a diff, for a slot the runner has not reported yet. The
+   * runner sends each a full frame next.
    */
   readonly resend: readonly string[];
 }

@@ -4,15 +4,17 @@
  *
  * Posts run one at a time, never overlapping. A diff only means something on
  * top of the frame before it, so a slot whose frame may not have arrived (the
- * post failed, was refused, or had no room for it) or arrived only in part
- * (fitted to the size limit, below) is sent whole next time,
+ * post failed, was refused, or had no room for it), or whose diff arrived
+ * only in part (fitted to the size limit, below), is sent whole next time,
  * as is one the server says it could not apply. A screen that changes faster
  * than it can be posted is not queued: the next post carries it as it is by
  * then. Refusals and an unreachable server back off, the way syncs do.
  *
- * Each post is fitted to the server's {@link MAX_RUNNER_SCREENS_BYTES}: a
- * frame too big to send even alone is sent without its colours, and cut to
- * fit if that is still too much.
+ * Each post is fitted to the server's {@link MAX_RUNNER_SCREENS_BYTES}, and
+ * every changed screen gets its share of it: a frame too big for its share is
+ * sent without its colours, and cut to fit if that is still too much. A whole
+ * screen sent that way stays so until the next keyframe rather than being
+ * sent again every quarter second.
  */
 
 import {
@@ -80,7 +82,8 @@ export class ScreenLoop {
     }
     const screens = fitBatch(this.options.runnerId, changed);
     for (const screen of changed) {
-      if (!screens.includes(screen)) {
+      const sent = screens.find((fitted) => fitted.slotId === screen.slotId);
+      if (sent === undefined || (sent !== screen && !screen.frame.full)) {
         mirrors.get(screen.slotId)?.sendWhole();
       }
     }
@@ -157,22 +160,25 @@ function jsonBytes(value: unknown): number {
 }
 
 /**
- * As many of the changed screens as fit in one post, in order, each fitted on
- * its own first.
+ * Every changed screen, in order, each fitted to its share of one post: the
+ * smallest go first and take only what they need, leaving the rest to share
+ * what remains, so one oversized screen cannot crowd out the others.
  */
 export function fitBatch(runnerId: string, changed: readonly SlotScreen[], maxBytes = MAX_RUNNER_SCREENS_BYTES): SlotScreen[] {
-  const envelope = jsonBytes({ runnerId, screens: [] });
-  const screens: SlotScreen[] = [];
-  let used = envelope;
-  for (const screen of changed) {
-    const fitted = fitScreen(screen, maxBytes - envelope);
-    const bytes = jsonBytes(fitted) + (screens.length === 0 ? 0 : 1);
-    if (used + bytes <= maxBytes) {
-      screens.push(fitted);
-      used += bytes;
+  const sized = changed.map((screen, index) => ({ screen, index, bytes: jsonBytes(screen) }));
+  sized.sort((a, b) => a.bytes - b.bytes);
+  let remaining = maxBytes - jsonBytes({ runnerId, screens: [] }) - Math.max(0, changed.length - 1);
+  const fitted: (SlotScreen | undefined)[] = [];
+  sized.forEach(({ screen, index }, position) => {
+    const share = Math.floor(remaining / (sized.length - position));
+    const fit = fitScreen(screen, share);
+    const bytes = jsonBytes(fit);
+    if (bytes <= remaining) {
+      fitted[index] = fit;
+      remaining -= bytes;
     }
-  }
-  return screens;
+  });
+  return fitted.filter((screen) => screen !== undefined);
 }
 
 /** A screen as it is if it fits in `maxBytes`, else without colours, else cut too. */
