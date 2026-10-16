@@ -141,10 +141,14 @@ export function resolveWork(reference: string, view: OfficeView): WorkRef | unde
   return findWork(trimmed, view)[0];
 }
 
-/** An agent's name, id, and first name, any of which names it. */
-function namesOf(agent: IssueAgentView | LiveAgentView): string[] {
+/** An agent's name, id, and first name when no other agent shares it, any of which names it. */
+function namesOf(agent: IssueAgentView | LiveAgentView, view: OfficeView): string[] {
+  const first = (name: string) => name.toLowerCase().split(" ")[0] ?? "";
+  const shared = [...view.issueAgents, ...view.liveAgents].some(
+    (other) => other !== agent && first(other.name) === first(agent.name),
+  );
   const name = agent.name.toLowerCase();
-  return [name, agent.id.toLowerCase(), name.split(" ")[0] ?? name];
+  return shared ? [name, agent.id.toLowerCase()] : [name, agent.id.toLowerCase(), first(agent.name)];
 }
 
 function escape(text: string): string {
@@ -160,7 +164,7 @@ export function resolveAgent(name: string, view: OfficeView): IssueAgentView | L
   if (wanted === "") {
     return undefined;
   }
-  const named = (agent: IssueAgentView | LiveAgentView) => namesOf(agent).includes(wanted);
+  const named = (agent: IssueAgentView | LiveAgentView) => namesOf(agent, view).includes(wanted);
   return view.issueAgents.find(named) ?? view.liveAgents.find(named);
 }
 
@@ -170,7 +174,7 @@ export function findAgents(message: string, view: OfficeView): (IssueAgentView |
   const found: { readonly at: number; readonly agent: IssueAgentView | LiveAgentView }[] = [];
   for (const agent of [...view.issueAgents, ...view.liveAgents]) {
     let at = Number.POSITIVE_INFINITY;
-    for (const candidate of namesOf(agent)) {
+    for (const candidate of namesOf(agent, view)) {
       const match = new RegExp(`(^|[^a-z0-9])${escape(candidate)}($|[^a-z0-9])`).exec(lower);
       if (match !== null) {
         at = Math.min(at, match.index);

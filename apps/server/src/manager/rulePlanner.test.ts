@@ -319,4 +319,27 @@ describe("planFromRules: live agents that take issues", () => {
   it("suggests a free one when asked who should do an issue", () => {
     expect(ask("who should I give #39 to?", RUNNER_VIEW).reply).toContain("Claude 2 is free.");
   });
+
+  describe("when two slots share a first name", () => {
+    const SLOTS_VIEW: OfficeView = {
+      ...RUNNER_VIEW,
+      issueAgents: [
+        { id: "agent:runner/1", name: "Claude 1" },
+        { id: "agent:runner/2", name: "Claude 2" },
+      ],
+      work: [work({ issueNumber: 12, title: "Busy", status: WORK_STATUS.assigned, assigneeId: "agent:runner/1" })],
+    };
+
+    it("suggests the free slot by its full name", () => {
+      expect(ask("who should I give #39 to?", SLOTS_VIEW).reply).toContain("Claude 2 is free. Say “put Claude 2 on it”");
+    });
+
+    it("describes only the slot asked about", () => {
+      expect(ask("what is Claude 2 doing?", SLOTS_VIEW).reply).toBe("Claude 2 (live coding agent) is idle.");
+    });
+
+    it("does not resolve the shared first name to either slot", () => {
+      expect(ask("put Claude on #39", SLOTS_VIEW).assignments).toEqual([]);
+    });
+  });
 });

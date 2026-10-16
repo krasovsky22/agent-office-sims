@@ -377,9 +377,12 @@ function workId(ref: WorkRef): string {
 function adviceFor(view: OfficeView): string {
   const free = freeAgents(view);
   const first = free[0];
-  return first === undefined
-    ? "Nobody suitable is free right now; name someone and I'll queue it for them."
-    : `${free.join(", ")} ${free.length === 1 ? "is" : "are"} free. Say “put ${first.split(" ")[0] ?? first} on it” and I'll hand it over.`;
+  if (first === undefined) {
+    return "Nobody suitable is free right now; name someone and I'll queue it for them.";
+  }
+  const short = first.split(" ")[0] ?? first;
+  const say = resolveAgent(short, view)?.name === first ? short : first;
+  return `${free.join(", ")} ${free.length === 1 ? "is" : "are"} free. Say “put ${say} on it” and I'll hand it over.`;
 }
 
 function describeRef(ref: WorkRef, view: OfficeView): string {
