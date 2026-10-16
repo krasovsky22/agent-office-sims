@@ -5,16 +5,19 @@
  * The runner is the separate process that owns real coding agents. It is
  * trusted with a secret, not with its payloads: a sync body arrives over HTTP
  * from a process nobody in the office controls, so {@link parseRunnerSync}
- * proves its shape, sanitises every string and refuses any list past its cap
- * before the server keeps any of it, exactly as a live agent's report is
+ * proves its shape, sanitises every string and refuses any string or list past
+ * its cap before the server keeps any of it, exactly as a live agent's report is
  * treated. A command is built only by {@link toRunnerCommand}, which applies
  * the same treatment, so what the server sends is as bounded as what it takes.
  *
  * Shared because the shape is the contract the runner is written against.
  */
 
+import { MAX_WORK_NOTE_LENGTH } from "./constants.js";
 import { parseTaskUrl } from "./liveAgents.js";
 import {
+  MAX_NAME_LENGTH,
+  MAX_TITLE_LENGTH,
   sanitizeBody,
   sanitizeManagerText,
   sanitizeName,
@@ -148,14 +151,19 @@ export interface RunnerSyncReply {
   readonly commands: readonly RunnerCommand[];
 }
 
-/** Most slots one runner may report. */
-export const MAX_RUNNER_SLOTS = 16;
+/**
+ * Most slots one runner may report, and most on the floor at once across
+ * every runner: one number, so a sync the parser takes is never too many for
+ * the floor on its own. With the live agents' dozen, still fewer than the open
+ * floor's twenty chairs.
+ */
+export const MAX_RUNNER_SLOTS = 4;
 
 /** Most events one sync may carry. */
-export const MAX_RUNNER_EVENTS = 32;
+export const MAX_RUNNER_EVENTS = 8;
 
 /** Most command ids one sync may ack. */
-export const MAX_RUNNER_ACKS = 64;
+export const MAX_RUNNER_ACKS = 32;
 
 /** Longest prompt the server will send; it is the one multi-line string here. */
 export const MAX_RUNNER_PROMPT_LENGTH = 2000;
@@ -200,6 +208,20 @@ function isEventKind(value: unknown): value is RunnerEventKind {
 }
 
 /**
+ * Reads an optional string, refusing one longer than it is kept at rather than
+ * cutting it: the caps on every string and list are what bound a sync's size,
+ * so a sync the parser takes always fits the route's body limit.
+ *
+ * @returns the sanitised string, `""` when absent, or `undefined` when refused.
+ */
+function parseText(raw: unknown, max: number, sanitize: (raw: string) => string): string | undefined {
+  if (raw === undefined || raw === null) {
+    return "";
+  }
+  return typeof raw === "string" && raw.length <= max ? sanitize(raw) : undefined;
+}
+
+/**
  * Parses an optional list, refusing one past its cap rather than reading part
  * of it: a runner that sends more than the contract allows is broken, and
  * quietly dropping its tail would lose events it believes were delivered.
@@ -232,10 +254,11 @@ function parsePullRequest(raw: unknown): RunnerPullRequest | undefined | null {
     return null;
   }
   const url = parseTaskUrl(candidate["url"]);
-  if (url === undefined || url === "") {
+  const title = parseText(candidate["title"], MAX_TITLE_LENGTH, sanitizeTitle);
+  if (url === undefined || url === "" || title === undefined) {
     return null;
   }
-  return { number: candidate["number"], title: sanitizeTitle(candidate["title"]), url };
+  return { number: candidate["number"], title, url };
 }
 
 function parseSlot(raw: unknown): RunnerSlotReport | undefined {
@@ -251,16 +274,17 @@ function parseSlot(raw: unknown): RunnerSlotReport | undefined {
     return undefined;
   }
   const pr = parsePullRequest(candidate["pr"]);
-  if (pr === null) {
+  const name = parseText(candidate["name"], MAX_NAME_LENGTH, sanitizeName);
+  const activity = parseText(candidate["activity"], MAX_TITLE_LENGTH, sanitizeTitle);
+  if (pr === null || name === undefined || activity === undefined) {
     return undefined;
   }
-  const name = sanitizeName(candidate["name"]);
   return {
     id,
     name: name === "" ? sanitizeName(id) : name,
     status,
     issueNumber: isIssueNumber(issueNumber) ? issueNumber : undefined,
-    activity: sanitizeTitle(candidate["activity"]),
+    activity,
     pr,
   };
 }
@@ -275,17 +299,18 @@ function parseEvent(raw: unknown): RunnerEvent | undefined {
     return undefined;
   }
   const pr = parsePullRequest(candidate["pr"]);
-  if (pr === null) {
+  const message = parseText(candidate["message"], MAX_WORK_NOTE_LENGTH, sanitizeWorkNote);
+  if (pr === null || message === undefined) {
     return undefined;
   }
-  return { id, kind, slotId, issueNumber, pr, message: sanitizeWorkNote(candidate["message"]) };
+  return { id, kind, slotId, issueNumber, pr, message };
 }
 
 /**
  * Validates a raw sync body.
  *
- * Refuses the whole body for any malformed part, any list past its cap, or a
- * slot id reported twice; the runner sends its whole state again a second
+ * Refuses the whole body for any malformed part, any list or string past its
+ * cap, or a slot id reported twice; the runner sends its whole state again a second
  * later, so nothing is lost by refusing and nothing half-read is kept.
  *
  * @returns the sync, or `undefined` if the payload is not one.

@@ -28,7 +28,7 @@
 
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
-import { OFFICE_ROOM_NAME, RECONNECT_GRACE_SECONDS, TICK_RATE_HZ } from "@sim/shared";
+import { MAX_RUNNER_SLOTS, OFFICE_ROOM_NAME, RECONNECT_GRACE_SECONDS, TICK_RATE_HZ } from "@sim/shared";
 
 import {
   LIVE_AGENT_ASSIGNMENTS_PATH,
@@ -86,12 +86,6 @@ if (liveAgentRegistry !== undefined && liveAssignments !== undefined && liveAgen
   );
 }
 
-/**
- * Most runner slots on the floor at once, across every runner: with the live
- * agents' dozen, still fewer than the open floor's twenty chairs.
- */
-const MAX_RUNNER_SLOTS_ON_FLOOR = 4;
-
 // Slots leave after the same silence as a reported agent: both are live agents
 // on the floor, and the operator sets one timeout for them.
 const runnerLink =
@@ -100,7 +94,6 @@ const runnerLink =
     : new RunnerLink({
         repository: projectBoard.repository,
         timeoutMs: liveAgents.timeoutMs,
-        maxSlots: MAX_RUNNER_SLOTS_ON_FLOOR,
       });
 if (runnerLink !== undefined && runner.secret !== undefined) {
   routes.set(RUNNER_SYNC_PATH, createRunnerEndpoint({ secret: runner.secret, link: runnerLink }));
@@ -179,6 +172,6 @@ console.log(
   runner.secret === undefined
     ? "runner link: off (RUNNER_SECRET is not set)"
     : `runner link: POST ${RUNNER_SYNC_PATH} for ${projectBoard.repository}, ` +
-        `up to ${MAX_RUNNER_SLOTS_ON_FLOOR} slots, leaving after ${liveAgents.timeoutMs / 1000}s of silence`,
+        `up to ${MAX_RUNNER_SLOTS} slots, leaving after ${liveAgents.timeoutMs / 1000}s of silence`,
 );
 /* eslint-enable no-console */

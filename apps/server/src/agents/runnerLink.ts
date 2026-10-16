@@ -33,6 +33,7 @@ import {
   LIVE_AGENT_STATUS,
   type LiveAgentStatus,
   type LiveAgentTask,
+  MAX_RUNNER_SLOTS,
   RUNNER_COMMAND_KIND,
   RUNNER_SLOT_STATUS,
   type RunnerCommand,
@@ -51,7 +52,7 @@ export type RunnerSyncOutcome =
   | { readonly kind: "accepted"; readonly commands: readonly RunnerCommand[] }
   /** The runner works on a repository other than the project board's. */
   | { readonly kind: "wrong-repo" }
-  /** Taking this runner's slots would put more on the floor than it holds. */
+  /** Taking this runner's slots would put more than {@link MAX_RUNNER_SLOTS} on the floor. */
   | { readonly kind: "full" };
 
 /** One event, with the runner it came from. */
@@ -90,8 +91,6 @@ export interface RunnerLinkOptions {
   readonly repository: string;
   /** Silence after which a runner's slots are taken off the floor. */
   readonly timeoutMs: number;
-  /** Most slots on the floor at once, across every runner; a sync for more is refused. */
-  readonly maxSlots: number;
   /** Most runners heard from at once. */
   readonly maxRunners?: number;
   /** Most commands waiting for one runner; one more is refused. */
@@ -216,7 +215,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
     }
     let runner = this.runners.get(sync.runnerId);
     const othersSlots = this.slotCount() - (runner?.slots.length ?? 0);
-    if (othersSlots + sync.slots.length > this.options.maxSlots) {
+    if (othersSlots + sync.slots.length > MAX_RUNNER_SLOTS) {
       return { kind: "full" };
     }
     if (runner === undefined) {

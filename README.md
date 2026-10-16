@@ -190,11 +190,14 @@ curl -X POST localhost:2567/agents/runner/sync \
 ```
 
 Each sync carries the runner's whole state. `slots` lists every slot, at most
-16, each `idle`, `starting`, `working`, `needs-input` or `exited`, with an
+4, each `idle`, `starting`, `working`, `needs-input` or `exited`, with an
 optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`).
-`events` lists what happened since the last answered sync, at most 32, each
+`events` lists what happened since the last answered sync, at most 8, each
 `started`, `pr-opened`, `failed` or `finished`, with an optional `pr` and
-`message`. A runner re-sends an event until a sync carrying it is answered, and
+`message`; `acked` holds at most 32 ids. A `name` is at most 18 characters, an
+`activity` or a `pr` title 90, a `message` 280 and a `pr` link 300; a sync with a
+longer one is refused rather than cut, which keeps every sync the server takes
+under 16 KB. A runner re-sends an event until a sync carrying it is answered, and
 the server passes each event id on once. The shape is `RunnerSync` in
 `packages/shared/src/runner.ts`.
 
@@ -203,7 +206,10 @@ Slots are live agents on the floor, beside the orchestrator's: a `starting`,
 an `idle` or `exited` one wanders. Their ids are `runner:<runnerId>:<slotId>`,
 which no reported agent's id can be. A runner the server has not heard from for
 `LIVE_AGENTS_TIMEOUT_SECONDS` leaves with its slots. At most four slots are on
-the floor at once, across every runner.
+the floor at once, across every runner, and that is also the most one runner
+may report (`MAX_RUNNER_SLOTS` in `packages/shared/src/runner.ts`): a runner
+must be configured with four slots or fewer, and a sync listing more is refused
+with `400` and `{"error":"a runner may report at most 4 slots"}`.
 
 The reply carries every command queued for that runner that it has not acked
 yet: `start` (`issueNumber`, `title`, `url`, `note`, `requestedBy`), `stop`
@@ -214,8 +220,9 @@ repeat by its id. Ids are random, so a restarted server never reuses one.
 
 The route is refused as the report route is: `405` for anything but `POST`,
 `401` without the secret, `413` over 16 KB, `429` past about ten syncs a
-second, `400` for a body that is not a sync, `403` for a runner whose `repo` is
-not `PROJECT_BOARD_REPO`, and `409` when the floor has no room for its slots.
+second, `400` for a body that is not a sync or lists too many slots, `403` for
+a runner whose `repo` is not `PROJECT_BOARD_REPO`, and `409` when the floor has
+no room for its slots.
 Without the secret the route does not exist.
 
 Two query parameters are useful while developing. `?props=off` renders the

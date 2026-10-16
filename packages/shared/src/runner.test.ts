@@ -84,14 +84,13 @@ describe("parseRunnerSync", () => {
   it("sanitises every string it keeps", () => {
     const parsed = parseRunnerSync({
       ...SYNC,
-      slots: [{ id: "slot-1", name: "Claude\n\u0000 1 with a name far too long", status: "working", activity: "a\nb\u0007c".repeat(100) }],
+      slots: [{ id: "slot-1", name: "Claude\n\u0000 1", status: "working", activity: "a\nb\u0007c".repeat(10) }],
       events: [{ id: "event-1", kind: "failed", slotId: "slot-1", issueNumber: 39, message: "line one\nline two" }],
     });
     const slot = parsed?.slots[0];
-    expect(slot?.name).toBe("Claude 1 with a na");
+    expect(slot?.name).toBe("Claude 1");
     expect(slot?.activity).not.toContain("\n");
     expect(slot?.activity).not.toContain("\u0007");
-    expect(slot?.activity.length).toBeLessThanOrEqual(90);
     expect(parsed?.events[0]?.message).toBe("line one line two");
   });
 
@@ -116,6 +115,11 @@ describe("parseRunnerSync", () => {
     ["too many slots", { ...SYNC, slots: Array.from({ length: MAX_RUNNER_SLOTS + 1 }, (_, i) => ({ id: `s${i}`, status: "idle" })) }],
     ["too many events", { ...SYNC, events: Array.from({ length: MAX_RUNNER_EVENTS + 1 }, (_, i) => ({ ...SYNC.events[0], id: `e${i}` })) }],
     ["too many acks", { ...SYNC, acked: Array.from({ length: MAX_RUNNER_ACKS + 1 }, (_, i) => `c${i}`) }],
+    ["a slot name longer than a nameplate", { ...SYNC, slots: [{ id: "s", name: "n".repeat(19), status: "idle" }] }],
+    ["an activity longer than a title", { ...SYNC, slots: [{ id: "s", status: "working", activity: "a".repeat(91) }] }],
+    ["a pull request title longer than a title", { ...SYNC, slots: [{ id: "s", status: "working", pr: { number: 1, title: "t".repeat(91), url: PULL } }] }],
+    ["an event message longer than a work note", { ...SYNC, events: [{ ...SYNC.events[0], message: "m".repeat(281) }] }],
+    ["a slot name that is not a string", { ...SYNC, slots: [{ id: "s", name: ["Claude"], status: "idle" }] }],
   ])("refuses a sync with %s", (_label, raw) => {
     expect(parseRunnerSync(raw)).toBeUndefined();
   });

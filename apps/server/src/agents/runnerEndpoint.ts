@@ -19,7 +19,7 @@
  * sent anywhere a client can read.
  */
 
-import { parseRunnerSync } from "@sim/shared";
+import { MAX_RUNNER_SLOTS, parseRunnerSync } from "@sim/shared";
 
 import type { RouteHandler } from "../http.js";
 import { type TokenBucket, createTokenBucket, tryConsume } from "../sim/expression.js";
@@ -28,7 +28,11 @@ import type { RunnerLink } from "./runnerLink.js";
 
 export const RUNNER_SYNC_PATH = "/agents/runner/sync";
 
-/** A full sync of sixteen slots and thirty-two events fits with room to spare. */
+/**
+ * The parser refuses any list or string past its cap, so a sync it would take
+ * written in plain ASCII, every list full and every string at its longest, is
+ * about 12 KB and fits.
+ */
 export const MAX_SYNC_BYTES = 16 * 1024;
 
 /**
@@ -90,7 +94,9 @@ export function createRunnerEndpoint(options: RunnerEndpointOptions): RouteHandl
       }
       const sync = parseRunnerSync(raw);
       if (sync === undefined) {
-        reply(res, 400, { error: "not a runner sync" });
+        reply(res, 400, {
+          error: reportsTooManySlots(raw) ? `a runner may report at most ${MAX_RUNNER_SLOTS} slots` : "not a runner sync",
+        });
         return;
       }
       const outcome = options.link.sync(sync);
@@ -106,4 +112,13 @@ export function createRunnerEndpoint(options: RunnerEndpointOptions): RouteHandl
       }
     });
   };
+}
+
+/** Whether a refused body listed more slots than a runner may report, so the reply can say so. */
+function reportsTooManySlots(raw: unknown): boolean {
+  if (typeof raw !== "object" || raw === null) {
+    return false;
+  }
+  const slots = (raw as { slots?: unknown }).slots;
+  return Array.isArray(slots) && slots.length > MAX_RUNNER_SLOTS;
 }

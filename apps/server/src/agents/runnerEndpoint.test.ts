@@ -16,6 +16,12 @@ import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
   LIVE_AGENT_REPORT_STATUS,
   type LiveAgent,
+  MAX_NAME_LENGTH,
+  MAX_RUNNER_ACKS,
+  MAX_RUNNER_EVENTS,
+  MAX_RUNNER_SLOTS,
+  MAX_TITLE_LENGTH,
+  MAX_WORK_NOTE_LENGTH,
   type OfficeState,
   type RunnerCommand,
   TICK_RATE_HZ,
@@ -46,7 +52,7 @@ let wsUrl: string;
 let link: RunnerLink;
 const clock = { now: 0 };
 
-const floorLink = new RunnerLink({ repository: REPO, timeoutMs: TIMEOUT_MS, maxSlots: 4 });
+const floorLink = new RunnerLink({ repository: REPO, timeoutMs: TIMEOUT_MS });
 const floorRegistry = new LiveAgentRegistry({ timeoutMs: TIMEOUT_MS, maxAgents: 4 });
 const floor = new CombinedLiveAgentSource([floorRegistry, floorLink]);
 
@@ -83,7 +89,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-  link = new RunnerLink({ repository: REPO, timeoutMs: TIMEOUT_MS, maxSlots: 4, now: () => clock.now });
+  link = new RunnerLink({ repository: REPO, timeoutMs: TIMEOUT_MS, now: () => clock.now });
   // Far enough on that the rate limit has refilled since the last test.
   clock.now += 60_000;
 });
@@ -168,9 +174,51 @@ describe(`POST ${RUNNER_SYNC_PATH}`, () => {
     expect(link.current()).toEqual([]);
   });
 
-  it("says when the office has no room for a runner's slots", async () => {
-    const slots = Array.from({ length: 5 }, (_, index) => ({ id: `slot-${index}`, status: "idle" }));
+  it("takes the largest sync the contract allows", async () => {
+    const issueNumber = 0xffffffff;
+    const pr = {
+      number: issueNumber,
+      title: "t".repeat(MAX_TITLE_LENGTH),
+      url: `https://github.com/${REPO}/pull/${"9".repeat(300 - `https://github.com/${REPO}/pull/`.length)}`,
+    };
+    const body = JSON.stringify({
+      runnerId: "r".repeat(32),
+      repo: REPO,
+      acked: Array.from({ length: MAX_RUNNER_ACKS }, (_, index) => `${index}`.padStart(64, "c")),
+      slots: Array.from({ length: MAX_RUNNER_SLOTS }, (_, index) => ({
+        id: `${index}`.padStart(32, "s"),
+        name: "n".repeat(MAX_NAME_LENGTH),
+        status: "needs-input",
+        issueNumber,
+        activity: "a".repeat(MAX_TITLE_LENGTH),
+        pr,
+      })),
+      events: Array.from({ length: MAX_RUNNER_EVENTS }, (_, index) => ({
+        id: `${index}`.padStart(64, "e"),
+        kind: "pr-opened",
+        slotId: "s".repeat(32),
+        issueNumber,
+        pr,
+        message: "m".repeat(MAX_WORK_NOTE_LENGTH),
+      })),
+    });
+    expect(Buffer.byteLength(body)).toBeLessThanOrEqual(MAX_SYNC_BYTES);
+    const response = await post(body);
+    expect(response.status).toBe(200);
+    expect(link.current()).toHaveLength(MAX_RUNNER_SLOTS);
+  });
+
+  it("tells a runner reporting more slots than it may why it is refused", async () => {
+    const slots = Array.from({ length: MAX_RUNNER_SLOTS + 1 }, (_, index) => ({ id: `slot-${index}`, status: "idle" }));
     const response = await post({ ...SYNC, slots });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: `a runner may report at most ${MAX_RUNNER_SLOTS} slots` });
+    expect(link.current()).toEqual([]);
+  });
+
+  it("says when the office has no room for a runner's slots", async () => {
+    await post({ ...SYNC, runnerId: "runner-2", slots: [{ id: "slot-1", status: "idle" }, { id: "slot-2", status: "idle" }, { id: "slot-3", status: "idle" }] });
+    const response = await post(SYNC);
     expect(response.status).toBe(409);
   });
 

@@ -15,13 +15,12 @@ import { RunnerLink, isRunnerEventSource, runnerSlotAgentId } from "./runnerLink
 const TIMEOUT_MS = 30_000;
 const REPO = "krasovsky22/agent-office-sims";
 
-function setup(maxSlots = 4) {
+function setup() {
   const clock = { now: 1_000_000 };
   let nextId = 1;
   const link = new RunnerLink({
     repository: REPO,
     timeoutMs: TIMEOUT_MS,
-    maxSlots,
     now: () => clock.now,
     commandId: () => `command-${nextId++}`,
   });
@@ -110,9 +109,17 @@ describe("RunnerLink slots", () => {
   });
 
   it("refuses a sync that would put more slots on the floor than it holds", () => {
-    const { link } = setup(3);
+    const { link } = setup();
     link.sync(sync());
-    expect(link.sync(sync({ runnerId: "runner-2" })).kind).toBe("full");
+    const three = ["slot-1", "slot-2", "slot-3"].map((id) => ({
+      id,
+      name: id,
+      status: "idle" as const,
+      issueNumber: undefined,
+      activity: "",
+      pr: undefined,
+    }));
+    expect(link.sync(sync({ runnerId: "runner-2", slots: three })).kind).toBe("full");
     expect(link.current()).toHaveLength(2);
     // The same runner reporting the same two again is not more slots.
     expect(link.sync(sync()).kind).toBe("accepted");
@@ -177,7 +184,7 @@ describe("RunnerLink commands", () => {
 
   it("stops queueing for a runner that has stopped acking", () => {
     const clock = { now: 0 };
-    const link = new RunnerLink({ repository: REPO, timeoutMs: TIMEOUT_MS, maxSlots: 4, maxPendingCommands: 2, now: () => clock.now });
+    const link = new RunnerLink({ repository: REPO, timeoutMs: TIMEOUT_MS, maxPendingCommands: 2, now: () => clock.now });
     link.sync(sync());
     expect(link.enqueue("runner-1", START)).toBeDefined();
     expect(link.enqueue("runner-1", START)).toBeDefined();
@@ -185,7 +192,7 @@ describe("RunnerLink commands", () => {
   });
 
   it("gives commands ids a restarted server will not repeat", () => {
-    const link = new RunnerLink({ repository: REPO, timeoutMs: TIMEOUT_MS, maxSlots: 4 });
+    const link = new RunnerLink({ repository: REPO, timeoutMs: TIMEOUT_MS });
     link.sync(sync());
     const first = link.enqueue("runner-1", START);
     const second = link.enqueue("runner-1", START);
