@@ -24,9 +24,8 @@ const LIVE_AGENT_KEY_PREFIX = "agent:";
  * The occupant key a live agent is stored under.
  *
  * Prefixed so it can never collide with a session id — Colyseus mints those
- * from an alphabet without a colon — nor with an agent employee's `agent-` id,
- * and so the holds registry, which is keyed the same way, cannot confuse an
- * agent with a player. Work keeps that key as its assignee after the agent has
+ * from an alphabet without a colon — and so the holds registry, which is
+ * keyed the same way, cannot confuse an agent with a player. Work keeps that key as its assignee after the agent has
  * left, which is how {@link isLiveAgentKey} still tells whose it was.
  */
 export function liveAgentKey(id: string): string {
@@ -198,7 +197,7 @@ const seatCache = new WeakMap<OfficeLayout, readonly InteractableSpec[]>();
  * The chairs a working agent may take: every workstation seat on the open floor.
  *
  * Not the CEO's desk and not the meeting table — an agent at work sits where
- * the rest of the staff does. Derived from the layout and cached per layout, as
+ * the players do. Derived from the layout and cached per layout, as
  * the interactables themselves are.
  */
 export function liveAgentSeats(layout: OfficeLayout): readonly InteractableSpec[] {

@@ -86,7 +86,6 @@ const FIXTURE_LAYOUT: OfficeLayout = {
     { id: "wp-closet-far", x: 9, z: 2.5, links: ["wp-closet-near"] },
   ],
   spawnPoints: [{ x: -3, z: 0, yaw: 0 }],
-  agentDesks: [],
   fixtures: [],
 };
 
@@ -296,7 +295,7 @@ describe("OFFICE_LAYOUT", () => {
   });
 
   /**
-   * An island in the shipped graph would strand an agent employee wherever it
+   * An island in the shipped graph would strand a live agent wherever it
    * happened to stand, so the plan is only allowed one connected component.
    */
   it("has no unreachable waypoint", () => {

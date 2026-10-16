@@ -9,8 +9,6 @@
  */
 
 import {
-  DEFAULT_AGENT_COUNT,
-  MAX_AGENT_COUNT,
   MAX_OPERATOR_PASSPHRASE_LENGTH,
   MIN_OPERATOR_PASSPHRASE_LENGTH,
 } from "@sim/shared";
@@ -123,11 +121,6 @@ export interface ServerConfig {
   /** Origins permitted to matchmake and open a socket, already normalized. */
   readonly allowedOrigins: readonly string[];
   readonly projectBoard: ProjectBoardConfig;
-  readonly agentWork: AgentWorkConfig;
-  /** Agent employees each room hires when it opens. */
-  readonly agentCount: number;
-  /** Whether the debug command that sends an agent walking is honoured. */
-  readonly agentDebug: boolean;
   readonly liveAgents: LiveAgentsConfig;
   readonly runner: RunnerConfig;
   readonly operator: OperatorConfig;
@@ -142,9 +135,6 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port: readPort(env),
     allowedOrigins: readAllowedOrigins(env),
     projectBoard: readProjectBoardConfig(env),
-    agentWork: readAgentWorkConfig(env),
-    agentCount: readAgentCount(env),
-    agentDebug: readAgentDebug(env),
     liveAgents: readLiveAgentsConfig(env),
     runner,
     operator,
@@ -152,19 +142,22 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   };
 }
 
-/** The model agents use when `AGENT_MODEL` is unset. */
-const DEFAULT_AGENT_MODEL = "claude-opus-5-5";
+/** The model the manager uses when `MANAGER_MODEL` is unset. */
+const DEFAULT_MANAGER_MODEL = "claude-opus-5-5";
 
 /**
- * Model calls allowed when no budget is configured. A day's worth covers an
- * office of a few agents working issues all day; the per-run figure is the
- * total a long-lived server will spend before it needs a restart to spend more.
+ * Model calls the AI manager may make when no budget is configured. One call
+ * answers one message from the CEO, so a day's worth is a long day of
+ * questions; the per-run figure bounds a server left up for weeks.
  */
-const DEFAULT_AGENT_CALLS_PER_DAY = 200;
-const DEFAULT_AGENT_CALLS_PER_RUN = 1000;
+const DEFAULT_MANAGER_CALLS_PER_DAY = 150;
+const DEFAULT_MANAGER_CALLS_PER_RUN = 1000;
 
-/** How agents do their issue work: canned text for free, or a real model that costs money. */
-export type AgentWorkConfig =
+/**
+ * How the AI manager answers: from live state by rule, for free, or through a
+ * real model that costs money.
+ */
+export type ManagerConfig =
   | { readonly mode: "mock" }
   | {
       readonly mode: "model";
@@ -179,73 +172,12 @@ export type AgentWorkConfig =
     };
 
 /**
- * Reads how agents do their work.
- *
- * - `MOCK_AGENTS`: `on` (the default) or `off`. On, agents write canned text
- *   on a timer and nothing is spent, which is what development wants.
- * - `ANTHROPIC_API_KEY`: required when `MOCK_AGENTS` is off. Checked here so a
- *   missing key stops the server at boot rather than failing the first issue.
- * - `AGENT_MODEL`: optional, defaulting to {@link DEFAULT_AGENT_MODEL}.
- * - `AGENT_CALLS_PER_DAY`, `AGENT_CALLS_PER_RUN`: optional call budgets.
- */
-export function readAgentWorkConfig(env: NodeJS.ProcessEnv = process.env): AgentWorkConfig {
-  const rawMock = env["MOCK_AGENTS"]?.trim().toLowerCase() ?? "";
-  if (rawMock === "" || rawMock === "on") {
-    return { mode: "mock" };
-  }
-  if (rawMock !== "off") {
-    throw new Error(`MOCK_AGENTS must be on or off, got "${env["MOCK_AGENTS"]}"`);
-  }
-
-  const apiKey = env["ANTHROPIC_API_KEY"]?.trim() ?? "";
-  if (apiKey === "") {
-    throw new Error(
-      "MOCK_AGENTS is off but ANTHROPIC_API_KEY is not set: set the key as a platform secret, " +
-        "or leave MOCK_AGENTS on to run agents without a model",
-    );
-  }
-
-  const rawModel = env["AGENT_MODEL"]?.trim() ?? "";
-  return {
-    mode: "model",
-    apiKey,
-    model: rawModel === "" ? DEFAULT_AGENT_MODEL : rawModel,
-    callsPerDay: readCallBudget(env, "AGENT_CALLS_PER_DAY", DEFAULT_AGENT_CALLS_PER_DAY),
-    callsPerRun: readCallBudget(env, "AGENT_CALLS_PER_RUN", DEFAULT_AGENT_CALLS_PER_RUN),
-  };
-}
-
-/**
- * Model calls the AI manager may make when no budget is configured. One call
- * answers one message from the CEO, so a day's worth is a long day of
- * questions; the per-run figure bounds a server left up for weeks.
- */
-const DEFAULT_MANAGER_CALLS_PER_DAY = 150;
-const DEFAULT_MANAGER_CALLS_PER_RUN = 1000;
-
-/**
- * How the AI manager answers: from live state by rule, for free, or through a
- * real model that costs money. Its own switch and its own budget, so paying
- * for agents' work never quietly starts paying for conversation too.
- */
-export type ManagerConfig =
-  | { readonly mode: "mock" }
-  | {
-      readonly mode: "model";
-      /** Server-side only, like the agents' key; the same variable. */
-      readonly apiKey: string;
-      readonly model: string;
-      readonly callsPerDay: number;
-      readonly callsPerRun: number;
-    };
-
-/**
  * Reads how the AI manager answers.
  *
  * - `MOCK_MANAGER`: `on` (the default) or `off`. On, the manager answers from
  *   the office's live state by rule and makes no network call.
  * - `ANTHROPIC_API_KEY`: required when `MOCK_MANAGER` is off.
- * - `MANAGER_MODEL`: optional, defaulting to {@link DEFAULT_AGENT_MODEL}.
+ * - `MANAGER_MODEL`: optional, defaulting to {@link DEFAULT_MANAGER_MODEL}.
  * - `MANAGER_CALLS_PER_DAY`, `MANAGER_CALLS_PER_RUN`: optional call budgets.
  */
 export function readManagerConfig(env: NodeJS.ProcessEnv = process.env): ManagerConfig {
@@ -269,7 +201,7 @@ export function readManagerConfig(env: NodeJS.ProcessEnv = process.env): Manager
   return {
     mode: "model",
     apiKey,
-    model: rawModel === "" ? DEFAULT_AGENT_MODEL : rawModel,
+    model: rawModel === "" ? DEFAULT_MANAGER_MODEL : rawModel,
     callsPerDay: readCallBudget(env, "MANAGER_CALLS_PER_DAY", DEFAULT_MANAGER_CALLS_PER_DAY),
     callsPerRun: readCallBudget(env, "MANAGER_CALLS_PER_RUN", DEFAULT_MANAGER_CALLS_PER_RUN),
   };
@@ -285,47 +217,6 @@ function readCallBudget(env: NodeJS.ProcessEnv, name: string, fallback: number):
     throw new Error(`${name} must be a whole number of calls, got "${raw}"`);
   }
   return calls;
-}
-
-/**
- * Reads `AGENT_COUNT`: how many agent employees a room hires, from 0 to
- * {@link MAX_AGENT_COUNT}, defaulting to {@link DEFAULT_AGENT_COUNT}.
- *
- * A count past the roster is refused rather than quietly capped: an operator
- * who asked for twenty and got eight would be looking for the bug in the wrong
- * place.
- */
-export function readAgentCount(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = env["AGENT_COUNT"]?.trim() ?? "";
-  if (raw === "") {
-    return DEFAULT_AGENT_COUNT;
-  }
-  const count = Number(raw);
-  if (!Number.isInteger(count) || count < 0 || count > MAX_AGENT_COUNT) {
-    throw new Error(
-      `AGENT_COUNT must be a whole number from 0 to ${MAX_AGENT_COUNT}, got "${raw}"`,
-    );
-  }
-  return count;
-}
-
-/**
- * Reads `AGENT_DEBUG`: `on` or `off`, defaulting to off.
- *
- * Off by default, unlike `MOCK_AGENTS`, because what it turns on is a command
- * any connected browser can send: on a deployment that is every visitor
- * marching the staff around. Development asks for it by name.
- */
-export function readAgentDebug(env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = env["AGENT_DEBUG"]?.trim().toLowerCase() ?? "";
-  if (raw === "" || raw === "off") {
-    return false;
-  }
-  if (raw !== "on") {
-    throw new Error(`AGENT_DEBUG must be on or off, got "${env["AGENT_DEBUG"]}"`);
-  }
-  return true;
-
 }
 
 /**

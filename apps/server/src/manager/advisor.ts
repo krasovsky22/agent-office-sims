@@ -2,14 +2,13 @@
  * The AI manager's thinking: given what the CEO said and what the office looks
  * like, decide what to say back and which work to hand to whom.
  *
- * Modelled on the work executor (`../work/executor.ts`), for the same reasons.
  * Where the answer comes from is a {@link ManagerPlanner} — rules over the
  * live state (`./rulePlanner.ts`), or a language model (`./modelPlanner.ts`) —
  * which makes one attempt and may throw. Everything that makes an attempt safe
  * lives here once: the call budget, the per-attempt timeout, bounded retry with
- * backoff, and cancellation. And the contract is the executor's: **advise
- * always resolves, never rejects**, because whatever calls it sits on the path
- * that feeds the room.
+ * backoff, and cancellation. And the contract is that **advise always
+ * resolves, never rejects**, because whatever calls it sits on the path that
+ * feeds the room.
  *
  * A plan only says what the manager wants done. Nothing here touches the
  * board: the room's manager carries a plan out afterwards, synchronously and
@@ -22,8 +21,8 @@
 
 import type { ManagerEntry } from "@sim/shared";
 
-import type { BudgetDecision, CallBudget } from "../work/budget.js";
-import { WORK_FAILURE, WorkProviderError, type WorkFailureReason } from "../work/executor.js";
+import type { BudgetDecision, CallBudget } from "./budget.js";
+import { ADVICE_FAILURE, type AdviceFailureReason, PlannerError } from "./plannerError.js";
 import type { OfficeView } from "./officeView.js";
 
 /**
@@ -63,7 +62,7 @@ export type AdviceResult =
   | { readonly ok: true; readonly plan: ManagerPlan; readonly attempts: number }
   | {
       readonly ok: false;
-      readonly reason: WorkFailureReason;
+      readonly reason: AdviceFailureReason;
       /** Readable, and safe to show: it never carries a credential. */
       readonly message: string;
       readonly attempts: number;
@@ -138,7 +137,7 @@ type Attempt =
   | { readonly kind: "ok"; readonly plan: ManagerPlan }
   | {
       readonly kind: "failed";
-      readonly reason: typeof WORK_FAILURE.timeout | typeof WORK_FAILURE.providerError | typeof WORK_FAILURE.cancelled;
+      readonly reason: typeof ADVICE_FAILURE.timeout | typeof ADVICE_FAILURE.providerError | typeof ADVICE_FAILURE.cancelled;
       readonly message: string;
       readonly retryable: boolean;
       readonly retryAfterMs: number | undefined;
@@ -185,27 +184,27 @@ export function createManagerAdvisor(options: ManagerAdvisorOptions): ManagerAdv
     try {
       const outcome = await Promise.race([pending, deadline, cancelled]);
       if (outcome === CANCELLED) {
-        return failure(WORK_FAILURE.cancelled, "the question was withdrawn", false, undefined, 0);
+        return failure(ADVICE_FAILURE.cancelled, "the question was withdrawn", false, undefined, 0);
       }
       if (outcome === TIMED_OUT) {
-        return failure(WORK_FAILURE.timeout, `no answer within ${Math.round(timeoutMs / 1000)}s`, true, undefined, 0);
+        return failure(ADVICE_FAILURE.timeout, `no answer within ${Math.round(timeoutMs / 1000)}s`, true, undefined, 0);
       }
       if (typeof outcome.reply !== "string" || outcome.reply.trim() === "") {
-        return failure(WORK_FAILURE.providerError, "the answer was empty", false, undefined, outcome.tokensUsed);
+        return failure(ADVICE_FAILURE.providerError, "the answer was empty", false, undefined, outcome.tokensUsed);
       }
       return { kind: "ok", plan: outcome };
     } catch (error) {
       if (cancel.aborted) {
-        return failure(WORK_FAILURE.cancelled, "the question was withdrawn", false, undefined, 0);
+        return failure(ADVICE_FAILURE.cancelled, "the question was withdrawn", false, undefined, 0);
       }
       if (controller.signal.aborted) {
-        return failure(WORK_FAILURE.timeout, `no answer within ${Math.round(timeoutMs / 1000)}s`, true, undefined, 0);
+        return failure(ADVICE_FAILURE.timeout, `no answer within ${Math.round(timeoutMs / 1000)}s`, true, undefined, 0);
       }
-      if (error instanceof WorkProviderError) {
-        return failure(WORK_FAILURE.providerError, error.message, error.retryable, error.retryAfterMs, error.tokensUsed);
+      if (error instanceof PlannerError) {
+        return failure(ADVICE_FAILURE.providerError, error.message, error.retryable, error.retryAfterMs, error.tokensUsed);
       }
       const message = error instanceof Error && error.message !== "" ? error.message : "the planner failed";
-      return failure(WORK_FAILURE.providerError, message, false, undefined, 0);
+      return failure(ADVICE_FAILURE.providerError, message, false, undefined, 0);
     } finally {
       clearTimeout(timer);
       if (onCancel !== undefined) {
@@ -235,11 +234,11 @@ export function createManagerAdvisor(options: ManagerAdvisorOptions): ManagerAdv
     let last: Extract<Attempt, { kind: "failed" }> | undefined;
     while (attempts < maxAttempts) {
       if (signal.aborted) {
-        return { ok: false, reason: WORK_FAILURE.cancelled, message: "the question was withdrawn", attempts, tokensUsed };
+        return { ok: false, reason: ADVICE_FAILURE.cancelled, message: "the question was withdrawn", attempts, tokensUsed };
       }
       const decision = options.budget?.take() ?? UNLIMITED;
       if (!decision.ok) {
-        return { ok: false, reason: WORK_FAILURE.budgetExhausted, message: decision.message, attempts, tokensUsed };
+        return { ok: false, reason: ADVICE_FAILURE.budgetExhausted, message: decision.message, attempts, tokensUsed };
       }
       attempts += 1;
       const outcome = await attempt(request, signal);
@@ -255,7 +254,7 @@ export function createManagerAdvisor(options: ManagerAdvisorOptions): ManagerAdv
     }
     return {
       ok: false,
-      reason: last?.reason ?? WORK_FAILURE.providerError,
+      reason: last?.reason ?? ADVICE_FAILURE.providerError,
       message: last?.message ?? "no attempt was made",
       attempts,
       tokensUsed,
@@ -271,7 +270,7 @@ export function createManagerAdvisor(options: ManagerAdvisorOptions): ManagerAdv
         // Unreachable by construction; the guarantee is worth one more net.
         return {
           ok: false,
-          reason: WORK_FAILURE.providerError,
+          reason: ADVICE_FAILURE.providerError,
           message: error instanceof Error && error.message !== "" ? error.message : "the manager failed",
           attempts: 0,
           tokensUsed: 0,

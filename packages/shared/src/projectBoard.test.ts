@@ -127,7 +127,7 @@ describe("the open floor's project board", () => {
   it("holds nobody, so any number of players can read it at once", () => {
     const spec = boardInteractable();
     const reader = (id: string) => ({ id, x: spec.anchor.x, z: spec.anchor.z, interactableId: "" });
-    const decision = authorizeInteract(OFFICE_LAYOUT, reader("milo"), PROJECT_BOARD_ID, INTERACT_RANGE, () => "dana", () => "dana");
+    const decision = authorizeInteract(OFFICE_LAYOUT, reader("milo"), PROJECT_BOARD_ID, INTERACT_RANGE, () => "dana");
     expect(decision.allowed).toBe(true);
   });
 

@@ -1,5 +1,5 @@
 /**
- * The budget is the thing standing between a misbehaving agent loop and an
+ * The budget is the thing standing between a misbehaving planner loop and an
  * unbounded bill, so its claims are about refusing: that it stops at each
  * limit, says which one and until when, and that only the daily one refills.
  */

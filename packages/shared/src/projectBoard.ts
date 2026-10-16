@@ -4,9 +4,8 @@
  *
  * The board is a read-only window onto real GitHub issues and pull requests,
  * fetched by the server and handed to clients whole. Its open issues are the
- * work the agent employees do, but what they have done about one is the
- * office's own replicated state (`IssueWork` in `state.ts`), not part of this
- * snapshot. Nothing a client does changes the snapshot, and nothing here can
+ * office's work, but what the office has done about one is its own replicated
+ * state (`IssueWork` in `state.ts`), not part of this snapshot. Nothing a client does changes the snapshot, and nothing here can
  * write to GitHub.
  *
  * It travels as a server broadcast rather than as schema. A snapshot is

@@ -1,6 +1,6 @@
 /**
  * The room's work command handlers: handing the project board's issues to
- * agent employees, and moving the work on them.
+ * agents, and moving the work on them.
  *
  * Thin by design. Each handler does three things and nothing else: parse the
  * untrusted payload, resolve the sender to an {@link OfficeActor}, and hand both
@@ -11,10 +11,6 @@
  * A refused command is answered, to its sender only, with the reason. The
  * office is unchanged either way; the answer is what lets an executive's
  * client say "only the CEO can do that" instead of nothing.
- *
- * Agent employees act on their work through the same rules, by
- * {@link runAgentWorkCommand}: the only difference is who the actor is and
- * that nobody needs answering.
  *
  * All of it is synchronous. Colyseus delivers a room's messages one at a time,
  * so the work is only ever mutated between simulation ticks and the tick never
@@ -36,7 +32,6 @@ import {
   type WorkRejectedEvent,
   actorOf,
   applyWorkCommand,
-  isAgentEmployee,
   parseWorkAssignMessage,
   parseWorkMoveMessage,
   parseWorkReleaseMessage,
@@ -103,29 +98,6 @@ export function runWorkCommand(
     } satisfies WorkRejectedEvent);
   }
   return result;
-}
-
-/**
- * Runs one command on behalf of an agent employee.
- *
- * The agent's counterpart to {@link runWorkCommand}, judged by the same
- * `applyWorkCommand` and the same authority gate, with the agent as the
- * actor. An agent has no client, so a refusal is returned to its brain rather
- * than sent anywhere; and it is not rate-limited, because a brain issues a
- * handful of commands per issue and no client can make it issue more.
- *
- * @returns the result, or `undefined` if `agentId` is not an agent in the office.
- */
-export function runAgentWorkCommand(
-  host: WorkHost,
-  agentId: string,
-  command: WorkCommand,
-): WorkCommandResult | undefined {
-  const occupant = host.state.occupants.get(agentId);
-  if (occupant === undefined || !isAgentEmployee(occupant)) {
-    return undefined;
-  }
-  return applyAs(host, actorOf(occupant), command);
 }
 
 /**

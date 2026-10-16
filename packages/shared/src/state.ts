@@ -2,10 +2,10 @@
  * Replicated room state.
  *
  * {@link Occupant} is deliberately the base type for everyone who can stand in
- * the office, not just for players. The map holds four siblings of it:
- * {@link HumanPlayer}, one per browser, {@link AgentEmployee}, the staff the
- * room hires itself, {@link LiveAgent}, moved by the server on a real coding
- * agent's behalf, and {@link AiManager}, the one manager who hands the work out.
+ * the office, not just for players. The map holds three siblings of it:
+ * {@link HumanPlayer}, one per browser, {@link LiveAgent}, moved by the server
+ * on a real coding agent's behalf, and {@link AiManager}, the one manager who
+ * hands the work out.
  * All are read through the same map, so anything that
  * only needs a body and a name — the renderer, the board's assignee lookup —
  * treats them alike, and only what is particular to one kind narrows by `kind`.
@@ -32,27 +32,17 @@
 
 import { MapSchema, Schema, defineTypes } from "@colyseus/schema";
 
-import {
-  COMPANY_STATUS,
-  type CompanyStatus,
-  STARTING_CASH,
-  STARTING_MINUTE_OF_DAY,
-  STARTING_MORALE,
-  STARTING_PRODUCTIVITY,
-} from "./company.js";
+import { STARTING_MINUTE_OF_DAY } from "./clock.js";
 
 /**
  * What sort of thing an occupant is.
  *
- * `agent` is the simulated agent employee who works the project board's issues;
  * `liveAgent` is one of the real coding agents working on this repository,
- * reported by its orchestrator. The two are different people with different
- * sources of truth, so they are different kinds rather than one kind with a flag.
- * `manager` is the AI manager the CEO talks to, who assigns work to both.
+ * reported by its orchestrator or runner. `manager` is the AI manager the CEO
+ * talks to, who hands the live agents their work.
  */
 export const OCCUPANT_KIND = {
   human: "human",
-  agent: "agent",
   liveAgent: "live-agent",
   manager: "manager",
 } as const;
@@ -100,7 +90,7 @@ export function isAnimationState(value: unknown): value is AnimationState {
  */
 export type ReportedAnimation = typeof ANIMATION_STATE.idle | typeof ANIMATION_STATE.walking;
 
-/** Anyone standing in the office: a player, an agent employee or a live coding agent. */
+/** Anyone standing in the office: a player, a live coding agent or the AI manager. */
 export class Occupant extends Schema {
   declare public id: string;
   declare public name: string;
@@ -199,83 +189,6 @@ export function isOperator(occupant: Occupant): boolean {
 }
 
 /**
- * What an agent employee is doing, as the floor should read it.
- *
- * Separate from {@link ANIMATION_STATE}, which is what the body is doing. An
- * agent stuck on an issue and an agent with nothing to do may both be standing
- * still; this is the field that tells them apart, and it is what the badge
- * above an agent's head shows.
- *
- * Agent movement writes `walking`, and `blocked` when a body cannot get where
- * it was sent; an agent's brain (`apps/server/src/sim/agentBrain.ts`) writes
- * `working` while it has an issue, `blocked` when the work on one failed, and
- * `idle` in between. `meeting` waits for the issue that gives agents meetings.
- */
-export const AGENT_ACTIVITY = {
-  idle: "idle",
-  walking: "walking",
-  working: "working",
-  meeting: "meeting",
-  blocked: "blocked",
-} as const;
-
-export type AgentActivity = (typeof AGENT_ACTIVITY)[keyof typeof AGENT_ACTIVITY];
-
-/** Ceiling of an agent's morale and energy, which run from 0 to this. */
-export const AGENT_STAT_MAX = 100;
-
-/**
- * An occupant the room hires rather than one a browser drives.
- *
- * Every field is written by the server alone: no client message names an agent,
- * so nothing a client sends can reach one.
- *
- * `currentIssueNumber` is the GitHub issue the agent is working, or `0` when
- * it has nothing — GitHub numbers issues from 1. Its work is the
- * {@link IssueWork} under that number; one that is no longer there is
- * rendered as no work rather than repaired.
- *
- * Morale and energy are whole numbers out of {@link AGENT_STAT_MAX}, `uint8` on
- * the wire, because nothing reads them finer than a percentage.
- *
- * `salary` is what the agent costs each midnight, in whole currency units, and
- * is replicated because the HUD shows the payroll it adds up to. It is fixed at
- * hire: raises are not part of this office.
- */
-export class AgentEmployee extends Occupant {
-  declare public jobTitle: string;
-  /** Id of the desk in the layout this agent works at. */
-  declare public deskId: string;
-  declare public currentIssueNumber: number;
-  declare public activity: AgentActivity;
-  declare public morale: number;
-  declare public energy: number;
-  declare public salary: number;
-
-  public constructor() {
-    super();
-    this.kind = OCCUPANT_KIND.agent;
-    this.jobTitle = "";
-    this.deskId = "";
-    this.currentIssueNumber = 0;
-    this.activity = AGENT_ACTIVITY.idle;
-    this.morale = AGENT_STAT_MAX;
-    this.energy = AGENT_STAT_MAX;
-    this.salary = 0;
-  }
-}
-
-defineTypes(AgentEmployee, {
-  jobTitle: "string",
-  deskId: "string",
-  currentIssueNumber: "uint32",
-  activity: "string",
-  morale: "uint8",
-  energy: "uint8",
-  salary: "number",
-});
-
-/**
  * What a live coding agent is doing, as its orchestrator last reported it.
  *
  * Only these two are bodies in the office. An agent that stops is removed, so
@@ -311,8 +224,8 @@ export class LiveAgent extends Occupant {
   /** The assignment's link, `""` with no assignment. Always `https:`. */
   declare public assignedUrl: string;
   /**
-   * Whether issue work can be given to this agent, as it can to an agent
-   * employee; see `isIssueAssignee` in `work.ts`. Only a source that drives
+   * Whether issue work can be given to this agent; see `isIssueAssignee` in
+   * `work.ts`. Only a source that drives
    * the agent's work through the office's work rules sets it.
    */
   declare public canTakeIssues: boolean;
@@ -353,7 +266,7 @@ export type ManagerStatus = (typeof MANAGER_STATUS)[keyof typeof MANAGER_STATUS]
 
 /**
  * The AI manager: the one occupant who takes the CEO's instructions and hands
- * the work out to the agents, simulated and live.
+ * the work out to the live agents.
  *
  * Seated at its own desk for good and moved by nobody, so nothing here is a
  * position; what is replicated is what a client draws — a title under the name
@@ -375,7 +288,7 @@ export class AiManager extends Occupant {
 defineTypes(AiManager, { jobTitle: "string", status: "string" });
 
 /**
- * Where an agent employee's work on a GitHub issue stands.
+ * Where an agent's work on a GitHub issue stands.
  *
  * An open issue nobody in the office is working has no status at all: it is
  * simply on the project board, with no {@link IssueWork} for it. Everything
@@ -430,7 +343,7 @@ export class IssueWork extends Schema {
   declare public issueNumber: number;
   declare public title: string;
   declare public status: WorkStatus;
-  /** Occupant id of the agent doing it: an employee, or a live agent. Never `""`. */
+  /** Occupant id of the live agent doing it. Never `""`. */
   declare public assigneeId: string;
   /** The assignee's deliverable, written when an agent finishes. `""` until. */
   declare public outputArtifact: string;
@@ -468,61 +381,16 @@ export function workKey(issueNumber: number): string {
   return String(issueNumber);
 }
 
-/**
- * The company's vital signs and the in-game clock that moves them.
- *
- * Only the server writes these. The numbers come from `company.ts`, where every
- * starting value and every formula lives, so the constructor reads its defaults
- * from there rather than writing a second copy of them here.
- *
- * Cash is whole currency units under `number`, which is variable-length on the
- * wire and exact as a double; morale and productivity are 0–100 under `number`
- * too, so a formula that produces a fraction replicates it rather than having a
- * narrower type truncate it. The clock replicates at whole-minute resolution:
- * the server keeps the fraction to itself.
- */
-export class Company extends Schema {
-  declare public cash: number;
-  declare public morale: number;
-  declare public productivity: number;
-  /** The in-game day, counting from 1. */
-  declare public day: number;
-  /** Minutes since midnight of {@link day}, 0 to 1439. */
-  declare public minuteOfDay: number;
-  declare public status: CompanyStatus;
-  /**
-   * Consecutive day closes that ended with morale below the quitting
-   * threshold. Replicated so the HUD can warn before anyone actually quits.
-   */
-  declare public lowMoraleDays: number;
-
-  public constructor() {
-    super();
-    this.cash = STARTING_CASH;
-    this.morale = STARTING_MORALE;
-    this.productivity = STARTING_PRODUCTIVITY;
-    this.day = 1;
-    this.minuteOfDay = STARTING_MINUTE_OF_DAY;
-    this.status = COMPANY_STATUS.operating;
-    this.lowMoraleDays = 0;
-  }
-}
-
-defineTypes(Company, {
-  cash: "number",
-  morale: "number",
-  productivity: "number",
-  day: "uint16",
-  minuteOfDay: "uint16",
-  status: "string",
-  lowMoraleDays: "uint16",
-});
-
 export class OfficeState extends Schema {
   declare public occupants: MapSchema<Occupant>;
   /** The agents' work on the project board's issues, keyed by {@link workKey}. */
   declare public work: MapSchema<IssueWork>;
-  declare public company: Company;
+  /**
+   * Minutes since midnight on the in-game clock, 0 to 1439, which the lighting
+   * reads. Only the server writes it, at whole-minute resolution; the server
+   * keeps the fraction to itself.
+   */
+  declare public minuteOfDay: number;
   declare public tick: number;
   /**
    * Whether the server has an operator passphrase, and so whether commanding
@@ -536,7 +404,7 @@ export class OfficeState extends Schema {
     super();
     this.occupants = new MapSchema<Occupant>();
     this.work = new MapSchema<IssueWork>();
-    this.company = new Company();
+    this.minuteOfDay = STARTING_MINUTE_OF_DAY;
     this.tick = 0;
     this.operatorRequired = false;
   }
@@ -545,7 +413,7 @@ export class OfficeState extends Schema {
 defineTypes(OfficeState, {
   occupants: { map: Occupant },
   work: { map: IssueWork },
-  company: Company,
+  minuteOfDay: "uint16",
   tick: "uint32",
   operatorRequired: "boolean",
 });
@@ -582,11 +450,6 @@ export function shortestYawDelta(from: number, to: number): number {
  */
 export function isHumanPlayer(occupant: Occupant): occupant is HumanPlayer {
   return occupant.kind === OCCUPANT_KIND.human;
-}
-
-/** Narrows an occupant to an agent employee, by `kind` as {@link isHumanPlayer} does. */
-export function isAgentEmployee(occupant: Occupant): occupant is AgentEmployee {
-  return occupant.kind === OCCUPANT_KIND.agent;
 }
 
 /** Narrows an occupant to a live coding agent, by `kind` for the same reason. */

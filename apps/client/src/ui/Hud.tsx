@@ -3,8 +3,8 @@
  *
  * React's whole job in this prototype is this layer. The scene is an imperative
  * Three.js loop and stays that way: the loop runs every frame, while the HUD
- * re-renders only when the roster, the connection state, the chat log, or what
- * the company readout shows actually changes. Driving the scene through React
+ * re-renders only when the roster, the connection state or the chat log
+ * actually changes. Driving the scene through React
  * would put a reconciler on the frame budget for no benefit.
  *
  * The store below is the seam between the two. The game loop pushes snapshots
@@ -16,7 +16,6 @@
  */
 
 import {
-  type AgentActivity,
   EMOTES,
   type Emote,
   MANAGER_STATUS,
@@ -32,23 +31,14 @@ import {
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { BoardAccess } from "../boardAccess.js";
-import type { CompanyReadout } from "../companyReadout.js";
-import type { ManagerAccess } from "../managerAccess.js";
-import type { OperatorAccess } from "../operatorAccess.js";
-import type { StaffReadout } from "../staffing.js";
-import {
-  AGENT_ACTIVITY_APPEARANCE,
-  MANAGER_STATUS_APPEARANCE,
-  SIMULATED_LABEL,
-  isSimulated,
-} from "../agentActivity.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
+import type { ManagerAccess } from "../managerAccess.js";
+import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
+import type { OperatorAccess } from "../operatorAccess.js";
 import type { ConnectionStatus } from "../net/room.js";
-import { CompanyEndState, CompanyPanel } from "./CompanyPanel.js";
 import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
 import { type ProjectBoardActions, ProjectBoardPanel } from "./ProjectBoardPanel.js";
-import { StaffPanel } from "./StaffPanel.js";
 
 import "./hud.css";
 
@@ -59,12 +49,8 @@ export interface RosterEntry {
   readonly isCeo: boolean;
   /** Whether a player has verified as operator; `false` for anyone else. */
   readonly isOperator: boolean;
-  /** An agent's job title; `""` for a player. */
+  /** The manager's job title; `""` for anyone else. */
   readonly jobTitle: string;
-  /** An agent's activity; `undefined` for a player. */
-  readonly activity: AgentActivity | undefined;
-  /** An agent's daily salary; `0` for a player. */
-  readonly salary: number;
   readonly isLocal: boolean;
   /** A live agent's status and task, `""` for anyone else. */
   readonly caption: string;
@@ -79,26 +65,24 @@ export interface RosterEntry {
 }
 
 /**
- * The roster split into players, agent employees, live coding agents and the
- * AI manager, each in arrival order.
+ * The roster split into players, live coding agents and the AI manager, each
+ * in arrival order.
  */
 export function groupRoster(roster: readonly RosterEntry[]): {
   readonly people: readonly RosterEntry[];
-  readonly agents: readonly RosterEntry[];
   readonly liveAgents: readonly RosterEntry[];
   readonly managers: readonly RosterEntry[];
 } {
   return {
     people: roster.filter((entry) => entry.kind === OCCUPANT_KIND.human),
-    agents: roster.filter((entry) => entry.kind === OCCUPANT_KIND.agent),
     liveAgents: roster.filter((entry) => entry.kind === OCCUPANT_KIND.liveAgent),
     managers: roster.filter((entry) => entry.kind === OCCUPANT_KIND.manager),
   };
 }
 
 /**
- * Everyone an issue can be given to, by the server's own rule: the agent
- * employees, and the live agents that can take issues.
+ * Everyone an issue can be given to, by the server's own rule: the live agents
+ * that can take issues.
  */
 export function assignableAgents(roster: readonly RosterEntry[]): readonly RosterEntry[] {
   return roster.filter((entry) => isIssueAssignee(entry));
@@ -165,19 +149,10 @@ export interface HudSnapshot {
   readonly projectBoard?: ProjectBoardSnapshot;
   /** Whether the local player opened the board's close-up with `E` at its prompt. */
   readonly boardCloseUp: boolean;
-  /** The company's numbers as shown; absent until the first patch carries them. */
-  readonly company?: CompanyReadout;
   /** What the local player may do about the project board's work; absent until they are in the office. */
   readonly boardAccess?: BoardAccess | undefined;
   /** The agents' work on the project board's issues as last replicated, in no particular order. */
   readonly work: readonly WorkData[];
-  /** The payroll, the desks, and whether the local player may hire; absent until they are in. */
-  readonly staff?: StaffReadout | undefined;
-  /**
-   * The morale a firing just cost, shown beside the metric until the next one.
-   * `id` changes with each firing so the same drop twice still animates.
-   */
-  readonly moraleHit?: { readonly id: number; readonly text: string } | undefined;
   /** Whether the local player opened the conversation with `E` at the manager's desk. */
   readonly managerOpen: boolean;
   /** The conversation with the manager, oldest first, as the server relayed it. */
@@ -195,10 +170,6 @@ export interface HudActions {
   /** Called with the raw input text; the server sanitizes it. */
   readonly sendChat: (text: string) => void;
   readonly projectBoard: ProjectBoardActions;
-  /** Asks the server to hire for a candidate job; it decides. */
-  readonly hire: (candidateId: string) => void;
-  /** Asks the server to let an agent go; it decides. */
-  readonly fire: (agentId: string) => void;
   readonly manager: ManagerPanelActions;
 }
 
@@ -467,30 +438,6 @@ function PersonRow({ entry }: { entry: RosterEntry }) {
   );
 }
 
-/**
- * One agent's line: its name and title, the simulated tag its nameplate also
- * carries when it is simulated, and the same activity its badge shows.
- */
-function AgentRow({ entry }: { entry: RosterEntry }) {
-  const appearance =
-    entry.activity === undefined ? undefined : AGENT_ACTIVITY_APPEARANCE[entry.activity];
-  const simulated = isSimulated(entry.kind);
-  return (
-    <li
-      className={`hud__occupant hud__occupant--agent${simulated ? " hud__occupant--simulated" : ""}`}
-    >
-      <span className="hud__name">{entry.name}</span>
-      <span className="hud__title-of">{entry.jobTitle}</span>
-      {simulated ? <span className="hud__simulated">{SIMULATED_LABEL}</span> : null}
-      {appearance === undefined ? null : (
-        <span className="hud__activity" style={{ color: appearance.colour }}>
-          {appearance.label}
-        </span>
-      )}
-    </li>
-  );
-}
-
 /** One live coding agent's line: its name, and its task linked to the issue or pull request. */
 function LiveAgentRow({ entry }: { entry: RosterEntry }) {
   return (
@@ -520,9 +467,9 @@ function ManagerRow({ entry, unread }: { entry: RosterEntry; unread: number }) {
 }
 
 /**
- * Who is in the office: people first, then the manager, the agent employees and
- * the live coding agents under headings of their own, so the roster answers
- * "who is a person here?" as plainly as the floor does.
+ * Who is in the office: people first, then the manager and the live coding
+ * agents under headings of their own, so the roster answers "who is a person
+ * here?" as plainly as the floor does.
  */
 function Roster({
   roster,
@@ -533,7 +480,7 @@ function Roster({
   boardAccess: BoardAccess | undefined;
   managerUnread: number;
 }) {
-  const { people, agents, liveAgents, managers } = groupRoster(roster);
+  const { people, liveAgents, managers } = groupRoster(roster);
   return (
     <div className="hud__panel">
       <h2 className="hud__title">People ({people.length})</h2>
@@ -552,16 +499,6 @@ function Roster({
           <ul className="hud__roster">
             {managers.map((entry) => (
               <ManagerRow entry={entry} unread={managerUnread} key={entry.id} />
-            ))}
-          </ul>
-        </>
-      )}
-      {agents.length === 0 ? null : (
-        <>
-          <h2 className="hud__title hud__title--group">Agents ({agents.length})</h2>
-          <ul className="hud__roster">
-            {agents.map((entry) => (
-              <AgentRow entry={entry} key={entry.id} />
             ))}
           </ul>
         </>
@@ -600,11 +537,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     debug,
     projectBoard,
     boardCloseUp,
-    company,
     boardAccess,
     work,
-    staff,
-    moraleHit,
     managerOpen,
     managerLog,
     managerUnread,
@@ -621,8 +555,6 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       </div>
 
       <div className="hud__column">
-        <CompanyPanel readout={company} moraleHit={moraleHit} />
-
         <Roster roster={roster} boardAccess={boardAccess} managerUnread={managerUnread} />
 
         <div className="hud__panel">
@@ -656,7 +588,6 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
         />
       ) : null}
 
-      {company?.bankrupt === true ? <CompanyEndState readout={company} /> : null}
       {managerOpen ? (
         <ManagerPanel
           entries={managerLog}
@@ -668,15 +599,6 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       ) : null}
 
       <div className="hud__column hud__column--right">
-        {staff === undefined ? null : (
-          <StaffPanel
-            staff={staff}
-            agents={groupRoster(roster).agents}
-            hire={actions.hire}
-            fire={actions.fire}
-          />
-        )}
-
         <div className="hud__panel hud__panel--chat">
           <h2 className="hud__title">Office chat</h2>
           <ChatLog entries={chatLog} />

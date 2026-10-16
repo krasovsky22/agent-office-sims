@@ -2,13 +2,14 @@
  * One room's AI manager: the conversation, the questions waiting to be
  * answered, and the loop that answers them.
  *
- * The rule the agents' brains were built around holds here too: **the manager
- * never runs inside the simulation tick, and the tick never waits on it.** A
+ * The room's one rule about slow work holds here: **the manager never runs
+ * inside the simulation tick, and the tick never waits on it.** A
  * message from the CEO is taken synchronously by a message handler — checked
  * against the one gate, recorded, broadcast and queued — and nothing more. The
  * answer is worked out on the manager's own async loop, which may spend seconds
  * on a model call while the room ticks on at full rate; when it has one, it
- * writes the result between ticks: assignments through the work's rules,
+ * writes the result between ticks: assignments through the work's rules or
+ * into the orchestrator's queue,
  * the reply into the conversation, and its badge back to idle.
  *
  * One question at a time, in order, with a few allowed to wait behind it, so
@@ -47,12 +48,12 @@ import {
 import type { LiveAgentSource } from "../agents/registry.js";
 import type { WorkHost } from "../rooms/workHandlers.js";
 import { recordOfficeEvent } from "../sim/events.js";
-import { WORK_FAILURE } from "../work/executor.js";
 import { type AdviceResult, type ManagerAdvisor, type ManagerRequest } from "./advisor.js";
 import { carryOut } from "./assign.js";
 import { ManagerConversation } from "./conversation.js";
 import type { LiveAssignmentQueue } from "./liveAssignments.js";
 import { type OfficeView, readOfficeView } from "./officeView.js";
+import { ADVICE_FAILURE } from "./plannerError.js";
 import { planFromRules } from "./rulePlanner.js";
 import { type Observation, describeChanges, observe } from "./updates.js";
 
@@ -196,7 +197,7 @@ export class OfficeManager {
       history: question.history,
     };
     const result = await this.host.advisor.advise(request, this.abort.signal);
-    if (this.stopped || (!result.ok && result.reason === WORK_FAILURE.cancelled)) {
+    if (this.stopped || (!result.ok && result.reason === ADVICE_FAILURE.cancelled)) {
       return;
     }
     // Read again now the answer is in: the office has moved on while it was thought about.
@@ -274,7 +275,7 @@ export class OfficeManager {
 
 /** The line a rules answer opens with when the model it stood in for failed. */
 function fallbackNote(result: Extract<AdviceResult, { ok: false }>): string {
-  return result.reason === WORK_FAILURE.budgetExhausted
+  return result.reason === ADVICE_FAILURE.budgetExhausted
     ? `(My model budget is spent — ${result.message} — so this is my quick answer from the board.)`
     : `(I couldn't reach my model — ${result.message} — so this is my quick answer from the board.)`;
 }

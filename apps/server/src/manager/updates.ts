@@ -1,6 +1,6 @@
 /**
- * What the AI manager says without being asked: work handed in, an agent stuck,
- * a live agent starting or stopping, an assignment picked up by the orchestrator
+ * What the AI manager says without being asked: work handed in, a live agent
+ * starting or stopping, an assignment picked up by the orchestrator
  * or not taken by its agent.
  *
  * The manager looks at the office on its own timer and compares what it sees
@@ -13,24 +13,19 @@
  * and it costs nothing to say.
  */
 
-import { AGENT_ACTIVITY, type AgentActivity, WORK_STATUS, type WorkStatus } from "@sim/shared";
+import { WORK_STATUS, type WorkStatus } from "@sim/shared";
 
 import { LIVE_ASSIGNMENT_STATUS, type LiveAssignment, type LiveAssignmentStatus } from "./liveAssignments.js";
 import type { LinkView, OfficeView } from "./officeView.js";
 
 /** What the manager remembers between looks. */
 export interface Observation {
-  readonly agents: ReadonlyMap<
-    string,
-    { readonly name: string; readonly activity: AgentActivity; readonly issueNumber: number | undefined }
-  >;
   readonly work: ReadonlyMap<
     number,
     {
       readonly label: string;
       readonly status: WorkStatus;
       readonly assignee: string | undefined;
-      readonly note: string | undefined;
     }
   >;
   readonly liveAgents: ReadonlyMap<
@@ -51,9 +46,6 @@ function linkText(link: LinkView | undefined): string {
 export function observe(view: OfficeView, assignments: readonly LiveAssignment[]): Observation {
   const liveNames = new Map(view.liveAgents.map((agent) => [agent.id, agent.name]));
   return {
-    agents: new Map(
-      view.agents.map((agent) => [agent.id, { name: agent.name, activity: agent.activity, issueNumber: agent.issueNumber }]),
-    ),
     work: new Map(
       view.work.map((work) => [
         work.issueNumber,
@@ -61,7 +53,6 @@ export function observe(view: OfficeView, assignments: readonly LiveAssignment[]
           label: `#${work.issueNumber} “${work.title}”`,
           status: work.status,
           assignee: work.assignee,
-          note: work.note,
         },
       ]),
     ),
@@ -89,18 +80,6 @@ export function describeChanges(before: Observation, after: Observation): string
     const previous = before.work.get(number);
     if (previous?.status === WORK_STATUS.in_progress && work.status === WORK_STATUS.review) {
       lines.push(`${work.assignee ?? "Its assignee"} handed in ${work.label} for your review.`);
-    }
-  }
-
-  for (const [id, agent] of after.agents) {
-    const previous = before.agents.get(id);
-    if (previous !== undefined && previous.activity !== AGENT_ACTIVITY.blocked && agent.activity === AGENT_ACTIVITY.blocked) {
-      const work = agent.issueNumber === undefined ? undefined : after.work.get(agent.issueNumber);
-      lines.push(
-        work === undefined
-          ? `${agent.name} is stuck.`
-          : `${agent.name} is stuck on ${work.label} — ${work.note ?? "no reason given"}`,
-      );
     }
   }
 

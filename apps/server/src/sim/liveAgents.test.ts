@@ -12,7 +12,6 @@
 import { MapSchema } from "@colyseus/schema";
 import {
   ANIMATION_STATE,
-  AgentEmployee,
   HumanPlayer,
   INTERACTION_KIND,
   IssueWork,
@@ -202,39 +201,6 @@ describe("a working agent", () => {
     expect(runUntil(office, 15, () => body.interactableId !== "")).toBeDefined();
     expect(body.interactableId).not.toBe(nearest.id);
     expect(office.interaction.holds.holderOf(nearest.id)).toBe("player");
-  });
-
-  it("never heads for a chair at an agent employee's desk, sitting or not", () => {
-    const office = createOffice();
-    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working)], office.now);
-    const body = agent(office, "alpha");
-    // The chair it would otherwise pick first, given to a standing employee.
-    const nearest = SEATS.reduce((best, seat) =>
-      Math.hypot(seat.anchor.x - body.x, seat.anchor.z - body.z) <
-      Math.hypot(best.anchor.x - body.x, best.anchor.z - body.z)
-        ? seat
-        : best,
-    );
-    if (nearest.deskId === undefined) {
-      throw new Error(`${nearest.id} belongs to no desk`);
-    }
-    const employee = new AgentEmployee();
-    employee.id = "agent-1";
-    employee.deskId = nearest.deskId;
-    office.occupants.set(employee.id, employee);
-
-    const doorstep = nearest.exit ?? nearest.anchor;
-    let closest = Number.POSITIVE_INFINITY;
-    expect(
-      runUntil(office, 15, () => {
-        closest = Math.min(closest, Math.hypot(body.x - doorstep.x, body.z - doorstep.z));
-        return body.interactableId !== "";
-      }),
-    ).toBeDefined();
-    expect(body.interactableId).not.toBe(nearest.id);
-    // Never stood on that chair's doorstep only to be turned away. Neighbouring
-    // chairs share the aisle, so passing close by is fine; arriving is not.
-    expect(closest).toBeGreaterThan(0.05);
   });
 
   it("does not share a chair with another agent", () => {

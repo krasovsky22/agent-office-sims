@@ -3,7 +3,7 @@
  * built from the office and the project board it is shown and nothing else.
  */
 
-import { AGENT_ACTIVITY, CHECK_STATUS, WORK_STATUS } from "@sim/shared";
+import { CHECK_STATUS, WORK_STATUS } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import type { ManagerRequest } from "./advisor.js";
@@ -43,11 +43,6 @@ function issue(number: number, title: string, column: IssueColumn, extra: Partia
 
 const VIEW: OfficeView = {
   ceo: "Dana",
-  agents: [
-    { id: "agent-1", name: "Ada Byrne", jobTitle: "Product Manager", activity: AGENT_ACTIVITY.working, issueNumber: 11 },
-    { id: "agent-2", name: "Bo Mendes", jobTitle: "Engineer", activity: AGENT_ACTIVITY.idle, issueNumber: undefined },
-    { id: "agent-3", name: "Cleo Hart", jobTitle: "Designer", activity: AGENT_ACTIVITY.blocked, issueNumber: 12 },
-  ],
   liveAgents: [
     {
       id: "crew-1",
@@ -58,6 +53,7 @@ const VIEW: OfficeView = {
     },
     { id: "crew-2", name: "Deckhand", status: "idle", task: undefined, assigned: undefined },
   ],
+  issueAgents: [],
   work: WORK,
   project: {
     repository: "o/r",
@@ -117,12 +113,6 @@ describe("planFromRules: status", () => {
     );
   });
 
-  it("says why a stuck agent is stuck", () => {
-    expect(ask("how is #12 going?").reply).toBe(
-      "#12 “Cut the dashboard load time” is open. Cleo Hart is stuck on it — Blocked: no answer within 120s.",
-    );
-  });
-
   it("finds an issue by its title", () => {
     expect(ask("where are we on the onboarding email?").reply).toContain("#11");
   });
@@ -143,16 +133,22 @@ describe("planFromRules: status", () => {
   });
 
   it("describes a named agent", () => {
-    expect(ask("what is Bo doing?").reply).toBe("Bo Mendes (Engineer) is idle.");
+    expect(ask("what is Crewmate doing?").reply).toBe("Crewmate (live coding agent) is working on #33 “Live agents”.");
     expect(ask("and deckhand?").reply).toBe("Deckhand (live coding agent) is idle.");
   });
 
   it("summarises what everyone is working on, and who is free", () => {
-    const reply = ask("What is everyone working on?").reply;
-    expect(reply).toContain("- Ada Byrne (Product Manager) is working on #11 “Write the onboarding email”.");
-    expect(reply).toContain("- Cleo Hart (Designer) is stuck on #12 “Cut the dashboard load time” — Blocked: no answer within 120s.");
-    expect(reply).toContain("- Crewmate (live coding agent) is working on #33 “Live agents”.");
-    expect(reply).toContain("Free for something new: Bo Mendes, Deckhand.");
+    expect(ask("What is everyone working on?").reply).toBe(
+      [
+        "Live coding agents:",
+        "- Crewmate (live coding agent) is working on #33 “Live agents”.",
+        "- Deckhand (live coding agent) is idle.",
+        "Free for something new: Deckhand.",
+      ].join("\n"),
+    );
+    expect(ask("What is everyone working on?", { ...VIEW, liveAgents: [] }).reply).toBe(
+      "Nobody is on the floor right now: there are no agents to report on.",
+    );
   });
 
   it("says what is open on the project board, with labels and who is on each issue", () => {
@@ -163,7 +159,6 @@ describe("planFromRules: status", () => {
         "Open: #14 “Audit the third-party licences” — Ada Byrne, waiting for your review, #33 “Live agents” [wave-2], #10 “Fix the login redirect loop” [bug], #11 “Write the onboarding email” — Ada Byrne, in progress",
       );
       expect(reply).toContain("Waiting for your review: #14 (Ada Byrne).");
-      expect(reply).toContain("- Cleo Hart (Designer) is stuck on #12");
       expect(reply).toContain("Nobody on yet: #10, #15, #39.");
       expect(reply).toContain("Open pull requests: PR #46 (checks failing), PR #47.");
       expect(reply).not.toContain("Old thing");
@@ -200,38 +195,38 @@ describe("planFromRules: assignments", () => {
   it.each<[string, { work: string; agent: string }[]]>([
     ["give me the status of #12", []],
     ["does anyone have #39?", []],
-    ["What does Ada have on #11?", []],
+    ["What does Crewmate have on #11?", []],
     ["Did anyone get to #39?", []],
     ["send me an update on #39", []],
     ["hand me the notes on #12", []],
     ["have you put someone on #39?", []],
-    ["Put Bo on #10", [{ work: "issue #10", agent: "agent-2" }]],
-    ["Put Bo on issue 10", [{ work: "issue #10", agent: "agent-2" }]],
+    ["Put Deckhand on #10", [{ work: "issue #10", agent: "crew-2" }]],
+    ["Put Deckhand on issue 10", [{ work: "issue #10", agent: "crew-2" }]],
     ["put someone on #39", [{ work: "issue #39", agent: "" }]],
     ["put someone who's free on #39", [{ work: "issue #39", agent: "" }]],
     ["assign #39 to someone who is idle", [{ work: "issue #39", agent: "" }]],
-    ["can you put Bo on #10?", [{ work: "issue #10", agent: "agent-2" }]],
-    ["Firstmate, put Ada Byrne on #15", [{ work: "issue #15", agent: "agent-1" }]],
+    ["can you put Deckhand on #10?", [{ work: "issue #10", agent: "crew-2" }]],
+    ["Firstmate, put Crewmate on #15", [{ work: "issue #15", agent: "crew-1" }]],
     ["have someone take #39", [{ work: "issue #39", agent: "" }]],
-    ["give Bo's #10 to Ada", [{ work: "issue #10", agent: "agent-1" }]],
-    ["reassign #11 to Bo", [{ work: "issue #11", agent: "agent-2" }]],
-    ["give #10 and #15 to Bo", [{ work: "issue #10", agent: "agent-2" }, { work: "issue #15", agent: "agent-2" }]],
-    ["put Bo on Draft the Q3 roadmap", [{ work: "issue #15", agent: "agent-2" }]],
+    ["give Deckhand's #10 to Crewmate", [{ work: "issue #10", agent: "crew-1" }]],
+    ["reassign #11 to Deckhand", [{ work: "issue #11", agent: "crew-2" }]],
+    ["give #10 and #15 to Deckhand", [{ work: "issue #10", agent: "crew-2" }, { work: "issue #15", agent: "crew-2" }]],
+    ["put Deckhand on Draft the Q3 roadmap", [{ work: "issue #15", agent: "crew-2" }]],
     ["give PR #46 to Deckhand", [{ work: "PR #46", agent: "crew-2" }]],
-    ["give #10 to Bo, please", [{ work: "issue #10", agent: "agent-2" }]],
+    ["give #10 to Deckhand, please", [{ work: "issue #10", agent: "crew-2" }]],
     [
-      "give #10 to Bo, and #15 to Ada",
+      "give #10 to Deckhand, and #15 to Crewmate",
       [
-        { work: "issue #10", agent: "agent-2" },
-        { work: "issue #15", agent: "agent-1" },
+        { work: "issue #10", agent: "crew-2" },
+        { work: "issue #15", agent: "crew-1" },
       ],
     ],
     [
-      "assign the backlog to Bo",
+      "assign the backlog to Deckhand",
       [
-        { work: "#10", agent: "agent-2" },
-        { work: "#15", agent: "agent-2" },
-        { work: "#39", agent: "agent-2" },
+        { work: "#10", agent: "crew-2" },
+        { work: "#15", agent: "crew-2" },
+        { work: "#39", agent: "crew-2" },
       ],
     ],
     [
@@ -247,10 +242,10 @@ describe("planFromRules: assignments", () => {
   });
 
   it.each([
-    "send the #10 notes to Ada",
-    "put Ada on #11 instead of #15",
+    "send the #10 notes to Crewmate",
+    "put Crewmate on #11 instead of #15",
     "hand out the backlog except #10",
-    "reassign #10 from Bo to Ada",
+    "reassign #10 from Deckhand to Crewmate",
     "assign the login redirect to anyone",
     "give an update on #12",
     "put together a summary of #11",
@@ -271,19 +266,19 @@ describe("planFromRules: assignments", () => {
   it("advises rather than assigns when asked who should do it", () => {
     const plan = ask("who should I give #39 to?");
     expect(plan.assignments).toEqual([]);
-    expect(plan.reply).toContain("Bo Mendes is free.");
+    expect(plan.reply).toContain("Deckhand is free.");
     expect(ask("who should take PR #46?").reply).toContain("Deckhand is free.");
   });
 
   it("answers a question that uses an assignment word, and assigns nothing", () => {
     expect(ask("give me the status of #12")).toMatchObject({
       assignments: [],
-      reply: expect.stringContaining("Cleo Hart is stuck on it"),
+      reply: expect.stringContaining("Cleo Hart is working on it"),
     });
     expect(ask("does anyone have #39?")).toMatchObject({ assignments: [], reply: expect.stringContaining("#39 “Night shift” is open") });
   });
 
   it("assigns nothing when the work named does not exist", () => {
-    expect(ask("put Bo on #999")).toMatchObject({ assignments: [], reply: expect.stringContaining("can't find #999") });
+    expect(ask("put Deckhand on #999")).toMatchObject({ assignments: [], reply: expect.stringContaining("can't find #999") });
   });
 });

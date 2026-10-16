@@ -1,7 +1,7 @@
 /**
  * The room's handler for messages to the AI manager.
  *
- * Thin for the same reason the work and staff handlers are: it parses the
+ * Thin for the same reason the work handlers are: it parses the
  * untrusted payload, resolves the sender, and hands both to the manager, whose
  * `instruct` checks the one gate — `mayInstructManager`, the CEO only — and
  * queues the message. A refusal is answered to the sender alone, with its

@@ -16,13 +16,11 @@ import {
   type InteractableSpec,
   MANAGER_INTERACTABLE_ID,
   type ManagerEntry,
-  OCCUPANT_KIND,
   OFFICE_LAYOUT,
   OFFICE_PROPS,
   type OfficeLayout,
   PROJECT_BOARD_ID,
   STARTING_MINUTE_OF_DAY,
-  STAFF_CHANGE,
   authorizeInteract,
   describeLiveAgentTask,
   heldAnimationFor,
@@ -37,12 +35,9 @@ import { createRoot } from "react-dom/client";
 import * as THREE from "three";
 
 import { boardAccessFor, rejectionText } from "./boardAccess.js";
-import { readCompany, sameReadout } from "./companyReadout.js";
 import { DayClock } from "./dayClock.js";
-import { parseDebugCommand } from "./debugCommand.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
 import { operatorAccessFor, operatorRejectionText } from "./operatorAccess.js";
-import { readStaff, sameStaff, staffChangeText, staffRejectionText } from "./staffing.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
 import { PlayerController } from "./player/controller.js";
@@ -229,7 +224,6 @@ function start(): void {
   };
 
   let nextChatId = 1;
-  let nextMoraleHitId = 1;
   let noticeTimer: number | undefined;
 
   /** Shows a line to this player only, and takes it down again shortly. */
@@ -299,7 +293,6 @@ function start(): void {
             kind: view.kind,
             isCeo: view.isCeo,
             jobTitle: view.jobTitle,
-            activity: view.activity,
             isLocal: view.isLocal,
             caption,
             managerStatus: view.managerStatus,
@@ -309,7 +302,6 @@ function start(): void {
           avatars.set(view.id, avatar);
         } else {
           existing.setLabel(view.name, view.isCeo, view.agentStatus === undefined ? view.jobTitle : caption);
-          existing.setActivity(view.activity);
           existing.setManagerStatus(view.managerStatus);
         }
       }
@@ -323,10 +315,6 @@ function start(): void {
 
       const local = present.find((view) => view.isLocal);
       const ceo = present.find((view) => view.isCeo);
-      const staff = readStaff(
-        local,
-        present.filter((view) => view.kind === OCCUPANT_KIND.agent).map((view) => view.salary),
-      );
       publishHud({
         roster: present.map((view) => ({
           id: view.id,
@@ -335,8 +323,6 @@ function start(): void {
           isCeo: view.isCeo,
           isOperator: view.isOperator,
           jobTitle: view.jobTitle,
-          activity: view.activity,
-          salary: view.salary,
           isLocal: view.isLocal,
           caption: captionOf(view),
           taskUrl: view.taskUrl,
@@ -347,11 +333,6 @@ function start(): void {
         boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name),
         managerAccess: local === undefined ? undefined : managerAccessFor(local, ceo?.name),
         operatorAccess: local === undefined ? undefined : operatorAccessFor(local, room.operatorRequired()),
-        ...(local === undefined
-          ? { staff: undefined }
-          : sameStaff(hud.staff, staff)
-            ? {}
-            : { staff }),
       });
     },
 
@@ -418,28 +399,6 @@ function start(): void {
       showNotice(operatorRejectionText(event.rejection));
     },
 
-    // Announced in the chat log, like a change of CEO, because the people who
-    // need to know why an agent appeared or vanished are everyone, not only
-    // the CEO who did it. A firing also flashes what it cost beside morale.
-    onStaffChanged: (event) => {
-      appendChatLine({
-        id: nextChatId++,
-        author: "Office",
-        text: staffChangeText(event),
-        isLocal: false,
-        isSystem: true,
-      });
-      if (event.change === STAFF_CHANGE.fired && event.moraleLost > 0) {
-        publishHud({
-          moraleHit: { id: nextMoraleHitId++, text: `−${Math.round(event.moraleLost)}` },
-        });
-      }
-    },
-
-    onStaffRejected: (event) => {
-      showNotice(staffRejectionText(event.rejection));
-    },
-
     // The same snapshot goes to the wall and to the close-up panel, so what
     // the board shows at a distance and up close cannot disagree.
     onProjectBoard: (snapshot) => {
@@ -447,18 +406,9 @@ function start(): void {
       publishHud({ projectBoard: snapshot });
     },
 
-    onDebugReply: (event) => {
-      showNotice(event.text);
-    },
-
-    // Arrives with nearly every patch, because the clock is in it; React only
-    // hears about the ones that change what is on screen.
-    onCompanyChanged: (view) => {
-      dayClock.observe(view.minuteOfDay, performance.now());
-      const company = readCompany(view);
-      if (!sameReadout(hud.company, company)) {
-        publishHud({ company });
-      }
+    // The lighting runs the clock on between patches; React never hears of it.
+    onClockChanged: (minuteOfDay) => {
+      dayClock.observe(minuteOfDay, performance.now());
     },
 
     onWorkChanged: (work) => {
@@ -494,23 +444,12 @@ function start(): void {
       store: hudStore,
       actions: {
         sendEmote: (emote) => room.sendEmote(emote),
-        sendChat: (text) => {
-          const command = parseDebugCommand(text);
-          if (command === undefined) {
-            room.sendChat(text);
-          } else if (command.kind === "goto") {
-            room.sendDebugGoto(command.message);
-          } else {
-            showNotice(command.text);
-          }
-        },
+        sendChat: (text) => room.sendChat(text),
         projectBoard: {
           assign: (issueNumber, agentId) => room.sendWorkAssign(issueNumber, agentId),
           move: (issueNumber, status) => room.sendWorkMove(issueNumber, status),
           release: (issueNumber) => room.sendWorkRelease(issueNumber),
         },
-        hire: (candidateId) => room.sendHire(candidateId),
-        fire: (agentId) => room.sendFire(agentId),
         manager: {
           say: (text) => room.sendManagerSay(text),
           verify: (passphrase) => room.sendOperatorVerify(passphrase),
@@ -568,7 +507,6 @@ function start(): void {
           target.id,
           INTERACT_RANGE,
           (interactableId) => room.holderOf(interactableId),
-          (deskId) => room.agentAtDesk(deskId),
         );
         prompt = {
           keys: target.id === readingBoard && closesWithEscape(readingBoard) ? "Esc" : "E",

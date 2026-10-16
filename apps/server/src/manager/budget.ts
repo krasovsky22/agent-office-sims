@@ -1,10 +1,10 @@
 /**
- * The ceiling on how many model calls the office may make.
+ * The ceiling on how many model calls the AI manager may make.
  *
- * A model call costs money, and an agent that keeps failing an issue keeps
- * trying it, so spend has to be capped by something that does not depend on
+ * A model call costs money, and a chatty CEO or a retrying planner keeps
+ * making them, so spend has to be capped by something that does not depend on
  * the caller behaving. Two limits, both counted in calls rather than tokens
- * because a call is what the executor can refuse before it is made:
+ * because a call is what the advisor can refuse before it is made:
  *
  * - **Per day**, a UTC calendar day, so a busy afternoon cannot spend the week.
  * - **Per run**, the lifetime of this server process, so a server left up for
@@ -21,7 +21,7 @@
 export interface CallBudgetLimits {
   readonly perDay: number;
   readonly perRun: number;
-  /** Whose calls these are, for the refusal message. Defaults to `agent`. */
+  /** Whose calls these are, for the refusal message. Defaults to `manager`. */
   readonly label?: string;
 }
 
@@ -73,7 +73,7 @@ export class CallBudget {
   }
 
   private get label(): string {
-    return this.limits.label ?? "agent";
+    return this.limits.label ?? "manager";
   }
 
   private rollDay(): void {
