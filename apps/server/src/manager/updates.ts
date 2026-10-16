@@ -6,8 +6,9 @@
  * The manager looks at the office on its own timer and compares what it sees
  * with what it saw last time; this module is that comparison, as two pure
  * functions, so what counts as news can be tested without a room. The first
- * look only sets the baseline: a manager arriving in an office does not
- * announce everything already in it.
+ * look sets the baseline for everything but an agent already waiting on a
+ * person: a manager arriving in an office does not announce everything already
+ * in it, yet someone stuck until a person acts is still posted, once.
  *
  * Templated, never a model call: an update is a fact the state already holds,
  * and it costs nothing to say.
