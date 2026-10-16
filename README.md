@@ -282,7 +282,9 @@ has columns, or with a colour that is not one.
 Before a frame leaves the runner, every secret it holds is masked with `*`:
 `RUNNER_SECRET`, and the value of every variable in its environment whose name
 says it is a secret (`*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*_KEY`, `*API_KEY*`
-and the like), however the agent coloured or wrapped it.
+and the like), however the agent coloured or wrapped it. A slot's activity
+line and its events' messages, which can quote what the agent printed or ran,
+are masked the same way before they are synced.
 
 ### Running the runner
 
@@ -617,7 +619,7 @@ Then confirm all twenty:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -818,9 +820,10 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
   src/agents/mock.ts      the mock agent: scripted progress and a commit, then failed or a fake pull request
   src/terminal.ts         each slot's headless terminal, read off as screen frames
-  src/redact.ts           the runner's secrets, masked out of every frame
+  src/redact.ts           the runner's secrets, masked out of every frame, activity line and event message
   src/screenLoop.ts       the screens posted four times a second, fitted to the server's limit
   src/screensClient.ts    one post of the screens over HTTP
+  src/agents/provider.ts  what the PTY agent needs from each agent CLI's adapter
   src/agents/ptyAgent.ts  an agent CLI in a PTY: launch, hooks, progress and first-run screens, stop by process group
   src/agents/claude.ts    Claude Code's adapter: its command line, hook settings and allowlist, what each hook means
   src/agents/hookServer.ts  the loopback server agents' hooks post to, a token per process
