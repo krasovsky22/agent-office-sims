@@ -405,7 +405,11 @@ export class OfficeRoom extends Room<OfficeState> {
         entries: this.manager.history(),
       } satisfies ManagerHistoryEvent);
     }
-    // Whole, since the diffs broadcast before this client arrived are not repeated.
+    this.sendScreens(client);
+  }
+
+  /** Every screen whole, since the diffs broadcast while this client was away are not repeated. */
+  private sendScreens(client: Client): void {
     const screens = this.screens?.fullScreens();
     if (screens !== undefined && screens.screens.length > 0) {
       client.send(SERVER_MESSAGE.screens, screens satisfies ScreenFramesEvent);
@@ -436,8 +440,9 @@ export class OfficeRoom extends Room<OfficeState> {
     if (consented !== true) {
       this.held.add(client.sessionId);
       try {
-        await this.allowReconnection(client, this.reconnectGraceSeconds);
+        const reconnected = await this.allowReconnection(client, this.reconnectGraceSeconds);
         this.held.delete(client.sessionId);
+        this.sendScreens(reconnected);
         return;
       } catch {
         // The grace period ran out, or the room is closing: gone for good.

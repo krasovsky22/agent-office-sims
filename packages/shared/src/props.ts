@@ -391,8 +391,8 @@ const monitorCache = new WeakMap<OfficeLayout, ReadonlyMap<string, AssetPropSpec
  * The monitor on the desk in front of a seat: its pose, where a renderer puts
  * anything that has to sit on that one screen.
  *
- * Cached per layout, like `interactables`, since the client asks every frame
- * for every seated agent and the layout never changes at runtime.
+ * Cached per layout, like `interactables`, since the client asks again each
+ * time an agent sits or changes seat and the layout never changes at runtime.
  *
  * @returns the monitor prop, or `undefined` for an id that is not a desk's seat.
  */
