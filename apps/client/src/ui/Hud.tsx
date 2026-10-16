@@ -54,6 +54,8 @@ export interface RosterEntry {
   readonly isLocal: boolean;
   /** A live agent's status and task, `""` for anyone else. */
   readonly caption: string;
+  /** Whether a live agent is stuck until a person acts. */
+  readonly needsInput: boolean;
   /** The task's issue or pull request, `""` when not known. The server only passes `https:`. */
   readonly taskUrl: string;
   /** What the manager assigned a live agent next, `""` when nothing. Only `https:`. */
@@ -438,12 +440,16 @@ function PersonRow({ entry }: { entry: RosterEntry }) {
   );
 }
 
-/** One live coding agent's line: its name, and its task linked to the issue or pull request. */
+/**
+ * One live coding agent's line: its name, whether it needs someone, and its
+ * task linked to the issue or pull request.
+ */
 function LiveAgentRow({ entry }: { entry: RosterEntry }) {
   return (
     <li className="hud__occupant">
       <span className="hud__name">{entry.name}</span>
       <span className="hud__badge hud__badge--agent">Agent</span>
+      {entry.needsInput ? <span className="hud__badge hud__badge--needs-you">Needs you</span> : null}
       {entry.caption === "" ? null : <AgentTask caption={entry.caption} url={entry.taskUrl} />}
     </li>
   );

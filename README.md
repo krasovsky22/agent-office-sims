@@ -114,8 +114,8 @@ curl -X POST localhost:2567/agents/report \
                "url":"https://github.com/krasovsky22/agent-office-sims/issues/33"}}'
 ```
 
-`status` is `working`, `idle` or `stopped`; `task` is optional (leave it out or
-send `null`), only read on a `working` report, and its `url` must be `https:`. Every report doubles as a
+`status` is `working`, `needs-input`, `idle` or `stopped`; `task` is optional (leave it out or
+send `null`), only read on a `working` or `needs-input` report, and its `url` must be `https:`. Every report doubles as a
 heartbeat: an agent the server has not heard about for `LIVE_AGENTS_TIMEOUT_SECONDS`
 (a minute by default) leaves the office, so an orchestrator keeps one there by
 repeating its status every few seconds. A report without the secret is refused
@@ -130,7 +130,12 @@ interaction a player uses, so it never takes your chair and you see its chair as
 taken. Idle, it stands up and wanders between rooms; two idle agents that meet
 stop, face each other and trade a few canned lines in speech bubbles. The
 roster lists them under **Live agents** with an `Agent` badge and a link to the
-issue or pull request.
+issue or pull request. An agent that `needs-input` (waiting on a permission, a
+question or a sign-in) keeps its chair and is made hard to miss: an orange
+`Needs you` beacon over its head, a `Needs you` badge in the roster, and
+`Needs you on #39: <what it waits on>` under its name. The manager posts
+`Claude 1 needs you on #39: <what it waits on>` once each time an agent starts
+waiting; the beacon and badge clear when it carries on.
 
 When the CEO tells the manager to put one of these agents on an issue or pull
 request, the manager queues an assignment for the orchestrator, which collects it with
@@ -218,7 +223,8 @@ carrying it is answered, and the server passes each event id on once. The shape 
 
 Slots are live agents on the floor, beside the orchestrator's: a `starting`,
 `working` or `needs-input` slot with an issue sits at a desk working on it, and
-an `idle` or `exited` one wanders. Their ids are `runner:<runnerId>:<slotId>`,
+an `idle` or `exited` one wanders. The manager says nothing about a slot coming
+in, starting, stopping or leaving; it posts only when one needs you. Their ids are `runner:<runnerId>:<slotId>`,
 which no reported agent's id can be. A runner the server has not heard from for
 `LIVE_AGENTS_TIMEOUT_SECONDS` leaves with its slots. At most four slots are on
 the floor at once, across every runner, and that is also the most one runner
@@ -313,7 +319,8 @@ Two idle slots, `Mock 1` and `Mock 2`, walk onto the floor. The runner syncs
 about once a second, backing off up to 30 seconds while the server is
 unreachable or refusing it, and logs each new reason once. On a `start`
 command a mock slot reports `started`, works through a few scripted steps on
-its desk, and reports `failed`, or `pr-opened` with a pull request that does not
+its desk, stopping partway for a few of them as `needs-input` on
+`Permission: Bash pnpm test` so its beacon lights, and reports `failed`, or `pr-opened` with a pull request that does not
 exist when `RUNNER_MOCK_OUTCOME=pr-opened`, then goes back to idle. A `stop`
 command ends the work at once and reports it `failed` with the reason, and so
 does the task timeout. The mock prints its steps in colour to its slot's
@@ -536,6 +543,10 @@ Then confirm all sixteen:
     chair and sits typing, and the
     two idle ones meet and trade chat bubbles — the same violet bodies, chairs
     and lines in both tabs, listed under **Live agents** in the roster. Report
+    the working one `needs-input`: an orange `Needs you` beacon lights over its
+    head and a `Needs you` badge joins its roster line in both tabs, it stays
+    in its chair, and the manager posts `Crewmate needs you on #33.` once,
+    however long it waits. Report it `working` again and both clear. Report
     the working one `idle` and it stands up and wanders; stop reporting one and
     it leaves after the timeout, its chair free again. The same report without
     the secret gets `401` and changes nothing.
@@ -773,7 +784,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/slots.ts            the slot pool: commands to agent runs, runs to status and events
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
-  src/agents/mock.ts      the mock agent: scripted progress and a commit, then failed or a fake pull request
+  src/agents/mock.ts      the mock agent: scripted progress, a commit and a wait on a person, then failed or a fake pull request
   src/terminal.ts         each slot's headless terminal, read off as screen frames
   src/redact.ts           the runner's secrets, masked out of every frame, activity line and event message
   src/screenLoop.ts       the screens posted four times a second, fitted to the server's limit

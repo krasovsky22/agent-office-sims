@@ -27,7 +27,7 @@
  * manager's own loop or an HTTP request, never inside a simulation tick.
  */
 
-import type { LiveAgentTask } from "@sim/shared";
+import { type LiveAgentTask, isLiveAgentOnTask } from "@sim/shared";
 
 import type { LiveAgentRecord, LiveAgentRegistry, LiveAgentSource } from "../agents/registry.js";
 
@@ -143,7 +143,7 @@ function itemKey(url: string): string | undefined {
  */
 function isWorkingOn(record: LiveAgentRecord, item: AssignedItem): boolean {
   const reported = record.task?.url;
-  if (record.status !== "working" || reported === undefined || reported === "") {
+  if (!isLiveAgentOnTask(record.status) || reported === undefined || reported === "") {
     return false;
   }
   const key = itemKey(item.url);

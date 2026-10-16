@@ -33,6 +33,11 @@ export interface LiveAgentRecord {
   readonly status: LiveAgentStatus;
   readonly task: LiveAgentTask | undefined;
   /**
+   * What it is doing right now, or what it waits on while it needs input, when
+   * a source knows: one sanitised line, such as `Bash: pnpm test`.
+   */
+  readonly activity?: string;
+  /**
    * What the AI manager has handed this agent and it has not yet reported
    * working on, when a source knows; see `manager/liveAssignments.ts`.
    */

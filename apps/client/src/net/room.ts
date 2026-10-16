@@ -138,6 +138,8 @@ export interface OccupantView {
   /** A live agent's task title and link, `""` when it has none. */
   taskTitle: string;
   taskUrl: string;
+  /** What a live agent is doing, or waits on while it needs input; `""` when unknown. */
+  agentActivity: string;
   /** What the manager has assigned a live agent next, `""` when nothing. */
   assignedTitle: string;
   assignedUrl: string;
@@ -476,6 +478,7 @@ export class RoomConnection {
         agentStatus: isLiveAgent(occupant) ? occupant.status : undefined,
         taskTitle: isLiveAgent(occupant) ? occupant.taskTitle : "",
         taskUrl: isLiveAgent(occupant) ? occupant.taskUrl : "",
+        agentActivity: isLiveAgent(occupant) ? occupant.activity : "",
         assignedTitle: isLiveAgent(occupant) ? occupant.assignedTitle : "",
         assignedUrl: isLiveAgent(occupant) ? occupant.assignedUrl : "",
         canTakeIssues: isLiveAgent(occupant) && occupant.canTakeIssues,
@@ -605,6 +608,7 @@ export class RoomConnection {
     const agentStatus = agent?.status;
     const taskTitle = agent?.taskTitle ?? "";
     const taskUrl = agent?.taskUrl ?? "";
+    const agentActivity = agent?.activity ?? "";
     const assignedTitle = agent?.assignedTitle ?? "";
     const assignedUrl = agent?.assignedUrl ?? "";
     const canTakeIssues = agent?.canTakeIssues ?? false;
@@ -618,6 +622,7 @@ export class RoomConnection {
       view.agentStatus !== agentStatus ||
       view.taskTitle !== taskTitle ||
       view.taskUrl !== taskUrl ||
+      view.agentActivity !== agentActivity ||
       view.assignedTitle !== assignedTitle ||
       view.assignedUrl !== assignedUrl ||
       view.canTakeIssues !== canTakeIssues ||
@@ -631,6 +636,7 @@ export class RoomConnection {
       view.agentStatus = agentStatus;
       view.taskTitle = taskTitle;
       view.taskUrl = taskUrl;
+      view.agentActivity = agentActivity;
       view.assignedTitle = assignedTitle;
       view.assignedUrl = assignedUrl;
       view.canTakeIssues = canTakeIssues;

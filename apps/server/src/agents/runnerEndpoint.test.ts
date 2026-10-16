@@ -306,16 +306,28 @@ describe("runner slots in a live room", () => {
         expect(liveAgentIn(tab, runnerSlotAgentId("runner-1", "slot-2"))?.name).toBe("Claude 2");
       }
 
-      // A slot waiting on a person still holds its issue, so it shows as working on it.
+      // A slot waiting on a person still holds its issue, and every tab sees what it waits on.
       await post(
         { ...SYNC, slots: [{ id: "slot-1", name: "Claude 1", status: "needs-input", issueNumber: 39, activity: "Waiting for approval" }] },
         {},
         "/floor/runner/sync",
       );
       for (const tab of [first, second]) {
-        await settled(() => liveAgentIn(tab, slot)?.status === "working");
+        await settled(() => liveAgentIn(tab, slot)?.status === "needs-input");
+        expect(liveAgentIn(tab, slot)?.activity).toBe("Waiting for approval");
         expect(liveAgentIn(tab, slot)?.taskUrl).toBe(`https://github.com/${REPO}/issues/39`);
         await settled(() => liveAgentIn(tab, runnerSlotAgentId("runner-1", "slot-2")) === undefined);
+      }
+
+      // Resuming clears it everywhere.
+      await post(
+        { ...SYNC, slots: [{ id: "slot-1", name: "Claude 1", status: "working", issueNumber: 39, activity: "Bash: pnpm test" }] },
+        {},
+        "/floor/runner/sync",
+      );
+      for (const tab of [first, second]) {
+        await settled(() => liveAgentIn(tab, slot)?.status === "working");
+        expect(liveAgentIn(tab, slot)?.activity).toBe("Bash: pnpm test");
       }
     } finally {
       await first.leave();

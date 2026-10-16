@@ -24,7 +24,7 @@ import { createRunnerEndpoint } from "../../server/src/agents/runnerEndpoint.js"
 import { RunnerLink, type RunnerEventRecord } from "../../server/src/agents/runnerLink.js";
 import { ScreenStore } from "../../server/src/agents/screens.js";
 import { createScreensEndpoint } from "../../server/src/agents/screensEndpoint.js";
-import { createMockAgent } from "./agents/mock.js";
+import { MOCK_NEEDS_INPUT_STEPS, createMockAgent } from "./agents/mock.js";
 import type { Agent } from "./agents/types.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
 import { createRedactor } from "./redact.js";
@@ -39,9 +39,10 @@ import { Worktrees } from "./worktrees.js";
 const SECRET = "a-runner-secret-long-enough";
 const REPO = "krasovsky22/agent-office-sims";
 const TIMEOUT_MS = 60_000;
-const STEP_MS = 20;
 /** Between one sync and the next: as fast as the server's rate limit refills, while worktrees take real time. */
 const SYNC_GAP_MS = 100;
+/** Each step outlasts a sync gap, so a sync sees even the mock's shortest state. */
+const STEP_MS = SYNC_GAP_MS * 2;
 
 const clock = { now: 1_000_000 };
 const link = new RunnerLink({ repository: REPO, timeoutMs: TIMEOUT_MS, now: () => clock.now });
@@ -157,6 +158,14 @@ describe("the mock runner and the server's runner link", () => {
     await syncUntil(loop, () => link.current()[0]?.status === LIVE_AGENT_STATUS.working);
     expect(link.current()[0]?.task).toEqual({ title: "Night shift", url: `https://github.com/${REPO}/issues/39` });
 
+    // The mock stops to wait on a person, still on its issue, then carries on.
+    await syncUntil(loop, () => link.current()[0]?.status === LIVE_AGENT_STATUS.needsInput);
+    expect(link.current()[0]).toMatchObject({
+      activity: "Permission: Bash pnpm test",
+      task: { title: "Night shift", url: `https://github.com/${REPO}/issues/39` },
+    });
+    await syncUntil(loop, () => link.current()[0]?.status === LIVE_AGENT_STATUS.working);
+
     await syncUntil(loop, () => {
       events.push(...inbox.drain());
       return events.some((record) => record.event.kind === "pr-opened");
@@ -237,6 +246,7 @@ describe("the mock runner's screens and the server's screen store", () => {
       "● Reading issue #39",
       "● Edit: .sims-mock/issue-39.md",
       "● Bash: git commit",
+      ...Array.from({ length: MOCK_NEEDS_INPUT_STEPS }, () => "? Permission: Bash pnpm test"),
       "● Bash: pnpm test",
       `✓ Opened https://github.com/${REPO}/pull/1000039`,
     ]);

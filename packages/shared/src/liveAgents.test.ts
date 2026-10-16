@@ -39,6 +39,13 @@ describe("parseLiveAgentReport", () => {
     });
   });
 
+  it("reads a needs-input report with the task it is still holding", () => {
+    expect(
+      parseLiveAgentReport({ id: "a", status: "needs-input", task: { title: "Live agents", url: ISSUE } }),
+    ).toEqual({ id: "a", name: "a", status: "needs-input", task: { title: "Live agents", url: ISSUE } });
+    expect(parseLiveAgentReport({ id: "a", status: "needs-input" })?.task).toBeUndefined();
+  });
+
   it("drops a task from any status but working", () => {
     expect(
       parseLiveAgentReport({ id: "a", status: "idle", task: { title: "Leftover", url: ISSUE } })?.task,
@@ -108,7 +115,23 @@ describe("describeLiveAgentTask", () => {
     expect(describeLiveAgentTask("working", "", "")).toBe("working");
   });
 
+  it("adds what a working agent is doing after its task", () => {
+    expect(describeLiveAgentTask("working", "Live agents", ISSUE, "Bash: pnpm test")).toBe(
+      "#33 Live agents · Bash: pnpm test",
+    );
+    expect(describeLiveAgentTask("working", "", "", "Bash: pnpm test")).toBe("Bash: pnpm test");
+  });
+
+  it("leads with needing someone, on what, and why", () => {
+    expect(describeLiveAgentTask("needs-input", "Live agents", ISSUE, "Permission: Bash")).toBe(
+      "Needs you on #33: Permission: Bash",
+    );
+    expect(describeLiveAgentTask("needs-input", "Live agents", "", "Sign in")).toBe("Needs you on Live agents: Sign in");
+    expect(describeLiveAgentTask("needs-input", "", "", "")).toBe("Needs you");
+  });
+
   it("says idle for an idle agent, whatever it was last doing", () => {
     expect(describeLiveAgentTask("idle", "Live agents", ISSUE)).toBe("idle");
+    expect(describeLiveAgentTask("idle", "", "", "Bash: pnpm test")).toBe("idle");
   });
 });

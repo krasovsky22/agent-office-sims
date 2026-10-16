@@ -16,7 +16,7 @@
 
 import { type InteractableSpec, INTERACTION_KIND, type OfficeLayout, interactables, roomAt } from "./layout.js";
 import { sanitizeName, sanitizeTitle } from "./messages.js";
-import { LIVE_AGENT_STATUS, type LiveAgentStatus } from "./state.js";
+import { LIVE_AGENT_STATUS, type LiveAgentStatus, isLiveAgentOnTask } from "./state.js";
 
 const LIVE_AGENT_KEY_PREFIX = "agent:";
 
@@ -37,7 +37,7 @@ export function isLiveAgentKey(key: string): boolean {
   return key.startsWith(LIVE_AGENT_KEY_PREFIX);
 }
 
-/** What an orchestrator may report: one of the two live states, or that the agent has gone. */
+/** What an orchestrator may report: one of the live states, or that the agent has gone. */
 export const LIVE_AGENT_REPORT_STATUS = {
   ...LIVE_AGENT_STATUS,
   stopped: "stopped",
@@ -66,7 +66,7 @@ export interface LiveAgentReport {
   /** Shown on the nameplate. Falls back to the id when the report names nobody. */
   readonly name: string;
   readonly status: LiveAgentReportStatus;
-  /** Only ever present on a `working` report; any other status carries none. */
+  /** Only ever present on a report of an agent on a task; any other status carries none. */
   readonly task: LiveAgentTask | undefined;
 }
 
@@ -115,10 +115,10 @@ export function parseTaskUrl(raw: unknown): string | undefined {
 /**
  * Validates a raw report.
  *
- * A `working` report may omit its task or send it as `null` — an orchestrator
- * that knows an agent is busy but not on what still gets it a seat. A task on
- * any other status is ignored rather than rejected, since an idle agent has
- * nothing to show for one.
+ * A `working` or `needs-input` report may omit its task or send it as `null` —
+ * an orchestrator that knows an agent is busy but not on what still gets it a
+ * seat. A task on any other status is ignored rather than rejected, since an
+ * idle agent has nothing to show for one.
  *
  * @returns the report, or `undefined` if the payload is not one.
  */
@@ -134,7 +134,8 @@ export function parseLiveAgentReport(raw: unknown): LiveAgentReport | undefined 
 
   let task: LiveAgentTask | undefined;
   const rawTask = candidate["task"];
-  if (status === LIVE_AGENT_REPORT_STATUS.working && rawTask !== undefined && rawTask !== null) {
+  const onTask = status !== LIVE_AGENT_REPORT_STATUS.stopped && isLiveAgentOnTask(status);
+  if (onTask && rawTask !== undefined && rawTask !== null) {
     if (typeof rawTask !== "object") {
       return undefined;
     }
@@ -178,14 +179,25 @@ export function taskReference(url: string): string {
   return match[1] === "pull" ? `PR #${match[2] ?? ""}` : `#${match[2] ?? ""}`;
 }
 
-/** The line under a live agent's name: what it is doing, as briefly as it reads. */
-export function describeLiveAgentTask(status: LiveAgentStatus, title: string, url: string): string {
-  if (status !== LIVE_AGENT_STATUS.working) {
+/**
+ * The line under a live agent's name: what it is doing, as briefly as it reads.
+ *
+ * A working agent's task, then what it is doing about it; an agent that needs
+ * input says so first, with what it is waiting on, since that is the one thing
+ * on the line someone has to act on.
+ */
+export function describeLiveAgentTask(status: LiveAgentStatus, title: string, url: string, activity = ""): string {
+  if (!isLiveAgentOnTask(status)) {
     return "idle";
   }
   const reference = taskReference(url);
-  const parts = [reference, title].filter((part) => part !== "");
-  return parts.length === 0 ? "working" : parts.join(" ");
+  if (status === LIVE_AGENT_STATUS.needsInput) {
+    const on = reference === "" ? title : reference;
+    return `Needs you${on === "" ? "" : ` on ${on}`}${activity === "" ? "" : `: ${activity}`}`;
+  }
+  const task = [reference, title].filter((part) => part !== "").join(" ");
+  const parts = [task, activity].filter((part) => part !== "");
+  return parts.length === 0 ? "working" : parts.join(" · ");
 }
 
 /** The room the desk rows stand in. */

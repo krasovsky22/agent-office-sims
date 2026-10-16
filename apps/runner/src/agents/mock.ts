@@ -4,9 +4,11 @@
  *
  * It costs nothing and needs no credentials, so the runner, the sync loop and
  * the floor can all be developed and tested end to end without a real agent.
- * By default the work fails, which is what a real agent does most often while
- * this is being built; configured to, it opens a pull request that does not
- * exist instead.
+ * Partway through it stops to wait on a person for a few steps, as a real
+ * agent does for a permission, so the office's needs-you beacon can be seen
+ * without one. By default the work fails, which is what a real agent does most
+ * often while this is being built; configured to, it opens a pull request that
+ * does not exist instead.
  *
  * It does one real thing, writing a file in its worktree and committing it, so
  * a task's worktree is exercised end to end too: stopped before it writes, its
@@ -51,8 +53,14 @@ const GREEN = "\u001b[32m";
 const CYAN = "\u001b[36m";
 const RESET = "\u001b[0m";
 
+/** How many steps the mock waits on a person before it carries on. */
+export const MOCK_NEEDS_INPUT_STEPS = 3;
+
+/** One step of the script: what it is doing, or what it is waiting on. */
 interface Step {
   readonly activity: string;
+  /** Whether it is waiting on a person rather than working. */
+  readonly needsInput?: boolean;
   /** What the step really does, if anything; throws to fail the work. */
   readonly act?: () => void;
 }
@@ -70,6 +78,10 @@ function script(task: AgentTask): readonly Step[] {
       },
     },
     { activity: "Bash: git commit", act: () => commit(task.workdir, `mock: work on #${task.issueNumber}`) },
+    ...Array.from({ length: MOCK_NEEDS_INPUT_STEPS }, (): Step => ({
+      activity: "Permission: Bash pnpm test",
+      needsInput: true,
+    })),
     { activity: "Bash: pnpm test" },
   ];
 }
@@ -115,8 +127,13 @@ export function createMockAgent(options: MockAgentOptions): Agent {
         const current = steps[step];
         step += 1;
         if (current !== undefined) {
-          reporter.progress(current.activity);
-          reporter.output(`${CYAN}●${RESET} ${current.activity}\r\n`);
+          if (current.needsInput === true) {
+            reporter.needsInput(current.activity);
+            reporter.output(`${CYAN}?${RESET} ${current.activity}\r\n`);
+          } else {
+            reporter.progress(current.activity);
+            reporter.output(`${CYAN}●${RESET} ${current.activity}\r\n`);
+          }
           try {
             current.act?.();
           } catch (error) {

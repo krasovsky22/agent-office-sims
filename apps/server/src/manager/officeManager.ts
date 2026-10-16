@@ -52,7 +52,7 @@ import { type AdviceResult, type ManagerAdvisor, type ManagerRequest } from "./a
 import { carryOut } from "./assign.js";
 import { ManagerConversation } from "./conversation.js";
 import type { LiveAssignmentQueue } from "./liveAssignments.js";
-import { type OfficeView, readOfficeView } from "./officeView.js";
+import { type OfficeView, readLiveAgents, readOfficeView } from "./officeView.js";
 import { ADVICE_FAILURE } from "./plannerError.js";
 import { planFromRules } from "./rulePlanner.js";
 import { type Observation, describeChanges, observe } from "./updates.js";
@@ -70,6 +70,12 @@ export interface ManagerHost {
   readonly advisor: ManagerAdvisor;
   /** The live agents, with their assignments; absent with no orchestrator. */
   readonly liveAgents: LiveAgentSource | undefined;
+  /**
+   * Every live agent on the floor, the runners' slots too: the manager watches
+   * it only for one that needs someone; all its other news, its work and its
+   * answers are about {@link liveAgents}. Defaults to those.
+   */
+  readonly floor?: LiveAgentSource | undefined;
   /** Where GitHub work for live agents is queued; absent with no orchestrator. */
   readonly assignments: LiveAssignmentQueue | undefined;
   /** This room, as the assignment queue knows it. */
@@ -236,8 +242,13 @@ export class OfficeManager {
       return;
     }
     try {
-      const look = observe(this.look(), this.host.assignments?.madeBy(this.host.origin) ?? []);
-      const lines = this.lastLook === undefined ? [] : describeChanges(this.lastLook, look);
+      const view = this.look();
+      const look = observe(
+        view,
+        this.host.assignments?.madeBy(this.host.origin) ?? [],
+        this.host.floor === undefined ? view.liveAgents : readLiveAgents(this.host.floor.current()),
+      );
+      const lines = describeChanges(this.lastLook ?? { ...look, waiting: new Map() }, look);
       this.lastLook = look;
       if (lines.length > 0) {
         this.say(MANAGER_ENTRY_KIND.update, MANAGER_NAME, lines.join("\n"));

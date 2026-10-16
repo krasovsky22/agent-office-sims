@@ -49,9 +49,10 @@ const VIEW: OfficeView = {
       name: "Crewmate",
       status: "working",
       task: { title: "Live agents", url: "https://github.com/o/r/issues/33", reference: "#33" },
+      activity: "Bash: pnpm test",
       assigned: undefined,
     },
-    { id: "crew-2", name: "Deckhand", status: "idle", task: undefined, assigned: undefined },
+    { id: "crew-2", name: "Deckhand", status: "idle", task: undefined, activity: "", assigned: undefined },
   ],
   issueAgents: [],
   work: WORK,
@@ -135,6 +136,14 @@ describe("planFromRules: status", () => {
   it("describes a named agent", () => {
     expect(ask("what is Crewmate doing?").reply).toBe("Crewmate (live coding agent) is working on #33 “Live agents”.");
     expect(ask("and deckhand?").reply).toBe("Deckhand (live coding agent) is idle.");
+  });
+
+  it("says a live agent waiting on a person is waiting on the CEO, and on what", () => {
+    const [crewmate, deckhand] = VIEW.liveAgents;
+    const waiting = { ...VIEW, liveAgents: [{ ...crewmate!, status: "needs-input" as const, activity: "Sign in" }, deckhand!] };
+    expect(ask("what is crewmate doing?", waiting).reply).toBe(
+      "Crewmate (live coding agent) is waiting on you on #33 “Live agents” (Sign in).",
+    );
   });
 
   it("summarises what everyone is working on, and who is free", () => {

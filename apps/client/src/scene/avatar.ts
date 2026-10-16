@@ -60,7 +60,7 @@ import { EMOTE_APPEARANCE } from "../emotes.js";
 
 import { AvatarAnimator } from "./avatarAnimator.js";
 import type { AvatarLook, AvatarModel } from "./avatarModel.js";
-import { Billboard, paintEmote, paintSpeechBubble, paintStatusBadge } from "./billboard.js";
+import { Billboard, paintBeacon, paintEmote, paintSpeechBubble, paintStatusBadge } from "./billboard.js";
 
 /**
  * Offsets of the expression sprites above the head anchor.
@@ -92,6 +92,19 @@ const BADGE_OFFSET_Y = 0.18;
 const BADGE_CANVAS_WIDTH = 384;
 const BADGE_CANVAS_HEIGHT = 72;
 const BADGE_WORLD_HEIGHT = 0.28;
+
+/**
+ * A live agent's needs-you beacon, in the same slot just over the head: a live
+ * agent has no status badge and is never CEO, so the slot is free. A little
+ * shorter than a badge so it clears the two-line nameplate above it.
+ */
+const BEACON_OFFSET_Y = 0.13;
+const BEACON_WORLD_HEIGHT = 0.22;
+const BEACON_LABEL = "Needs you";
+
+/** The beacon's swell, as a fraction of its size, and how many times a second it swells. */
+const BEACON_PULSE = 0.08;
+const BEACON_PULSE_HZ = 1.2;
 
 /**
  * How much higher the manager's nameplate, and then its emotes and bubbles,
@@ -232,6 +245,8 @@ export interface AvatarOptions {
   readonly jobTitle: string;
   /** A live coding agent's task, shown under its name; `""` for anyone else. */
   readonly caption: string;
+  /** Whether a live coding agent is stuck until a person acts, which shows its beacon. */
+  readonly needsInput: boolean;
   /** The AI manager's status, shown on its badge; `undefined` for anyone else. */
   readonly managerStatus: ManagerStatus | undefined;
   /** The local player's body is lighter, so you can pick yourself out. */
@@ -401,8 +416,8 @@ export class Avatar {
   /**
    * Where everything that belongs above an occupant's head attaches.
    *
-   * Nameplate, CEO marker, status badge, emote sprite and chat bubble are
-   * all children of it. Its height tracks the pose, so a child at a fixed local offset keeps
+   * Nameplate, CEO marker, status badge, needs-you beacon, emote sprite and
+   * chat bubble are all children of it. Its height tracks the pose, so a child at a fixed local offset keeps
    * sitting above the head, and when the capsule is replaced by a rigged
    * mesh, re-parenting this one group to a head bone moves all of it.
    */
@@ -430,6 +445,11 @@ export class Avatar {
   private readonly badge: Billboard | undefined;
   /** The label the badge last showed, so it is repainted only on a change. */
   private badgeLabel: string | undefined;
+
+  /** A live agent's needs-you beacon; absent on anyone else. */
+  private readonly beacon: Billboard | undefined;
+  /** The beacon's size at rest, which its pulse swells from. */
+  private readonly beaconScale = new THREE.Vector2();
 
   private emoteExpiresAt = NOT_SHOWING;
   private chatExpiresAt = NOT_SHOWING;
@@ -508,6 +528,18 @@ export class Avatar {
       this.badge.sprite.position.y = BADGE_OFFSET_Y;
       this.headAnchor.add(this.badge.sprite);
       this.setManagerStatus(options.managerStatus);
+    }
+
+    if (this.isLiveAgent) {
+      this.beacon = new Billboard({
+        canvasWidth: BADGE_CANVAS_WIDTH,
+        canvasHeight: BADGE_CANVAS_HEIGHT,
+        worldHeight: BEACON_WORLD_HEIGHT,
+      });
+      this.beacon.sprite.position.y = BEACON_OFFSET_Y;
+      this.beaconScale.set(this.beacon.sprite.scale.x, this.beacon.sprite.scale.y);
+      this.headAnchor.add(this.beacon.sprite);
+      this.setNeedsInput(options.needsInput);
     }
 
     this.ceoMarker = new THREE.Mesh(CEO_MARKER_GEOMETRY, CEO_MARKER_MATERIAL);
@@ -655,6 +687,10 @@ export class Avatar {
       this.chatBillboard.hide();
       this.chatExpiresAt = NOT_SHOWING;
     }
+    if (this.beacon?.visible === true) {
+      const swell = 1 + BEACON_PULSE * Math.sin((nowMs / 1000) * BEACON_PULSE_HZ * Math.PI * 2);
+      this.beacon.sprite.scale.set(this.beaconScale.x * swell, this.beaconScale.y * swell, 1);
+    }
   }
 
   /** Re-renders the nameplate only when something it shows has changed. */
@@ -668,6 +704,22 @@ export class Avatar {
     this.ceoMarker.visible = isCeo;
     drawNameplate(this.nameplateCanvas, name, isCeo, subtitle, this.kind);
     this.nameplateTexture.needsUpdate = true;
+  }
+
+  /**
+   * Shows a live agent's needs-you beacon while it is stuck until a person
+   * acts, and takes it down when it resumes. Does nothing on anyone else.
+   */
+  public setNeedsInput(needsInput: boolean): void {
+    const beacon = this.beacon;
+    if (beacon === undefined || beacon.visible === needsInput) {
+      return;
+    }
+    if (needsInput) {
+      beacon.show(paintBeacon(BEACON_LABEL));
+    } else {
+      beacon.hide();
+    }
   }
 
   /** Repaints the manager's badge, only when its status has changed. Does nothing on anyone else. */
@@ -698,6 +750,7 @@ export class Avatar {
     this.emoteBillboard.dispose();
     this.chatBillboard.dispose();
     this.badge?.dispose();
+    this.beacon?.dispose();
   }
 
   /**

@@ -191,15 +191,28 @@ export function isOperator(occupant: Occupant): boolean {
 /**
  * What a live coding agent is doing, as its orchestrator last reported it.
  *
- * Only these two are bodies in the office. An agent that stops is removed, so
+ * Only these are bodies in the office. An agent that stops is removed, so
  * "stopped" is a report, never a state anyone is replicated in.
  */
 export const LIVE_AGENT_STATUS = {
   working: "working",
+  /**
+   * Still holding its work, and stuck until a person acts: a permission, a
+   * question, a sign-in. It keeps its chair; the office makes it hard to miss.
+   */
+  needsInput: "needs-input",
   idle: "idle",
 } as const;
 
 export type LiveAgentStatus = (typeof LIVE_AGENT_STATUS)[keyof typeof LIVE_AGENT_STATUS];
+
+/**
+ * Whether an agent in this status holds work: it sits at a desk with its task,
+ * where an idle one wanders. Waiting on a person is still being on the task.
+ */
+export function isLiveAgentOnTask(status: LiveAgentStatus): boolean {
+  return status === LIVE_AGENT_STATUS.working || status === LIVE_AGENT_STATUS.needsInput;
+}
 
 /**
  * A real coding agent working on this repository, shown as a person on the floor.
@@ -229,6 +242,12 @@ export class LiveAgent extends Occupant {
    * the agent's work through the office's work rules sets it.
    */
   declare public canTakeIssues: boolean;
+  /**
+   * What it is doing right now, e.g. `Bash: pnpm test`, or what it is waiting
+   * on while it needs input; `""` when unknown. One line, sanitised and capped
+   * by whoever reported it.
+   */
+  declare public activity: string;
 
   public constructor() {
     super();
@@ -239,6 +258,7 @@ export class LiveAgent extends Occupant {
     this.assignedTitle = "";
     this.assignedUrl = "";
     this.canTakeIssues = false;
+    this.activity = "";
   }
 }
 
@@ -249,6 +269,7 @@ defineTypes(LiveAgent, {
   assignedTitle: "string",
   assignedUrl: "string",
   canTakeIssues: "boolean",
+  activity: "string",
 });
 
 /**

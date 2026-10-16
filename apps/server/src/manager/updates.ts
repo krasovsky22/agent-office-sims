@@ -1,22 +1,23 @@
 /**
  * What the AI manager says without being asked: work handed in, a live agent
- * starting or stopping, an assignment picked up by the orchestrator
- * or not taken by its agent.
+ * starting, stopping or waiting on a person, an assignment picked up by the
+ * orchestrator or not taken by its agent.
  *
  * The manager looks at the office on its own timer and compares what it sees
  * with what it saw last time; this module is that comparison, as two pure
  * functions, so what counts as news can be tested without a room. The first
- * look only sets the baseline: a manager arriving in an office does not
- * announce everything already in it.
+ * look sets the baseline for everything but an agent already waiting on a
+ * person: a manager arriving in an office does not announce everything already
+ * in it, yet someone stuck until a person acts is still posted, once.
  *
  * Templated, never a model call: an update is a fact the state already holds,
  * and it costs nothing to say.
  */
 
-import { WORK_STATUS, type WorkStatus } from "@sim/shared";
+import { LIVE_AGENT_STATUS, WORK_STATUS, type WorkStatus, isLiveAgentOnTask } from "@sim/shared";
 
 import { LIVE_ASSIGNMENT_STATUS, type LiveAssignment, type LiveAssignmentStatus } from "./liveAssignments.js";
-import type { LinkView, OfficeView } from "./officeView.js";
+import type { LinkView, LiveAgentView, OfficeView } from "./officeView.js";
 
 /** What the manager remembers between looks. */
 export interface Observation {
@@ -30,7 +31,17 @@ export interface Observation {
   >;
   readonly liveAgents: ReadonlyMap<
     string,
-    { readonly name: string; readonly working: boolean; readonly task: LinkView | undefined }
+    {
+      readonly name: string;
+      /** On a task, whether at it or waiting on a person. */
+      readonly working: boolean;
+      readonly task: LinkView | undefined;
+    }
+  >;
+  /** Every agent on the floor waiting on a person, the runners' slots too. */
+  readonly waiting: ReadonlyMap<
+    string,
+    { readonly name: string; readonly activity: string; readonly task: LinkView | undefined }
   >;
   readonly assignments: ReadonlyMap<string, { readonly status: LiveAssignmentStatus; readonly label: string; readonly agent: string }>;
 }
@@ -42,8 +53,22 @@ function linkText(link: LinkView | undefined): string {
   return link.reference === "" ? `“${link.title}”` : `${link.reference} “${link.title}”`;
 }
 
-/** Takes one look. */
-export function observe(view: OfficeView, assignments: readonly LiveAssignment[]): Observation {
+/** `Claude 1 needs you on #39: Permission: Bash`, naming the task as briefly as it can. */
+function needsYouText(name: string, task: LinkView | undefined, reason: string): string {
+  const on = task === undefined ? "" : ` on ${task.reference === "" ? `“${task.title}”` : task.reference}`;
+  return `${name} needs you${on}${reason === "" ? "." : `: ${reason}`}`;
+}
+
+/**
+ * Takes one look. `floor` is every live agent on the floor, which the manager
+ * watches only for one waiting on a person; the rest of its news is about
+ * `view`'s.
+ */
+export function observe(
+  view: OfficeView,
+  assignments: readonly LiveAssignment[],
+  floor: readonly LiveAgentView[] = view.liveAgents,
+): Observation {
   const liveNames = new Map(view.liveAgents.map((agent) => [agent.id, agent.name]));
   return {
     work: new Map(
@@ -57,7 +82,15 @@ export function observe(view: OfficeView, assignments: readonly LiveAssignment[]
       ]),
     ),
     liveAgents: new Map(
-      view.liveAgents.map((agent) => [agent.id, { name: agent.name, working: agent.status === "working", task: agent.task }]),
+      view.liveAgents.map((agent) => [
+        agent.id,
+        { name: agent.name, working: isLiveAgentOnTask(agent.status), task: agent.task },
+      ]),
+    ),
+    waiting: new Map(
+      floor
+        .filter((agent) => agent.status === LIVE_AGENT_STATUS.needsInput)
+        .map((agent) => [agent.id, { name: agent.name, activity: agent.activity, task: agent.task }]),
     ),
     assignments: new Map(
       assignments.map((assignment) => [
@@ -96,6 +129,12 @@ export function describeChanges(before: Observation, after: Observation): string
   for (const [id, agent] of before.liveAgents) {
     if (!after.liveAgents.has(id)) {
       lines.push(`${agent.name} left the office.`);
+    }
+  }
+  for (const [id, agent] of after.waiting) {
+    // Once per episode: a look that still finds it waiting has nothing new to say.
+    if (!before.waiting.has(id)) {
+      lines.push(needsYouText(agent.name, agent.task, agent.activity));
     }
   }
 

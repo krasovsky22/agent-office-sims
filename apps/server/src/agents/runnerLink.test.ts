@@ -60,8 +60,8 @@ describe("RunnerLink slots", () => {
     const { link, notifications } = setup();
     expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [] });
     expect(link.current()).toEqual([
-      { id: "runner:runner-1:slot-1", name: "Claude 1", status: "idle", task: undefined, canTakeIssues: true },
-      { id: "runner:runner-1:slot-2", name: "Claude 2", status: "idle", task: undefined, canTakeIssues: true },
+      { id: "runner:runner-1:slot-1", name: "Claude 1", status: "idle", task: undefined, canTakeIssues: true, activity: "" },
+      { id: "runner:runner-1:slot-2", name: "Claude 2", status: "idle", task: undefined, canTakeIssues: true, activity: "" },
     ]);
     expect(runnerSlotAgentId("runner-1", "slot-1")).toBe("runner:runner-1:slot-1");
     expect(notifications()).toBe(1);
@@ -76,15 +76,41 @@ describe("RunnerLink slots", () => {
     expect(notifications()).toBe(1);
   });
 
-  it.each(["starting", "working", "needs-input"] as const)("shows a %s slot as working on its issue", (status) => {
+  it.each(["starting", "working"] as const)("shows a %s slot as working on its issue, with what it is doing", (status) => {
     const { link } = setup();
     link.sync(
       sync({ slots: [{ id: "slot-1", name: "Claude 1", status, issueNumber: 39, activity: "Bash: pnpm test", pr: undefined }] }),
     );
     expect(link.current()[0]).toMatchObject({
       status: "working",
-      task: { title: "Bash: pnpm test", url: `https://github.com/${REPO}/issues/39` },
+      activity: "Bash: pnpm test",
+      task: { title: "Issue #39", url: `https://github.com/${REPO}/issues/39` },
     });
+  });
+
+  it("shows a needs-input slot as needing input, still on its issue, with what it waits on", () => {
+    const { link } = setup();
+    link.sync(
+      sync({
+        slots: [
+          { id: "slot-1", name: "Claude 1", status: "needs-input", issueNumber: 39, activity: "Permission: Bash", pr: undefined },
+        ],
+      }),
+    );
+    expect(link.current()[0]).toMatchObject({
+      status: "needs-input",
+      activity: "Permission: Bash",
+      task: { title: "Issue #39", url: `https://github.com/${REPO}/issues/39` },
+    });
+  });
+
+  it("tells the rooms when only a slot's activity changes", () => {
+    const { link, notifications } = setup();
+    const slot = { id: "slot-1", name: "Claude 1", status: "working" as const, issueNumber: 39, pr: undefined };
+    link.sync(sync({ slots: [{ ...slot, activity: "Read" }] }));
+    link.sync(sync({ slots: [{ ...slot, activity: "Bash: pnpm test" }] }));
+    expect(notifications()).toBe(2);
+    expect(link.current()[0]?.activity).toBe("Bash: pnpm test");
   });
 
   it("shows an exited slot as idle", () => {

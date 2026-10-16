@@ -8,8 +8,8 @@
  * without anyone updating its position.
  *
  * The painters below are plain functions over a 2D context rather than
- * methods: a speech bubble, an emote, and the manager's status badge all
- * share the sprite plumbing, and a new overhead display — a thought, an
+ * methods: a speech bubble, an emote, the manager's status badge and a live
+ * agent's needs-you beacon all share the sprite plumbing, and a new overhead display — a thought, an
  * issue an agent picked up — is one more painter, with nothing else here
  * changing.
  */
@@ -349,5 +349,55 @@ export function paintStatusBadge(label: string, colour: string): BillboardPainte
 
     context.fillStyle = BUBBLE_TEXT;
     context.fillText(label, left + padding + dotRadius * 2 + gap, centreY + 1);
+  };
+}
+
+/** The needs-you beacon's colour; the roster's badge uses the same. */
+const BEACON_COLOUR = "#ff8a3d";
+const BEACON_TEXT = "#1a1206";
+
+/**
+ * Paints the beacon over a live agent that is stuck until a person acts: a
+ * solid pill with an exclamation mark and `label`.
+ *
+ * Filled rather than outlined like an activity badge, because it is the one
+ * thing on the floor that asks for someone, and has to read as that from
+ * across the office.
+ */
+export function paintBeacon(label: string): BillboardPainter {
+  return (context, width, height) => {
+    const fontSize = Math.round(height * 0.5);
+    const markRadius = Math.round(height * 0.32);
+    const padding = Math.round(fontSize * 0.45);
+    const gap = Math.round(fontSize * 0.35);
+    const border = Math.max(2, Math.round(height * 0.06));
+
+    context.font = `800 ${fontSize}px ${FONT_STACK}`;
+    context.textBaseline = "middle";
+
+    const textWidth = context.measureText(label).width;
+    const pillWidth = Math.min(width - border, Math.ceil(padding * 2 + markRadius * 2 + gap + textWidth));
+    const pillHeight = height - border;
+    const left = (width - pillWidth) / 2;
+    const centreY = height / 2;
+
+    context.fillStyle = BEACON_COLOUR;
+    context.strokeStyle = "rgba(255, 255, 255, 0.85)";
+    context.lineWidth = border;
+    roundedRect(context, left, border / 2, pillWidth, pillHeight, pillHeight / 2);
+
+    const markX = left + padding + markRadius;
+    context.fillStyle = BEACON_TEXT;
+    context.beginPath();
+    context.arc(markX, centreY, markRadius, 0, Math.PI * 2);
+    context.fill();
+
+    context.fillStyle = BEACON_COLOUR;
+    context.textAlign = "center";
+    context.fillText("!", markX, centreY + 1);
+
+    context.fillStyle = BEACON_TEXT;
+    context.textAlign = "left";
+    context.fillText(label, markX + markRadius + gap, centreY + 1);
   };
 }

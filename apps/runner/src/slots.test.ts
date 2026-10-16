@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { MAX_NAME_LENGTH, MAX_TITLE_LENGTH, type RunnerCommand } from "@sim/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createMockAgent } from "./agents/mock.js";
+import { MOCK_NEEDS_INPUT_STEPS, createMockAgent } from "./agents/mock.js";
 import type { Agent, AgentReporter, AgentTask } from "./agents/types.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
 import { createRedactor } from "./redact.js";
@@ -24,6 +24,8 @@ import { type SlotWorkspaces, SlotPool, TURN_DONE, fitBytes } from "./slots.js";
 const REPO = "krasovsky22/agent-office-sims";
 const STEP_MS = 100;
 const TIMEOUT_MS = 60_000;
+/** The mock's whole script, from the start command to its outcome. */
+const SCRIPT_MS = STEP_MS * (5 + MOCK_NEEDS_INPUT_STEPS);
 
 const START: RunnerCommand = {
   id: "command-1",
@@ -109,7 +111,15 @@ describe("SlotPool", () => {
       { id: "event-1", kind: "started", slotId: "slot-1", issueNumber: 39, pr: undefined, message: "" },
     ]);
 
-    await vi.advanceTimersByTimeAsync(STEP_MS * 3);
+    await vi.advanceTimersByTimeAsync(STEP_MS * 2);
+    expect(slot(slots)).toMatchObject({ status: "working", activity: "Bash: git commit" });
+
+    // It waits on a person, still holding its issue, then carries on.
+    await vi.advanceTimersByTimeAsync(STEP_MS);
+    expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: "Permission: Bash pnpm test" });
+    await vi.advanceTimersByTimeAsync(STEP_MS * (MOCK_NEEDS_INPUT_STEPS - 1));
+    expect(slot(slots)?.status).toBe("needs-input");
+    await vi.advanceTimersByTimeAsync(STEP_MS);
     expect(slot(slots)).toMatchObject({ status: "working", activity: "Bash: pnpm test" });
 
     await vi.advanceTimersByTimeAsync(STEP_MS);
@@ -125,7 +135,7 @@ describe("SlotPool", () => {
     const slots = pool();
     for (const id of ["command-1", "command-2"]) {
       slots.handle({ ...START, id });
-      await vi.advanceTimersByTimeAsync(STEP_MS * 5);
+      await vi.advanceTimersByTimeAsync(SCRIPT_MS);
     }
     expect(slots.pendingEvents().map((event) => event.message)).toEqual([
       "",
@@ -212,7 +222,7 @@ describe("SlotPool", () => {
   it("opens a fake pull request when the mock is configured to", async () => {
     const slots = pool("pr-opened");
     slots.handle(START);
-    await vi.advanceTimersByTimeAsync(STEP_MS * 5);
+    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
     expect(slot(slots)?.status).toBe("idle");
     expect(slots.pendingEvents()[1]).toEqual({
       id: "event-2",
@@ -230,7 +240,7 @@ describe("SlotPool", () => {
     await vi.advanceTimersByTimeAsync(STEP_MS * 2);
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "CEO changed their mind" });
     expect(slot(slots)?.status).toBe("idle");
-    await vi.advanceTimersByTimeAsync(STEP_MS * 10);
+    await vi.advanceTimersByTimeAsync(SCRIPT_MS * 2);
     expect(slots.pendingEvents().map((event) => [event.kind, event.message])).toEqual([
       ["started", ""],
       ["failed", "Stopped: CEO changed their mind"],
@@ -285,7 +295,7 @@ describe("SlotPool", () => {
   it("forgets only the events a sync delivered", async () => {
     const slots = pool();
     slots.handle(START);
-    await vi.advanceTimersByTimeAsync(STEP_MS * 5);
+    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
     slots.delivered(new Set(["event-1"]));
     expect(slots.pendingEvents().map((event) => event.id)).toEqual(["event-2"]);
   });
@@ -296,15 +306,20 @@ describe("SlotPool", () => {
       start: (_task, reporter) => {
         reporter.started();
         reporter.progress("é".repeat(200));
+        waiting = () => reporter.needsInput("ü".repeat(200));
         return { stop: () => undefined };
       },
     };
+    let waiting: (() => void) | undefined;
     const slots = pool("failed", chatty);
     slots.handle(START);
     await settle();
     const [report] = slots.report();
     expect(Buffer.byteLength(report?.name ?? "")).toBeLessThanOrEqual(MAX_NAME_LENGTH);
     expect(Buffer.byteLength(report?.activity ?? "")).toBe(MAX_TITLE_LENGTH);
+    waiting?.();
+    expect(slot(slots)?.status).toBe("needs-input");
+    expect(Buffer.byteLength(slot(slots)?.activity ?? "")).toBe(MAX_TITLE_LENGTH);
   });
 
   it("reports a terminal agent's turn: idle, working, needs-input, turn done, and its exit", async () => {
@@ -489,6 +504,7 @@ describe("SlotPool screens", () => {
       "● Reading issue #39",
       "● Edit: .sims-mock/issue-39.md",
       "● Bash: git commit",
+      ...Array.from({ length: MOCK_NEEDS_INPUT_STEPS }, () => "? Permission: Bash pnpm test"),
       "● Bash: pnpm test",
       `✓ Opened https://github.com/${REPO}/pull/1000039`,
     ]);
