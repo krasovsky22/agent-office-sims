@@ -55,7 +55,6 @@ export const CLAUDE_ALLOWED_COMMANDS: readonly string[] = [
   "Bash(pnpm lint:*)",
   "Bash(pnpm test:*)",
   "Bash(pnpm build:*)",
-  "Bash(pnpm --filter:*)",
   "Bash(ls:*)",
 ];
 
@@ -63,6 +62,13 @@ export const CLAUDE_ALLOWED_COMMANDS: readonly string[] = [
 const SETUP_PROMPT =
   /trust this folder|Do you trust the files|Allow external CLAUDE\.md|Select login method|Choose the text style|Press Enter to continue|Bypass Permissions mode/i;
 const NOT_LOGGED_IN = /Not logged in\s*·\s*Run \/login|Invalid API key|Please run \/login/i;
+
+/**
+ * The end of the output read for a turn refused for want of a sign-in: the
+ * refusal and the prompt drawn under it, not a turn's tool output that names
+ * an API key.
+ */
+const TURN_END_TAIL = 1024;
 
 export interface ClaudeOptions {
   /** `--model`; Claude's own default when unset. */
@@ -224,7 +230,7 @@ export function claudeHook(run: RunHandle, event: string, body: unknown): void {
  * screen moves on.
  */
 export function claudeBlocked(screenText: string, early: boolean): string | undefined {
-  if (NOT_LOGGED_IN.test(screenText)) {
+  if (NOT_LOGGED_IN.test(early ? screenText : screenText.slice(-TURN_END_TAIL))) {
     return "Claude isn't signed in on the runner's machine: run claude there and /login";
   }
   if (SETUP_PROMPT.test(screenText) && early) {

@@ -71,6 +71,12 @@ describe("createRedactor", () => {
     expect(texts(rows)).toEqual([stars(SECRET.length + 9)]);
   });
 
+  it("masks every secret in plain text, as an event's message carries it", () => {
+    const redactor = createRedactor([SECRET]);
+    expect(redactor.redactText(`Claude exited with code 1: TOKEN=${SECRET}`)).toBe(`Claude exited with code 1: TOKEN=${MASKED}`);
+    expect(createRedactor([]).redactText(`TOKEN=${SECRET}`)).toBe(`TOKEN=${SECRET}`);
+  });
+
   it("leaves short values and screens without secrets alone", () => {
     const rows = [[plain("true 1234 secret")]];
     const redactor = createRedactor(["true", "1234", ""]);

@@ -12,7 +12,8 @@
  *
  * Everything an agent says is cut to the contract's byte budgets here, before
  * it is queued: the server refuses a whole sync for one string too long, and
- * one chatty agent must not stall every slot's report.
+ * one chatty agent must not stall every slot's report. It is masked first
+ * too, as its screen is (`./redact.ts`), since it goes to every client.
  *
  * Each slot also has a terminal screen, `./terminal.ts`, which shows what its
  * agent prints. A new run starts on a cleared screen, and the last run's
@@ -37,6 +38,7 @@ import {
 } from "@sim/shared";
 
 import type { Agent, AgentReporter, AgentRun } from "./agents/types.js";
+import { type Redactor, createRedactor } from "./redact.js";
 import { ScreenMirror } from "./terminal.js";
 
 /**
@@ -64,6 +66,8 @@ export interface SlotPoolOptions {
   readonly agent: Agent;
   readonly workspaces: SlotWorkspaces;
   readonly taskTimeoutMs: number;
+  /** Masks the runner's secrets in what its agents say; none by default. */
+  readonly redactor?: Redactor;
   /** Event ids. Injected so a test can name the events it expects. */
   readonly eventId?: () => string;
   readonly log?: (line: string) => void;
@@ -117,8 +121,10 @@ export class SlotPool {
   private readonly events: RunnerEvent[] = [];
   private readonly eventId: () => string;
   private readonly log: (line: string) => void;
+  private readonly redactor: Redactor;
 
   public constructor(private readonly options: SlotPoolOptions) {
+    this.redactor = options.redactor ?? createRedactor([]);
     this.eventId = options.eventId ?? (() => `event-${randomUUID()}`);
     this.log = options.log ?? (() => undefined);
     const now = Date.now();
@@ -262,7 +268,7 @@ export class SlotPool {
         this.emit(slot, RUNNER_EVENT_KIND.started, run.issueNumber, undefined, "");
       }
       slot.status = status;
-      slot.activity = fitBytes(activity, MAX_TITLE_LENGTH);
+      slot.activity = fitBytes(this.redactor.redactText(activity), MAX_TITLE_LENGTH);
     };
     const reporter: AgentReporter = {
       started: () => report(RUNNER_SLOT_STATUS.idle, ""),
@@ -278,7 +284,7 @@ export class SlotPool {
         if (!run.live) {
           return;
         }
-        this.end(slot, RUNNER_EVENT_KIND.prOpened, "", { ...pr, title: fitBytes(pr.title, MAX_TITLE_LENGTH) });
+        this.end(slot, RUNNER_EVENT_KIND.prOpened, "", { ...pr, title: fitBytes(this.redactor.redactText(pr.title), MAX_TITLE_LENGTH) });
       },
       failed: (message) => {
         if (run.live) {
@@ -355,7 +361,7 @@ export class SlotPool {
       slotId: slot.id,
       issueNumber,
       pr,
-      message: fitBytes(message, MAX_WORK_NOTE_LENGTH),
+      message: fitBytes(this.redactor.redactText(message), MAX_WORK_NOTE_LENGTH),
     });
     if (this.events.length > MAX_PENDING_EVENTS) {
       this.events.shift();

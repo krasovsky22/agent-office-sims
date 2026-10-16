@@ -43,6 +43,8 @@ export interface Redactor {
    * screen, so a secret cut by the top edge is still found; `""` when none.
    */
   redact(rows: readonly MutableRun[][], wrapped: readonly boolean[], above: string): void;
+  /** `text` with every secret in it masked: a status line or an event's message. */
+  redactText(text: string): string;
 }
 
 /** Every secret value the runner holds: the given ones, and the environment's. */
@@ -76,6 +78,13 @@ export function createRedactor(secrets: readonly string[]): Redactor {
         maskLine(list, rows.slice(start, end), start === 0 ? above : "");
         start = end;
       }
+    },
+    redactText(text) {
+      const run: MutableRun = [text, 0, 0, 0];
+      if (list.length > 0) {
+        maskLine(list, [[run]], "");
+      }
+      return run[0];
     },
   };
 }

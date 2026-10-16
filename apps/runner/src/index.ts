@@ -85,11 +85,13 @@ try {
   process.exit(1);
 }
 
+const redactor = createRedactor(runnerSecrets(process.env, [config.secret]));
 const pool = new SlotPool({
   count: config.maxAgents,
   agent,
   workspaces,
   taskTimeoutMs: config.taskTimeoutMs,
+  redactor,
   log,
 });
 const loop = new SyncLoop({
@@ -102,7 +104,7 @@ const loop = new SyncLoop({
 const screens = new ScreenLoop({
   runnerId: config.runnerId,
   screens: () => pool.screens(),
-  redactor: createRedactor(runnerSecrets(process.env, [config.secret])),
+  redactor,
   client: createScreensClient({ serverUrl: config.serverUrl, secret: config.secret }),
   log,
 });

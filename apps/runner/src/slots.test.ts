@@ -361,6 +361,33 @@ describe("SlotPool", () => {
     expect(slot(slots)).toMatchObject({ status: "starting", issueNumber: 39 });
   });
 
+  it("masks the runner's secrets in what an agent says before it leaves the runner", async () => {
+    const secret = "a-runner-secret-long-enough";
+    let reporter: AgentReporter | undefined;
+    const agent: Agent = {
+      label: "Claude",
+      start: (_task, given) => {
+        reporter = given;
+        return { stop: () => undefined };
+      },
+    };
+    const slots = new SlotPool({
+      count: 1,
+      agent,
+      workspaces: workspaces(),
+      taskTimeoutMs: TIMEOUT_MS,
+      redactor: createRedactor([secret]),
+    });
+    slots.handle(START);
+    await settle();
+    reporter?.progress(`Bash: curl -H 'Authorization: ${secret}'`);
+    expect(slot(slots)?.activity).not.toContain(secret);
+    expect(slot(slots)?.activity).toContain("Authorization: ***");
+    reporter?.exited(`Claude exited with code 1: ${secret}`, false);
+    const messages = slots.pendingEvents().map((event) => event.message);
+    expect(messages.at(-1)).toBe(`Claude exited with code 1: ${"*".repeat(secret.length)}`);
+  });
+
   it("reports nothing an agent says once its work has ended", async () => {
     let late: (() => void) | undefined;
     const agent: Agent = {

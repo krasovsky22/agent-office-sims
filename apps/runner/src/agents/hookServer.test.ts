@@ -3,6 +3,9 @@
  * for, and only while that process runs.
  */
 
+import { request } from "node:http";
+import { setTimeout as sleep } from "node:timers/promises";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { HOOK_PATH, HookServer } from "./hookServer.js";
@@ -69,6 +72,25 @@ describe("HookServer", () => {
   it("counts a body that is not JSON as the event with nothing in it", async () => {
     const route = server.register((event, payload) => heard.push([event, payload]));
     expect((await post(route.runId, "Stop", route.token, "not json")).status).toBe(200);
+    expect(heard).toEqual([["Stop", {}]]);
+  });
+
+  it("drops an event whose hook gives up partway through its body, and carries on", async () => {
+    const route = server.register((event, payload) => heard.push([event, payload]));
+    const url = new URL(HOOK_PATH, server.url);
+    url.searchParams.set("run", route.runId);
+    url.searchParams.set("event", "PreToolUse");
+    const cut = request(url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${route.token}`, "content-length": "1000" },
+    });
+    cut.on("error", () => undefined);
+    cut.write('{"tool_name":');
+    await sleep(50);
+    cut.destroy();
+    await sleep(50);
+    expect(heard).toEqual([]);
+    expect((await post(route.runId, "Stop", route.token)).status).toBe(200);
     expect(heard).toEqual([["Stop", {}]]);
   });
 

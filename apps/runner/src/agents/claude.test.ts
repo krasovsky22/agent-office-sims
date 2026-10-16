@@ -279,6 +279,12 @@ describe("claudeBlocked", () => {
     expect(claudeBlocked("⎿  Not logged in · Please run /login", false)).toMatch(/signed in/);
   });
 
+  it("once a turn has ended, takes a sign-in error only from the end of its output", () => {
+    const turn = `cat .env.example\nERROR: Invalid API key\n${"Here is what the file holds. ".repeat(60)}\n> `;
+    expect(claudeBlocked(turn, false)).toBeUndefined();
+    expect(claudeBlocked(`${turn}\n⎿  API Error: 401 · Please run /login\n> `, false)).toMatch(/signed in/);
+  });
+
   it("spots the trust screen only before it has started", () => {
     const screen = "Quick safety check: Is this a project you created or one you trust?\n❯ No, exit\n Yes, I trust this folder";
     expect(claudeBlocked(screen, true)).toMatch(/setup screen/);

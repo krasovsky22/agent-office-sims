@@ -52,7 +52,12 @@ function digest(token: string): Buffer {
 export class HookServer {
   private readonly routes = new Map<string, Registered>();
   private readonly server: Server = createServer((request, response) => {
-    void this.serve(request, response);
+    this.serve(request, response).catch(() => {
+      // A hook that gave up partway through its body: the event is dropped.
+      if (!response.headersSent && !response.destroyed) {
+        send(response, 400);
+      }
+    });
   });
 
   private constructor() {
