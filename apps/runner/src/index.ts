@@ -3,7 +3,8 @@
  *
  * The runner is the process that owns coding agents, kept out of the game
  * server because the game server is public: it reads its configuration,
- * makes its slots, and syncs with the server until it is told to stop. The
+ * takes back the worktrees its last run left, makes its slots, and syncs with
+ * the server until it is told to stop. The
  * server learns of it only through those syncs, so a runner that dies
  * without a word leaves the floor once the server's timeout passes.
  *
@@ -11,13 +12,16 @@
  */
 
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 import { createMockAgent } from "./agents/mock.js";
 import type { Agent } from "./agents/types.js";
 import { type RunnerConfig, readConfig } from "./config.js";
+import { SlotWorktrees } from "./slotWorktrees.js";
 import { SlotPool } from "./slots.js";
 import { createSyncClient } from "./syncClient.js";
 import { SyncLoop } from "./syncLoop.js";
+import { Worktrees, ghClone } from "./worktrees.js";
 
 /* eslint-disable no-console -- the runner's log is its console, read by its operator */
 function log(line: string): void {
@@ -33,8 +37,23 @@ try {
 }
 /* eslint-enable no-console */
 
-// Private to the runner's user: later slices keep worktrees and agent homes here.
+/** Longest a shutdown waits for worktrees being made or removed to finish. */
+const SHUTDOWN_GRACE_MS = 10_000;
+
+// Private to the runner's user: its clone and its tasks' worktrees live here.
 mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+
+const workspaces = new SlotWorktrees({
+  worktrees: new Worktrees({
+    repoDir: join(config.dataDir, "repo"),
+    worktreesDir: join(config.dataDir, "worktrees"),
+    ceilingDir: config.dataDir,
+    clone: ghClone(config.repo),
+    log,
+  }),
+  stateFile: join(config.dataDir, "worktrees.json"),
+  log,
+});
 
 function createAgent(runnerConfig: RunnerConfig): Agent {
   switch (runnerConfig.agent) {
@@ -46,6 +65,7 @@ function createAgent(runnerConfig: RunnerConfig): Agent {
 const pool = new SlotPool({
   count: config.maxAgents,
   agent: createAgent(config),
+  workspaces,
   taskTimeoutMs: config.taskTimeoutMs,
   log,
 });
@@ -61,7 +81,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     loop.stop();
     pool.stopAll();
-    process.exit(0);
+    // A worktree left half-removed would read as work to keep, so let removals finish.
+    const grace = setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
+    void workspaces.settled().finally(() => {
+      clearTimeout(grace);
+      process.exit(0);
+    });
   });
 }
 
@@ -70,4 +95,5 @@ log(
     `for ${config.repo}, syncing with ${config.serverUrl.origin}`,
 );
 log(`data in ${config.dataDir}; a task stops after ${config.taskTimeoutMs / 60_000} minutes`);
+await workspaces.reattach();
 loop.start();

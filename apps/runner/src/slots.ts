@@ -7,6 +7,9 @@
  * gone on past the task timeout. Events wait here until a sync carrying them
  * is answered, so a lost sync loses none of them.
  *
+ * Each task works in a directory of its own, a git worktree, opened before its
+ * agent starts and closed once its work ends; see `./slotWorktrees.ts`.
+ *
  * Everything an agent says is cut to the contract's byte budgets here, before
  * it is queued: the server refuses a whole sync for one string too long, and
  * one chatty agent must not stall every slot's report.
@@ -29,7 +32,7 @@ import {
   type RunnerSlotStatus,
 } from "@sim/shared";
 
-import type { Agent, AgentReporter, AgentRun, AgentTask } from "./agents/types.js";
+import type { Agent, AgentReporter, AgentRun } from "./agents/types.js";
 
 /**
  * Events held while the server cannot be reached. Far more than a few slots
@@ -38,9 +41,20 @@ import type { Agent, AgentReporter, AgentRun, AgentTask } from "./agents/types.j
  */
 const MAX_PENDING_EVENTS = 256;
 
+/** Where a slot's tasks work. */
+export interface SlotWorkspaces {
+  /** A working directory for the task, ready to work in; rejects with why not. */
+  open(slotId: string, issueNumber: number): Promise<string>;
+  /** The task is over, whether or not its directory was ever opened. Never rejects. */
+  close(slotId: string, issueNumber: number): Promise<void>;
+}
+
+type StartCommand = Extract<RunnerCommand, { kind: typeof RUNNER_COMMAND_KIND.start }>;
+
 export interface SlotPoolOptions {
   readonly count: number;
   readonly agent: Agent;
+  readonly workspaces: SlotWorkspaces;
   readonly taskTimeoutMs: number;
   /** Event ids. Injected so a test can name the events it expects. */
   readonly eventId?: () => string;
@@ -167,7 +181,7 @@ export class SlotPool {
     }
   }
 
-  private start(slot: Slot, task: AgentTask): void {
+  private start(slot: Slot, task: StartCommand): void {
     if (slot.run !== undefined) {
       // The server only starts an idle slot, so this is a race with work the
       // runner has not reported yet; the issue it asked for is the one refused.
@@ -184,11 +198,29 @@ export class SlotPool {
 
     slot.status = RUNNER_SLOT_STATUS.starting;
     slot.issueNumber = task.issueNumber;
-    slot.activity = "Starting";
+    slot.activity = "Making a worktree";
     slot.pr = undefined;
     const run: ActiveRun = { issueNumber: task.issueNumber, agentRun: { stop: () => undefined }, timeout, live: true };
     slot.run = run;
     this.log(`${slot.id} starting on #${task.issueNumber} for ${task.requestedBy}`);
+    void this.launch(slot, run, task);
+  }
+
+  /** Opens the task's worktree, then starts its agent there, unless the work ended meanwhile. */
+  private async launch(slot: Slot, run: ActiveRun, task: StartCommand): Promise<void> {
+    let workdir: string;
+    try {
+      workdir = await this.options.workspaces.open(slot.id, task.issueNumber);
+    } catch (error) {
+      if (run.live) {
+        this.end(slot, RUNNER_EVENT_KIND.failed, `No worktree: ${(error as Error).message}`);
+      }
+      return;
+    }
+    if (!run.live) {
+      return;
+    }
+    slot.activity = "Starting";
 
     const reporter: AgentReporter = {
       started: () => {
@@ -220,7 +252,17 @@ export class SlotPool {
     };
     let agentRun: AgentRun;
     try {
-      agentRun = this.options.agent.start(task, reporter);
+      agentRun = this.options.agent.start(
+        {
+          issueNumber: task.issueNumber,
+          title: task.title,
+          url: task.url,
+          note: task.note,
+          requestedBy: task.requestedBy,
+          workdir,
+        },
+        reporter,
+      );
     } catch (error) {
       this.end(slot, RUNNER_EVENT_KIND.failed, `The agent did not start: ${(error as Error).message}`);
       return;
@@ -249,6 +291,7 @@ export class SlotPool {
     slot.pr = undefined;
     this.emit(slot, kind, run.issueNumber, pr, message);
     this.log(`${slot.id} ${kind} on #${run.issueNumber}${message === "" ? "" : `: ${message}`}`);
+    void this.options.workspaces.close(slot.id, run.issueNumber);
   }
 
   private emit(

@@ -52,7 +52,7 @@ export interface RunnerConfig {
   readonly secret: string;
   /** `owner/name`; the server refuses a runner on any other repository. */
   readonly repo: string;
-  /** Absolute; the runner's own files, and later its agents' worktrees. */
+  /** Absolute; the runner's own files: its clone and its tasks' worktrees. */
   readonly dataDir: string;
   readonly agent: RunnerAgentKind;
   /** How the `mock` agent's work ends. */
