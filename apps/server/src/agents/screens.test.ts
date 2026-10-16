@@ -17,6 +17,7 @@ function fakeSlots(initial: readonly string[]) {
   const listeners = new Set<() => void>();
   return {
     reported,
+    hasRunner: (runnerId: string) => [...reported].some((key) => key.startsWith(`${runnerId}/`)),
     hasSlot: (runnerId: string, slotId: string) => reported.has(`${runnerId}/${slotId}`),
     subscribe(listener: () => void) {
       listeners.add(listener);
@@ -122,11 +123,15 @@ describe("ScreenStore", () => {
         ],
       }),
     ).toEqual({ resend: ["slot-9"] });
-    expect(store.accept({ runnerId: "runner-2", screens: [{ slotId: "slot-1", frame: FULL }] })).toEqual({
-      resend: ["slot-1"],
-    });
     expect(heard).toEqual([{ screens: [{ occupantId: OCCUPANT, frame: FULL }] }]);
     expect(store.fullScreens().screens.map((screen) => screen.occupantId)).toEqual([OCCUPANT]);
+  });
+
+  it("takes nothing from a runner the link does not hold", () => {
+    const { store, heard } = storeWithSlots(["runner-1/slot-1"]);
+    expect(store.accept({ runnerId: "runner-2", screens: [{ slotId: "slot-1", frame: FULL }] })).toBeUndefined();
+    expect(heard).toEqual([]);
+    expect(store.fullScreens().screens).toEqual([]);
   });
 
   it("passes a batch on as one event, with every frame it took", () => {

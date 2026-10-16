@@ -267,8 +267,11 @@ each diff to it, and broadcasts every frame it accepts to every room as a
 whole, so every tab holds the same screens. A diff with no screen to apply to,
 or a size other than the screen's, and any frame for a slot the runner has not
 reported in a sync yet, is not kept or relayed, and the reply's `resend` names
-its slot so the runner sends that one whole. A slot leaving the
-floor takes its screen with it.
+its slot so the runner sends that one whole. A batch from a runner whose sync
+the server does not hold, one posting before its first sync or one the floor
+refused, is refused whole with `409`, and the runner backs off and sends every
+screen whole once it gets through. A slot leaving the floor takes its screen
+with it.
 
 The route is refused as the sync route is: `405`, `401`, `413` over 64 KB,
 `429` past about eight batches a second, and `400` for a body that is not a

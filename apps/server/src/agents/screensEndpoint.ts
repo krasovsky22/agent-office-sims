@@ -5,7 +5,8 @@
  * and a JSON body — `{ "runnerId", "screens": [{ "slotId", "frame" }] }`, the
  * shape `RunnerScreens` in `@sim/shared` — answered with
  * `{ "ok": true, "resend": [slotIds] }`: the slots whose frame the server could
- * not take, which the runner sends whole next. See `./screens.ts` for what
+ * not take, which the runner sends whole next. A batch from a runner whose
+ * sync the link does not hold is refused with `409`. See `./screens.ts` for what
  * the store does with a batch.
  *
  * Refused the way the sync route is (`./runnerEndpoint.ts`): method, then
@@ -84,8 +85,12 @@ export function createScreensEndpoint(options: ScreensEndpointOptions): RouteHan
         reply(res, 400, { error: "not a batch of screens" });
         return;
       }
-      const { resend } = options.store.accept(batch);
-      reply(res, 200, { ok: true, resend });
+      const outcome = options.store.accept(batch);
+      if (outcome === undefined) {
+        reply(res, 409, { error: "runner not synced" });
+        return;
+      }
+      reply(res, 200, { ok: true, resend: outcome.resend });
     });
   };
 }

@@ -14,8 +14,10 @@
  * that arrives with no screen to apply it to, after a server restart say, or
  * with a size other than the stored screen's, is not kept or relayed, and the
  * runner is told to send that slot whole instead. So is any frame for a slot
- * its runner has not reported yet, a screen posted before the first sync say,
- * so the screen arrives whole once the sync has.
+ * its runner has not reported yet, so the screen arrives whole once the sync
+ * has. A batch from a runner the link does not hold at all, one posting before
+ * its first sync or one the floor refused, is not taken: the endpoint refuses
+ * it, and the runner backs off as it does from any refusal.
  *
  * A screen is kept only while its runner reports the slot, so the store holds
  * at most `MAX_RUNNER_SLOTS` screens, and a slot leaving the floor takes its
@@ -54,7 +56,7 @@ export function isScreenSource(value: unknown): value is ScreenSource {
 
 export interface ScreenStoreOptions {
   /** Which slots each runner reports right now; told when that changes. */
-  readonly slots: Pick<RunnerLink, "hasSlot" | "subscribe">;
+  readonly slots: Pick<RunnerLink, "hasRunner" | "hasSlot" | "subscribe">;
 }
 
 /** What came of one batch. */
@@ -91,8 +93,13 @@ export class ScreenStore implements ScreenSource {
    * Applies a runner's batch: keeps every full frame, applies every diff it
    * can, and tells the rooms what it took. A frame for a slot the runner does
    * not report is neither kept nor relayed, and that slot is asked for whole.
+   *
+   * @returns `undefined`, taking nothing, when the link does not hold the runner.
    */
-  public accept(batch: RunnerScreens): ScreenBatchOutcome {
+  public accept(batch: RunnerScreens): ScreenBatchOutcome | undefined {
+    if (!this.options.slots.hasRunner(batch.runnerId)) {
+      return undefined;
+    }
     const accepted: OccupantScreen[] = [];
     const resend: string[] = [];
     for (const { slotId, frame } of batch.screens) {

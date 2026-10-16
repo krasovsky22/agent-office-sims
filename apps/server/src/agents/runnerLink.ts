@@ -280,6 +280,11 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
     return command;
   }
 
+  /** Whether a runner's last sync was taken, and it has not gone silent since. */
+  public hasRunner(runnerId: string): boolean {
+    return this.runners.has(runnerId);
+  }
+
   /** Whether a runner reported a slot in its last sync. */
   public hasSlot(runnerId: string, slotId: string): boolean {
     return this.runners.get(runnerId)?.slots.some((slot) => slot.id === slotId) ?? false;

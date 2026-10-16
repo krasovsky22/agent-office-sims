@@ -154,9 +154,16 @@ describe(`POST ${RUNNER_SCREENS_PATH}`, () => {
     expect(await response.json()).toEqual({ ok: true, resend: ["slot-2"] });
   });
 
-  it("names a slot posted before its runner's sync, and keeps nothing of it", async () => {
+  it("refuses a batch posted before its runner's sync, and keeps nothing of it", async () => {
     const response = await post({ runnerId: "runner-2", screens: [{ slotId: "slot-1", frame: FULL }] });
-    expect(await response.json()).toEqual({ ok: true, resend: ["slot-1"] });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "runner not synced" });
+    expect(store.fullScreens().screens).toEqual([]);
+  });
+
+  it("names a slot its runner has not reported, and keeps nothing of it", async () => {
+    const response = await post(batch({ slotId: "slot-9", frame: FULL }));
+    expect(await response.json()).toEqual({ ok: true, resend: ["slot-9"] });
     expect(store.fullScreens().screens).toEqual([]);
   });
 
