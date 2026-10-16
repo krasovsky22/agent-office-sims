@@ -14,6 +14,7 @@ import {
   INTERACT_RANGE,
   INTERACTION_KIND,
   type InteractableSpec,
+  LIVE_AGENT_STATUS,
   MANAGER_INTERACTABLE_ID,
   type ManagerEntry,
   OFFICE_LAYOUT,
@@ -152,7 +153,7 @@ function captionOf(view: OccupantView): string {
   if (view.agentStatus === undefined) {
     return "";
   }
-  const task = describeLiveAgentTask(view.agentStatus, view.taskTitle, view.taskUrl);
+  const task = describeLiveAgentTask(view.agentStatus, view.taskTitle, view.taskUrl, view.agentActivity);
   if (view.assignedUrl === "") {
     return task;
   }
@@ -286,6 +287,7 @@ function start(): void {
       for (const view of present) {
         ids.add(view.id);
         const caption = captionOf(view);
+        const needsInput = view.agentStatus === LIVE_AGENT_STATUS.needsInput;
         const existing = avatars.get(view.id);
         if (existing === undefined) {
           const avatar = new Avatar({
@@ -295,6 +297,7 @@ function start(): void {
             jobTitle: view.jobTitle,
             isLocal: view.isLocal,
             caption,
+            needsInput,
             managerStatus: view.managerStatus,
             model: avatarModel,
           });
@@ -303,6 +306,7 @@ function start(): void {
         } else {
           existing.setLabel(view.name, view.isCeo, view.agentStatus === undefined ? view.jobTitle : caption);
           existing.setManagerStatus(view.managerStatus);
+          existing.setNeedsInput(needsInput);
         }
       }
 
@@ -325,6 +329,7 @@ function start(): void {
           jobTitle: view.jobTitle,
           isLocal: view.isLocal,
           caption: captionOf(view),
+          needsInput: view.agentStatus === LIVE_AGENT_STATUS.needsInput,
           taskUrl: view.taskUrl,
           assignedUrl: view.assignedUrl,
           canTakeIssues: view.canTakeIssues,

@@ -34,7 +34,7 @@ import {
 } from "@sim/shared";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LiveAgentRegistry } from "../agents/registry.js";
+import { type LiveAgentRecord, LiveAgentRegistry, type LiveAgentSource } from "../agents/registry.js";
 import type { WorkHost } from "../rooms/workHandlers.js";
 import { type ManagerAdvisor, type ManagerPlan, type ManagerPlanner, createManagerAdvisor } from "./advisor.js";
 import { LiveAssignmentQueue } from "./liveAssignments.js";
@@ -82,7 +82,7 @@ function heldPlanner() {
   return { planner, waiting };
 }
 
-function setUp(advisor: ManagerAdvisor, updateIntervalMs = 60_000) {
+function setUp(advisor: ManagerAdvisor, updateIntervalMs = 60_000, floor?: LiveAgentSource) {
   const state = new OfficeState();
   const dana = player("session-dana", "Dana", true);
   const milo = player("session-milo", "Milo", false);
@@ -109,6 +109,7 @@ function setUp(advisor: ManagerAdvisor, updateIntervalMs = 60_000) {
     advisor,
     liveAgents: queue,
     assignments: queue,
+    ...(floor === undefined ? {} : { floor }),
     origin: "room-a",
     publish: (entry) => published.push(entry),
     updateIntervalMs,
@@ -225,6 +226,31 @@ describe("OfficeManager", () => {
       kind: MANAGER_ENTRY_KIND.update,
       text: "Crewmate handed in #10 “Fix the login redirect loop” for your review.",
     });
+  });
+
+  it("posts once when a runner's slot on the floor needs someone, though it hands that slot no work", async () => {
+    const slot = (status: LiveAgentRecord["status"], activity: string): LiveAgentRecord => ({
+      id: "runner:runner-1:slot-1",
+      name: "Claude 1",
+      status,
+      activity,
+      task: { title: "Night shift", url: "https://github.com/o/r/issues/39" },
+    });
+    let records: readonly LiveAgentRecord[] = [slot("working", "Bash: pnpm install")];
+    const floor: LiveAgentSource = { current: () => records, subscribe: () => () => undefined };
+    const { published } = setUp(rules(), 10, floor);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(published).toEqual([]);
+
+    records = [slot("needs-input", "Permission: Bash pnpm test")];
+    await until(() => published.length === 1);
+    expect(published[0]).toMatchObject({
+      kind: MANAGER_ENTRY_KIND.update,
+      text: "Claude 1 needs you on #39: Permission: Bash pnpm test",
+    });
+    records = [slot("needs-input", "Permission: Edit src/index.ts")];
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(published).toHaveLength(1);
   });
 
   it("aborts the call in flight when stopped, and writes nothing after", async () => {

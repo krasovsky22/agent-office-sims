@@ -40,6 +40,7 @@ import {
   distanceToInteractable,
   findPath,
   isClearLine,
+  isLiveAgentOnTask,
   liveAgentKey,
   liveAgentSeats,
   nearestWaypoint,
@@ -196,7 +197,7 @@ export class LiveAgentCrew {
   /** One tick. `deltaSeconds` is the time since the last one. */
   public step(now: number, deltaSeconds: number): void {
     for (const body of this.bodies.values()) {
-      if (body.status === LIVE_AGENT_STATUS.working) {
+      if (isLiveAgentOnTask(body.status)) {
         this.stepWorking(body, now, deltaSeconds);
       } else if (body.conversation === undefined) {
         this.stepIdle(body, now, deltaSeconds);
@@ -256,6 +257,10 @@ export class LiveAgentCrew {
     }
     if (occupant.taskUrl !== url) {
       occupant.taskUrl = url;
+    }
+    const activity = record.activity ?? "";
+    if (occupant.activity !== activity) {
+      occupant.activity = activity;
     }
     const assignedTitle = record.assignment?.title ?? "";
     const assignedUrl = record.assignment?.url ?? "";
@@ -622,7 +627,7 @@ export class LiveAgentCrew {
       if (body.conversation === conversation) {
         body.conversation = undefined;
         body.chatReadyAt = now + CHAT_COOLDOWN_MS;
-        if (body.status !== LIVE_AGENT_STATUS.working) {
+        if (!isLiveAgentOnTask(body.status)) {
           body.restUntil = now + STAND_UP_PAUSE_MS;
         }
       }

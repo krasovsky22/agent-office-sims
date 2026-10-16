@@ -127,6 +127,26 @@
   color: #f08a7a;
 }
 
+/* Solid and warm, the colour of the beacon over the agent's head, so a live
+   agent waiting on a person stands out in the roster as it does on the floor. */
+.hud__badge--needs-you {
+  background: #ff8a3d;
+  color: #1a1206;
+  animation: hud-needs-you 1.6s ease-in-out infinite;
+}
+
+@keyframes hud-needs-you {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud__badge--needs-you {
+    animation: none;
+  }
+}
+
 /* A live agent's task, on a line of its own under the name. */
 .hud__task {
   flex-basis: 100%;

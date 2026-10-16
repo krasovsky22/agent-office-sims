@@ -1,7 +1,7 @@
 /**
  * What the AI manager says without being asked: work handed in, a live agent
- * starting or stopping, an assignment picked up by the orchestrator
- * or not taken by its agent.
+ * starting, stopping or waiting on a person, an assignment picked up by the
+ * orchestrator or not taken by its agent.
  *
  * The manager looks at the office on its own timer and compares what it sees
  * with what it saw last time; this module is that comparison, as two pure
@@ -13,7 +13,7 @@
  * and it costs nothing to say.
  */
 
-import { WORK_STATUS, type WorkStatus } from "@sim/shared";
+import { LIVE_AGENT_STATUS, WORK_STATUS, type WorkStatus, isLiveAgentOnTask } from "@sim/shared";
 
 import { LIVE_ASSIGNMENT_STATUS, type LiveAssignment, type LiveAssignmentStatus } from "./liveAssignments.js";
 import type { LinkView, OfficeView } from "./officeView.js";
@@ -30,7 +30,14 @@ export interface Observation {
   >;
   readonly liveAgents: ReadonlyMap<
     string,
-    { readonly name: string; readonly working: boolean; readonly task: LinkView | undefined }
+    {
+      readonly name: string;
+      /** On a task, whether at it or waiting on a person. */
+      readonly working: boolean;
+      readonly needsInput: boolean;
+      readonly activity: string;
+      readonly task: LinkView | undefined;
+    }
   >;
   readonly assignments: ReadonlyMap<string, { readonly status: LiveAssignmentStatus; readonly label: string; readonly agent: string }>;
 }
@@ -40,6 +47,12 @@ function linkText(link: LinkView | undefined): string {
     return "its task";
   }
   return link.reference === "" ? `“${link.title}”` : `${link.reference} “${link.title}”`;
+}
+
+/** `Claude 1 needs you on #39: Permission: Bash`, naming the task as briefly as it can. */
+function needsYouText(name: string, task: LinkView | undefined, reason: string): string {
+  const on = task === undefined ? "" : ` on ${task.reference === "" ? `“${task.title}”` : task.reference}`;
+  return `${name} needs you${on}${reason === "" ? "." : `: ${reason}`}`;
 }
 
 /** Takes one look. */
@@ -57,7 +70,16 @@ export function observe(view: OfficeView, assignments: readonly LiveAssignment[]
       ]),
     ),
     liveAgents: new Map(
-      view.liveAgents.map((agent) => [agent.id, { name: agent.name, working: agent.status === "working", task: agent.task }]),
+      view.liveAgents.map((agent) => [
+        agent.id,
+        {
+          name: agent.name,
+          working: isLiveAgentOnTask(agent.status),
+          needsInput: agent.status === LIVE_AGENT_STATUS.needsInput,
+          activity: agent.activity,
+          task: agent.task,
+        },
+      ]),
     ),
     assignments: new Map(
       assignments.map((assignment) => [
@@ -91,6 +113,10 @@ export function describeChanges(before: Observation, after: Observation): string
       lines.push(`${agent.name} started on ${linkText(agent.task)}.`);
     } else if (previous.working && !agent.working) {
       lines.push(`${agent.name} stopped working on ${linkText(previous.task)} and is free.`);
+    }
+    // Once per episode: a look that still finds it waiting has nothing new to say.
+    if (agent.needsInput && previous?.needsInput !== true) {
+      lines.push(needsYouText(agent.name, agent.task, agent.activity));
     }
   }
   for (const [id, agent] of before.liveAgents) {

@@ -45,6 +45,8 @@ export interface LiveAgentView {
   readonly name: string;
   readonly status: LiveAgentStatus;
   readonly task: LinkView | undefined;
+  /** What it is doing right now, or what it waits on while it needs input; `""` when unknown. */
+  readonly activity: string;
   /** What the manager has handed it and it has not started yet. */
   readonly assigned: LinkView | undefined;
 }
@@ -172,6 +174,7 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
       name: record.name,
       status: record.status,
       task: record.task === undefined ? undefined : link(record.task.title, record.task.url),
+      activity: record.activity ?? "",
       assigned: record.assignment === undefined ? undefined : link(record.assignment.title, record.assignment.url),
     }),
   );

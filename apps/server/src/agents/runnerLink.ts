@@ -33,6 +33,7 @@ import {
   LIVE_AGENT_STATUS,
   type LiveAgentStatus,
   type LiveAgentTask,
+  isLiveAgentOnTask,
   MAX_RUNNER_SLOTS,
   RUNNER_COMMAND_KIND,
   RUNNER_SLOT_STATUS,
@@ -125,17 +126,12 @@ export function runnerSlotAgentId(runnerId: string, slotId: string): string {
   return `${SLOT_ID_PREFIX}${runnerId}:${slotId}`;
 }
 
-/**
- * What a slot's status shows as on the floor.
- *
- * `needs-input` is a slot still holding its work, so it sits at its desk as
- * `working` until the office can show the difference.
- */
+/** What a slot's status shows as on the floor. */
 const FLOOR_STATUS: Readonly<Record<RunnerSlotStatus, LiveAgentStatus>> = {
   [RUNNER_SLOT_STATUS.idle]: LIVE_AGENT_STATUS.idle,
   [RUNNER_SLOT_STATUS.starting]: LIVE_AGENT_STATUS.working,
   [RUNNER_SLOT_STATUS.working]: LIVE_AGENT_STATUS.working,
-  [RUNNER_SLOT_STATUS.needsInput]: LIVE_AGENT_STATUS.working,
+  [RUNNER_SLOT_STATUS.needsInput]: LIVE_AGENT_STATUS.needsInput,
   [RUNNER_SLOT_STATUS.exited]: LIVE_AGENT_STATUS.idle,
 };
 
@@ -162,6 +158,7 @@ function sameRecord(a: LiveAgentRecord, b: LiveAgentRecord): boolean {
     a.id === b.id &&
     a.name === b.name &&
     a.status === b.status &&
+    a.activity === b.activity &&
     a.task?.title === b.task?.title &&
     a.task?.url === b.task?.url
   );
@@ -387,6 +384,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
       name: slot.name,
       status: FLOOR_STATUS[slot.status],
       task: this.task(runner, slot),
+      activity: slot.activity,
       // A slot's work goes through the office's work rules, so it can take issues.
       canTakeIssues: true,
     };
@@ -394,19 +392,14 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
 
   /**
    * The issue a slot is on, titled from the start command that put it there
-   * when there was one, and otherwise by what it is doing.
+   * when there was one. What it is doing travels as its activity, not here.
    */
   private task(runner: Runner, slot: RunnerSlotReport): LiveAgentTask | undefined {
-    if (slot.issueNumber === undefined || FLOOR_STATUS[slot.status] !== LIVE_AGENT_STATUS.working) {
+    if (slot.issueNumber === undefined || !isLiveAgentOnTask(FLOOR_STATUS[slot.status])) {
       return undefined;
     }
     const started = runner.startedTitles.get(slot.id);
-    const title =
-      started?.issueNumber === slot.issueNumber
-        ? started.title
-        : slot.activity === ""
-          ? `Issue #${slot.issueNumber}`
-          : slot.activity;
+    const title = started?.issueNumber === slot.issueNumber ? started.title : `Issue #${slot.issueNumber}`;
     return { title, url: `https://github.com/${this.options.repository}/issues/${slot.issueNumber}` };
   }
 

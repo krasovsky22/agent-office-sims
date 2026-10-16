@@ -254,6 +254,32 @@ describe("a working agent", () => {
   });
 });
 
+describe("an agent that needs input", () => {
+  it("keeps its chair, and keeps it when it resumes", () => {
+    const office = createOffice();
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working)], office.now);
+    const body = agent(office, "alpha");
+    runUntil(office, 10, () => body.interactableId !== "");
+    const seat = body.interactableId;
+
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.needsInput)], office.now);
+    runUntil(office, 5, () => false);
+    expect(body.interactableId).toBe(seat);
+    expect(office.interaction.holds.holderOf(seat)).toBe(body.id);
+
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working)], office.now);
+    runUntil(office, 1, () => false);
+    expect(body.interactableId).toBe(seat);
+  });
+
+  it("walks to a chair when it arrives already waiting", () => {
+    const office = createOffice();
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.needsInput)], office.now);
+    const body = agent(office, "alpha");
+    expect(runUntil(office, 20, () => body.interactableId !== "")).toBeDefined();
+  });
+});
+
 describe("an idle agent", () => {
   it("stands up, frees its chair and wanders into other rooms", () => {
     const office = createOffice(7);
@@ -448,6 +474,19 @@ describe("labels", () => {
 
     office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
     expect(body).toMatchObject({ status: LIVE_AGENT_STATUS.idle, taskTitle: "", taskUrl: "" });
+  });
+
+  it("carry what the agent is doing, or waits on, while the feed says so", () => {
+    const office = createOffice();
+    office.crew.sync([{ ...record("alpha", LIVE_AGENT_STATUS.needsInput), activity: "Permission: Bash" }], office.now);
+    const body = agent(office, "alpha");
+    expect(body).toMatchObject({ status: LIVE_AGENT_STATUS.needsInput, activity: "Permission: Bash" });
+
+    office.crew.sync([{ ...record("alpha", LIVE_AGENT_STATUS.working), activity: "Bash: pnpm test" }], office.now);
+    expect(body).toMatchObject({ status: LIVE_AGENT_STATUS.working, activity: "Bash: pnpm test" });
+
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    expect(body).toMatchObject({ activity: "" });
   });
 
   it("carry what the manager assigned it next, until the feed stops saying so", () => {

@@ -70,6 +70,12 @@ export interface ManagerHost {
   readonly advisor: ManagerAdvisor;
   /** The live agents, with their assignments; absent with no orchestrator. */
   readonly liveAgents: LiveAgentSource | undefined;
+  /**
+   * Every live agent on the floor, the runners' slots too: what the manager
+   * watches for news, such as one that needs someone. Only the news; it hands
+   * work out and answers about {@link liveAgents}. Defaults to those.
+   */
+  readonly floor?: LiveAgentSource | undefined;
   /** Where GitHub work for live agents is queued; absent with no orchestrator. */
   readonly assignments: LiveAssignmentQueue | undefined;
   /** This room, as the assignment queue knows it. */
@@ -236,7 +242,10 @@ export class OfficeManager {
       return;
     }
     try {
-      const look = observe(this.look(), this.host.assignments?.madeBy(this.host.origin) ?? []);
+      const look = observe(
+        this.look(this.host.floor ?? this.host.liveAgents),
+        this.host.assignments?.madeBy(this.host.origin) ?? [],
+      );
       const lines = this.lastLook === undefined ? [] : describeChanges(this.lastLook, look);
       this.lastLook = look;
       if (lines.length > 0) {
@@ -247,11 +256,11 @@ export class OfficeManager {
     }
   }
 
-  private look(): OfficeView {
+  private look(liveAgents: LiveAgentSource | undefined = this.host.liveAgents): OfficeView {
     return readOfficeView({
       state: this.host.work.state,
       project: this.host.work.board(),
-      liveAgents: this.host.liveAgents?.current(),
+      liveAgents: liveAgents?.current(),
     });
   }
 

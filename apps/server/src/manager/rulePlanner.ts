@@ -494,10 +494,13 @@ function freeAgents(view: OfficeView): string[] {
 }
 
 function describeLiveAgent(agent: LiveAgentView): string {
+  const task = agent.task === undefined ? "something it hasn't named" : linkText(agent.task);
   const doing =
     agent.status === "working"
-      ? `working on ${agent.task === undefined ? "something it hasn't named" : linkText(agent.task)}`
-      : "idle";
+      ? `working on ${task}`
+      : agent.status === "needs-input"
+        ? `waiting on you on ${task}${agent.activity === "" ? "" : ` (${agent.activity})`}`
+        : "idle";
   const next = agent.assigned === undefined ? "" : ` Next up: ${linkText(agent.assigned)}.`;
   return `${agent.name} (live coding agent) is ${doing}.${next}`;
 }
