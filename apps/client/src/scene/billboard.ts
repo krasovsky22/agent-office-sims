@@ -8,8 +8,8 @@
  * without anyone updating its position.
  *
  * The painters below are plain functions over a 2D context rather than
- * methods: a speech bubble, an emote, and an agent employee's activity badge
- * all share the sprite plumbing, and a new overhead display — a thought, an
+ * methods: a speech bubble, an emote, and the manager's status badge all
+ * share the sprite plumbing, and a new overhead display — a thought, an
  * issue an agent picked up — is one more painter, with nothing else here
  * changing.
  */
@@ -310,13 +310,13 @@ export function paintEmote(glyph: string, caption: string): BillboardPainter {
 }
 
 /**
- * Paints an agent's activity badge: a coloured dot and the activity's name, on
- * a pill outlined in the same colour.
+ * Paints a status badge: a coloured dot and the status's name, on a pill
+ * outlined in the same colour.
  *
  * Sized to the canvas height rather than to its content, so every badge reads
  * at the same size from the same distance; the pill's width follows the label.
  */
-export function paintActivityBadge(label: string, colour: string): BillboardPainter {
+export function paintStatusBadge(label: string, colour: string): BillboardPainter {
   return (context, width, height) => {
     const fontSize = Math.round(height * 0.5);
     const dotRadius = Math.round(fontSize * 0.3);

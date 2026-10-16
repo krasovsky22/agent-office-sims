@@ -12,21 +12,21 @@ import Anthropic from "@anthropic-ai/sdk";
 import { MANAGER_ENTRY_KIND } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { CallBudget } from "../work/budget.js";
-import { WORK_FAILURE, WorkProviderError } from "../work/executor.js";
 import { type ManagerPlan, type ManagerRequest, createManagerAdvisor } from "./advisor.js";
+import { CallBudget } from "./budget.js";
 import { type SendMessage, createModelPlanner, readReply, userPrompt } from "./modelPlanner.js";
 import type { OfficeView } from "./officeView.js";
+import { ADVICE_FAILURE, PlannerError } from "./plannerError.js";
 
 type ModelMessage = Anthropic.Message;
 
 const VIEW: OfficeView = {
   ceo: "Dana",
-  agents: [{ id: "agent-1", name: "Ada Byrne", jobTitle: "Product Manager", activity: "idle", issueNumber: undefined }],
-  liveAgents: [],
+  liveAgents: [{ id: "agent-1", name: "Ada Byrne", status: "idle", task: undefined, assigned: undefined }],
+  issueAgents: [],
   work: [],
   project: undefined,
-  orchestrator: false,
+  orchestrator: true,
 };
 
 const REQUEST: ManagerRequest = {
@@ -107,8 +107,8 @@ describe("readReply", () => {
     try {
       readReply(message);
     } catch (error) {
-      expect(error).toBeInstanceOf(WorkProviderError);
-      expect((error as WorkProviderError).retryable).toBe(false);
+      expect(error).toBeInstanceOf(PlannerError);
+      expect((error as PlannerError).retryable).toBe(false);
     }
   });
 
@@ -143,7 +143,7 @@ describe("createManagerAdvisor", () => {
       planner: async () => {
         calls += 1;
         if (calls === 1) {
-          throw new WorkProviderError("the model provider unavailable (529)", { retryable: true, tokensUsed: 5 });
+          throw new PlannerError("the model provider unavailable (529)", { retryable: true, tokensUsed: 5 });
         }
         return PLAN;
       },
@@ -162,7 +162,7 @@ describe("createManagerAdvisor", () => {
       },
     });
     const result = await advisor.advise(REQUEST);
-    expect(result).toMatchObject({ ok: false, reason: WORK_FAILURE.budgetExhausted, attempts: 0 });
+    expect(result).toMatchObject({ ok: false, reason: ADVICE_FAILURE.budgetExhausted, attempts: 0 });
     expect(!result.ok && result.message).toMatch(/^manager call budget for today is spent/);
     expect(calls).toBe(0);
   });
@@ -174,7 +174,7 @@ describe("createManagerAdvisor", () => {
       maxAttempts: 1,
       planner: () => new Promise(() => undefined),
     });
-    expect(await advisor.advise(REQUEST)).toMatchObject({ ok: false, reason: WORK_FAILURE.timeout });
+    expect(await advisor.advise(REQUEST)).toMatchObject({ ok: false, reason: ADVICE_FAILURE.timeout });
   });
 
   it("ends at once when the question is withdrawn, aborting the planner's call", async () => {
@@ -194,7 +194,7 @@ describe("createManagerAdvisor", () => {
     // Once the call is under way, which is when withdrawing it matters.
     await new Promise((resolve) => setTimeout(resolve, 5));
     controller.abort();
-    expect(await pending).toMatchObject({ ok: false, reason: WORK_FAILURE.cancelled });
+    expect(await pending).toMatchObject({ ok: false, reason: ADVICE_FAILURE.cancelled });
     expect(aborted).toBe(true);
   });
 
@@ -205,11 +205,11 @@ describe("createManagerAdvisor", () => {
         throw new Error("boom");
       },
     });
-    expect(await advisor.advise(REQUEST)).toMatchObject({ ok: false, reason: WORK_FAILURE.providerError, message: "boom" });
+    expect(await advisor.advise(REQUEST)).toMatchObject({ ok: false, reason: ADVICE_FAILURE.providerError, message: "boom" });
   });
 
   it("counts an empty answer as a failure", async () => {
     const advisor = createManagerAdvisor({ mode: "rules", planner: async () => ({ ...PLAN, reply: "  " }) });
-    expect(await advisor.advise(REQUEST)).toMatchObject({ ok: false, reason: WORK_FAILURE.providerError });
+    expect(await advisor.advise(REQUEST)).toMatchObject({ ok: false, reason: ADVICE_FAILURE.providerError });
   });
 });

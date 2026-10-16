@@ -1,7 +1,7 @@
 /**
  * The work rules against the real schema: who may do what to an issue's work,
- * which moves are legal, what an agent's own steps require, which issue an
- * agent picks up next, and when GitHub's word takes work off an agent.
+ * which moves are legal, what an agent's own steps require, and when GitHub's
+ * word takes work off an agent.
  */
 
 import { MapSchema } from "@colyseus/schema";
@@ -17,7 +17,6 @@ import {
   openBoardIssue,
 } from "./projectBoard.js";
 import {
-  AgentEmployee,
   AiManager,
   HumanPlayer,
   IssueWork,
@@ -42,7 +41,6 @@ import {
   mayCommandRealAgents,
   releaseGoneWork,
   releaseWorkOf,
-  workForAgent,
   workMoves,
 } from "./work.js";
 
@@ -88,9 +86,10 @@ function office(): Office {
     occupants.set(id, player);
   }
   for (const id of ["agent-1", "agent-2"]) {
-    const agent = new AgentEmployee();
+    const agent = new LiveAgent();
     agent.id = id;
     agent.name = id;
+    agent.canTakeIssues = true;
     occupants.set(id, agent);
   }
   const manager = new AiManager();
@@ -129,21 +128,6 @@ function workAt(at: Office, issueNumber: number, status: WorkStatus, assigneeId 
 }
 
 describe("assigning an issue", () => {
-  it("gives an open issue to an agent, copying its title", () => {
-    const at = office();
-    const result = run(at, assign(4, "agent-1"));
-    expect(result.ok).toBe(true);
-    const work = at.work.get(workKey(4));
-    expect(work).toMatchObject({
-      issueNumber: 4,
-      title: "Issue 4",
-      status: WORK_STATUS.assigned,
-      assigneeId: "agent-1",
-      assignedAt: T0 + 1,
-    });
-    expect(describeWorkProblems(at.work)).toEqual([]);
-  });
-
   it("is the CEO's alone", () => {
     const at = office();
     expect(run(at, assign(1, "agent-1"), EXEC_ID)).toEqual({ ok: false, rejection: WORK_REJECTION.forbidden });
@@ -162,20 +146,31 @@ describe("assigning an issue", () => {
     expect(at.work.size).toBe(0);
   });
 
-  it("only gives work to agent employees", () => {
+  it("gives work only to an agent in the office that can take issues", () => {
     const at = office();
     for (const id of [CEO_ID, "manager:firstmate", "agent-99"]) {
       expect(run(at, assign(1, id))).toEqual({ ok: false, rejection: WORK_REJECTION.unknownAssignee });
     }
     expect(at.work.size).toBe(0);
+    expect(run(at, assign(1, "agent-1"), CEO_ID, T0 + 5).ok).toBe(true);
+    expect(at.work.get(workKey(1))).toMatchObject({
+      issueNumber: 1,
+      title: "Issue 1",
+      status: WORK_STATUS.assigned,
+      assigneeId: "agent-1",
+      assignedAt: T0 + 5,
+      updatedAt: T0 + 5,
+    });
+    expect(describeWorkProblems(at.work)).toEqual([]);
   });
 
-  it("hands work in hand to someone else without losing its progress", () => {
+  it("hands work to another agent without losing how far it got", () => {
     const at = office();
-    const work = workAt(at, 2, WORK_STATUS.in_progress);
-    work.note = "Blocked: no answer";
-    expect(run(at, assign(2, "agent-2")).ok).toBe(true);
-    expect(work).toMatchObject({ status: WORK_STATUS.in_progress, assigneeId: "agent-2", note: "" });
+    const work = workAt(at, 1, WORK_STATUS.in_progress);
+    work.note = "Blocked: CI is red";
+    expect(run(at, assign(1, "agent-2"), CEO_ID, T0 + 5).ok).toBe(true);
+    expect(work).toMatchObject({ status: WORK_STATUS.in_progress, assigneeId: "agent-2", note: "", updatedAt: T0 + 5 });
+    expect(describeWorkProblems(at.work)).toEqual([]);
   });
 
   it("does not reassign finished work", () => {
@@ -300,26 +295,6 @@ describe("mayActOnWork", () => {
   });
 });
 
-describe("workForAgent", () => {
-  it("picks the longest-waiting work given to this agent and nobody else is holding", () => {
-    const at = office();
-    const newer = workAt(at, 1, WORK_STATUS.assigned);
-    newer.assignedAt = T0 + 10;
-    const older = workAt(at, 5, WORK_STATUS.in_progress);
-    older.assignedAt = T0;
-    workAt(at, 2, WORK_STATUS.review);
-    workAt(at, 3, WORK_STATUS.assigned, "agent-2");
-    const pick = () => workForAgent(at.work.values(), at.occupants.values(), "agent-1");
-    expect(pick()?.issueNumber).toBe(5);
-
-    const other = at.occupants.get("agent-2");
-    if (other instanceof AgentEmployee) {
-      other.currentIssueNumber = 5;
-    }
-    expect(pick()?.issueNumber).toBe(1);
-  });
-});
-
 describe("releaseGoneWork", () => {
   it("releases unfinished work on an issue GitHub closed, and keeps finished work", () => {
     const at = office();
@@ -334,6 +309,7 @@ describe("releaseGoneWork", () => {
         { ...issue(2), closedAt: T0 },
       ],
     });
+    expect(describeWorkProblems(at.work)).toEqual([]);
     expect(releaseGoneWork(at.work, board, []).map((work) => work.issueNumber)).toEqual([1]);
     expect([...at.work.keys()].sort()).toEqual(["2", "3"]);
     expect(at.work.get(workKey(3))?.title).toBe("Renamed");

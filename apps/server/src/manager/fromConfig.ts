@@ -2,13 +2,13 @@
  * Builds the AI manager's advisor the server's configuration asks for.
  *
  * Rules mode gets no call budget, since it spends nothing; it does get a short
- * pause, so the manager's badge visibly reads "thinking" before it answers, as
- * the mock agents visibly sit and type. Model mode always gets a budget of its
- * own, apart from the agents', so a chatty CEO cannot spend the staff's calls.
+ * pause, so the manager's badge visibly reads "thinking" before it answers.
+ * Model mode always gets a budget, so a chatty CEO cannot run up an unbounded
+ * bill.
  */
 
 import { type ManagerConfig } from "../config.js";
-import { CallBudget } from "../work/budget.js";
+import { CallBudget } from "./budget.js";
 import { type ManagerAdvisor, type ManagerPlanner, createManagerAdvisor } from "./advisor.js";
 import { createModelPlanner } from "./modelPlanner.js";
 import { planFromRules } from "./rulePlanner.js";

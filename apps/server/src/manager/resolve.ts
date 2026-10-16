@@ -12,17 +12,12 @@
  * `PR N` say which, and an issue can also be named by its title.
  */
 
-import type { AgentView, IssueView, LiveAgentView, OfficeView, PullRequestView } from "./officeView.js";
+import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView } from "./officeView.js";
 
 /** Work the manager can talk about or hand out: an issue or a pull request on the project board. */
 export type WorkRef =
   | { readonly kind: "issue"; readonly issue: IssueView }
   | { readonly kind: "pull"; readonly pull: PullRequestView };
-
-/** Someone the manager can hand work to. */
-export type AgentRef =
-  | { readonly kind: "agent"; readonly agent: AgentView }
-  | { readonly kind: "live"; readonly agent: LiveAgentView };
 
 /** `#39`, `issue 39`, `issue #39`, `PR 40`, `PR #40`, `pull request 40`. */
 const GITHUB_NUMBER = /(?:\b(issue|pr|pull request|pull)\s*#?|#)(\d+)\b/gi;
@@ -146,49 +141,50 @@ export function resolveWork(reference: string, view: OfficeView): WorkRef | unde
   return findWork(trimmed, view)[0];
 }
 
-/** Every agent, simulated and live, by name, id, or first name. */
-function agentsOf(view: OfficeView): AgentRef[] {
-  return [
-    ...view.agents.map((agent): AgentRef => ({ kind: "agent", agent })),
-    ...view.liveAgents.map((agent): AgentRef => ({ kind: "live", agent })),
-  ];
-}
-
-function namesOf(ref: AgentRef): string[] {
-  const name = ref.agent.name.toLowerCase();
-  return [name, ref.agent.id.toLowerCase(), name.split(" ")[0] ?? name];
+/** An agent's name, id, and first name when no other agent shares it, any of which names it. */
+function namesOf(agent: IssueAgentView | LiveAgentView, view: OfficeView): string[] {
+  const first = (name: string) => name.toLowerCase().split(" ")[0] ?? "";
+  const shared = [...view.issueAgents, ...view.liveAgents].some(
+    (other) => other !== agent && first(other.name) === first(agent.name),
+  );
+  const name = agent.name.toLowerCase();
+  return shared ? [name, agent.id.toLowerCase()] : [name, agent.id.toLowerCase(), first(agent.name)];
 }
 
 function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** The agent one name means, as a planner wrote it, or `undefined`. */
-export function resolveAgent(name: string, view: OfficeView): AgentRef | undefined {
+/**
+ * The agent one name means, as a planner wrote it, or `undefined`: one that
+ * takes issues on the floor before one of the orchestrator's.
+ */
+export function resolveAgent(name: string, view: OfficeView): IssueAgentView | LiveAgentView | undefined {
   const wanted = name.trim().toLowerCase();
   if (wanted === "") {
     return undefined;
   }
-  return agentsOf(view).find((ref) => namesOf(ref).includes(wanted));
+  const named = (agent: IssueAgentView | LiveAgentView) => namesOf(agent, view).includes(wanted);
+  return view.issueAgents.find(named) ?? view.liveAgents.find(named);
 }
 
 /** Every agent a message names, as a whole word, in the order it names them. */
-export function findAgents(message: string, view: OfficeView): AgentRef[] {
+export function findAgents(message: string, view: OfficeView): (IssueAgentView | LiveAgentView)[] {
   const lower = message.toLowerCase();
-  const found: { readonly at: number; readonly ref: AgentRef }[] = [];
-  for (const ref of agentsOf(view)) {
+  const found: { readonly at: number; readonly agent: IssueAgentView | LiveAgentView }[] = [];
+  for (const agent of [...view.issueAgents, ...view.liveAgents]) {
     let at = Number.POSITIVE_INFINITY;
-    for (const candidate of namesOf(ref)) {
+    for (const candidate of namesOf(agent, view)) {
       const match = new RegExp(`(^|[^a-z0-9])${escape(candidate)}($|[^a-z0-9])`).exec(lower);
       if (match !== null) {
         at = Math.min(at, match.index);
       }
     }
     if (Number.isFinite(at)) {
-      found.push({ at, ref });
+      found.push({ at, agent });
     }
   }
-  return found.sort((a, b) => a.at - b.at).map((entry) => entry.ref);
+  return found.sort((a, b) => a.at - b.at).map((entry) => entry.agent);
 }
 
 /** How the manager writes a piece of work: `#39 “Title”`, `PR #40 “Title”`. */

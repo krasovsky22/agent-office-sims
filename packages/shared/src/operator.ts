@@ -2,7 +2,7 @@
  * The operator: the player who proved they know the server's passphrase.
  *
  * Nothing authenticates a player — the CEO is whoever joined first — and that
- * is fine for the simulated staff. It is not fine once a CEO's word becomes
+ * is fine for the project board. It is not fine once a CEO's word becomes
  * code run and pushed on a real machine, so commands that reach a real coding
  * agent also take the operator passphrase (`mayCommandRealAgents` in
  * `work.ts`). This module is what both sides need about proving it: the limits

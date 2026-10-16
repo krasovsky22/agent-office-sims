@@ -25,18 +25,11 @@
  * answer comes from the {@link OfficeView} it is handed.
  */
 
-import { AGENT_ACTIVITY, WORK_STATUS, type WorkStatus } from "@sim/shared";
+import { WORK_STATUS, type WorkStatus } from "@sim/shared";
 
 import type { ManagerPlan, ManagerRequest } from "./advisor.js";
-import type { AgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, WorkView } from "./officeView.js";
-import {
-  type AgentRef,
-  type WorkRef,
-  findAgents,
-  findUnknownWork,
-  findWork,
-  resolveAgent,
-} from "./resolve.js";
+import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, WorkView } from "./officeView.js";
+import { type WorkRef, findAgents, findUnknownWork, findWork, resolveAgent } from "./resolve.js";
 
 /** Most items one list in an answer names before saying how many more there are. */
 const LIST_LIMIT = 8;
@@ -87,14 +80,6 @@ const WORK_TEXT: Readonly<Record<WorkStatus, string>> = {
   [WORK_STATUS.done]: "done",
 };
 
-const ACTIVITY_TEXT: Readonly<Record<AgentView["activity"], string>> = {
-  [AGENT_ACTIVITY.idle]: "idle",
-  [AGENT_ACTIVITY.walking]: "on the move",
-  [AGENT_ACTIVITY.working]: "working",
-  [AGENT_ACTIVITY.meeting]: "in a meeting",
-  [AGENT_ACTIVITY.blocked]: "stuck",
-};
-
 export const HELP_TEXT = [
   "I keep track of the agents and hand out the project board's issues. Ask me things like:",
   "- “What's open?” or “Which PRs are open?”",
@@ -127,7 +112,7 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     }
     return {
       reply: "Handing out the open issues nobody is on:",
-      assignments: backlog.map((issue) => ({ work: `#${issue.number}`, agent: instruction.agent?.agent.id ?? "" })),
+      assignments: backlog.map((issue) => ({ work: `#${issue.number}`, agent: instruction.agent?.id ?? "" })),
     };
   }
   if (instruction?.kind === "work") {
@@ -138,7 +123,7 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     return {
       reply: "Here's how that went:",
       assignments: instruction.pairs.flatMap((entry) =>
-        entry.slot.work.map((ref) => ({ work: workId(ref), agent: entry.agent?.agent.id ?? "" })),
+        entry.slot.work.map((ref) => ({ work: workId(ref), agent: entry.agent?.id ?? "" })),
       ),
     };
   }
@@ -151,12 +136,12 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   if (work.length > 0) {
     const lines = work.slice(0, LIST_LIMIT).map((ref) => describeRef(ref, view));
     if (ASKING_ADVICE.test(message)) {
-      lines.push(adviceFor(work, view));
+      lines.push(adviceFor(view));
     }
     return { reply: lines.join("\n"), assignments: [] };
   }
   if (agents.length > 0) {
-    return { reply: agents.slice(0, LIST_LIMIT).map((ref) => describeAgentRef(ref, view)).join("\n"), assignments: [] };
+    return { reply: agents.slice(0, LIST_LIMIT).map((agent) => describeAgent(agent, view)).join("\n"), assignments: [] };
   }
   const pulls = PULL_WORDS.test(message);
   const board = BOARD_WORDS.test(message);
@@ -181,7 +166,7 @@ function backlogOf(view: OfficeView): IssueView[] {
 }
 
 /** `undefined` for "someone": whoever is free, chosen against the live office. */
-type Assignee = AgentRef | undefined;
+type Assignee = IssueAgentView | LiveAgentView | undefined;
 
 /** Work read from a WORK slot: what it names, and what it names that is not on the board. */
 interface WorkSlot {
@@ -389,15 +374,15 @@ function workId(ref: WorkRef): string {
   }
 }
 
-function adviceFor(work: readonly WorkRef[], view: OfficeView): string {
-  const pullsOnly = work.every((ref) => ref.kind === "pull");
-  const free = pullsOnly
-    ? view.liveAgents.filter((agent) => agent.status === "idle" && agent.assigned === undefined).map((agent) => agent.name)
-    : view.agents.filter((agent) => agent.activity === AGENT_ACTIVITY.idle && agent.issueNumber === undefined).map((agent) => agent.name);
+function adviceFor(view: OfficeView): string {
+  const free = freeAgents(view);
   const first = free[0];
-  return first === undefined
-    ? "Nobody suitable is free right now; name someone and I'll queue it for them."
-    : `${free.join(", ")} ${free.length === 1 ? "is" : "are"} free. Say “put ${first.split(" ")[0] ?? first} on it” and I'll hand it over.`;
+  if (first === undefined) {
+    return "Nobody suitable is free right now; name someone and I'll queue it for them.";
+  }
+  const short = first.split(" ")[0] ?? first;
+  const say = resolveAgent(short, view)?.name === first ? short : first;
+  return `${free.join(", ")} ${free.length === 1 ? "is" : "are"} free. Say “put ${say} on it” and I'll hand it over.`;
 }
 
 function describeRef(ref: WorkRef, view: OfficeView): string {
@@ -410,19 +395,16 @@ function describeRef(ref: WorkRef, view: OfficeView): string {
 }
 
 /** What the office is doing about an issue, in words, or `""` when nobody is on it. */
-function workText(work: WorkView | undefined, view: OfficeView): string {
+function workText(work: WorkView | undefined): string {
   if (work === undefined) {
     return "";
   }
   const who = work.assignee ?? "someone who has left";
-  const holder = view.agents.find((agent) => agent.id === work.assigneeId);
   switch (work.status) {
     case WORK_STATUS.assigned:
       return `${who} has it and hasn't started yet`;
     case WORK_STATUS.in_progress:
-      return holder?.activity === AGENT_ACTIVITY.blocked
-        ? `${who} is stuck on it — ${work.note ?? "no reason given"}`
-        : `${who} is working on it`;
+      return `${who} is working on it`;
     case WORK_STATUS.review:
       return `${who} handed in a deliverable; it is waiting for your review`;
     case WORK_STATUS.done:
@@ -460,7 +442,7 @@ function describeIssue(issue: IssueView, view: OfficeView): string {
     issue.pullRequests.length === 0
       ? ""
       : ` ${issue.pullRequests.map((number) => `PR #${number}`).join(", ")} ${issue.pullRequests.length === 1 ? "closes" : "close"} it.`;
-  const people = sentences([workText(issue.work, view), liveAgentsOn(issue.url, view)]);
+  const people = sentences([workText(issue.work), liveAgentsOn(issue.url, view)]);
   const office = people === "" && issue.column !== "closed" ? " Nobody in the office is on it yet." : people;
   return `#${issue.number} “${issue.title}” is ${issue.column}${labelText(issue.labels)}${assignees}.${pulls}${office}${stale(view)}`;
 }
@@ -475,28 +457,40 @@ function pullLine(pull: PullRequestView): string {
   return `PR #${pull.number} “${pull.title}”${labelText(pull.labels)} by ${pull.author}${draft} is open.${checks}`;
 }
 
-/** An agent's issue, as the manager names it: from the board if listed, else from the work. */
-function issueLabel(issueNumber: number, view: OfficeView): string {
-  const title =
-    view.project?.issues.find((issue) => issue.number === issueNumber)?.title ??
-    view.work.find((work) => work.issueNumber === issueNumber)?.title;
-  return title === undefined ? `#${issueNumber}` : `#${issueNumber} “${title}”`;
+type FloorAgent = IssueAgentView | LiveAgentView;
+
+function isIssueAgent(agent: FloorAgent): agent is IssueAgentView {
+  return !("status" in agent);
 }
 
-function describeAgent(agent: AgentView, view: OfficeView): string {
-  const title = `${agent.name} (${agent.jobTitle})`;
-  if (agent.issueNumber !== undefined) {
-    const work = view.work.find((candidate) => candidate.issueNumber === agent.issueNumber);
-    if (agent.activity === AGENT_ACTIVITY.blocked) {
-      return `${title} is stuck on ${issueLabel(agent.issueNumber, view)} — ${work?.note ?? "no reason given"}`;
-    }
-    return `${title} is ${ACTIVITY_TEXT[agent.activity]} on ${issueLabel(agent.issueNumber, view)}.`;
-  }
-  const waiting = view.work.filter(
-    (candidate) => candidate.assigneeId === agent.id && candidate.status === WORK_STATUS.assigned,
+/** The issue an agent that takes issues has in hand, the one it is working first. */
+function workInHand(agent: IssueAgentView, view: OfficeView): WorkView | undefined {
+  const mine = view.work.filter((work) => work.assigneeId === agent.id);
+  return (
+    mine.find((work) => work.status === WORK_STATUS.in_progress) ??
+    mine.find((work) => work.status === WORK_STATUS.assigned)
   );
-  const queued = waiting.length === 0 ? "" : ` Next up: ${waiting.map((candidate) => `#${candidate.issueNumber}`).join(", ")}.`;
-  return `${title} is ${ACTIVITY_TEXT[agent.activity]}.${queued}`;
+}
+
+function describeAgent(agent: FloorAgent, view: OfficeView): string {
+  return isIssueAgent(agent) ? describeIssueAgent(agent, view) : describeLiveAgent(agent);
+}
+
+function describeIssueAgent(agent: IssueAgentView, view: OfficeView): string {
+  const work = workInHand(agent, view);
+  const issue = work === undefined ? "" : `#${work.issueNumber} “${work.title}”`;
+  if (work?.status === WORK_STATUS.assigned) {
+    return `${agent.name} (live coding agent) has ${issue} and hasn't started yet.`;
+  }
+  return `${agent.name} (live coding agent) is ${work === undefined ? "idle" : `working on ${issue}`}.`;
+}
+
+/** The agents free for something new, those that take issues first. */
+function freeAgents(view: OfficeView): string[] {
+  return [
+    ...view.issueAgents.filter((agent) => workInHand(agent, view) === undefined),
+    ...view.liveAgents.filter((agent) => agent.status === "idle" && agent.assigned === undefined),
+  ].map((agent) => agent.name);
 }
 
 function describeLiveAgent(agent: LiveAgentView): string {
@@ -508,29 +502,17 @@ function describeLiveAgent(agent: LiveAgentView): string {
   return `${agent.name} (live coding agent) is ${doing}.${next}`;
 }
 
-function describeAgentRef(ref: AgentRef, view: OfficeView): string {
-  return ref.kind === "agent" ? describeAgent(ref.agent, view) : describeLiveAgent(ref.agent);
-}
-
 function linkText(link: { readonly title: string; readonly reference: string }): string {
   return link.reference === "" ? `“${link.title}”` : `${link.reference} “${link.title}”`;
 }
 
 function teamSummary(view: OfficeView): string {
-  if (view.agents.length === 0 && view.liveAgents.length === 0) {
+  const agents: FloorAgent[] = [...view.issueAgents, ...view.liveAgents];
+  if (agents.length === 0) {
     return "Nobody is on the floor right now: there are no agents to report on.";
   }
-  const lines: string[] = [];
-  if (view.agents.length > 0) {
-    lines.push("Agents:", ...view.agents.map((agent) => `- ${describeAgent(agent, view)}`));
-  }
-  if (view.liveAgents.length > 0) {
-    lines.push("Live coding agents:", ...view.liveAgents.map((agent) => `- ${describeLiveAgent(agent)}`));
-  }
-  const free = [
-    ...view.agents.filter((agent) => agent.activity === AGENT_ACTIVITY.idle && agent.issueNumber === undefined),
-    ...view.liveAgents.filter((agent) => agent.status === "idle" && agent.assigned === undefined),
-  ].map((agent) => agent.name);
+  const lines = ["Live coding agents:", ...agents.map((agent) => `- ${describeAgent(agent, view)}`)];
+  const free = freeAgents(view);
   lines.push(free.length === 0 ? "Nobody is free." : `Free for something new: ${free.join(", ")}.`);
   return lines.join("\n");
 }
@@ -558,9 +540,6 @@ function boardSummary(view: OfficeView): string {
   const review = view.work.filter((work) => work.status === WORK_STATUS.review);
   if (review.length > 0) {
     lines.push(`Waiting for your review: ${list(review.map((work) => `#${work.issueNumber} (${work.assignee ?? "unknown"})`))}.`);
-  }
-  for (const agent of view.agents.filter((candidate) => candidate.activity === AGENT_ACTIVITY.blocked)) {
-    lines.push(`- ${describeAgent(agent, view)}`);
   }
   const backlog = backlogOf(view);
   if (backlog.length > 0) {

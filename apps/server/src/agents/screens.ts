@@ -25,9 +25,15 @@
  * from an HTTP request or a link change, and never inside a tick.
  */
 
-import type { OccupantScreen, RunnerScreens, ScreenFrame, ScreenFramesEvent, ScreenRun } from "@sim/shared";
+import {
+  type OccupantScreen,
+  type RunnerScreens,
+  type ScreenFrame,
+  type ScreenFramesEvent,
+  type ScreenRun,
+  liveAgentKey,
+} from "@sim/shared";
 
-import { liveAgentKey } from "../sim/liveAgents.js";
 import { type RunnerLink, runnerSlotAgentId } from "./runnerLink.js";
 
 /** What a room reads screens from. */

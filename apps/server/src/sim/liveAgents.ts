@@ -37,7 +37,6 @@ import {
   type OfficeLayout,
   type Vec2,
   WALK_SPEED,
-  agentAtDesk,
   distanceToInteractable,
   findPath,
   isClearLine,
@@ -95,9 +94,8 @@ const SEEK_COMPANY_CHANCE = 0.5;
 /**
  * What two idle agents say to each other, alternating, first speaker first.
  *
- * Canned on purpose: these are the real coding agents, not the simulated staff
- * who will one day talk through a model, and the point of the exchange is to
- * show two of them are between tasks, not to say anything.
+ * Canned on purpose: the point of the exchange is to show two of them are
+ * between tasks, not to say anything.
  */
 export const CONVERSATIONS: readonly (readonly string[])[] = [
   ["Finally shipped that PR.", "Nice. Green first time?", "Third time. Don't ask.", "Ha. Coffee?"],
@@ -147,7 +145,7 @@ export interface LiveAgentHost {
   readonly interaction: InteractionHost;
   /**
    * The office's issue work, so an agent leaving puts down what it had not
-   * finished, by the same rule as a departing employee; see `releaseWorkOf`.
+   * finished; see `releaseWorkOf`.
    */
   readonly work: MapSchema<IssueWork>;
   /** Broadcasts a line of chat from an occupant. */
@@ -371,9 +369,7 @@ export class LiveAgentCrew {
   }
 
   /**
-   * The nearest seat nobody holds, no other agent is heading for, and no agent
-   * employee's desk owns — the same desk ownership `requestInteract` refuses,
-   * checked first so a live agent never walks over to be turned away.
+   * The nearest seat nobody holds and no other agent is heading for.
    *
    * Straight-line distance rather than route length: it is a choice between
    * chairs in one room, and the nearest by either measure is nearly always the
@@ -392,9 +388,7 @@ export class LiveAgentCrew {
       if (
         claimed.has(seat.id) ||
         body.refusedSeats.has(seat.id) ||
-        this.host.interaction.holds.holderOf(seat.id) !== undefined ||
-        (seat.deskId !== undefined &&
-          agentAtDesk(this.host.interaction.occupants.values(), seat.deskId) !== undefined)
+        this.host.interaction.holds.holderOf(seat.id) !== undefined
       ) {
         continue;
       }

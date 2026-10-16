@@ -32,7 +32,6 @@ describe("the manager's desk", () => {
     }
     expect(roomAt(OFFICE_LAYOUT, desk)?.id).toBe("lobby");
     expect(managerSeat(OFFICE_LAYOUT)?.deskId).toBe(MANAGER_DESK_ID);
-    expect(OFFICE_LAYOUT.agentDesks).not.toContain(MANAGER_DESK_ID);
   });
 
   it("is reached from across the desk, where E reads 'Talk to the manager'", () => {
@@ -58,7 +57,6 @@ describe("the manager's desk", () => {
       MANAGER_INTERACTABLE_ID,
       INTERACT_RANGE,
       () => "session-b",
-      () => undefined,
     );
     expect(decision.allowed).toBe(true);
   });
@@ -96,7 +94,7 @@ describe("mayInstructManager", () => {
   it("listens to the CEO and nobody else", () => {
     expect(mayInstructManager({ id: "a", kind: OCCUPANT_KIND.human, isCeo: true, isOperator: false })).toBe(true);
     expect(mayInstructManager({ id: "b", kind: OCCUPANT_KIND.human, isCeo: false, isOperator: false })).toBe(false);
-    expect(mayInstructManager({ id: "agent-1", kind: OCCUPANT_KIND.agent, isCeo: false, isOperator: false })).toBe(false);
+    expect(mayInstructManager({ id: "agent-1", kind: OCCUPANT_KIND.liveAgent, isCeo: false, isOperator: false })).toBe(false);
   });
 });
 

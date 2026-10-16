@@ -5,21 +5,12 @@
  * line tells fresh from stale.
  */
 
-import {
-  AGENT_ACTIVITY,
-  EMPTY_BOARD_LISTS,
-  OCCUPANT_KIND,
-  type ProjectBoardSnapshot,
-  WORK_ACTION,
-  WORK_STATUS,
-  type WorkData,
-} from "@sim/shared";
+import { EMPTY_BOARD_LISTS, type ProjectBoardSnapshot, WORK_ACTION, WORK_STATUS, type WorkData } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import {
   type BoardAgent,
   NO_BOARD_FILTER,
-  assigneeGroups,
   boardColumns,
   boardIssue,
   boardLabels,
@@ -30,7 +21,6 @@ import {
   labelColours,
   workBadge,
   workMoveLabel,
-  workStatusText,
 } from "./projectBoard.js";
 
 const time = (epochMs: number) => `t${epochMs}`;
@@ -229,20 +219,8 @@ describe("githubItemUrl", () => {
   });
 });
 
-describe("assigneeGroups", () => {
-  it("lists staff and live agents under their own headings, leaving out an empty one", () => {
-    const staff: BoardAgent = { id: "agent-1", name: "Ada", kind: OCCUPANT_KIND.agent, activity: undefined };
-    const live: BoardAgent = { id: "agent:r/s1", name: "Slot 1", kind: OCCUPANT_KIND.liveAgent, activity: undefined };
-    expect(assigneeGroups([live, staff])).toEqual([
-      { label: "Staff", agents: [staff] },
-      { label: "Live agents", agents: [live] },
-    ]);
-    expect(assigneeGroups([live])).toEqual([{ label: "Live agents", agents: [live] }]);
-  });
-});
-
 describe("the office's work on an issue", () => {
-  const ada: BoardAgent = { id: "agent-1", name: "Ada Byrne", kind: OCCUPANT_KIND.agent, activity: AGENT_ACTIVITY.working };
+  const ada: BoardAgent = { id: "agent-1", name: "Ada Byrne" };
   const work: WorkData = {
     issueNumber: 31,
     title: "Desk screens face away",
@@ -262,12 +240,6 @@ describe("the office's work on an issue", () => {
     });
     expect(workBadge({ ...work, status: WORK_STATUS.done }, [ada]).tone).toBe("good");
     expect(workBadge(work, []).text).toBe("Left the office · In progress");
-  });
-
-  it("shows an agent stuck on it as blocked", () => {
-    const stuck = { ...ada, activity: AGENT_ACTIVITY.blocked };
-    expect(workStatusText(work, [stuck])).toBe("Blocked");
-    expect(workBadge(work, [stuck]).tone).toBe("bad");
   });
 
   it("names each move for what it does to the work", () => {

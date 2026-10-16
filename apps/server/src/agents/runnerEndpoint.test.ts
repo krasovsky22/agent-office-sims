@@ -74,8 +74,6 @@ beforeAll(async () => {
   ]);
   server = new Server({ transport: new WebSocketTransport({ server: createHealthServer(routes) }), greet: false });
   server.define(FLOOR_ROOM, OfficeRoom, {
-    agentCount: 0,
-    agentDebug: false,
     liveAgents: floor,
     runnerEvents: floorLink,
   } satisfies Partial<OfficeRoomOptions>);

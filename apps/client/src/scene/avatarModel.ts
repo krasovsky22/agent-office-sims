@@ -8,13 +8,10 @@
  *
  * Bodies come in four looks. A remote player wears the model as authored; the
  * local player gets a lighter copy of its materials, so you can spot yourself;
- * every agent shares one recoloured copy of the shell, so an agent is never
- * mistaken for a person and a floor of them costs one extra material, not one
- * per agent; a simulated agent employee wears that shell over one shared
- * translucent copy of every material, so it reads as a ghost of an agent that
- * is doing nothing real; every live coding agent shares another shell, in a
- * colour of its own, so a real agent is told apart from a simulated one too;
- * and the AI manager wears a third, so the one in charge is picked out at once.
+ * every live coding agent shares one recoloured copy of the shell, so an agent
+ * is never mistaken for a person and a floor of them costs one extra material,
+ * not one per agent; and the AI manager wears another, so the one in charge is
+ * picked out at once.
  *
  * The load is allowed to fail. Nothing here throws anything the caller cannot
  * handle by leaving the avatar as the capsule it was built as.
@@ -49,29 +46,18 @@ const LOCAL_BODY_BRIGHTNESS = 1.35;
  * A fact about this asset, like the clip names in `avatarClips.ts`: the model's
  * three materials are `Main` (the orange shell), `Grey` and `Black`. A swapped
  * asset without one leaves agents in the player colours, still told apart by
- * their nameplates and badges.
+ * their nameplates.
  */
 const SHELL_MATERIAL_NAME = "Main";
 
-/** The agents' shell: teal, as far from the players' orange as the wheel goes. */
-const AGENT_SHELL_COLOUR = 0x2bb3a3;
-
-/**
- * How opaque a simulated agent employee's body is.
- *
- * See-through is the one look that reads as "not really here" from across the
- * open floor without changing its shape or its colour.
- */
-export const SIMULATED_BODY_OPACITY = 0.45;
-
-/** A live coding agent's shell: violet, clear of both the players and the agent employees. */
+/** A live coding agent's shell: violet, clear of the players' orange. */
 const LIVE_AGENT_SHELL_COLOUR = 0x8a6cf0;
 
 /** The AI manager's shell: crimson, the one body in the office in charge of the rest. */
 const MANAGER_SHELL_COLOUR = 0xcf3d4f;
 
 /** Which coat of paint a body is stamped out with. */
-export type AvatarLook = "local" | "remote" | "agent" | "simulated-agent" | "liveAgent" | "manager";
+export type AvatarLook = "local" | "remote" | "liveAgent" | "manager";
 
 /** A body ready to be added to an avatar's group, with the clips that drive it. */
 export interface AvatarModelInstance {
@@ -105,8 +91,6 @@ export function prepareAvatarModel(gltf: GLTF): AvatarModel {
 
   // Made on the first agent of each look and shared by every one after it, for
   // the life of the page, like the template's own materials.
-  const agentPaint = new Map<THREE.Material, THREE.Material>();
-  const simulatedAgentPaint = new Map<THREE.Material, THREE.Material>();
   const liveAgentPaint = new Map<THREE.Material, THREE.Material>();
   const managerPaint = new Map<THREE.Material, THREE.Material>();
 
@@ -116,10 +100,6 @@ export function prepareAvatarModel(gltf: GLTF): AvatarModel {
       let owned: THREE.Material[] = [];
       if (look === "local") {
         owned = repaint(root, new Map(), brighten);
-      } else if (look === "agent") {
-        repaint(root, agentPaint, paintAgentShell);
-      } else if (look === "simulated-agent") {
-        repaint(root, simulatedAgentPaint, paintSimulatedAgent);
       } else if (look === "liveAgent") {
         repaint(root, liveAgentPaint, paintLiveAgentShell);
       } else if (look === "manager") {
@@ -194,27 +174,11 @@ function paintShell(colour: number): MaterialPaint {
   };
 }
 
-/** The agent employees' paint. */
-const paintAgentShell = paintShell(AGENT_SHELL_COLOUR);
-
 /** The live coding agents' paint. */
 const paintLiveAgentShell = paintShell(LIVE_AGENT_SHELL_COLOUR);
 
 /** The AI manager's paint. */
 const paintManagerShell = paintShell(MANAGER_SHELL_COLOUR);
-
-/** A simulated agent's paint: the agents' shell, and the whole body translucent. */
-const paintSimulatedAgent: MaterialPaint = (source) => {
-  const copy = paintAgentShell(source) ?? source.clone();
-  markSimulated(copy);
-  return copy;
-};
-
-/** Makes a material see-through, the way every simulated agent's body is. */
-export function markSimulated(material: THREE.Material): void {
-  material.transparent = true;
-  material.opacity = SIMULATED_BODY_OPACITY;
-}
 
 /**
  * Swaps a body's materials for painted copies, reusing any already in `copies`.

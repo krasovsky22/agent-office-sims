@@ -4,15 +4,14 @@
  * Its parts are tested in `manager/`. What only a running room can show is
  * the issue's acceptance: the manager is in the office at its own desk; in
  * mock mode a question about a GitHub issue or the agents is answered from live
- * state with no network call; an assignment it makes is one the agent then
- * works; an executive's instruction is refused with a reason; and the room
+ * state with no network call; an assignment it cannot make is refused with the
+ * reason; an executive's instruction is refused with a reason; and the room
  * keeps ticking at full rate while the manager thinks.
  */
 
 import { Server, matchMaker } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
-  AGENT_ACTIVITY,
   CLIENT_MESSAGE,
   MANAGER_ENTRY_KIND,
   MANAGER_OCCUPANT_ID,
@@ -29,19 +28,14 @@ import {
   EMPTY_BOARD_LISTS,
   type ProjectBoardSnapshot,
   TICK_RATE_HZ,
-  WORK_STATUS,
-  isAgentEmployee,
   isAiManager,
   managerSeat,
-  workKey,
 } from "@sim/shared";
 import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createManagerAdvisor } from "../manager/advisor.js";
 import { createRulePlanner } from "../manager/fromConfig.js";
-import { createWorkExecutor } from "../work/executor.js";
-import { createMockProvider } from "../work/mockProvider.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./OfficeRoom.js";
 
 /** The project board the manager answers about and hands out from. */
@@ -64,15 +58,10 @@ const pondering: AbortSignal[] = [];
 beforeAll(async () => {
   server = new Server({ transport: new WebSocketTransport(), greet: false });
   server.define(OFFICE_ROOM_NAME, OfficeRoom, {
-    agentCount: 2,
-    agentDebug: false,
-    workExecutor: createWorkExecutor({ provider: createMockProvider({ minDelayMs: 50, maxDelayMs: 50 }) }),
     manager: createManagerAdvisor({ planner: createRulePlanner(0), mode: "rules" }),
     projectBoard: { current: () => BOARD, subscribe: () => () => undefined },
   } satisfies Partial<OfficeRoomOptions>);
   server.define(PONDERING_ROOM, OfficeRoom, {
-    agentCount: 1,
-    agentDebug: false,
     manager: createManagerAdvisor({
       mode: "model",
       planner: (_request, signal) => {
@@ -170,7 +159,7 @@ describe("the AI manager in a live room", () => {
 
     say(dana, "what is everyone working on?");
     await settled(() => replies(dana).length === 2);
-    expect(replies(dana)[1]?.text).toContain("Ada Byrne (Backend Engineer) is idle.");
+    expect(replies(dana)[1]?.text).toBe("Nobody is on the floor right now: there are no agents to report on.");
 
     const late = listen(await new Client(endpoint).joinById<OfficeState>(dana.room.roomId, { name: "Ivy" }));
     await settled(() => late.history.length === 1);
@@ -183,7 +172,7 @@ describe("the AI manager in a live room", () => {
 
   it("refuses an executive's instruction with the reason, and nobody hears it", async () => {
     const { dana, milo } = await openOffice();
-    say(milo, "put Ada on #1");
+    say(milo, "put someone on #1");
     await settled(() => milo.rejections.length === 1);
     expect(milo.rejections).toEqual([{ rejection: MANAGER_REJECTION.forbidden }]);
     expect(dana.entries).toEqual([]);
@@ -193,20 +182,18 @@ describe("the AI manager in a live room", () => {
     await dana.room.leave();
   });
 
-  it("answers about the project board, assigns an issue on the CEO's word, and the agent then works it", async () => {
+  it("answers about the project board, and says why it cannot hand an issue out with no orchestrator", async () => {
     const { dana, milo } = await openOffice();
     say(dana, "what's open?");
     await settled(() => replies(dana).length === 1);
     expect(replies(dana)[0]?.text).toContain("Open: #1 “Fix the login redirect loop”");
 
-    say(dana, "put Ada on #1");
+    say(dana, "put someone on #1");
     await settled(() => replies(dana).length === 2);
-    expect(replies(dana)[1]?.text).toContain("✓ #1");
-
-    const room = serverRoom(dana);
-    await settled(() => room.state.work.get(workKey(1))?.status === WORK_STATUS.in_progress);
-    const ada = room.state.occupants.get("agent-1");
-    expect(ada !== undefined && isAgentEmployee(ada) && ada.activity === AGENT_ACTIVITY.working).toBe(true);
+    expect(replies(dana)[1]?.text).toContain(
+      "✗ #1 “Fix the login redirect loop”: no agent orchestrator is connected, so I can't hand GitHub work to live agents.",
+    );
+    expect(serverRoom(dana).state.work.size).toBe(0);
 
     await milo.room.leave();
     await dana.room.leave();

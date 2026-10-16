@@ -17,11 +17,10 @@
  * agents' registry is made here for the same reason, and its report route is
  * only attached when a secret is configured.
  *
- * How agents do their issue work is read here too, so a model mode with no API key
- * stops the server at boot rather than failing the first issue an agent takes,
- * and how the AI manager answers, for the same reason. The manager's queue of
- * work for the live agents is made beside the registry it wraps, and its
- * collection route is attached with the report route. The runner link is made
+ * How the AI manager answers is read here too, so a model mode with no API key
+ * stops the server at boot rather than failing the CEO's first question. The
+ * manager's queue of work for the live agents is made beside the registry it
+ * wraps, and its collection route is attached with the report route. The runner link is made
  * here too, with its sync route only when `RUNNER_SECRET` is set, and the rooms
  * read its slots and the orchestrator's agents as one feed. The slots' screen
  * store and its route come with the link, since a screen belongs to a slot.
@@ -59,20 +58,8 @@ import { type RouteHandler, createHealthServer } from "./http.js";
 import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
 import { createOperatorGate } from "./sim/operator.js";
-import { createConfiguredExecutor, describeAgentWork } from "./work/fromConfig.js";
 
-const {
-  port,
-  allowedOrigins,
-  projectBoard,
-  agentWork,
-  agentCount,
-  agentDebug,
-  liveAgents,
-  runner,
-  operator,
-  manager,
-} = readConfig();
+const { port, allowedOrigins, projectBoard, liveAgents, runner, operator, manager } = readConfig();
 
 // The passphrase goes no further than this closure: rooms get a gate that
 // answers yes or no.
@@ -146,16 +133,12 @@ const server = new Server({
 });
 
 // Colyseus lets these server options win a collision with a client's join
-// options, so a client can never supply the feeds, the size of the staff, the
-// way the staff work or the manager thinks, or its own permission to send
-// debug commands. The executor and the manager's advisor are made once, so
-// each call budget is the whole server's.
+// options, so a client can never supply the feeds or the way the manager
+// thinks. The manager's advisor is made once, so its call budget is the whole
+// server's.
 server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   projectBoard: projectFeed,
-  agentCount,
   reconnectGraceSeconds: RECONNECT_GRACE_SECONDS,
-  agentDebug,
-  workExecutor: createConfiguredExecutor(agentWork),
   manager: createConfiguredManager(manager),
   ...(floor === undefined ? {} : { liveAgents: floor }),
   ...(liveAssignments === undefined ? {} : { liveAssignments }),
@@ -187,12 +170,7 @@ console.log(
   `project board: ${projectBoard.repository} every ${projectBoard.pollIntervalMs / 1000}s, ` +
     (projectBoard.token === undefined ? "anonymous" : "with a token"),
 );
-console.log(describeAgentWork(agentWork));
 console.log(describeManager(manager));
-console.log(`agent employees per room: ${agentCount}`);
-console.log(`agent debug commands: ${agentDebug ? "on" : "off"}`);
-
-
 console.log(
   liveAgents.secret === undefined
     ? "live agents: off (LIVE_AGENTS_SECRET is not set)"

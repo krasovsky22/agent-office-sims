@@ -8,31 +8,31 @@
  * All of the work is the project board's, and it goes two ways depending on
  * who is to do it:
  *
- * - **To an agent employee**, a GitHub issue goes through `applyWorkCommand`,
- *   with the CEO who gave the instruction as the actor: the manager acts on
- *   the CEO's behalf and with exactly the CEO's authority, so the work's one
- *   gate decides, and an assignment the CEO could not make is not made. The
- *   agent's brain then claims it as it would any assignment. Nothing is
- *   written to GitHub.
- * - **To a live coding agent**, an issue or pull request goes through the
- *   orchestrator's queue (`./liveAssignments.ts`); the manager decides and the
- *   orchestrator carries the work to the real agent. Pull requests only go
- *   this way: the agent employees work issues. A real agent runs code on a
- *   real machine, so where the office has an operator passphrase this takes
- *   a CEO who has proved it, by `mayCommandRealAgents`.
+ * - **To a live agent that can take issues**, a GitHub issue goes through
+ *   `applyWorkCommand`, with the CEO who gave the instruction as the actor:
+ *   the manager acts on the CEO's behalf and with exactly the CEO's authority,
+ *   so the work's one gate decides, and an assignment the CEO could not make
+ *   is not made.
+ * - **To one of the orchestrator's live agents**, an issue or pull request
+ *   goes through its queue (`./liveAssignments.ts`); the manager decides and
+ *   the orchestrator carries the work to the real agent. Pull requests only go
+ *   this way. A real agent runs code on a real machine, so where the office
+ *   has an operator passphrase this takes a CEO who has proved it, by
+ *   `mayCommandRealAgents`.
  *
- * "Someone" — an empty agent — is whoever is least loaded and not stuck, among
- * the agents who can do that kind of work, counting what this same plan has
- * already handed out, so "hand out the backlog" spreads it. For an issue that
- * is the agent employees, and the live agents only in an office that has no
- * employees at all.
+ * Nothing is written to GitHub.
+ *
+ * "Someone" — an empty agent — counts what this same plan has already handed
+ * out, so "hand out the backlog" spreads it. For an issue it is the agent that
+ * takes issues with the least on its plate, and one of the orchestrator's only
+ * in an office where no agent takes issues; otherwise it is an orchestrator's
+ * agent that is idle with nothing handed to it yet.
  *
  * Synchronous: the manager calls this between ticks, once the model's answer
  * is in, against the office as it is at that moment.
  */
 
 import {
-  AGENT_ACTIVITY,
   type Occupant,
   WORK_ACTION,
   WORK_REJECTION,
@@ -46,7 +46,7 @@ import {
 import { type WorkHost, applyAs } from "../rooms/workHandlers.js";
 import type { PlannedAssignment } from "./advisor.js";
 import type { LiveAssignmentQueue } from "./liveAssignments.js";
-import type { AgentView, IssueView, LiveAgentView, OfficeView } from "./officeView.js";
+import type { IssueAgentView, IssueView, LiveAgentView, OfficeView } from "./officeView.js";
 import { type WorkRef, describeWork, resolveAgent, resolveWork } from "./resolve.js";
 
 /** Most assignments one plan may make, so a runaway model cannot reassign the whole board. */
@@ -71,7 +71,7 @@ const REFUSAL_TEXT: Readonly<Record<WorkRejection, string>> = {
   [WORK_REJECTION.unknownIssue]: "it is not open on the project board",
   [WORK_REJECTION.noWork]: "nobody is working it",
   [WORK_REJECTION.illegalTransition]: "it is finished, and finished work keeps who did it",
-  [WORK_REJECTION.unknownAssignee]: "that agent is no longer in the office",
+  [WORK_REJECTION.unknownAssignee]: "that agent can no longer take issues",
   [WORK_REJECTION.missingArtifact]: "it has no deliverable",
 };
 
@@ -107,33 +107,29 @@ function carryOutOne(
   }
 
   const named = assignment.agent.trim();
-  if (named === "") {
-    if (work.kind === "issue" && (context.view.agents.length > 0 || context.queue === undefined)) {
-      const agent = freeAgent(context.view, load, work.issue.work?.assigneeId ?? "");
-      return agent === undefined
-        ? `✗ ${label}: there are no agent employees to give it to.`
-        : assignIssue(work.issue, label, agent, context, load);
-    }
-    return queueForLiveAgent(work, label, undefined, context, load);
-  }
-
-  const ref = resolveAgent(named, context.view);
-  if (ref === undefined) {
+  const agent = named === "" ? undefined : resolveAgent(named, context.view);
+  if (named !== "" && agent === undefined) {
     return `✗ ${label}: nobody called ${named} works here.`;
   }
-  if (ref.kind === "live") {
-    return queueForLiveAgent(work, label, ref.agent, context, load);
+  const taker = context.view.issueAgents.find((candidate) => candidate === agent);
+  if (work.kind === "issue") {
+    const assignee =
+      taker ??
+      (agent === undefined ? freeIssueAgent(context.view, load, work.issue.work?.assigneeId ?? "") : undefined);
+    if (assignee !== undefined) {
+      return assignIssue(work.issue, label, assignee, context, load);
+    }
+  } else if (taker !== undefined) {
+    return `✗ ${label}: pull requests go to the orchestrator's agents, and ${taker.name} is not one of them.`;
   }
-  if (work.kind === "pull") {
-    return `✗ ${label}: ${ref.agent.name} is simulated staff and works issues; pull requests go to the live coding agents.`;
-  }
-  return assignIssue(work.issue, label, ref.agent, context, load);
+  const live = context.view.liveAgents.find((candidate) => candidate === agent);
+  return queueForLiveAgent(work, label, live, context, load);
 }
 
 function assignIssue(
   issue: IssueView,
   label: string,
-  agent: AgentView,
+  agent: IssueAgentView,
   context: AssignContext,
   load: Map<string, number>,
 ): string {
@@ -150,7 +146,7 @@ function assignIssue(
   }
   load.set(agent.id, (load.get(agent.id) ?? 0) + 1);
   const from = current?.assignee === undefined ? "" : ` (from ${current.assignee})`;
-  return `✓ ${label} → ${agent.name}, ${agent.jobTitle}${from}.`;
+  return `✓ ${label} → ${agent.name}${from}.`;
 }
 
 function queueForLiveAgent(
@@ -196,24 +192,23 @@ function queueForLiveAgent(
 }
 
 /**
- * The agent employee to give an issue to when the CEO named nobody: not stuck,
- * then fewest issues on their plate, then idle before busy, then roster order.
- * Never the issue's current assignee, which would be no change.
+ * The agent to give an issue to when the CEO named nobody: fewest issues on
+ * its plate, then roster order, and the issue's current assignee only when
+ * there is nobody else, which is no change.
  */
-function freeAgent(view: OfficeView, load: ReadonlyMap<string, number>, currentId: string): AgentView | undefined {
-  const plate = (agent: AgentView) =>
+function freeIssueAgent(view: OfficeView, load: ReadonlyMap<string, number>, currentId: string): IssueAgentView | undefined {
+  const plate = (agent: IssueAgentView) =>
     view.work.filter(
       (work) =>
         work.assigneeId === agent.id &&
         (work.status === WORK_STATUS.assigned || work.status === WORK_STATUS.in_progress),
     ).length + (load.get(agent.id) ?? 0);
-  const candidates = view.agents.filter((agent) => agent.id !== currentId);
-  return [...candidates].sort(
+  const agents = view.issueAgents;
+  return [...agents].sort(
     (a, b) =>
-      Number(a.activity === AGENT_ACTIVITY.blocked) - Number(b.activity === AGENT_ACTIVITY.blocked) ||
+      Number(a.id === currentId) - Number(b.id === currentId) ||
       plate(a) - plate(b) ||
-      Number(a.activity !== AGENT_ACTIVITY.idle) - Number(b.activity !== AGENT_ACTIVITY.idle) ||
-      candidates.indexOf(a) - candidates.indexOf(b),
+      agents.indexOf(a) - agents.indexOf(b),
   )[0];
 }
 

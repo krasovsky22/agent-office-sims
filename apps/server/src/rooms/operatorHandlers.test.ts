@@ -68,8 +68,6 @@ beforeAll(async () => {
 
   server = new Server({ transport: new WebSocketTransport(), greet: false });
   const options = {
-    agentCount: 0,
-    agentDebug: false,
     manager: createManagerAdvisor({ planner: createRulePlanner(0), mode: "rules" }),
     projectBoard: { current: () => BOARD, subscribe: () => () => undefined },
     liveAgents: queue,

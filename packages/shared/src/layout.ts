@@ -173,7 +173,7 @@ export interface DoorwaySpec {
 /**
  * A navigation node.
  *
- * What agent employees path through: `nav.ts` routes over these nodes and the
+ * What live agents path through: `nav.ts` routes over these nodes and the
  * server's agent steering walks each link. Every room and every doorway holds
  * at least one node, and the graph is connected, so a path exists between any
  * two nodes.
@@ -233,7 +233,7 @@ export interface InteractableSpec {
   readonly exit: Vec2 | undefined;
   /**
    * The desk a seat belongs to, or `undefined` for anything that is not a
-   * seat. It is what lets a desk given to an agent keep its chairs.
+   * seat. It is how the manager's chair is found from its desk.
    */
   readonly deskId: string | undefined;
 }
@@ -295,13 +295,6 @@ export interface OfficeLayout {
   readonly waypoints: readonly WaypointSpec[];
   /** Cycled through in arrival order so occupants do not stack up. */
   readonly spawnPoints: readonly SpawnSpec[];
-  /**
-   * Ids of the desks agent employees are given, in hiring order: the first
-   * agent hired gets the first desk. A desk an agent has is not a desk a
-   * player can sit at; a room hiring fewer agents than this leaves the rest
-   * free for players.
-   */
-  readonly agentDesks: readonly string[];
   /**
    * Interactables placed by hand. Desk seats and the coffee machine are not
    * listed here: they are derived from the desk and the prop they belong to,
@@ -682,20 +675,6 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { x: 7.2, z: 2.5, yaw: 0 },
     { x: 0, z: 3, yaw: 0 },
   ],
-  // Open-floor desks either side of the aisle players spawn into, so the first
-  // few hires are in view on arrival; the wall desks and the back row come
-  // after. Alternating rows keeps two neighbours from standing shoulder to
-  // shoulder, which is what makes a floor of them unreadable.
-  agentDesks: [
-    "desk-north-3",
-    "desk-middle-4",
-    "desk-north-5",
-    "desk-middle-2",
-    "desk-west-wall",
-    "desk-east-wall",
-    "desk-south-3",
-    "desk-south-4",
-  ],
   fixtures: [
     // Across the manager's desk from its chair, facing it. The desk and the
     // manager sitting at it are what show it, so it needs no volume.
@@ -1043,19 +1022,6 @@ export function describeLayoutProblems(layout: OfficeLayout): string[] {
     }
   }
 
-  // Two agents given one desk would stand inside each other, and a desk id
-  // that names nothing is an agent the room cannot place.
-  const deskIds = new Set(layout.desks.map((spec) => spec.id));
-  const givenDesks = new Set<string>();
-  for (const id of layout.agentDesks) {
-    if (!deskIds.has(id)) {
-      problems.push(`agent desk ${id} is not a desk in the layout`);
-    }
-    if (givenDesks.has(id)) {
-      problems.push(`agent desk ${id} is given out twice`);
-    }
-    givenDesks.add(id);
-  }
   return problems;
 }
 

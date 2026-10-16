@@ -4,9 +4,10 @@
  * Both ways the manager answers — by rule (`./rulePlanner.ts`) and through a
  * model (`./modelPlanner.ts`) — read the same view, so a mock answer and a
  * model's answer are about the same office. It covers what the CEO asks about:
- * the agent employees and the issues they are on, the live coding agents and
- * their tasks, and this repository's issues and pull requests from the project
- * board's feed, each issue with whatever the office is doing about it.
+ * the live coding agents and their tasks, the agents on the floor that can be
+ * given an issue, and this repository's issues and
+ * pull requests from the project board's feed, each issue with whatever the
+ * office is doing about it.
  *
  * Built synchronously, in one pass over the room's state, between ticks. It
  * holds no schema objects: the model is handed it as JSON, and nothing the
@@ -15,7 +16,6 @@
  */
 
 import {
-  type AgentActivity,
   type BoardIssue,
   type CheckStatus,
   type LiveAgentStatus,
@@ -23,22 +23,13 @@ import {
   type ProjectBoardSnapshot,
   WORK_STATUSES,
   type WorkStatus,
-  isAgentEmployee,
+  actorOf,
   isCeo,
+  isIssueAssignee,
   taskReference,
 } from "@sim/shared";
 
 import type { LiveAgentRecord } from "../agents/registry.js";
-
-/** An agent employee, simulated, working the project board's issues. */
-export interface AgentView {
-  readonly id: string;
-  readonly name: string;
-  readonly jobTitle: string;
-  readonly activity: AgentActivity;
-  /** The issue it is holding, if any. */
-  readonly issueNumber: number | undefined;
-}
 
 /** A link with the short handle a person would say: `#33`, `PR #40`, or `""`. */
 export interface LinkView {
@@ -58,7 +49,17 @@ export interface LiveAgentView {
   readonly assigned: LinkView | undefined;
 }
 
-/** What an agent employee is doing about one issue. */
+/**
+ * A live agent on the floor that issue work can be given to directly, through
+ * the office's work rules; see `isIssueAssignee`.
+ */
+export interface IssueAgentView {
+  /** Its occupant key, which is what its work names as the assignee. */
+  readonly id: string;
+  readonly name: string;
+}
+
+/** What an agent is doing about one issue. */
 export interface WorkView {
   readonly issueNumber: number;
   /** The issue's title, as of the last snapshot that listed it. */
@@ -85,7 +86,7 @@ export interface IssueView {
   readonly assignees: readonly string[];
   /** Open pull requests that say they close it. */
   readonly pullRequests: readonly number[];
-  /** What an agent employee is doing about it, if anyone is. */
+  /** What an agent in the office is doing about it, if anyone is. */
   readonly work: WorkView | undefined;
 }
 
@@ -114,8 +115,8 @@ export interface ProjectView {
 export interface OfficeView {
   /** The CEO's name, or `undefined` in the moment nobody holds the role. */
   readonly ceo: string | undefined;
-  readonly agents: readonly AgentView[];
   readonly liveAgents: readonly LiveAgentView[];
+  readonly issueAgents: readonly IssueAgentView[];
   /**
    * Every piece of work in the office, by status then issue number, including
    * finished work on an issue the board no longer lists.
@@ -140,20 +141,14 @@ function link(title: string, url: string): LinkView {
 
 export function readOfficeView(sources: OfficeViewSources): OfficeView {
   const { state } = sources;
-  const agents: AgentView[] = [];
   let ceo: string | undefined;
+  const issueAgents: IssueAgentView[] = [];
   for (const occupant of state.occupants.values()) {
     if (isCeo(occupant)) {
       ceo = occupant.name;
     }
-    if (isAgentEmployee(occupant)) {
-      agents.push({
-        id: occupant.id,
-        name: occupant.name,
-        jobTitle: occupant.jobTitle,
-        activity: occupant.activity,
-        issueNumber: occupant.currentIssueNumber === 0 ? undefined : occupant.currentIssueNumber,
-      });
+    if (isIssueAssignee(actorOf(occupant))) {
+      issueAgents.push({ id: occupant.id, name: occupant.name });
     }
   }
 
@@ -183,8 +178,8 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
 
   return {
     ceo,
-    agents,
     liveAgents,
+    issueAgents,
     work,
     project: sources.project === undefined ? undefined : readProject(sources.project, work),
     orchestrator: sources.liveAgents !== undefined,

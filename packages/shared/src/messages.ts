@@ -25,7 +25,6 @@ import {
 import type { ManagerRejection } from "./manager.js";
 import { MAX_OPERATOR_PASSPHRASE_LENGTH, type OperatorRejection } from "./operator.js";
 import { ANIMATION_STATE, type ReportedAnimation, type WorkStatus, isWorkStatus } from "./state.js";
-import type { StaffAction, StaffRejection } from "./staffing.js";
 import type { WorkAction, WorkRejection } from "./work.js";
 
 /** Matchmaking name of the only room type this milestone defines. */
@@ -42,21 +41,12 @@ export const CLIENT_MESSAGE = {
   interact: "interact",
   /** A request to stop using whatever the sender is currently engaged with. */
   release: "release",
-  /** Give an open GitHub issue to an agent employee, or hand its work to another. */
+  /** Give an open GitHub issue to an agent, or hand its work to another. */
   workAssign: "work:assign",
   /** Take an issue back off the agent it was given to before they started it. */
   workRelease: "work:release",
   /** Move an issue's work to an adjacent status: approve it, send it back, retry it. */
   workMove: "work:move",
-  /**
-   * Send a named agent walking to a waypoint or a position. A development
-   * tool: the server only honours it when started with `AGENT_DEBUG=on`.
-   */
-  debugGoto: "debug:goto",
-  /** Hire an agent for one of the candidate jobs, at the first free desk. */
-  staffHire: "staff:hire",
-  /** Let an agent employee go. */
-  staffFire: "staff:fire",
   /** Say something to the AI manager; only the CEO is listened to. */
   managerSay: "manager:say",
   /** Prove the operator passphrase, to command the real coding agents; see `operator.ts`. */
@@ -91,19 +81,6 @@ export const SERVER_MESSAGE = {
    * the announcement, not the change.
    */
   ceoChanged: "ceo-changed",
-  /** Sent only to the client whose debug command it answers. */
-  debugReply: "debug:reply",
-  /**
-   * Sent only to the client whose hire or fire was refused, with the reason.
-   * Carries a {@link StaffRejectedEvent}.
-   */
-  staffRejected: "staff-rejected",
-  /**
-   * Someone joined or left the staff: hired, fired, or quit. Broadcast to every
-   * client as a {@link StaffChangedEvent}. The agent itself is replicated
-   * state; this is the announcement, carrying the why that state cannot.
-   */
-  staffChanged: "staff-changed",
   /**
    * The conversation with the AI manager so far, a {@link ManagerHistoryEvent},
    * sent to each client as it joins.
@@ -140,8 +117,7 @@ export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESS
  * The gestures an occupant can perform.
  *
  * A closed vocabulary rather than free text: every value here has to have a
- * sprite drawn for it, and a client cannot invent a sixth one. Agent employees
- * will emote from this same set.
+ * sprite drawn for it, and a client cannot invent a sixth one.
  */
 export const EMOTE = {
   wave: "wave",
@@ -205,25 +181,6 @@ export interface ChatEvent {
   readonly text: string;
 }
 
-/**
- * Which agent to send where.
- *
- * `agent` is matched by the server against agent ids and names, so a person
- * typing it can write `ada`. `target` is a waypoint id from the layout or a
- * floor position; whether either exists, or can be stood on, is the server's
- * to decide.
- */
-export interface DebugGotoMessage {
-  readonly agent: string;
-  readonly target: string | { readonly x: number; readonly z: number };
-}
-
-/** What became of a debug command, for the client that sent it. */
-export interface DebugReplyEvent {
-  readonly ok: boolean;
-  readonly text: string;
-}
-
 /** A client's own message was dropped because it was sending too fast. */
 export interface ThrottledEvent {
   readonly command:
@@ -269,50 +226,6 @@ export interface CeoChangedEvent {
 export interface OperatorRejectedEvent {
   readonly rejection: OperatorRejection;
 }
-
-/** The office refused one of this client's hire or fire commands and changed nothing. */
-export interface StaffRejectedEvent {
-  readonly action: StaffAction;
-  readonly rejection: StaffRejection;
-}
-
-/** How someone came to join or leave the staff. */
-export const STAFF_CHANGE = {
-  hired: "hired",
-  fired: "fired",
-  quit: "quit",
-} as const;
-
-export type StaffChange = (typeof STAFF_CHANGE)[keyof typeof STAFF_CHANGE];
-
-/**
- * A change to the staff, as announced to every client.
- *
- * Carries the agent's name and title rather than only its id, because for a
- * departure the agent is already gone from the occupants map by the time the
- * announcement is read.
- */
-export type StaffChangedEvent = {
-  readonly agentId: string;
-  readonly name: string;
-  readonly jobTitle: string;
-  readonly salary: number;
-} & (
-  | { readonly change: typeof STAFF_CHANGE.hired }
-  | {
-      readonly change: typeof STAFF_CHANGE.fired;
-      /** How far company morale fell, in points. */
-      readonly moraleLost: number;
-      /** Issues they had not finished, now free for someone else. */
-      readonly releasedIssues: number;
-    }
-  | {
-      readonly change: typeof STAFF_CHANGE.quit;
-      /** Why they went, in words, e.g. "morale stayed under 30% for 3 days". */
-      readonly reason: string;
-      readonly releasedIssues: number;
-    }
-);
 
 /** Who wrote a line in the conversation with the AI manager, and why. */
 export const MANAGER_ENTRY_KIND = {
@@ -392,16 +305,6 @@ export interface WorkReleaseMessage {
 export interface WorkMoveMessage {
   readonly issueNumber: number;
   readonly status: WorkStatus;
-}
-
-/** Which job the CEO wants to hire for; one of `HIRING_CANDIDATES`. */
-export interface StaffHireMessage {
-  readonly candidateId: string;
-}
-
-/** Which agent employee the CEO wants to let go. */
-export interface StaffFireMessage {
-  readonly agentId: string;
 }
 
 /**
@@ -727,49 +630,4 @@ export function parseWorkMoveMessage(raw: unknown): WorkMoveMessage | undefined 
     return undefined;
   }
   return { issueNumber: candidate.issueNumber, status: candidate.status };
-}
-
-/**
- * Validates a raw `debug:goto` payload.
- *
- * Shape only, like every parser here: an agent name nobody has, or a waypoint
- * the layout lacks, is refused by the server with a reply saying so.
- */
-export function parseDebugGotoMessage(raw: unknown): DebugGotoMessage | undefined {
-  const candidate = asRecord(raw);
-  if (candidate === undefined || !isId(candidate.agent)) {
-    return undefined;
-  }
-  const { target } = candidate;
-  if (isId(target)) {
-    return { agent: candidate.agent, target };
-  }
-  const position = asRecord(target);
-  if (position === undefined || !isFiniteNumber(position.x) || !isFiniteNumber(position.z)) {
-    return undefined;
-  }
-  return { agent: candidate.agent, target: { x: position.x, z: position.z } };
-}
-
-/**
- * Validates a raw `staff:hire` payload.
- *
- * Only the shape: whether the office offers that job is the staffing rules'
- * call, as an unknown issue number is the work rules'.
- */
-export function parseStaffHireMessage(raw: unknown): StaffHireMessage | undefined {
-  const candidate = asRecord(raw);
-  if (candidate === undefined || !isId(candidate.candidateId)) {
-    return undefined;
-  }
-  return { candidateId: candidate.candidateId };
-}
-
-/** Validates a raw `staff:fire` payload. */
-export function parseStaffFireMessage(raw: unknown): StaffFireMessage | undefined {
-  const candidate = asRecord(raw);
-  if (candidate === undefined || !isId(candidate.agentId)) {
-    return undefined;
-  }
-  return { agentId: candidate.agentId };
 }

@@ -2,25 +2,19 @@
  * The origin allowlist is the piece of deployment configuration that is a
  * security boundary rather than a convenience. Each case below is a claim the
  * README makes about `ALLOWED_ORIGINS`, or about the project board's
- * `PROJECT_BOARD_*` variables and `AGENT_COUNT`, which refuse to start the
- * server when they are wrong rather than polling a repository nobody meant or
- * hiring a staff nobody asked for, or about the live agents' `LIVE_AGENTS_*`,
- * which refuse a secret too short to be one, as `RUNNER_SECRET` and
- * `OPERATOR_PASSPHRASE` do; a runner with no passphrase refuses to boot at
- * all unless `REAL_AGENTS_TRUST_CEO` says so. The agent work variables follow
- * the same rule: a model mode with no key stops the boot, not an issue, and so
- * do the AI manager's `MOCK_MANAGER` and `MANAGER_*`.
+ * `PROJECT_BOARD_*` variables, which refuse to start the server when they are
+ * wrong rather than polling a repository nobody meant, or about the live
+ * agents' `LIVE_AGENTS_*`, which refuse a secret too short to be one, as
+ * `RUNNER_SECRET` and `OPERATOR_PASSPHRASE` do; a runner with no passphrase
+ * refuses to boot at all unless `REAL_AGENTS_TRUST_CEO` says so. The AI
+ * manager's `MOCK_MANAGER` and `MANAGER_*` follow the same rule: a model mode
+ * with no key stops the boot, not a question.
  */
 
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_AGENT_COUNT, MAX_AGENT_COUNT } from "@sim/shared";
-
 import {
   isOriginAllowed,
-  readAgentCount,
-  readAgentDebug,
-  readAgentWorkConfig,
   readAllowedOrigins,
   readLiveAgentsConfig,
   readConfig,
@@ -149,60 +143,11 @@ describe("readProjectBoardConfig", () => {
   });
 });
 
-describe("readAgentWorkConfig", () => {
-  it("runs mock agents unless told otherwise", () => {
-    expect(readAgentWorkConfig({})).toEqual({ mode: "mock" });
-    expect(readAgentWorkConfig({ MOCK_AGENTS: "" })).toEqual({ mode: "mock" });
-    expect(readAgentWorkConfig({ MOCK_AGENTS: "on", ANTHROPIC_API_KEY: "k" })).toEqual({ mode: "mock" });
-  });
-
-  it("uses the model, with default budgets, when mock is off and a key is present", () => {
-    expect(readAgentWorkConfig({ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: " sk-test " })).toEqual({
-      mode: "model",
-      apiKey: "sk-test",
-      model: "claude-opus-5-5",
-      callsPerDay: 200,
-      callsPerRun: 1000,
-    });
-  });
-
-  it("reads the model and budgets", () => {
-    const config = readAgentWorkConfig({
-      MOCK_AGENTS: "off",
-      ANTHROPIC_API_KEY: "k",
-      AGENT_MODEL: "claude-sonnet-5-5",
-      AGENT_CALLS_PER_DAY: "20",
-      AGENT_CALLS_PER_RUN: "0",
-    });
-    expect(config).toMatchObject({ model: "claude-sonnet-5-5", callsPerDay: 20, callsPerRun: 0 });
-  });
-
-  it("refuses to start in model mode without a key, and says how to fix it", () => {
-    expect(() => readAgentWorkConfig({ MOCK_AGENTS: "off" })).toThrow(/ANTHROPIC_API_KEY.*MOCK_AGENTS on/);
-    expect(() => readAgentWorkConfig({ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "  " })).toThrow(/ANTHROPIC_API_KEY/);
-  });
-
-  it.each([
-    [{ MOCK_AGENTS: "maybe" }, /MOCK_AGENTS/],
-    [{ MOCK_AGENTS: "false", ANTHROPIC_API_KEY: "k" }, /MOCK_AGENTS/],
-    [{ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "k", AGENT_CALLS_PER_DAY: "-1" }, /AGENT_CALLS_PER_DAY/],
-    [{ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "k", AGENT_CALLS_PER_RUN: "lots" }, /AGENT_CALLS_PER_RUN/],
-  ])("rejects %j", (env, pattern) => {
-    expect(() => readAgentWorkConfig(env)).toThrow(pattern);
-  });
-
-  it("never puts the key in an error", () => {
-    expect(() =>
-      readAgentWorkConfig({ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "sk-secret", AGENT_CALLS_PER_DAY: "x" }),
-    ).toThrow(expect.objectContaining({ message: expect.not.stringContaining("sk-secret") }));
-  });
-});
-
 describe("readManagerConfig", () => {
-  it("answers by rule unless told otherwise, even when the agents use a model", () => {
+  it("answers by rule unless told otherwise, even with a key present", () => {
     expect(readManagerConfig({})).toEqual({ mode: "mock" });
     expect(readManagerConfig({ MOCK_MANAGER: " On " })).toEqual({ mode: "mock" });
-    expect(readManagerConfig({ MOCK_AGENTS: "off", ANTHROPIC_API_KEY: "k" })).toEqual({ mode: "mock" });
+    expect(readManagerConfig({ ANTHROPIC_API_KEY: "k" })).toEqual({ mode: "mock" });
   });
 
   it("uses the model, with its own default budgets, when mock is off and a key is present", () => {
@@ -236,40 +181,6 @@ describe("readManagerConfig", () => {
     expect(() =>
       readManagerConfig({ MOCK_MANAGER: "off", ANTHROPIC_API_KEY: "sk-secret", MANAGER_CALLS_PER_RUN: "x" }),
     ).toThrow(expect.objectContaining({ message: expect.not.stringContaining("sk-secret") }));
-  });
-});
-
-describe("readAgentCount", () => {
-  it("defaults when unset or empty", () => {
-    expect(readAgentCount({})).toBe(DEFAULT_AGENT_COUNT);
-    expect(readAgentCount({ AGENT_COUNT: " " })).toBe(DEFAULT_AGENT_COUNT);
-  });
-
-  it("reads any whole count the roster can staff, none included", () => {
-    expect(readAgentCount({ AGENT_COUNT: "0" })).toBe(0);
-    expect(readAgentCount({ AGENT_COUNT: "3" })).toBe(3);
-    expect(readAgentCount({ AGENT_COUNT: String(MAX_AGENT_COUNT) })).toBe(MAX_AGENT_COUNT);
-  });
-
-  it.each(["-1", "2.5", "five", String(MAX_AGENT_COUNT + 1)])("rejects %j", (value) => {
-    expect(() => readAgentCount({ AGENT_COUNT: value })).toThrow(/AGENT_COUNT/);
-  });
-});
-
-describe("readAgentDebug", () => {
-  it("is off unless asked for, so a deployment never exposes it by accident", () => {
-    expect(readAgentDebug({})).toBe(false);
-    expect(readAgentDebug({ AGENT_DEBUG: " " })).toBe(false);
-    expect(readAgentDebug({ AGENT_DEBUG: "off" })).toBe(false);
-  });
-
-  it("turns on by name, in any case", () => {
-    expect(readAgentDebug({ AGENT_DEBUG: "on" })).toBe(true);
-    expect(readAgentDebug({ AGENT_DEBUG: " ON " })).toBe(true);
-  });
-
-  it.each(["yes", "1", "true"])("rejects %j rather than guessing", (value) => {
-    expect(() => readAgentDebug({ AGENT_DEBUG: value })).toThrow(/AGENT_DEBUG/);
   });
 });
 

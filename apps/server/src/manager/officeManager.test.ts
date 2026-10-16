@@ -11,11 +11,12 @@
  */
 
 import {
-  AGENT_ACTIVITY,
-  type AgentEmployee,
   type BoardIssue,
   EMPTY_BOARD_LISTS,
   HumanPlayer,
+  IssueWork,
+  LIVE_AGENT_REPORT_STATUS,
+  LiveAgent,
   MANAGER_ENTRY_KIND,
   MANAGER_OCCUPANT_ID,
   MANAGER_REJECTION,
@@ -26,20 +27,19 @@ import {
   OfficeState,
   PLAYER_ROLE,
   type ProjectBoardSnapshot,
-  WORK_ACTION,
   WORK_STATUS,
-  actorOf,
   employManager,
   isAiManager,
   workKey,
 } from "@sim/shared";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type WorkHost, applyAs } from "../rooms/workHandlers.js";
-import { hireAgentEmployees } from "../sim/agents.js";
-import { WORK_FAILURE } from "../work/executor.js";
+import { LiveAgentRegistry } from "../agents/registry.js";
+import type { WorkHost } from "../rooms/workHandlers.js";
 import { type ManagerAdvisor, type ManagerPlan, type ManagerPlanner, createManagerAdvisor } from "./advisor.js";
+import { LiveAssignmentQueue } from "./liveAssignments.js";
 import { MAX_WAITING_MESSAGES, OfficeManager } from "./officeManager.js";
+import { ADVICE_FAILURE } from "./plannerError.js";
 import { planFromRules } from "./rulePlanner.js";
 
 function player(id: string, name: string, ceo: boolean): HumanPlayer {
@@ -93,15 +93,22 @@ function setUp(advisor: ManagerAdvisor, updateIntervalMs = 60_000) {
     throw new Error("the shipped layout has no manager's desk");
   }
   state.occupants.set(manager.id, manager);
-  const [ada] = hireAgentEmployees(state.occupants, OFFICE_LAYOUT, 2);
+  const crewmate = new LiveAgent();
+  crewmate.id = "crew-1";
+  crewmate.name = "Crewmate";
+  state.occupants.set(crewmate.id, crewmate);
   const work: WorkHost = { state, now: () => 5000, board: () => BOARD };
+
+  const registry = new LiveAgentRegistry({ timeoutMs: 60_000, maxAgents: 4 });
+  registry.report({ id: crewmate.id, name: crewmate.name, status: LIVE_AGENT_REPORT_STATUS.idle, task: undefined });
+  const queue = new LiveAssignmentQueue({ agents: registry });
 
   const published: ManagerEntry[] = [];
   const managerOfRoom = new OfficeManager({
     work,
     advisor,
-    liveAgents: undefined,
-    assignments: undefined,
+    liveAgents: queue,
+    assignments: queue,
     origin: "room-a",
     publish: (entry) => published.push(entry),
     updateIntervalMs,
@@ -112,7 +119,7 @@ function setUp(advisor: ManagerAdvisor, updateIntervalMs = 60_000) {
     const occupant = state.occupants.get(MANAGER_OCCUPANT_ID);
     return occupant !== undefined && isAiManager(occupant) ? occupant.status : undefined;
   };
-  return { state, work, dana, milo, ada: ada as AgentEmployee, office: managerOfRoom, published, status };
+  return { state, dana, milo, queue, office: managerOfRoom, published, status };
 }
 
 async function until(check: () => boolean, timeoutMs = 2000): Promise<void> {
@@ -130,7 +137,7 @@ const rules = () => createManagerAdvisor({ planner: async (request) => planFromR
 describe("OfficeManager", () => {
   it("takes instructions from the CEO alone, and records nothing from anyone else", () => {
     const { milo, office, published } = setUp(rules());
-    expect(office.instruct(milo, "put Ada on #10")).toBe(MANAGER_REJECTION.forbidden);
+    expect(office.instruct(milo, "put Crewmate on #10")).toBe(MANAGER_REJECTION.forbidden);
     expect(published).toEqual([]);
     expect(office.history()).toEqual([]);
   });
@@ -154,24 +161,26 @@ describe("OfficeManager", () => {
   });
 
   it("carries out the assignments in its plan, and says how each went", async () => {
-    const { dana, state, office, published } = setUp(rules());
-    office.instruct(dana, "put Ada on #10");
+    const { dana, queue, office, published } = setUp(rules());
+    office.instruct(dana, "put Crewmate on #10");
     await until(() => published.length === 2);
-    expect(published[1]?.text).toBe("Here's how that went:\n✓ #10 “Fix the login redirect loop” → Ada Byrne, Backend Engineer.");
-    expect(state.work.get(workKey(10))).toMatchObject({ status: WORK_STATUS.assigned, assigneeId: "agent-1" });
+    expect(published[1]?.text).toBe(
+      "Here's how that went:\n✓ #10 “Fix the login redirect loop” → Crewmate; queued for the orchestrator to hand over.",
+    );
+    expect(queue.collect()).toEqual([expect.objectContaining({ agentId: "crew-1", requestedBy: "Dana" })]);
   });
 
   it("hands nothing out for a CEO who lost the role while it was thinking", async () => {
     const held = heldPlanner();
-    const { dana, milo, state, office, published } = setUp(createManagerAdvisor({ planner: held.planner, mode: "model" }));
-    office.instruct(dana, "put Ada on #10");
+    const { dana, milo, queue, office, published } = setUp(createManagerAdvisor({ planner: held.planner, mode: "model" }));
+    office.instruct(dana, "put Crewmate on #10");
     await until(() => held.waiting.length === 1);
     dana.role = PLAYER_ROLE.exec;
     milo.role = PLAYER_ROLE.ceo;
-    held.waiting[0]?.resolve({ reply: "On it.", assignments: [{ work: "#10", agent: "agent-1" }], tokensUsed: 0 });
+    held.waiting[0]?.resolve({ reply: "On it.", assignments: [{ work: "#10", agent: "crew-1" }], tokensUsed: 0 });
     await until(() => published.length === 2);
     expect(published[1]?.text).toContain("You are no longer the CEO");
-    expect(state.work.size).toBe(0);
+    expect(queue.collect()).toEqual([]);
   });
 
   it("holds a few messages while it answers one, and turns away more", async () => {
@@ -188,7 +197,7 @@ describe("OfficeManager", () => {
   it("answers by rule, and says so, when its model fails", async () => {
     const advisor: ManagerAdvisor = {
       mode: "model",
-      advise: async () => ({ ok: false, reason: WORK_FAILURE.timeout, message: "no answer within 60s", attempts: 2, tokensUsed: 0 }),
+      advise: async () => ({ ok: false, reason: ADVICE_FAILURE.timeout, message: "no answer within 60s", attempts: 2, tokensUsed: 0 }),
     };
     const { dana, office, published } = setUp(advisor);
     office.instruct(dana, "status of #11?");
@@ -199,18 +208,14 @@ describe("OfficeManager", () => {
     );
   });
 
-  it("posts an update when work is handed in or an agent gets stuck, but not about what it found on arrival", async () => {
-    const { state, work, dana, ada, published } = setUp(rules(), 10);
-    const assigned = applyAs(work, actorOf(dana), {
-      action: WORK_ACTION.assign,
-      payload: { issueNumber: 10, assigneeId: ada.id },
-    });
-    const entry = state.work.get(workKey(10));
-    if (!assigned.ok || entry === undefined) {
-      throw new Error("could not give #10 to Ada");
-    }
+  it("posts an update when work is handed in, but not about what it found on arrival", async () => {
+    const { state, published } = setUp(rules(), 10);
+    const entry = new IssueWork();
+    entry.issueNumber = 10;
+    entry.title = "Fix the login redirect loop";
     entry.status = WORK_STATUS.in_progress;
-    ada.currentIssueNumber = 10;
+    entry.assigneeId = "crew-1";
+    state.work.set(workKey(10), entry);
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(published).toEqual([]);
 
@@ -218,13 +223,8 @@ describe("OfficeManager", () => {
     await until(() => published.length === 1);
     expect(published[0]).toMatchObject({
       kind: MANAGER_ENTRY_KIND.update,
-      text: "Ada Byrne handed in #10 “Fix the login redirect loop” for your review.",
+      text: "Crewmate handed in #10 “Fix the login redirect loop” for your review.",
     });
-
-    entry.note = "Blocked: the model timed out.";
-    ada.activity = AGENT_ACTIVITY.blocked;
-    await until(() => published.length === 2);
-    expect(published[1]?.text).toBe("Ada Byrne is stuck on #10 “Fix the login redirect loop” — Blocked: the model timed out.");
   });
 
   it("aborts the call in flight when stopped, and writes nothing after", async () => {

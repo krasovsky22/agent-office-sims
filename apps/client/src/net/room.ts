@@ -19,8 +19,8 @@
  * player's own: everything renders on the path the server published it on, so
  * what you see above your own head is what everyone else sees above it. The
  * project board's GitHub snapshot arrives the same way, whole, on joining and on
- * every change. The company's numbers do not: they are state, and are copied out
- * of each patch.
+ * every change. The clock that lights the office does not: it is state, and is
+ * read off each patch.
  *
  * A dropped socket is reconnected rather than given up on. The server holds a
  * dropped player's place, and with it their role, for
@@ -33,21 +33,16 @@
  *
  * The conversation with the AI manager is not: like chat it arrives as events —
  * the lines so far on joining, then each new one — and the manager's own badge
- * is read off its occupant like an agent's activity.
+ * is read off its occupant.
  */
 
 import {
-  type AgentActivity,
   ANIMATION_STATE,
   type AnimationState,
   type CeoChangedEvent,
   type ChatEvent,
   type ChatMessage,
   CLIENT_MESSAGE,
-  type Company,
-  type DebugGotoMessage,
-  type DebugReplyEvent,
-  type CompanyStatus,
   type Emote,
   type EmoteEvent,
   type EmoteMessage,
@@ -73,10 +68,6 @@ import {
   RECONNECT_GRACE_SECONDS,
   type ReportedAnimation,
   SERVER_MESSAGE,
-  type StaffChangedEvent,
-  type StaffFireMessage,
-  type StaffHireMessage,
-  type StaffRejectedEvent,
   type ThrottledEvent,
   type WorkAssignMessage,
   type WorkData,
@@ -84,8 +75,6 @@ import {
   type WorkRejectedEvent,
   type WorkReleaseMessage,
   type WorkStatus,
-  agentAtDesk,
-  isAgentEmployee,
   isAiManager,
   isCeo,
   isLiveAgent,
@@ -129,9 +118,7 @@ interface PoseSample {
  * trigger an `onOccupantsChanged`; `interactableId` and `animation` change far
  * too often for that and are read from the loop instead.
  *
- * `activity` and `salary` are an agent employee's: `undefined` and `0` for
- * anyone else, so a consumer can branch on `kind` and never meet a half-agent.
- * `jobTitle` is an agent's or the manager's, `""` for anyone else.
+ * `jobTitle` is the manager's, `""` for anyone else.
  */
 export interface OccupantView {
   readonly id: string;
@@ -141,9 +128,6 @@ export interface OccupantView {
   /** Whether a player has verified as operator; always `false` for anyone else. */
   isOperator: boolean;
   jobTitle: string;
-  activity: AgentActivity | undefined;
-  /** What an agent costs a day; fixed at hire, so never re-read. */
-  readonly salary: number;
   readonly isLocal: boolean;
   /** Interactable this occupant is engaged with, or `""` when free. */
   interactableId: string;
@@ -163,22 +147,6 @@ export interface OccupantView {
   managerStatus: ManagerStatus | undefined;
 }
 
-/**
- * The company's numbers as of the latest patch.
- *
- * A plain copy rather than the schema instance, so the HUD holds a value that
- * cannot change underneath a render.
- */
-export interface CompanyView {
-  readonly cash: number;
-  readonly morale: number;
-  readonly productivity: number;
-  readonly day: number;
-  readonly minuteOfDay: number;
-  readonly status: CompanyStatus;
-  readonly lowMoraleDays: number;
-}
-
 /** The local pose as reported to the server: only states a client may claim. */
 export interface ReportedPose {
   readonly x: number;
@@ -196,7 +164,7 @@ export interface RemotePose {
 }
 
 export interface RoomConnectionEvents {
-  /** An occupant arrived, left, was renamed, became CEO, or an agent changed activity. */
+  /** An occupant arrived, left, was renamed, became CEO, or an agent changed status. */
   onOccupantsChanged?: () => void;
   onStatusChanged?: (status: ConnectionStatus, detail?: string) => void;
   /** The local player's starting pose, as the server assigned it. */
@@ -209,13 +177,8 @@ export interface RoomConnectionEvents {
   onThrottled?: (event: ThrottledEvent) => void;
   /** The project board's snapshot, on joining and whenever the server's feed replaces it. */
   onProjectBoard?: (snapshot: ProjectBoardSnapshot) => void;
-  /** The server's answer to a debug command this client sent. */
-  onDebugReply?: (event: DebugReplyEvent) => void;
-  /**
-   * The company's numbers changed — which, with the clock among them, is several
-   * times a second. The caller decides what is worth re-rendering.
-   */
-  onCompanyChanged?: (company: CompanyView) => void;
+  /** The in-game clock moved on a minute, which is several times a second. */
+  onClockChanged?: (minuteOfDay: number) => void;
   /** The office refused one of the local client's own work commands. */
   onWorkRejected?: (event: WorkRejectedEvent) => void;
   /** The CEO role passed to someone else: its holder left, or someone verified as operator. */
@@ -224,10 +187,6 @@ export interface RoomConnectionEvents {
   onOperatorRejected?: (event: OperatorRejectedEvent) => void;
   /** All the agents' work, after any of it is added, changed or removed. */
   onWorkChanged?: (work: readonly WorkData[]) => void;
-  /** An agent was hired, fired, or quit. */
-  onStaffChanged?: (event: StaffChangedEvent) => void;
-  /** The office refused one of the local client's own hire or fire commands. */
-  onStaffRejected?: (event: StaffRejectedEvent) => void;
   /** The conversation with the manager so far, on joining and on every reconnection. */
   onManagerHistory?: (entries: readonly ManagerEntry[]) => void;
   /** One new line in that conversation, from the CEO or the manager. */
@@ -319,12 +278,6 @@ export class RoomConnection {
     return undefined;
   }
 
-  /** The agent employee given a desk, or `undefined` if no agent has it. */
-  public agentAtDesk(deskId: string): string | undefined {
-    const occupants = this.room?.state.occupants;
-    return occupants === undefined ? undefined : agentAtDesk(occupants.values(), deskId);
-  }
-
   /** Asks to use an interactable. The server decides; there is no reply. */
   public sendInteract(target: string): void {
     this.room?.send(CLIENT_MESSAGE.interact, { target } satisfies InteractMessage);
@@ -395,16 +348,6 @@ export class RoomConnection {
     this.room?.send(CLIENT_MESSAGE.emote, { emote } satisfies EmoteMessage);
   }
 
-  /** Asks to hire for one of the candidate jobs. The server decides. */
-  public sendHire(candidateId: string): void {
-    this.room?.send(CLIENT_MESSAGE.staffHire, { candidateId } satisfies StaffHireMessage);
-  }
-
-  /** Asks to let an agent go. The server decides. */
-  public sendFire(agentId: string): void {
-    this.room?.send(CLIENT_MESSAGE.staffFire, { agentId } satisfies StaffFireMessage);
-  }
-
   /**
    * Tries the operator passphrase. A success comes back as the local player's
    * replicated operator flag; a refusal as an operator-rejected event.
@@ -426,11 +369,6 @@ export class RoomConnection {
   /** Says something out loud. Echoed back by the server, like an emote. */
   public sendChat(text: string): void {
     this.room?.send(CLIENT_MESSAGE.chat, { text } satisfies ChatMessage);
-  }
-
-  /** Sends an agent walking. Answered with a debug reply, to this client only. */
-  public sendDebugGoto(message: DebugGotoMessage): void {
-    this.room?.send(CLIENT_MESSAGE.debugGoto, message satisfies DebugGotoMessage);
   }
 
   /**
@@ -532,8 +470,6 @@ export class RoomConnection {
         isCeo: isCeo(occupant),
         isOperator: isOperator(occupant),
         jobTitle: jobTitleOf(occupant),
-        activity: isAgentEmployee(occupant) ? occupant.activity : undefined,
-        salary: isAgentEmployee(occupant) ? occupant.salary : 0,
         isLocal,
         interactableId: occupant.interactableId,
         animation: occupant.animation,
@@ -561,15 +497,10 @@ export class RoomConnection {
       this.events.onOccupantsChanged?.();
     });
 
-    // Replicated like the occupants, so every client reads the same numbers off
-    // the same patch. The company instance is created once with the room, so a
-    // single change listener on it is enough; `listen` fires for the instance the
-    // first patch carries.
-    $(room.state).listen("company", (company) => {
-      this.events.onCompanyChanged?.(companyViewOf(company));
-      $(company).onChange(() => {
-        this.events.onCompanyChanged?.(companyViewOf(company));
-      });
+    // Replicated like the occupants, so every client lights the office by the
+    // same clock; `listen` fires for the value the first patch carries too.
+    $(room.state).listen("minuteOfDay", (minuteOfDay) => {
+      this.events.onClockChanged?.(minuteOfDay);
     });
 
     // Fixed for the room's life, but it can be decoded after the occupants, so
@@ -621,18 +552,6 @@ export class RoomConnection {
       this.events.onOperatorRejected?.(event);
     });
 
-    room.onMessage<DebugReplyEvent>(SERVER_MESSAGE.debugReply, (event) => {
-      this.events.onDebugReply?.(event);
-    });
-
-    room.onMessage<StaffChangedEvent>(SERVER_MESSAGE.staffChanged, (event) => {
-      this.events.onStaffChanged?.(event);
-    });
-
-    room.onMessage<StaffRejectedEvent>(SERVER_MESSAGE.staffRejected, (event) => {
-      this.events.onStaffRejected?.(event);
-    });
-
     room.onMessage<ManagerHistoryEvent>(SERVER_MESSAGE.managerHistory, (event) => {
       this.events.onManagerHistory?.(event.entries);
     });
@@ -682,7 +601,6 @@ export class RoomConnection {
     const ceo = isCeo(occupant);
     const operator = isOperator(occupant);
     const jobTitle = jobTitleOf(occupant);
-    const activity = isAgentEmployee(occupant) ? occupant.activity : undefined;
     const agent = isLiveAgent(occupant) ? occupant : undefined;
     const agentStatus = agent?.status;
     const taskTitle = agent?.taskTitle ?? "";
@@ -697,7 +615,6 @@ export class RoomConnection {
       view.isOperator !== operator ||
       view.kind !== occupant.kind ||
       view.jobTitle !== jobTitle ||
-      view.activity !== activity ||
       view.agentStatus !== agentStatus ||
       view.taskTitle !== taskTitle ||
       view.taskUrl !== taskUrl ||
@@ -711,7 +628,6 @@ export class RoomConnection {
       view.isCeo = ceo;
       view.isOperator = operator;
       view.jobTitle = jobTitle;
-      view.activity = activity;
       view.agentStatus = agentStatus;
       view.taskTitle = taskTitle;
       view.taskUrl = taskUrl;
@@ -795,21 +711,9 @@ function describeError(error: unknown): string {
   return described === "" || described.startsWith("[object ") ? "unknown error" : described;
 }
 
-/** An agent's job title or the manager's, `""` for anyone else. */
+/** The manager's job title, `""` for anyone else. */
 function jobTitleOf(occupant: Occupant): string {
-  return isAgentEmployee(occupant) || isAiManager(occupant) ? occupant.jobTitle : "";
-}
-
-function companyViewOf(company: Company): CompanyView {
-  return {
-    cash: company.cash,
-    morale: company.morale,
-    productivity: company.productivity,
-    day: company.day,
-    minuteOfDay: company.minuteOfDay,
-    status: company.status,
-    lowMoraleDays: company.lowMoraleDays,
-  };
+  return isAiManager(occupant) ? occupant.jobTitle : "";
 }
 
 function copyWork(work: IssueWork): WorkData {

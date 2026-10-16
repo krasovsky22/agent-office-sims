@@ -9,7 +9,7 @@
  * browser while these rules only ever decide on the server: a client asks the
  * same questions to grey out a control, but the copy here is the authority.
  *
- * Five things live here:
+ * Four things live here:
  *
  * - {@link WORK_TRANSITIONS}, the legal status edges, so a client that asks
  *   for an arbitrary jump is rejected rather than obeyed.
@@ -21,14 +21,12 @@
  * - {@link applyWorkCommand}, which validates a parsed command against the
  *   live office and the project board and mutates the work, or rejects it and
  *   leaves everything untouched.
- * - {@link workForAgent}, which issue an agent employee should pick up next,
- *   so that two agents can never be working the same one.
  * - {@link releaseGoneWork}, which takes work off its agent once GitHub says
  *   the issue is closed or gone, and {@link releaseWorkOf}, which does the
  *   same when the agent leaves the office.
  *
- * Who can hold work at all is {@link isIssueAssignee}: an agent employee, or a
- * live coding agent whose source drives its work through these same rules.
+ * Who can hold work at all is {@link isIssueAssignee}: a live coding agent
+ * whose source drives its work through these same rules.
  *
  * Everything is synchronous and allocation-light, so a command handler can run
  * inside the room without the simulation tick ever having to wait on it.
@@ -52,7 +50,6 @@ import {
   WORK_STATUS,
   WORK_STATUSES,
   type WorkStatus,
-  isAgentEmployee,
   isCeo,
   isLiveAgent,
   isOperator,
@@ -156,8 +153,8 @@ export type WorkAuthority = (typeof WORK_AUTHORITY)[keyof typeof WORK_AUTHORITY]
  * back, having a stuck agent try again — is the CEO's.
  *
  * The assignee's own moves — starting work, attaching the deliverable, handing
- * it in, saying why it is stuck — are the agent employee's, and only for an
- * issue the CEO gave it. They are separate actions rather than a wider
+ * it in, saying why it is stuck — are the agent's, and only for an issue the
+ * CEO gave it. They are separate actions rather than a wider
  * `move-status` because each is exactly one step of the work: an agent can
  * start what it was given and hand in what it started, and nothing else, so it
  * can neither pick its own issue off the board nor approve itself.
@@ -179,7 +176,7 @@ export const WORK_ACTION_AUTHORITY: Readonly<Record<WorkAction, WorkAuthority>> 
  * Who is asking.
  *
  * A projection of {@link Occupant} rather than the occupant itself, so the
- * authority rules — the work's, the staff's and the manager's — cannot come to
+ * authority rules — the work's and the manager's — cannot come to
  * depend on a position or an animation state. Build one with {@link actorOf}
  * rather than by hand.
  */
@@ -205,8 +202,8 @@ export function actorOf(occupant: Occupant): OfficeActor {
 }
 
 /**
- * Whether issue work can be given to this occupant: an agent employee, or a
- * live coding agent that can take issues. **Nothing else decides it**: the
+ * Whether issue work can be given to this occupant: a live coding agent that
+ * can take issues. **Nothing else decides it**: the
  * assignee branch of {@link mayActOnWork} and assigning work both ask this.
  *
  * A live agent only qualifies when its source drives its work through these
@@ -215,10 +212,7 @@ export function actorOf(occupant: Occupant): OfficeActor {
  * manager hands work out rather than doing it.
  */
 export function isIssueAssignee(occupant: Pick<OfficeActor, "kind" | "canTakeIssues">): boolean {
-  return (
-    occupant.kind === OCCUPANT_KIND.agent ||
-    (occupant.kind === OCCUPANT_KIND.liveAgent && occupant.canTakeIssues === true)
-  );
+  return occupant.kind === OCCUPANT_KIND.liveAgent && occupant.canTakeIssues === true;
 }
 
 /**
@@ -277,7 +271,7 @@ export function mayActOnWork(query: WorkPermissionQuery): boolean {
  * Whether an actor may give an order that reaches a real coding agent: the CEO,
  * and only once they have proved the operator passphrase.
  *
- * The simulated staff are the CEO's alone, by {@link mayActOnWork}. A real
+ * The project board's work is the CEO's alone, by {@link mayActOnWork}. A real
  * agent's work is code run and pushed on the runner's host, and the CEO is
  * just whoever joined first, so it takes the passphrase as well. The server
  * asks this only when an operator passphrase is configured (the replicated
@@ -353,7 +347,7 @@ export type WorkRejection = (typeof WORK_REJECTION)[keyof typeof WORK_REJECTION]
  * The issue an agent's own command is about.
  *
  * Not a client message: no client message is an agent's, so these commands
- * are only ever built by the server, for the agent it is running.
+ * are only ever built by the server, on the agent's behalf.
  */
 export interface WorkClaimPayload {
   readonly issueNumber: number;
@@ -361,7 +355,7 @@ export interface WorkClaimPayload {
 
 export interface WorkAttachOutputPayload {
   readonly issueNumber: number;
-  /** The deliverable, as the work executor returned it. Never empty. */
+  /** The deliverable, as the agent handed it over. Never empty. */
   readonly artifact: string;
 }
 
@@ -371,7 +365,7 @@ export interface WorkHandInPayload {
 
 export interface WorkNotePayload {
   readonly issueNumber: number;
-  /** Sanitized by the applier, so a brain may pass a provider's message as it came. */
+  /** Sanitized by the applier, so a caller may pass an agent's message as it came. */
   readonly text: string;
 }
 
@@ -606,57 +600,11 @@ function noteOnWork(work: IssueWork, payload: WorkNotePayload, context: WorkComm
 }
 
 /**
- * The issue an agent employee should work on next, or `undefined`.
- *
- * Only issues the CEO gave this agent, so an agent never chooses its own work
- * off the board. Both `assigned` (new work, to claim) and `in_progress` (work
- * sent back from review, or handed over from another agent) qualify; work
- * another agent still holds as its `currentIssueNumber` does not, so two
- * agents can never be working the same issue, even for the moment after a
- * reassignment while the first one is still putting it down.
- *
- * Longest-waiting first, then by issue number, so the choice is the same every
- * time for the same office.
- */
-export function workForAgent(
-  work: Iterable<IssueWork>,
-  occupants: Iterable<Occupant>,
-  agentId: string,
-): IssueWork | undefined {
-  const heldElsewhere = new Set<number>();
-  for (const occupant of occupants) {
-    if (isAgentEmployee(occupant) && occupant.id !== agentId && occupant.currentIssueNumber !== 0) {
-      heldElsewhere.add(occupant.currentIssueNumber);
-    }
-  }
-
-  let best: IssueWork | undefined;
-  for (const candidate of work) {
-    if (
-      candidate.assigneeId !== agentId ||
-      (candidate.status !== WORK_STATUS.assigned && candidate.status !== WORK_STATUS.in_progress) ||
-      heldElsewhere.has(candidate.issueNumber)
-    ) {
-      continue;
-    }
-    if (
-      best === undefined ||
-      candidate.assignedAt < best.assignedAt ||
-      (candidate.assignedAt === best.assignedAt && candidate.issueNumber < best.issueNumber)
-    ) {
-      best = candidate;
-    }
-  }
-  return best;
-}
-
-/**
  * Brings the office's work up to date with a fresh project board snapshot.
  *
  * Unfinished work on an issue GitHub says is closed or gone is released: the
- * issue is no longer there to do, so its agent puts it down, which the agent's
- * brain notices on its own next look. `done` work stays, as the record of who
- * finished it. Work on an issue the snapshot still lists takes the issue's
+ * issue is no longer there to do, so its agent puts it down. `done` work
+ * stays, as the record of who finished it. Work on an issue the snapshot still lists takes the issue's
  * current title, so a renamed issue reads the same everywhere.
  *
  * The one exception is a live agent's work in `review`. A live agent's
@@ -703,7 +651,7 @@ export function releaseGoneWork(
  * Releases the unfinished work of an agent who has left the office, and
  * returns the numbers of the issues it was on, in the order the work was kept.
  *
- * The rule for every departure, an agent employee's or a live agent's: work
+ * The rule for every departure: work
  * still `assigned` or `in_progress` is released, so it is never left waiting
  * on someone who has gone and is free on the project board for whoever the CEO
  * hands it to next. This deliberately steps outside the transition table,

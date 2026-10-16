@@ -6,14 +6,6 @@
  * the CEO, which of them is sitting at or standing over something, what they
  * are expressing, and the agents' work on the project board's GitHub issues.
  *
- * "Who is in the office" includes the agent employees, which the room hires
- * itself when it opens — see `sim/agents.ts`. They are occupants like any
- * player, so issues can be assigned to them and every client draws them, but no
- * session drives them: the per-session maps below never see one, and an agent
- * moves only through its intent queue. The one registry an agent shares with
- * players is the hold registry, so a chair an agent sits in is taken for
- * everyone.
- *
  * Interactions are server-decided, not client-reported. A client may ask to use
  * an interactable; it may not say that it is in reach of one, that the chair is
  * free, or that it is now seated. Each of those is re-derived in
@@ -29,11 +21,8 @@
  *
  * The work's rules are not here. `workHandlers.ts` wires the three commands
  * up and `@sim/shared`'s `work.ts` decides what each one is allowed to do.
- * Hiring and firing are wired the same way, by `staffHandlers.ts` against
- * `staffing.ts`; the tick only asks `staffHandlers.ts`, after each step of the
- * clock, whether a run of bad days has cost the office an agent.
- * Nor are the company's: the tick steps `sim/company.ts`'s clock, and every
- * number that clock moves is decided in `@sim/shared`'s `company.ts`.
+ * Nor is the clock that lights the office: the tick steps `sim/clock.ts`, at
+ * the rate `@sim/shared`'s `clock.ts` sets.
  * Who holds the CEO role those rules turn on is `sim/roles.ts`'s call; this
  * room only tells it when someone arrives or leaves, and `operatorHandlers.ts`
  * when someone proves the operator passphrase, which takes the role.
@@ -42,24 +31,12 @@
  * included, for {@link RECONNECT_GRACE_SECONDS}. Only a player who left on
  * purpose, or did not come back in time, is removed.
  *
- * Nor is how an agent walks. The tick steps `sim/agentMotion.ts`, which drains
- * each agent's intent queue and moves its body through the shared pathfinding
- * and collision; whatever fills those queues — a brain, or the debug command in
- * `agentDebug.ts` — never runs inside the tick.
- *
- * Nor is how an agent works. Each agent hired gets a brain, `sim/agentBrain.ts`,
- * on its own async loop and its own timers rather than the room clock's, which
- * Colyseus ticks from inside the simulation interval. The room starts a brain
- * for every agent it hires, at opening or later, and stops it when the agent
- * leaves or the room closes, and that is all it does with them.
- *
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
  * one feed polls GitHub on its own timer and is handed to every room as a room option;
  * `projectBoardDelivery.ts` relays what it publishes, and each snapshot it
  * publishes releases the work on any issue GitHub has closed. The board is
- * read-only: nothing in the room writes to GitHub. The tick reads the feed
- * only at midnight, when a day's close counts the open issues, and then only
- * the snapshot it already holds in memory.
+ * read-only: nothing in the room writes to GitHub, and the tick never reads
+ * the feed.
  *
  * The live coding agents arrive the same way, as a source handed over at
  * definition time. The room only marks itself dirty when the source changes;
@@ -114,13 +91,10 @@ import { type LiveAgentSource, isLiveAgentSource } from "../agents/registry.js";
 import { type RunnerEventInbox, type RunnerEventSource, isRunnerEventSource } from "../agents/runnerLink.js";
 import { type ScreenSource, isScreenSource } from "../agents/screens.js";
 import type { ProjectBoardSource } from "../github/feed.js";
-import { AgentBrain, type AgentBrainHost } from "../sim/agentBrain.js";
-import { AgentMotion, type IntentReport } from "../sim/agentMotion.js";
-import { type CompanyClock, type CompanyOffice, createCompanyClock, stepCompany } from "../sim/company.js";
+import { type SimClock, createSimClock, stepClock } from "../sim/clock.js";
 import { type ManagerAdvisor, isManagerAdvisor } from "../manager/advisor.js";
 import { type LiveAssignmentQueue, isLiveAssignmentQueue } from "../manager/liveAssignments.js";
 import { OfficeManager } from "../manager/officeManager.js";
-import { hireAgentEmployees } from "../sim/agents.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import { type ExpressionBudget, createExpressionBudget, tryConsume } from "../sim/expression.js";
 import {
@@ -134,8 +108,6 @@ import { LiveAgentCrew } from "../sim/liveAgents.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
 import { type OperatorGate, isOperatorGate } from "../sim/operator.js";
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
-import { type WorkExecutor, isWorkExecutor } from "../work/executor.js";
-import { registerAgentDebugHandlers } from "./agentDebug.js";
 import { registerManagerHandlers } from "./managerHandlers.js";
 import { type OperatorHandlers, registerOperatorHandlers } from "./operatorHandlers.js";
 import {
@@ -143,7 +115,6 @@ import {
   relayProjectBoard,
   sendProjectBoard,
 } from "./projectBoardDelivery.js";
-import { type StaffHost, registerStaffHandlers, resolveStaffQuits } from "./staffHandlers.js";
 import { type WorkHost, registerWorkHandlers } from "./workHandlers.js";
 
 /**
@@ -156,14 +127,6 @@ import { type WorkHost, registerWorkHandlers } from "./workHandlers.js";
 const IDLE_AFTER_MS = 400;
 
 /**
- * How often agents' intent outcomes are written to the event log.
- *
- * On a clock of its own rather than from the tick, because writing a log line
- * is I/O and the tick does none.
- */
-const AGENT_REPORT_INTERVAL_MS = 1000;
-
-/**
  * Longest step the live agents are moved in one tick.
  *
  * A tick that runs late — a slow machine, a garbage collection — should not
@@ -174,21 +137,12 @@ const MAX_AGENT_STEP_MS = TICK_INTERVAL_MS * 4;
 /** What `index.ts` hands the room type when it defines it. */
 export interface OfficeRoomOptions {
   readonly projectBoard: ProjectBoardSource;
-  /** Agent employees to hire on opening, already validated by `config.ts`. */
-  readonly agentCount: number;
   /**
    * How long a dropped player's place is held, in seconds. Defaults to
    * {@link RECONNECT_GRACE_SECONDS}, and can only be shortened: a test sets it
    * low to watch a grace period run out without waiting for the real one.
    */
   readonly reconnectGraceSeconds?: number;
-  /** Whether the debug goto command is honoured; `AGENT_DEBUG` in `config.ts`. */
-  readonly agentDebug: boolean;
-  /**
-   * How the agents do their issues, shared by every room so one call budget
-   * covers the server. A room given none hires agents that never pick up work.
-   */
-  readonly workExecutor: WorkExecutor;
   /** Absent when neither an orchestrator nor a runner is configured, which leaves the floor to the players. */
   readonly liveAgents?: LiveAgentSource;
   /**
@@ -242,23 +196,8 @@ export class OfficeRoom extends Room<OfficeState> {
   /** Assigned in `onCreate`, once the state it reads exists. */
   private interaction!: InteractionHost;
 
-  /** The server-only half of the company clock; assigned in `onCreate`. */
-  private companyClock!: CompanyClock;
-
-  /** What a day's close reads; assigned in `onCreate`. */
-  private companyOffice!: CompanyOffice;
-
-  /** Every agent's intent queue and body; assigned in `onCreate`. */
-  private agentMotion!: AgentMotion;
-
-  /** One per agent hired, each on its own loop; stopped in `onDispose`. */
-  private readonly brains: AgentBrain[] = [];
-
-  /** What every brain works through; unset in a room given no executor. */
-  private brainHost: AgentBrainHost | undefined;
-
-  /** What the staff handlers keep between commands; assigned in `onCreate`. */
-  private staff!: StaffHost;
+  /** The server-only half of the clock; assigned in `onCreate`. */
+  private simClock!: SimClock;
 
   private spawnCursor = 0;
   private hireCount = 0;
@@ -299,14 +238,7 @@ export class OfficeRoom extends Room<OfficeState> {
       holds: this.holds,
       lastUsedAt: new Map(),
     };
-    this.companyClock = createCompanyClock(this.state.company, this.clock.currentTime);
-    this.companyOffice = {
-      company: this.state.company,
-      work: this.state.work,
-      occupants: this.state.occupants,
-      board: () => this.projectBoard?.current(),
-    };
-    this.agentMotion = new AgentMotion(this.interaction);
+    this.simClock = createSimClock(this.state, this.clock.currentTime);
 
     const roomOptions = options as Partial<OfficeRoomOptions> | undefined;
     this.reconnectGraceSeconds = graceSecondsOf(roomOptions);
@@ -316,8 +248,8 @@ export class OfficeRoom extends Room<OfficeState> {
       this.projectBoard = source;
       this.stopRelayingProjectBoard = relayProjectBoard(this, source);
       // On the feed's own timer, between ticks: an issue GitHub closed is no
-      // longer anyone's to work, and its agent puts it down on its next look,
-      // unless it was a live agent's review, which the closure shipped.
+      // longer anyone's to work, unless it was a live agent's review, which
+      // the closure shipped.
       this.stopReleasingWork = source.subscribe((snapshot) => {
         const shipped: IssueWork[] = [];
         releaseGoneWork(this.state.work, snapshot, shipped);
@@ -375,39 +307,6 @@ export class OfficeRoom extends Room<OfficeState> {
       now: () => this.clock.currentTime,
     });
     this.openManagersDesk(workHost, roomOptions);
-
-    // Before anyone can join, so nobody's first patch is an empty office.
-    const agentCount = roomOptions?.agentCount;
-    const hired =
-      typeof agentCount === "number"
-        ? hireAgentEmployees(this.state.occupants, OFFICE_LAYOUT, agentCount)
-        : [];
-    const executor = roomOptions?.workExecutor;
-    if (isWorkExecutor(executor)) {
-      this.brainHost = {
-        work: workHost,
-        layout: OFFICE_LAYOUT,
-        motion: this.agentMotion,
-        executor,
-        clockNow: () => this.clock.currentTime,
-      };
-    }
-    hired.forEach((agent) => this.startBrain(agent.id));
-    this.staff = {
-      state: this.state,
-      hiresSoFar: hired.length,
-      hired: (agentId) => this.startBrain(agentId),
-      departed: (agentId) => this.dismissAgent(agentId),
-    };
-    registerStaffHandlers(this, this.staff);
-    registerAgentDebugHandlers(this, {
-      enabled: roomOptions?.agentDebug === true,
-      motion: this.agentMotion,
-      occupants: this.state.occupants,
-    });
-    this.clock.setInterval(() => {
-      this.agentMotion.drainReports().forEach(logIntentReport);
-    }, AGENT_REPORT_INTERVAL_MS);
 
     this.onMessage(CLIENT_MESSAGE.pose, (client, raw: unknown) => {
       const pose = parsePoseMessage(raw);
@@ -514,10 +413,7 @@ export class OfficeRoom extends Room<OfficeState> {
   }
 
   public override onDispose(): void {
-    // First, so no brain or manager is left writing to a room that is closing.
-    for (const brain of this.brains) {
-      brain.stop();
-    }
+    // First, so no manager is left writing to a room that is closing.
     this.manager?.stop();
     this.stopRelayingProjectBoard?.();
     this.stopReleasingWork?.();
@@ -554,11 +450,10 @@ export class OfficeRoom extends Room<OfficeState> {
    * One simulation step.
    *
    * Synchronous, allocation-light, and with nothing awaited anywhere inside it.
-   * That is a deliberate boundary, not an accident of the current scope: agent
-   * employees work their issues by calling a model, on their own loops, and
-   * what they decide lands on the intent queue `agentMotion.step` drains here
-   * without ever waiting on them. If the tick were allowed to await, a slow
-   * model would stall every player in the room.
+   * That is a deliberate boundary: the manager answers by calling a model, on
+   * its own loop, and the live agents' reports arrive on their own timers; the
+   * tick reads what they left without ever waiting on them. If the tick were
+   * allowed to await, a slow model would stall every player in the room.
    */
   private simulate(deltaMs: number): void {
     const now = this.clock.currentTime;
@@ -597,12 +492,7 @@ export class OfficeRoom extends Room<OfficeState> {
       }
     }
 
-    // After the players, and touching none of their bookkeeping, so however
-    // many agents are walking a player's pose is validated exactly as before.
-    this.agentMotion.step(now);
-
-    stepCompany(this.companyOffice, this.companyClock, now);
-    resolveStaffQuits(this, this.staff);
+    stepClock(this.state, this.simClock, now);
   }
 
   /**
@@ -668,31 +558,6 @@ export class OfficeRoom extends Room<OfficeState> {
     this.manager.start();
   }
 
-  /** Gives an agent on the floor a brain, if this room's agents work at all. */
-  private startBrain(agentId: string): void {
-    if (this.brainHost === undefined) {
-      return;
-    }
-    const brain = new AgentBrain(this.brainHost, agentId);
-    this.brains.push(brain);
-    brain.start();
-  }
-
-  /**
-   * Clears what the room kept for an agent the staffing rules have just taken
-   * off the floor, so a fired agent's chair is free for the next hire at once.
-   */
-  private dismissAgent(agentId: string): void {
-    const index = this.brains.findIndex((brain) => brain.agentId === agentId);
-    if (index !== -1) {
-      this.brains[index]?.stop();
-      this.brains.splice(index, 1);
-    }
-    this.agentMotion.clear(agentId, this.clock.currentTime);
-    this.holds.release(agentId);
-    this.interaction.lastUsedAt.delete(agentId);
-  }
-
   /**
    * Says that a live agent's review shipped, in the agent's own voice, through
    * the chat everyone already reads: the work's move to `done` is state, and
@@ -747,13 +612,4 @@ export class OfficeRoom extends Room<OfficeState> {
       } satisfies CeoChangedEvent);
     }
   }
-}
-
-function logIntentReport(report: IntentReport): void {
-  recordOfficeEvent("agent-intent", {
-    agent: report.agentId,
-    intent: report.intent.kind,
-    outcome: report.outcome,
-    ...(report.reason === undefined ? {} : { reason: report.reason }),
-  });
 }

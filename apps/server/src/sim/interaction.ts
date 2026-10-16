@@ -23,7 +23,6 @@ import {
   type InteractableSpec,
   type Occupant,
   type OfficeLayout,
-  agentAtDesk,
   authorizeInteract,
   heldAnimationFor,
   holdMsFor,
@@ -175,7 +174,6 @@ export function requestInteract(
     target,
     SERVER_INTERACT_RANGE,
     (interactableId) => host.holds.holderOf(interactableId),
-    (deskId) => agentAtDesk(host.occupants.values(), deskId),
   );
   if (!decision.allowed) {
     return { result: "refused", decision };

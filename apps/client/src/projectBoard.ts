@@ -16,14 +16,10 @@
  */
 
 import {
-  AGENT_ACTIVITY,
-  type AgentActivity,
   type BoardIssue,
   type BoardLabel,
   type BoardPullRequest,
   type CheckStatus,
-  OCCUPANT_KIND,
-  type OccupantKind,
   type ProjectBoardSnapshot,
   WORK_ACTION,
   WORK_STATUS,
@@ -282,28 +278,6 @@ export const formatShortDate: TimeFormatter = (epochMs) =>
 export interface BoardAgent {
   readonly id: string;
   readonly name: string;
-  /** An agent employee or a live agent; the picker lists the two apart. */
-  readonly kind: OccupantKind;
-  readonly activity: AgentActivity | undefined;
-}
-
-/** One heading in the assign picker, and the agents under it. */
-export interface AssigneeGroup {
-  readonly label: string;
-  readonly agents: readonly BoardAgent[];
-}
-
-/**
- * The agents an issue can be given to, staff first and live agents after, each
- * under its own heading so the CEO can tell a simulated colleague from a real
- * coding agent. A group with nobody in it is left out.
- */
-export function assigneeGroups(agents: readonly BoardAgent[]): AssigneeGroup[] {
-  const groups: AssigneeGroup[] = [
-    { label: "Staff", agents: agents.filter((agent) => agent.kind !== OCCUPANT_KIND.liveAgent) },
-    { label: "Live agents", agents: agents.filter((agent) => agent.kind === OCCUPANT_KIND.liveAgent) },
-  ];
-  return groups.filter((group) => group.agents.length > 0);
 }
 
 export const WORK_STATUS_TITLES: Readonly<Record<WorkStatus, string>> = {
@@ -313,12 +287,8 @@ export const WORK_STATUS_TITLES: Readonly<Record<WorkStatus, string>> = {
   [WORK_STATUS.done]: "Done",
 };
 
-/** How an issue's work reads in a word or two: its status, or that its agent is stuck. */
-export function workStatusText(work: WorkData, agents: readonly BoardAgent[]): string {
-  const agent = agents.find((candidate) => candidate.id === work.assigneeId);
-  if (work.status === WORK_STATUS.in_progress && agent?.activity === AGENT_ACTIVITY.blocked) {
-    return "Blocked";
-  }
+/** How an issue's work reads in a word or two: its status. */
+export function workStatusText(work: WorkData): string {
   return WORK_STATUS_TITLES[work.status];
 }
 
@@ -332,9 +302,9 @@ export function workAgentName(work: WorkData, agents: readonly BoardAgent[]): st
 
 /** The line a card carries for an issue an agent has: who, and how far they have got. */
 export function workBadge(work: WorkData, agents: readonly BoardAgent[]): { text: string; tone: BoardTone } {
-  const status = workStatusText(work, agents);
+  const status = workStatusText(work);
   const tone: BoardTone =
-    status === "Blocked" ? "bad" : work.status === WORK_STATUS.done ? "good" : work.status === WORK_STATUS.review ? "pending" : "plain";
+    work.status === WORK_STATUS.done ? "good" : work.status === WORK_STATUS.review ? "pending" : "plain";
   return { text: `${workAgentName(work, agents)} · ${status}`, tone };
 }
 

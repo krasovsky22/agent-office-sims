@@ -38,7 +38,6 @@ import {
   type BoardColumnKey,
   type BoardFilter,
   NO_BOARD_FILTER,
-  assigneeGroups,
   boardColumns,
   boardIssue,
   boardLabels,
@@ -78,7 +77,7 @@ interface ProjectBoardPanelProps {
   readonly snapshot: ProjectBoardSnapshot | undefined;
   /** The office's work on the board's issues, in no particular order. */
   readonly work: readonly WorkData[];
-  /** The agent employees on the floor, who are who an issue can be given to. */
+  /** Who an issue can be given to, and so who the board names as having one. */
   readonly agents: readonly BoardAgent[];
   /** `undefined` before the local player has joined, when nothing is offered. */
   readonly access: BoardAccess | undefined;
@@ -396,7 +395,7 @@ function IssueDetail({
       </header>
       <dl className="work__facts">
         <dt>Work</dt>
-        <dd>{work === undefined ? "Nobody in the office has it" : workStatusText(work, agents)}</dd>
+        <dd>{work === undefined ? "Nobody in the office has it" : workStatusText(work)}</dd>
         {work === undefined ? null : (
           <>
             <dt>Agent</dt>
@@ -443,16 +442,15 @@ function IssueDetail({
 /**
  * Who to give an issue to.
  *
- * Offers only the agents the server will take — the agent employees and the
- * live agents that can take issues, grouped apart — and re-checks the choice
- * against them as they stand when sent: an agent picked and then gone is no
- * longer one the server will take.
+ * Offers only the agents the server will take — the live agents that can take
+ * issues — and re-checks the choice against them as they stand when sent: an
+ * agent picked and then gone is no longer one the server will take.
  */
 function AssignPicker({ agents, onAssign }: { agents: readonly BoardAgent[]; onAssign: (agentId: string) => void }) {
   const [choice, setChoice] = useState("");
   const present = agents.some((agent) => agent.id === choice);
   if (agents.length === 0) {
-    return <p className="board__empty">There are no agents to give it to; hire one first.</p>;
+    return <p className="board__empty">No agent in the office can take an issue right now.</p>;
   }
   return (
     <div className="work__assign">
@@ -472,14 +470,10 @@ function AssignPicker({ agents, onAssign }: { agents: readonly BoardAgent[]; onA
         <option value="" disabled>
           Give it to…
         </option>
-        {assigneeGroups(agents).map((group) => (
-          <optgroup key={group.label} label={group.label}>
-            {group.agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-          </optgroup>
+        {agents.map((agent) => (
+          <option key={agent.id} value={agent.id}>
+            {agent.name}
+          </option>
         ))}
       </select>
       <button
