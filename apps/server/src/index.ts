@@ -21,7 +21,9 @@
  * stops the server at boot rather than failing the first issue an agent takes,
  * and how the AI manager answers, for the same reason. The manager's queue of
  * work for the live agents is made beside the registry it wraps, and its
- * collection route is attached with the report route.
+ * collection route is attached with the report route. The runner link is made
+ * here too, with its sync route only when `RUNNER_SECRET` is set, and the rooms
+ * read its slots and the orchestrator's agents as one feed.
  */
 
 import { Server } from "@colyseus/core";
@@ -34,7 +36,10 @@ import {
   createAssignmentEndpoint,
   createLiveAgentEndpoint,
 } from "./agents/endpoint.js";
-import { LiveAgentRegistry } from "./agents/registry.js";
+import { CombinedLiveAgentSource } from "./agents/combined.js";
+import { type LiveAgentSource, LiveAgentRegistry } from "./agents/registry.js";
+import { RUNNER_SYNC_PATH, createRunnerEndpoint } from "./agents/runnerEndpoint.js";
+import { RunnerLink } from "./agents/runnerLink.js";
 import { readConfig } from "./config.js";
 import { createGithubLoader } from "./github/client.js";
 import { createConfiguredManager, describeManager } from "./manager/fromConfig.js";
@@ -45,7 +50,7 @@ import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
 import { createConfiguredExecutor, describeAgentWork } from "./work/fromConfig.js";
 
-const { port, allowedOrigins, projectBoard, agentWork, agentCount, agentDebug, liveAgents, manager } =
+const { port, allowedOrigins, projectBoard, agentWork, agentCount, agentDebug, liveAgents, runner, manager } =
   readConfig();
 
 const projectFeed = new ProjectFeed({
@@ -81,6 +86,35 @@ if (liveAgentRegistry !== undefined && liveAssignments !== undefined && liveAgen
   );
 }
 
+/**
+ * Most runner slots on the floor at once, across every runner: with the live
+ * agents' dozen, still fewer than the open floor's twenty chairs.
+ */
+const MAX_RUNNER_SLOTS_ON_FLOOR = 4;
+
+// Slots leave after the same silence as a reported agent: both are live agents
+// on the floor, and the operator sets one timeout for them.
+const runnerLink =
+  runner.secret === undefined
+    ? undefined
+    : new RunnerLink({
+        repository: projectBoard.repository,
+        timeoutMs: liveAgents.timeoutMs,
+        maxSlots: MAX_RUNNER_SLOTS_ON_FLOOR,
+      });
+if (runnerLink !== undefined && runner.secret !== undefined) {
+  routes.set(RUNNER_SYNC_PATH, createRunnerEndpoint({ secret: runner.secret, link: runnerLink }));
+}
+
+const floorSources: LiveAgentSource[] = [];
+if (liveAssignments !== undefined) {
+  floorSources.push(liveAssignments);
+}
+if (runnerLink !== undefined) {
+  floorSources.push(runnerLink);
+}
+const floor = floorSources.length === 0 ? undefined : new CombinedLiveAgentSource(floorSources);
+
 restrictMatchmakingOrigins(allowedOrigins);
 
 const server = new Server({
@@ -91,7 +125,7 @@ const server = new Server({
 });
 
 // Colyseus lets these server options win a collision with a client's join
-// options, so a client can never supply the feed, the size of the staff, the
+// options, so a client can never supply the feeds, the size of the staff, the
 // way the staff work or the manager thinks, or its own permission to send
 // debug commands. The executor and the manager's advisor are made once, so
 // each call budget is the whole server's.
@@ -102,7 +136,9 @@ server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   agentDebug,
   workExecutor: createConfiguredExecutor(agentWork),
   manager: createConfiguredManager(manager),
-  ...(liveAssignments === undefined ? {} : { liveAgents: liveAssignments, liveAssignments }),
+  ...(floor === undefined ? {} : { liveAgents: floor }),
+  ...(liveAssignments === undefined ? {} : { liveAssignments }),
+  ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink }),
 } satisfies OfficeRoomOptions);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -110,6 +146,8 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     projectFeed.stop();
     liveAgentRegistry?.stop();
     liveAssignments?.stop();
+    runnerLink?.stop();
+    floor?.stop();
     void server.gracefullyShutdown();
   });
 }
@@ -117,6 +155,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 await server.listen(port);
 projectFeed.start();
 liveAgentRegistry?.start();
+runnerLink?.start();
 /* eslint-disable no-console -- the lines a developer or a platform log needs on boot */
 console.log(`office server listening on port ${port} at ${TICK_RATE_HZ}Hz`);
 console.log(`allowed origins: ${allowedOrigins.join(", ")}`);
@@ -135,5 +174,11 @@ console.log(
     ? "live agents: off (LIVE_AGENTS_SECRET is not set)"
     : `live agents: POST ${LIVE_AGENT_REPORT_PATH}, leaving after ${liveAgents.timeoutMs / 1000}s of silence; ` +
         `assignments collected from POST ${LIVE_AGENT_ASSIGNMENTS_PATH}`,
+);
+console.log(
+  runner.secret === undefined
+    ? "runner link: off (RUNNER_SECRET is not set)"
+    : `runner link: POST ${RUNNER_SYNC_PATH} for ${projectBoard.repository}, ` +
+        `up to ${MAX_RUNNER_SLOTS_ON_FLOOR} slots, leaving after ${liveAgents.timeoutMs / 1000}s of silence`,
 );
 /* eslint-enable no-console */

@@ -77,7 +77,7 @@ function isReportStatus(value: unknown): value is LiveAgentReportStatus {
  * @returns the URL as given, `""` for an absent one, or `undefined` for one that
  * is present and unacceptable.
  */
-function parseTaskUrl(raw: unknown): string | undefined {
+export function parseTaskUrl(raw: unknown): string | undefined {
   if (raw === undefined || raw === null || raw === "") {
     return "";
   }

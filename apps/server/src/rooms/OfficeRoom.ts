@@ -101,6 +101,7 @@ import {
 } from "@sim/shared";
 
 import { type LiveAgentSource, isLiveAgentSource } from "../agents/registry.js";
+import { type RunnerEventInbox, type RunnerEventSource, isRunnerEventSource } from "../agents/runnerLink.js";
 import type { ProjectBoardSource } from "../github/feed.js";
 import { AgentBrain, type AgentBrainHost } from "../sim/agentBrain.js";
 import { AgentMotion, type IntentReport } from "../sim/agentMotion.js";
@@ -175,7 +176,7 @@ export interface OfficeRoomOptions {
    * covers the server. A room given none hires agents that never pick up work.
    */
   readonly workExecutor: WorkExecutor;
-  /** Absent when no orchestrator is configured, which leaves the floor to the players. */
+  /** Absent when neither an orchestrator nor a runner is configured, which leaves the floor to the players. */
   readonly liveAgents?: LiveAgentSource;
   /**
    * How the AI manager thinks, shared by every room so one call budget covers
@@ -187,6 +188,8 @@ export interface OfficeRoomOptions {
    * to collect. Absent when no orchestrator is configured.
    */
   readonly liveAssignments?: LiveAssignmentQueue;
+  /** What the agent runners report happening; absent when no runner is configured. */
+  readonly runnerEvents?: RunnerEventSource;
 }
 
 /**
@@ -255,6 +258,8 @@ export class OfficeRoom extends Room<OfficeState> {
   private stopWatchingLiveAgents: (() => void) | undefined;
   /** Set by the source, cleared by the tick that reads it. */
   private liveAgentsChanged = true;
+  /** This room's share of the runners' events, drained by the tick. */
+  private runnerEvents: RunnerEventInbox | undefined;
 
   /** The AI manager's mind; unset in a room given no advisor. */
   private manager: OfficeManager | undefined;
@@ -307,6 +312,10 @@ export class OfficeRoom extends Room<OfficeState> {
       this.stopWatchingLiveAgents = liveAgents.subscribe(() => {
         this.liveAgentsChanged = true;
       });
+    }
+    const runnerEvents = roomOptions?.runnerEvents;
+    if (isRunnerEventSource(runnerEvents)) {
+      this.runnerEvents = runnerEvents.openEventInbox();
     }
 
     // `Date.now()` rather than `this.clock`, because a work timestamp is read
@@ -460,6 +469,7 @@ export class OfficeRoom extends Room<OfficeState> {
     this.stopRelayingProjectBoard?.();
     this.stopReleasingWork?.();
     this.stopWatchingLiveAgents?.();
+    this.runnerEvents?.close();
   }
 
   /**
@@ -507,6 +517,10 @@ export class OfficeRoom extends Room<OfficeState> {
       this.crew.sync(this.liveAgents.current(), now);
     }
     this.crew.step(now, Math.min(Math.max(deltaMs, 0), MAX_AGENT_STEP_MS) / 1000);
+    // Drained every tick so a room's inbox never holds more than a tick's
+    // worth. Turning these into work on the board is #74's; until then the
+    // floor shows a runner's progress through its slots alone.
+    this.runnerEvents?.drain();
 
     for (const [sessionId, motion] of this.motions) {
       const occupant = this.state.occupants.get(sessionId);
@@ -583,7 +597,9 @@ export class OfficeRoom extends Room<OfficeState> {
     this.manager = new OfficeManager({
       work,
       advisor,
-      liveAgents: this.liveAgents,
+      // The orchestrator's agents only: the manager hands work out through its
+      // queue, which a runner's slot is not on.
+      liveAgents: assignments,
       assignments,
       origin: this.roomId,
       publish: (entry) => {
