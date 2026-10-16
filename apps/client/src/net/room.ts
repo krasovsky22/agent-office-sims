@@ -34,6 +34,10 @@
  * The conversation with the AI manager is not: like chat it arrives as events —
  * the lines so far on joining, then each new one — and the manager's own badge
  * is read off its occupant.
+ *
+ * Nor are the live agents' terminal screens, which change several times a
+ * second. Each is kept here, whole, by occupant (`./screens.ts`), and read by
+ * the game loop when it is time to repaint one; nothing is notified.
  */
 
 import {
@@ -68,6 +72,7 @@ import {
   RECONNECT_GRACE_SECONDS,
   type ReportedAnimation,
   SERVER_MESSAGE,
+  type ScreenFramesEvent,
   type ThrottledEvent,
   type WorkAssignMessage,
   type WorkData,
@@ -83,6 +88,8 @@ import {
   shortestYawDelta,
 } from "@sim/shared";
 import { Client, type Room, getStateCallbacks } from "colyseus.js";
+
+import { type TerminalScreen, applyScreenFrame } from "./screens.js";
 
 export type ConnectionStatus =
   | "connecting"
@@ -207,6 +214,7 @@ export class RoomConnection {
   private leaving = false;
   private readonly views = new Map<string, OccupantView>();
   private readonly buffers = new Map<string, PoseSample[]>();
+  private readonly screens = new Map<string, TerminalScreen>();
 
   private workQueued = false;
 
@@ -242,6 +250,7 @@ export class RoomConnection {
     this.room = undefined;
     this.views.clear();
     this.buffers.clear();
+    this.screens.clear();
   }
 
   /** Every occupant currently in the room, in arrival order. */
@@ -263,6 +272,14 @@ export class RoomConnection {
   /** One occupant, for a game loop that must not allocate. */
   public viewOf(id: string): OccupantView | undefined {
     return this.views.get(id);
+  }
+
+  /**
+   * A live agent's terminal, as of the latest frame, or `undefined` before the
+   * first. Changed in place as frames arrive; its `version` says when.
+   */
+  public screenOf(id: string): TerminalScreen | undefined {
+    return this.screens.get(id);
   }
 
   /**
@@ -515,6 +532,7 @@ export class RoomConnection {
     $(room.state).occupants.onRemove((_occupant, sessionId) => {
       this.views.delete(sessionId);
       this.buffers.delete(sessionId);
+      this.screens.delete(sessionId);
       this.events.onOccupantsChanged?.();
     });
 
@@ -567,9 +585,13 @@ export class RoomConnection {
       this.events.onManagerRejected?.(event);
     });
 
-    // Agents' terminal screens arrive several times a second. Nothing draws
-    // them yet, and a type left unregistered would log a warning for each one.
-    room.onMessage(SERVER_MESSAGE.screens, () => undefined);
+    // Several times a second, so kept rather than passed on: the game loop
+    // reads a screen when it is due a repaint.
+    room.onMessage<ScreenFramesEvent>(SERVER_MESSAGE.screens, (event) => {
+      for (const { occupantId, frame } of event.screens) {
+        this.screens.set(occupantId, applyScreenFrame(this.screens.get(occupantId), frame));
+      }
+    });
 
     room.onError((code, message) => {
       this.events.onStatusChanged?.("failed", message ?? `error ${code}`);
@@ -582,6 +604,7 @@ export class RoomConnection {
       }
       this.views.clear();
       this.buffers.clear();
+      this.screens.clear();
       this.events.onOccupantsChanged?.();
       this.events.onWorkChanged?.([]);
       this.room = undefined;

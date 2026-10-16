@@ -741,6 +741,15 @@ export function workstations(spec: DeskSpec): readonly Workstation[] {
 }
 
 /**
+ * The id of a desk's `number`th seat interactable, counting from 1 in
+ * {@link workstations} order. One template, so the seat and the props of its
+ * workstation can be paired by id.
+ */
+export function seatInteractableId(deskId: string, number: number): string {
+  return `seat-${deskId}-${number}`;
+}
+
+/**
  * The interactable each prop kind turns into, or `undefined` for one that is
  * only furniture. Keyed by record, so a new prop kind is a type error here until
  * somebody decides whether it can be used.
@@ -771,7 +780,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
   for (const spec of layout.desks) {
     workstations(spec).forEach((workstation, index) => {
       all.push({
-        id: `seat-${spec.id}-${index + 1}`,
+        id: seatInteractableId(spec.id, index + 1),
         kind: INTERACTION_KIND.seat,
         anchor: workstation.seat,
         volume: undefined,

@@ -303,6 +303,36 @@ describe("screens in a live room", () => {
     }
   });
 
+  it("hands a tab that reconnects after a drop every screen whole again", async () => {
+    expect((await post(SYNC, {}, FLOOR_SYNC)).status).toBe(200);
+    expect((await post(batch({ slotId: "slot-1", frame: FULL }), {}, FLOOR_SCREENS)).status).toBe(200);
+
+    const client = new Client(wsUrl);
+    const first = await client.create<OfficeState>(SCREENS_ROOM, { name: "Dana" });
+    const token = first.reconnectionToken;
+    // A drop, not a leave: the socket closes without the client saying so.
+    await first.leave(false);
+    expect((await post(batch({ slotId: "slot-1", frame: DIFF }), {}, FLOOR_SCREENS)).status).toBe(200);
+
+    const reconnected = await tab((joiner) => joiner.reconnect<OfficeState>(token));
+    try {
+      expect(reconnected.room.sessionId).toBe(first.sessionId);
+      await settled(() => reconnected.received.length === 1);
+      expect(reconnected.received).toEqual([
+        {
+          screens: [
+            {
+              occupantId: "agent:runner:runner-1:slot-1",
+              frame: { ...FULL, lines: { ...FULL.lines, 2: DIFF.lines[2] }, cursor: DIFF.cursor },
+            },
+          ],
+        },
+      ]);
+    } finally {
+      await reconnected.room.leave();
+    }
+  });
+
   it("keeps the room ticking at full rate through a flood of screens", async () => {
     expect((await post(SYNC, {}, FLOOR_SYNC)).status).toBe(200);
     const { room: client } = await tab((joiner) => joiner.create<OfficeState>(SCREENS_ROOM, { name: "Dana" }));

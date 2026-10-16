@@ -42,12 +42,13 @@ import { operatorAccessFor, operatorRejectionText } from "./operatorAccess.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
 import { PlayerController } from "./player/controller.js";
+import { AgentScreens } from "./scene/agentScreen.js";
 import { Avatar } from "./scene/avatar.js";
 import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
 import { buildWallBoard } from "./scene/wallBoard.js";
 import { buildLighting } from "./scene/lighting.js";
 import { buildOffice } from "./scene/office.js";
-import { loadPropKit, screenMaterialOf } from "./scene/propKit.js";
+import { loadPropKit, screenFaceOf, screenMaterialOf } from "./scene/propKit.js";
 import { buildProps } from "./scene/props.js";
 import {
   Hud,
@@ -253,6 +254,9 @@ function start(): void {
    * walkable, and the HUD says which of the two happened.
    */
   let placedProps = 0;
+  // Live agents' terminals go on the kit's monitors, so there are none to show
+  // them on in the grey office.
+  let agentScreens: AgentScreens | undefined;
   const furnish = async (): Promise<void> => {
     if (!readPropsEnabled()) {
       publishHud({ assets: "greybox" });
@@ -264,6 +268,11 @@ function start(): void {
       const screen = screenMaterialOf(kit);
       if (screen !== undefined) {
         lighting.lightScreens(screen);
+      }
+      const monitor = kit.get("monitor");
+      const face = screenFaceOf(kit);
+      if (monitor !== undefined && face !== undefined) {
+        agentScreens = new AgentScreens(scene, OFFICE_LAYOUT, monitor, face, renderer.capabilities.getMaxAnisotropy());
       }
       office.setGreyDesksVisible(false);
       publishHud({ assets: "ready" });
@@ -629,6 +638,18 @@ function start(): void {
       // Overhead content is parented to the avatar, so it has already followed
       // the body; all that is left is retiring whatever has expired.
       avatar.updateExpressions(nowMs);
+    }
+
+    // Every seated live agent's terminal on its own desk's monitor, and none
+    // for an agent that has stood up or gone.
+    if (agentScreens !== undefined) {
+      for (const id of avatars.keys()) {
+        const view = room.viewOf(id);
+        if (view?.agentStatus !== undefined && view.interactableId !== "") {
+          agentScreens.show(id, view.interactableId, room.screenOf(id), nowMs, camera.position);
+        }
+      }
+      agentScreens.sweep();
     }
 
     const minuteOfDay = dayClock.minuteAt(nowMs);

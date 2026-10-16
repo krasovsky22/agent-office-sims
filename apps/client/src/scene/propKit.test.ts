@@ -15,10 +15,13 @@
 
 import {
   DESK_CHAIR,
+  INTERACTION_KIND,
   OFFICE_LAYOUT,
   OFFICE_PROPS,
   type AssetPropSpec,
   derivedProps,
+  interactables,
+  monitorOfSeat,
 } from "@sim/shared";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -27,7 +30,8 @@ import { describe, expect, it } from "vitest";
 import diningChairData from "../assets/office-kit/chair.glb?inline";
 import chairData from "../assets/office-kit/chairDesk.glb?inline";
 import monitorData from "../assets/office-kit/computerScreen.glb?inline";
-import { modelFromScene, screenMaterialOf } from "./propKit.js";
+import { type PropModel, modelFromScene, screenFaceOf, screenMaterialOf } from "./propKit.js";
+import { propMatrix } from "./props.js";
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -182,5 +186,56 @@ describe("screenMaterialOf", () => {
     expect(face).toBeDefined();
     expect(face?.geometry.getIndex()?.count).toBe(6);
     expect(model.parts.filter((part) => part.material === screen)).toHaveLength(1);
+  });
+});
+
+describe("screenFaceOf", () => {
+  async function monitorModel(): Promise<PropModel> {
+    const buffer = await (await fetch(monitorData)).arrayBuffer();
+    return modelFromScene("monitor", (await new GLTFLoader().parseAsync(buffer, "")).scene);
+  }
+
+  it("lays a plane over exactly the display face, facing out of it", async () => {
+    const model = await monitorModel();
+    const face = screenFaceOf(new Map([["monitor", model]]));
+    expect(face).toBeDefined();
+
+    const toPlane = face!.matrix.clone().invert();
+    const part = model.parts.find((candidate) => candidate.material === screenMaterialOf(new Map([["monitor", model]])))!;
+    const positions = part.geometry.getAttribute("position");
+    const index = part.geometry.getIndex()!;
+    const corners = new Set<string>();
+    for (let i = 0; i < index.count; i += 1) {
+      const local = new THREE.Vector3().fromBufferAttribute(positions, index.getX(i)).applyMatrix4(toPlane);
+      expect(Math.abs(local.z)).toBeLessThan(1e-4);
+      corners.add(`${Math.sign(Math.round(local.x * 1e4))},${Math.sign(Math.round(local.y * 1e4))}`);
+      expect(Math.abs(Math.abs(local.x) - face!.width / 2)).toBeLessThan(1e-4);
+      expect(Math.abs(Math.abs(local.y) - face!.height / 2)).toBeLessThan(1e-4);
+    }
+    expect(corners.size).toBe(4);
+
+    const out = new THREE.Vector3().setFromMatrixColumn(face!.matrix, 2);
+    expect(out.dot(await screenNormal())).toBeGreaterThan(0.999);
+    // Right-handed, so a texture on it reads the right way round from the front.
+    expect(face!.matrix.determinant()).toBeGreaterThan(0);
+  });
+
+  it("puts every seat's screen on its own monitor, facing the seat", async () => {
+    const model = await monitorModel();
+    const face = screenFaceOf(new Map([["monitor", model]]))!;
+    const seats = interactables(OFFICE_LAYOUT).filter((spec) => spec.kind === INTERACTION_KIND.seat);
+    expect(seats.length).toBeGreaterThan(0);
+
+    for (const seat of seats) {
+      const monitor = monitorOfSeat(OFFICE_LAYOUT, seat.id)!;
+      const world = propMatrix(monitor, model.size, new THREE.Matrix4()).multiply(face.matrix);
+      const centre = new THREE.Vector3().setFromMatrixPosition(world);
+      const out = new THREE.Vector3().setFromMatrixColumn(world, 2).setY(0).normalize();
+      const toSeat = new THREE.Vector3(seat.anchor.x - centre.x, 0, seat.anchor.z - centre.z).normalize();
+
+      expect(out.dot(toSeat), seat.id).toBeGreaterThan(0.95);
+      expect(Math.hypot(centre.x - monitor.x, centre.z - monitor.z), seat.id).toBeLessThan(0.2);
+      expect(centre.y, seat.id).toBeGreaterThan(monitor.y);
+    }
   });
 });

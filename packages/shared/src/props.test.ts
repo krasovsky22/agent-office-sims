@@ -12,13 +12,21 @@
 
 import { describe, expect, it } from "vitest";
 
-import { OFFICE_LAYOUT, type DeskSpec, type OfficeLayout } from "./layout.js";
+import {
+  INTERACTION_KIND,
+  OFFICE_LAYOUT,
+  type DeskSpec,
+  type OfficeLayout,
+  interactables,
+  localToWorld,
+} from "./layout.js";
 import {
   OFFICE_PROPS,
   type AssetPropKind,
   derivedProps,
   describePropProblems,
   groupPropsByKind,
+  monitorOfSeat,
 } from "./props.js";
 
 function kinds(props: readonly { kind: AssetPropKind }[]): Set<AssetPropKind> {
@@ -198,6 +206,54 @@ describe("prop derivation", () => {
     expect(describePropProblems(swallowed, [plant!])).toEqual([
       `prop ${plant!.id} stands inside an obstacle at (${plant!.x}, ${plant!.z})`,
     ]);
+  });
+});
+
+describe("monitorOfSeat", () => {
+  const seats = interactables(OFFICE_LAYOUT).filter((spec) => spec.kind === INTERACTION_KIND.seat);
+
+  it("pairs seat-<desk>-<n> with prop-<desk>-monitor-<n>", () => {
+    const seat = seats[0]!;
+    const monitor = monitorOfSeat(OFFICE_LAYOUT, seat.id);
+
+    expect(monitor?.id).toBe(seat.id.replace(/^seat-(.+)-(\d+)$/, "prop-$1-monitor-$2"));
+    expect(monitor?.kind).toBe("monitor");
+  });
+
+  it("gives every seat in the office its own monitor, on its own desk, in front of it", () => {
+    const monitors = new Set<string>();
+    for (const seat of seats) {
+      const monitor = monitorOfSeat(OFFICE_LAYOUT, seat.id);
+      expect(monitor, seat.id).toBeDefined();
+      monitors.add(monitor!.id);
+
+      const desk = OFFICE_LAYOUT.desks.find((spec) => spec.id === seat.deskId)!;
+      // Seat and monitor share a column across the desk, on opposite sides of it.
+      const seatLocal = localToWorld({ x: 0, z: 0 }, -desk.yaw, seat.anchor.x - desk.x, seat.anchor.z - desk.z);
+      const monitorLocal = localToWorld({ x: 0, z: 0 }, -desk.yaw, monitor!.x - desk.x, monitor!.z - desk.z);
+      expect(monitorLocal.x, seat.id).toBeCloseTo(seatLocal.x);
+      expect(Math.sign(monitorLocal.z), seat.id).toBe(-Math.sign(seatLocal.z));
+    }
+    expect(monitors.size).toBe(seats.length);
+  });
+
+  it("follows the layout, not the shipped desks", () => {
+    const invented: DeskSpec = { id: "desk-invented", x: 0, z: 6.5, yaw: 0, width: 1.6, depth: 0.8, height: 0.75 };
+    const layout = withDesks([invented]);
+
+    expect(monitorOfSeat(layout, "seat-desk-invented-1")).toMatchObject({
+      id: "prop-desk-invented-monitor-1",
+      y: invented.height,
+    });
+    expect(monitorOfSeat(OFFICE_LAYOUT, "seat-desk-invented-1")).toBeUndefined();
+  });
+
+  it("has nothing for an id that is not a desk's seat", () => {
+    const coffee = interactables(OFFICE_LAYOUT).find((spec) => spec.kind === INTERACTION_KIND.coffee)!;
+
+    expect(monitorOfSeat(OFFICE_LAYOUT, coffee.id)).toBeUndefined();
+    expect(monitorOfSeat(OFFICE_LAYOUT, "")).toBeUndefined();
+    expect(monitorOfSeat(OFFICE_LAYOUT, `${seats[0]!.id}9`)).toBeUndefined();
   });
 });
 

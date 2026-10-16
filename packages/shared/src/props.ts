@@ -35,6 +35,7 @@ import {
   OFFICE_LAYOUT,
   collisionBoxes,
   localToWorld,
+  seatInteractableId,
   workstations,
 } from "./layout.js";
 
@@ -179,7 +180,7 @@ function deskProps(spec: DeskSpec): AssetPropSpec[] {
     // The screen stands on the desktop at the far edge, turned to face the seat.
     const monitor = localToWorld(spec, spec.yaw, localX, MONITOR_INSET - spec.depth / 2);
     props.push({
-      id: `prop-${spec.id}-monitor-${index + 1}`,
+      id: monitorPropId(spec.id, index + 1),
       kind: "monitor",
       x: monitor.x,
       y: spec.height,
@@ -360,6 +361,11 @@ function handPlacedProps(layout: OfficeLayout): AssetPropSpec[] {
   return [...standing, ...onTop];
 }
 
+/** The id of the monitor on a desk's `number`th workstation, paired with {@link seatInteractableId}. */
+function monitorPropId(deskId: string, number: number): string {
+  return `prop-${deskId}-monitor-${number}`;
+}
+
 /**
  * Every prop a layout furnishes itself with.
  *
@@ -378,6 +384,40 @@ export function derivedProps(layout: OfficeLayout): readonly AssetPropSpec[] {
 
 /** The furniture of the shipped office. This is what the client renders. */
 export const OFFICE_PROPS: readonly AssetPropSpec[] = derivedProps(OFFICE_LAYOUT);
+
+const monitorCache = new WeakMap<OfficeLayout, ReadonlyMap<string, AssetPropSpec>>();
+
+/**
+ * The monitor on the desk in front of a seat: its pose, where a renderer puts
+ * anything that has to sit on that one screen.
+ *
+ * Cached per layout, like `interactables`, since the client asks again each
+ * time an agent sits or changes seat and the layout never changes at runtime.
+ *
+ * @returns the monitor prop, or `undefined` for an id that is not a desk's seat.
+ */
+export function monitorOfSeat(layout: OfficeLayout, seatId: string): AssetPropSpec | undefined {
+  let bySeat = monitorCache.get(layout);
+  if (bySeat === undefined) {
+    const monitors = new Map(
+      derivedProps(layout)
+        .filter((prop) => prop.kind === "monitor")
+        .map((prop) => [prop.id, prop]),
+    );
+    const pairs = new Map<string, AssetPropSpec>();
+    for (const desk of layout.desks) {
+      workstations(desk).forEach((_, index) => {
+        const monitor = monitors.get(monitorPropId(desk.id, index + 1));
+        if (monitor !== undefined) {
+          pairs.set(seatInteractableId(desk.id, index + 1), monitor);
+        }
+      });
+    }
+    bySeat = pairs;
+    monitorCache.set(layout, bySeat);
+  }
+  return bySeat.get(seatId);
+}
 
 /**
  * Props grouped by kind, which is also the renderer's batching plan.

@@ -57,6 +57,18 @@ function scaleFor(spec: AssetPropSpec, size: THREE.Vector3, into: THREE.Vector3)
 }
 
 /**
+ * Where one prop's model is drawn: its spec's position and turn, and the
+ * scale that fits the model to it.
+ */
+export function propMatrix(spec: AssetPropSpec, size: THREE.Vector3, into: THREE.Matrix4): THREE.Matrix4 {
+  return into.compose(
+    new THREE.Vector3(spec.x, spec.y, spec.z),
+    new THREE.Quaternion().setFromAxisAngle(UP, spec.yaw),
+    scaleFor(spec, size, new THREE.Vector3()),
+  );
+}
+
+/**
  * Builds the prop meshes and parents them under one group.
  *
  * Props cast shadows and receive them; walls and the floor slab are handled in
@@ -72,9 +84,6 @@ export function buildProps(
   group.name = "props";
 
   const matrix = new THREE.Matrix4();
-  const position = new THREE.Vector3();
-  const rotation = new THREE.Quaternion();
-  const scale = new THREE.Vector3();
 
   let drawCalls = 0;
   let instances = 0;
@@ -94,9 +103,7 @@ export function buildProps(
     });
 
     batch.forEach((spec, index) => {
-      position.set(spec.x, spec.y, spec.z);
-      rotation.setFromAxisAngle(UP, spec.yaw);
-      matrix.compose(position, rotation, scaleFor(spec, model.size, scale));
+      propMatrix(spec, model.size, matrix);
       for (const mesh of meshes) {
         mesh.setMatrixAt(index, matrix);
       }
