@@ -28,9 +28,9 @@ export const OPERATOR_ATTEMPT_WINDOW_SECONDS = 300;
 
 /**
  * Wrong answers the whole server may hear before verifying is closed to
- * everyone. A client's own allowance goes when it leaves, and a room's when it
- * empties; this one lasts as long as the server, so leaving and rejoining
- * does not start a guesser over.
+ * everyone. A client's own allowance goes when it leaves, and anything a room
+ * kept would go when it empties; this one lasts as long as the server, so
+ * leaving and rejoining does not start a guesser over.
  */
 export const OPERATOR_FAILURE_ALLOWANCE = 20;
 
