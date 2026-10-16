@@ -122,6 +122,11 @@
   color: #7fe8da;
 }
 
+.hud__badge--operator {
+  background: rgba(240, 138, 122, 0.16);
+  color: #f08a7a;
+}
+
 /* A live agent's task, on a line of its own under the name. */
 .hud__task {
   flex-basis: 100%;

@@ -20,6 +20,7 @@ import { Server, matchMaker } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
   type BoardIssue,
+  CEO_CHANGE,
   type CeoChangedEvent,
   CLIENT_MESSAGE,
   EMPTY_BOARD_LISTS,
@@ -352,7 +353,7 @@ describe("CEO succession", () => {
     expect(roleOf(milo, ines.room.sessionId)).toBe(PLAYER_ROLE.exec);
     expect(describeRoleProblems(serverRoom(milo).state.occupants)).toEqual([]);
     expect(ines.announcements).toEqual([
-      { ceoId: milo.room.sessionId, previousCeoId: dana.room.sessionId },
+      { ceoId: milo.room.sessionId, previousCeoId: dana.room.sessionId, change: CEO_CHANGE.succeeded },
     ]);
     await settled(() => ceoCounts.length > 0);
     expect(ceoCounts.every((count) => count === 1)).toBe(true);
@@ -384,7 +385,7 @@ describe("CEO succession past a dropped player", () => {
     expect(roleOf(ines, ines.room.sessionId)).toBe(PLAYER_ROLE.ceo);
     expect(roleOf(ines, miloId)).toBe(PLAYER_ROLE.exec);
     expect(ines.announcements).toEqual([
-      { ceoId: ines.room.sessionId, previousCeoId: dana.room.sessionId },
+      { ceoId: ines.room.sessionId, previousCeoId: dana.room.sessionId, change: CEO_CHANGE.succeeded },
     ]);
 
     listen(milo, await milo.client.reconnect<OfficeState>(token));
@@ -443,7 +444,7 @@ describe("the role across a reconnect", () => {
     );
     expect(serverRoom(milo).state.occupants.has(sessionId)).toBe(false);
     await settled(() => milo.announcements.length > 0);
-    expect(milo.announcements).toEqual([{ ceoId: milo.room.sessionId, previousCeoId: sessionId }]);
+    expect(milo.announcements).toEqual([{ ceoId: milo.room.sessionId, previousCeoId: sessionId, change: CEO_CHANGE.succeeded }]);
 
     await milo.room.leave();
   });

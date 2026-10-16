@@ -64,6 +64,8 @@ import {
   type Occupant,
   type OccupantKind,
   type OfficeState,
+  type OperatorRejectedEvent,
+  type OperatorVerifyMessage,
   POSE_BUFFER_SIZE,
   POSE_SEND_INTERVAL_MS,
   type PoseMessage,
@@ -87,6 +89,7 @@ import {
   isAiManager,
   isCeo,
   isLiveAgent,
+  isOperator,
   normalizeYaw,
   shortestYawDelta,
 } from "@sim/shared";
@@ -135,6 +138,8 @@ export interface OccupantView {
   name: string;
   kind: OccupantKind;
   isCeo: boolean;
+  /** Whether a player has verified as operator; always `false` for anyone else. */
+  isOperator: boolean;
   jobTitle: string;
   activity: AgentActivity | undefined;
   /** What an agent costs a day; fixed at hire, so never re-read. */
@@ -213,8 +218,10 @@ export interface RoomConnectionEvents {
   onCompanyChanged?: (company: CompanyView) => void;
   /** The office refused one of the local client's own work commands. */
   onWorkRejected?: (event: WorkRejectedEvent) => void;
-  /** The CEO left and the role passed to someone else. */
+  /** The CEO role passed to someone else: its holder left, or someone verified as operator. */
   onCeoChanged?: (event: CeoChangedEvent) => void;
+  /** The office turned down the local client's own attempt to verify as operator. */
+  onOperatorRejected?: (event: OperatorRejectedEvent) => void;
   /** All the agents' work, after any of it is added, changed or removed. */
   onWorkChanged?: (work: readonly WorkData[]) => void;
   /** An agent was hired, fired, or quit. */
@@ -398,6 +405,19 @@ export class RoomConnection {
     this.room?.send(CLIENT_MESSAGE.staffFire, { agentId } satisfies StaffFireMessage);
   }
 
+  /**
+   * Tries the operator passphrase. A success comes back as the local player's
+   * replicated operator flag; a refusal as an operator-rejected event.
+   */
+  public sendOperatorVerify(passphrase: string): void {
+    this.room?.send(CLIENT_MESSAGE.operatorVerify, { passphrase } satisfies OperatorVerifyMessage);
+  }
+
+  /** Whether commanding the real coding agents takes a verified operator here. */
+  public operatorRequired(): boolean {
+    return this.room?.state.operatorRequired === true;
+  }
+
   /** Tells the AI manager something. The conversation broadcast is the reply. */
   public sendManagerSay(text: string): void {
     this.room?.send(CLIENT_MESSAGE.managerSay, { text } satisfies ManagerSayMessage);
@@ -510,6 +530,7 @@ export class RoomConnection {
         name: occupant.name,
         kind: occupant.kind,
         isCeo: isCeo(occupant),
+        isOperator: isOperator(occupant),
         jobTitle: jobTitleOf(occupant),
         activity: isAgentEmployee(occupant) ? occupant.activity : undefined,
         salary: isAgentEmployee(occupant) ? occupant.salary : 0,
@@ -551,6 +572,12 @@ export class RoomConnection {
       });
     });
 
+    // Fixed for the room's life, but it can be decoded after the occupants, so
+    // the access it changes is worked out again when it arrives.
+    $(room.state).listen("operatorRequired", () => {
+      this.events.onOccupantsChanged?.();
+    });
+
     $(room.state).occupants.onRemove((_occupant, sessionId) => {
       this.views.delete(sessionId);
       this.buffers.delete(sessionId);
@@ -588,6 +615,10 @@ export class RoomConnection {
 
     room.onMessage<CeoChangedEvent>(SERVER_MESSAGE.ceoChanged, (event) => {
       this.events.onCeoChanged?.(event);
+    });
+
+    room.onMessage<OperatorRejectedEvent>(SERVER_MESSAGE.operatorRejected, (event) => {
+      this.events.onOperatorRejected?.(event);
     });
 
     room.onMessage<DebugReplyEvent>(SERVER_MESSAGE.debugReply, (event) => {
@@ -649,6 +680,7 @@ export class RoomConnection {
     view: OccupantView,
   ): void {
     const ceo = isCeo(occupant);
+    const operator = isOperator(occupant);
     const jobTitle = jobTitleOf(occupant);
     const activity = isAgentEmployee(occupant) ? occupant.activity : undefined;
     const agent = isLiveAgent(occupant) ? occupant : undefined;
@@ -662,6 +694,7 @@ export class RoomConnection {
     if (
       view.name !== occupant.name ||
       view.isCeo !== ceo ||
+      view.isOperator !== operator ||
       view.kind !== occupant.kind ||
       view.jobTitle !== jobTitle ||
       view.activity !== activity ||
@@ -676,6 +709,7 @@ export class RoomConnection {
       view.name = occupant.name;
       view.kind = occupant.kind;
       view.isCeo = ceo;
+      view.isOperator = operator;
       view.jobTitle = jobTitle;
       view.activity = activity;
       view.agentStatus = agentStatus;

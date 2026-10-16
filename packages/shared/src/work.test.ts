@@ -39,6 +39,7 @@ import {
   isIssueAssignee,
   mayActOnWork,
   mayAssignWork,
+  mayCommandRealAgents,
   releaseGoneWork,
   releaseWorkOf,
   workForAgent,
@@ -516,5 +517,33 @@ describe("work command parsers", () => {
     expect(parseWorkAssignMessage({ issueNumber: 12, assigneeId: "" })).toBeUndefined();
     expect(parseWorkMoveMessage({ issueNumber: 12, status: "backlog" })).toBeUndefined();
     expect(parseWorkMoveMessage(null)).toBeUndefined();
+  });
+});
+
+describe("mayCommandRealAgents", () => {
+  it("lets only a CEO who verified as operator command the real agents", () => {
+    const at = office();
+    const ceo = at.occupants.get(CEO_ID);
+    const exec = at.occupants.get(EXEC_ID);
+    const agent = at.occupants.get("agent-1");
+    if (!(ceo instanceof HumanPlayer) || !(exec instanceof HumanPlayer) || agent === undefined) {
+      throw new Error("missing fixture");
+    }
+
+    expect(mayCommandRealAgents(actorOf(ceo))).toBe(false);
+    exec.operator = true;
+    expect(mayCommandRealAgents(actorOf(exec))).toBe(false);
+    ceo.operator = true;
+    expect(mayCommandRealAgents(actorOf(ceo))).toBe(true);
+    expect(mayCommandRealAgents(actorOf(agent))).toBe(false);
+  });
+
+  it("asks nothing more of the simulated staff's work", () => {
+    const ceo = office().occupants.get(CEO_ID);
+    if (ceo === undefined) {
+      throw new Error("missing fixture");
+    }
+    expect(actorOf(ceo).isOperator).toBe(false);
+    expect(mayAssignWork(actorOf(ceo))).toBe(true);
   });
 });

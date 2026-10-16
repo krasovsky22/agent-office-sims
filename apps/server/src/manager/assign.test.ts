@@ -194,3 +194,28 @@ describe("carryOut: GitHub work for live agents", () => {
     ]);
   });
 });
+
+describe("carryOut: an office with an operator passphrase", () => {
+  it("refuses a CEO who has not verified as operator, with the reason, and queues nothing", () => {
+    const { state, queue, context } = office();
+    state.operatorRequired = true;
+    expect(carryOut([{ work: "#39", agent: "Crewmate" }, { work: "PR #46", agent: "" }], context())).toEqual([
+      "✗ #39 “Night shift”: only a verified operator can send work to live coding agents; verify with the operator passphrase first.",
+      "✗ PR #46 “Show live agents”: only a verified operator can send work to live coding agents; verify with the operator passphrase first.",
+    ]);
+    expect(queue?.collect()).toEqual([]);
+  });
+
+  it("queues work for a CEO who has", () => {
+    const { state, ceo, context } = office();
+    state.operatorRequired = true;
+    ceo.operator = true;
+    expect(carryOut([{ work: "#39", agent: "Crewmate" }], context())[0]).toContain("→ Crewmate; queued");
+  });
+
+  it("asks nothing more for the agent employees' issues", () => {
+    const { state, context } = office();
+    state.operatorRequired = true;
+    expect(carryOut([{ work: "#10", agent: "Bo" }], context())[0]).toMatch(/^✓/);
+  });
+});

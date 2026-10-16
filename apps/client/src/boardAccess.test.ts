@@ -16,8 +16,8 @@ import { describe, expect, it } from "vitest";
 
 import { boardAccessFor, mayAct, rejectionText } from "./boardAccess.js";
 
-const DANA: OfficeActor = { id: "dana", kind: OCCUPANT_KIND.human, isCeo: true };
-const MILO: OfficeActor = { id: "milo", kind: OCCUPANT_KIND.human, isCeo: false };
+const DANA: OfficeActor = { id: "dana", kind: OCCUPANT_KIND.human, isCeo: true, isOperator: false };
+const MILO: OfficeActor = { id: "milo", kind: OCCUPANT_KIND.human, isCeo: false, isOperator: false };
 const ADA = { id: "agent-1" };
 
 describe("boardAccessFor", () => {

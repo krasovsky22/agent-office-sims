@@ -38,7 +38,7 @@ import { HoldRegistry, type InteractionHost } from "./interaction.js";
 import { type OccupantMotion } from "./movement.js";
 
 /** The CEO, as the work's rules judge one; the brain's commands are the agents'. */
-const CEO = { id: "session-ceo", kind: "human", isCeo: true } as const;
+const CEO = { id: "session-ceo", kind: "human", isCeo: true, isOperator: false } as const;
 
 /** One work call the scripted executor is holding open. */
 interface Call {

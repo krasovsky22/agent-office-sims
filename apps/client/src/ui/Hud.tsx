@@ -34,6 +34,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { BoardAccess } from "../boardAccess.js";
 import type { CompanyReadout } from "../companyReadout.js";
 import type { ManagerAccess } from "../managerAccess.js";
+import type { OperatorAccess } from "../operatorAccess.js";
 import type { StaffReadout } from "../staffing.js";
 import {
   AGENT_ACTIVITY_APPEARANCE,
@@ -56,6 +57,8 @@ export interface RosterEntry {
   readonly name: string;
   readonly kind: OccupantKind;
   readonly isCeo: boolean;
+  /** Whether a player has verified as operator; `false` for anyone else. */
+  readonly isOperator: boolean;
   /** An agent's job title; `""` for a player. */
   readonly jobTitle: string;
   /** An agent's activity; `undefined` for a player. */
@@ -183,6 +186,8 @@ export interface HudSnapshot {
   readonly managerUnread: number;
   /** What the local player may say to the manager; absent until they are in the office. */
   readonly managerAccess?: ManagerAccess | undefined;
+  /** What the local player may send the live coding agents; absent with no operator passphrase. */
+  readonly operatorAccess?: OperatorAccess | undefined;
 }
 
 export interface HudActions {
@@ -456,6 +461,7 @@ function PersonRow({ entry }: { entry: RosterEntry }) {
     <li className="hud__occupant">
       <span className="hud__name">{entry.name}</span>
       {entry.isCeo ? <span className="hud__badge">CEO</span> : null}
+      {entry.isOperator ? <span className="hud__badge hud__badge--operator">Operator</span> : null}
       {entry.isLocal ? <span className="hud__you">you</span> : null}
     </li>
   );
@@ -603,6 +609,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     managerLog,
     managerUnread,
     managerAccess,
+    operatorAccess,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
 
@@ -654,6 +661,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
         <ManagerPanel
           entries={managerLog}
           access={managerAccess}
+          operator={operatorAccess}
           thinking={groupRoster(roster).managers.some((entry) => entry.managerStatus === MANAGER_STATUS.thinking)}
           actions={actions.manager}
         />
