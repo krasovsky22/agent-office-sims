@@ -75,11 +75,16 @@ export function fitBytes(value: string, maxBytes: number): string {
   if (encodedBytes(value) <= maxBytes) {
     return value;
   }
-  const characters = Array.from(value);
-  while (characters.length > 0 && encodedBytes(characters.join("")) > maxBytes) {
-    characters.pop();
+  let used = 0;
+  let end = 0;
+  for (const character of value) {
+    used += encodedBytes(character);
+    if (used > maxBytes) {
+      break;
+    }
+    end += character.length;
   }
-  return characters.join("");
+  return value.slice(0, end);
 }
 
 export class SlotPool {

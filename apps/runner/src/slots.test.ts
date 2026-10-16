@@ -206,4 +206,11 @@ describe("fitBytes", () => {
     expect(fitBytes('a"b', 2)).toBe("a");
     expect(fitBytes("😀😀", 6)).toBe("😀");
   });
+
+  it("cuts a very long input to the budget quickly", () => {
+    const started = Date.now();
+    const cut = fitBytes(`${"é".repeat(500_000)}"`, 1001);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(cut).toBe("é".repeat(500));
+  });
 });
