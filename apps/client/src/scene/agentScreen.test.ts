@@ -136,7 +136,7 @@ describe("activeWindow", () => {
 describe("paintScreen", () => {
   it("paints the placeholder, centred, before the first frame", () => {
     const ctx = fakeContext();
-    paintScreen(ctx, 1000, 600, undefined, "connecting…");
+    paintScreen(ctx, 1000, 600, undefined, "connecting…", 22);
 
     expect(ctx.drawn[0]).toMatchObject({ op: "rect", style: TERM_THEME.background, x: 0, y: 0, w: 1000 });
     expect(ctx.drawn[1]).toMatchObject({ op: "text", text: "connecting…", x: 500, y: 300 });
@@ -145,13 +145,13 @@ describe("paintScreen", () => {
 
   it("lays runs out a cell per character, left to right", () => {
     const ctx = fakeContext();
-    // 100 columns across 1040 px less 2% padding a side; width, not height, sets the cell.
-    paintScreen(ctx, 1040, 1000, screenOf({ 0: [plain("ab"), ["→c", 2, -1, 0]] }, 100, 10), "");
+    // 56 columns across 1040 px less 2% padding a side; width, not height, sets the cell.
+    paintScreen(ctx, 1040, 1000, screenOf({ 0: [plain("ab"), ["→c", 2, -1, 0]] }, 56, 10), "", 22);
 
     const texts = ctx.drawn.filter((entry) => entry.op === "text");
     expect(texts.map((entry) => entry.text)).toEqual(["ab", "→c"]);
     const pad = 1040 * 0.02;
-    const cell = (1040 - pad * 2) / 100;
+    const cell = (1040 - pad * 2) / 56;
     expect(texts[0]!.x).toBeCloseTo(pad);
     // Two cells on, counting the arrow as one character.
     expect(texts[1]!.x - texts[0]!.x).toBeCloseTo(2 * cell);
@@ -166,8 +166,9 @@ describe("paintScreen", () => {
       ctx,
       1040,
       1000,
-      screenOf({ 0: [["on", 1, 4, 0], ["inv", 3, -1, SCREEN_FLAG_INVERSE], ["b", -1, -1, SCREEN_FLAG_BOLD | SCREEN_FLAG_DIM]] }, 100, 10),
+      screenOf({ 0: [["on", 1, 4, 0], ["inv", 3, -1, SCREEN_FLAG_INVERSE], ["b", -1, -1, SCREEN_FLAG_BOLD | SCREEN_FLAG_DIM]] }, 56, 10),
       "",
+      22,
     );
 
     const [, onBg, onText, invBg, invText, bold] = ctx.drawn;
@@ -180,7 +181,7 @@ describe("paintScreen", () => {
     expect(onText!.font.startsWith("400 ")).toBe(true);
   });
 
-  it("draws only the window's rows when zoomed", () => {
+  it("draws only the window's rows", () => {
     const lines: Record<number, ScreenRun[]> = {};
     for (let row = 0; row < 40; row += 1) {
       lines[row] = [plain(`line ${row}`)];

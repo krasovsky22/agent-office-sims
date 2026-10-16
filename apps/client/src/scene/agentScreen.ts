@@ -153,8 +153,8 @@ export type ScreenContext = Pick<
 /**
  * Paints a terminal onto a canvas `w` by `h`, or `placeholder` before it has one.
  *
- * `zoomRows` above 0 paints the {@link activeWindow} of about that many rows,
- * which is what keeps a small screen legible; 0 paints the whole terminal.
+ * Paints the {@link activeWindow} of about `zoomRows` rows, which is what
+ * keeps a small screen legible.
  */
 export function paintScreen(
   ctx: ScreenContext,
@@ -162,7 +162,7 @@ export function paintScreen(
   h: number,
   screen: TerminalScreen | undefined,
   placeholder: string,
-  zoomRows = 0,
+  zoomRows: number,
 ): void {
   ctx.fillStyle = TERM_THEME.background;
   ctx.fillRect(0, 0, w, h);
@@ -176,10 +176,7 @@ export function paintScreen(
     return;
   }
   const pad = w * 0.02;
-  const win =
-    zoomRows > 0
-      ? activeWindow(screen, w - pad * 2, h - pad * 2, zoomRows)
-      : { top: 0, rows: screen.rows, cols: screen.cols, first: 0, last: screen.rows - 1 };
+  const win = activeWindow(screen, w - pad * 2, h - pad * 2, zoomRows);
   const cellW = (w - pad * 2) / win.cols;
   const cellH = (h - pad * 2) / win.rows;
   const fontSize = Math.max(4, Math.min(cellW / CHAR_WIDTH, cellH / LINE_HEIGHT));
@@ -297,11 +294,6 @@ export class AgentScreens {
     this.onFace = face.matrix.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0, FACE_LIFT));
   }
 
-  /** Screens up, which is also the draw calls they add. */
-  public get count(): number {
-    return this.screens.size;
-  }
-
   /**
    * Keeps an agent's screen on the monitor in front of `seatId`, painting its
    * terminal if that is due. Nothing for a seat with no monitor.
@@ -340,13 +332,6 @@ export class AgentScreens {
     this.sweepCount += 1;
   }
 
-  public dispose(): void {
-    for (const [occupantId, screen] of this.screens) {
-      this.retire(occupantId, screen);
-    }
-    this.geometry.dispose();
-  }
-
   private create(occupantId: string): DeskScreen {
     const canvas = document.createElement("canvas");
     canvas.width = CANVAS_WIDTH;
@@ -355,7 +340,7 @@ export class AgentScreens {
     if (ctx === null) {
       throw new Error("a canvas without a 2D context cannot show a terminal");
     }
-    paintScreen(ctx, CANVAS_WIDTH, this.canvasHeight, undefined, PLACEHOLDER);
+    paintScreen(ctx, CANVAS_WIDTH, this.canvasHeight, undefined, PLACEHOLDER, ZOOM_ROWS);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
