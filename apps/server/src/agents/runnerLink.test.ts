@@ -60,8 +60,8 @@ describe("RunnerLink slots", () => {
     const { link, notifications } = setup();
     expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [] });
     expect(link.current()).toEqual([
-      { id: "runner:runner-1:slot-1", name: "Claude 1", status: "idle", task: undefined },
-      { id: "runner:runner-1:slot-2", name: "Claude 2", status: "idle", task: undefined },
+      { id: "runner:runner-1:slot-1", name: "Claude 1", status: "idle", task: undefined, canTakeIssues: true },
+      { id: "runner:runner-1:slot-2", name: "Claude 2", status: "idle", task: undefined, canTakeIssues: true },
     ]);
     expect(runnerSlotAgentId("runner-1", "slot-1")).toBe("runner:runner-1:slot-1");
     expect(notifications()).toBe(1);

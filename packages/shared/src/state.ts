@@ -297,6 +297,12 @@ export class LiveAgent extends Occupant {
   declare public assignedTitle: string;
   /** The assignment's link, `""` with no assignment. Always `https:`. */
   declare public assignedUrl: string;
+  /**
+   * Whether issue work can be given to this agent, as it can to an agent
+   * employee; see `isIssueAssignee` in `work.ts`. Only a source that drives
+   * the agent's work through the office's work rules sets it.
+   */
+  declare public canTakeIssues: boolean;
 
   public constructor() {
     super();
@@ -306,6 +312,7 @@ export class LiveAgent extends Occupant {
     this.taskUrl = "";
     this.assignedTitle = "";
     this.assignedUrl = "";
+    this.canTakeIssues = false;
   }
 }
 
@@ -315,6 +322,7 @@ defineTypes(LiveAgent, {
   taskUrl: "string",
   assignedTitle: "string",
   assignedUrl: "string",
+  canTakeIssues: "boolean",
 });
 
 /**
@@ -385,7 +393,7 @@ export function isWorkStatus(value: unknown): value is WorkStatus {
 }
 
 /**
- * An agent employee's work on one GitHub issue from the project board.
+ * An agent's work on one GitHub issue from the project board.
  *
  * The issue itself is GitHub's and arrives with the project board's snapshot;
  * this is only what the office has done about it, and it never travels back.
@@ -409,7 +417,7 @@ export class IssueWork extends Schema {
   declare public issueNumber: number;
   declare public title: string;
   declare public status: WorkStatus;
-  /** Occupant id of the agent employee doing it. Never `""`. */
+  /** Occupant id of the agent doing it: an employee, or a live agent. Never `""`. */
   declare public assigneeId: string;
   /** The assignee's deliverable, written when an agent finishes. `""` until. */
   declare public outputArtifact: string;

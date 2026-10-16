@@ -37,6 +37,12 @@ export interface LiveAgentRecord {
    * working on, when a source knows; see `manager/liveAssignments.ts`.
    */
   readonly assignment?: LiveAgentTask | undefined;
+  /**
+   * Whether issue work can be given to this agent; see `isIssueAssignee` in
+   * `@sim/shared`. Only a source that drives the agent's work through the
+   * office's work rules sets it, and absent means it cannot.
+   */
+  readonly canTakeIssues?: boolean;
 }
 
 /**

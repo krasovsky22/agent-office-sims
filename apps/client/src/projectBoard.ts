@@ -22,6 +22,8 @@ import {
   type BoardLabel,
   type BoardPullRequest,
   type CheckStatus,
+  OCCUPANT_KIND,
+  type OccupantKind,
   type ProjectBoardSnapshot,
   WORK_ACTION,
   WORK_STATUS,
@@ -276,11 +278,32 @@ export const formatClockTime: TimeFormatter = (epochMs) =>
 export const formatShortDate: TimeFormatter = (epochMs) =>
   new Date(epochMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
-/** An agent employee as the board names them; `Hud.tsx`'s roster entries satisfy it. */
+/** An agent as the board names them; `Hud.tsx`'s roster entries satisfy it. */
 export interface BoardAgent {
   readonly id: string;
   readonly name: string;
+  /** An agent employee or a live agent; the picker lists the two apart. */
+  readonly kind: OccupantKind;
   readonly activity: AgentActivity | undefined;
+}
+
+/** One heading in the assign picker, and the agents under it. */
+export interface AssigneeGroup {
+  readonly label: string;
+  readonly agents: readonly BoardAgent[];
+}
+
+/**
+ * The agents an issue can be given to, staff first and live agents after, each
+ * under its own heading so the CEO can tell a simulated colleague from a real
+ * coding agent. A group with nobody in it is left out.
+ */
+export function assigneeGroups(agents: readonly BoardAgent[]): AssigneeGroup[] {
+  const groups: AssigneeGroup[] = [
+    { label: "Staff", agents: agents.filter((agent) => agent.kind !== OCCUPANT_KIND.liveAgent) },
+    { label: "Live agents", agents: agents.filter((agent) => agent.kind === OCCUPANT_KIND.liveAgent) },
+  ];
+  return groups.filter((group) => group.agents.length > 0);
 }
 
 export const WORK_STATUS_TITLES: Readonly<Record<WorkStatus, string>> = {

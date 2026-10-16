@@ -186,7 +186,7 @@ function openOffice(agentCount = 1): Office {
         board.open.filter((candidate) => candidate.number !== issueNumber),
         [{ ...issue(issueNumber), body: "", closedAt: Date.now() }],
       );
-      releaseGoneWork(state.work, board);
+      releaseGoneWork(state.work, board, []);
     },
     closeTick: () => clearInterval(tick),
   };

@@ -27,6 +27,7 @@ import {
   type OccupantKind,
   type ProjectBoardSnapshot,
   type WorkData,
+  isIssueAssignee,
 } from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
@@ -68,6 +69,8 @@ export interface RosterEntry {
   readonly taskUrl: string;
   /** What the manager assigned a live agent next, `""` when nothing. Only `https:`. */
   readonly assignedUrl: string;
+  /** Whether a live agent can be given issue work; `false` for anyone else. */
+  readonly canTakeIssues: boolean;
   /** The AI manager's status; `undefined` for anyone else. */
   readonly managerStatus: ManagerStatus | undefined;
 }
@@ -91,11 +94,11 @@ export function groupRoster(roster: readonly RosterEntry[]): {
 }
 
 /**
- * Everyone an issue can be given to: the agent employees. A player has no desk
- * to work one at, and the manager hands work out and takes none.
+ * Everyone an issue can be given to, by the server's own rule: the agent
+ * employees, and the live agents that can take issues.
  */
 export function assignableAgents(roster: readonly RosterEntry[]): readonly RosterEntry[] {
-  return roster.filter((entry) => entry.kind === OCCUPANT_KIND.agent);
+  return roster.filter((entry) => isIssueAssignee(entry));
 }
 
 /** One line in the chat scrollback. */

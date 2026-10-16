@@ -112,8 +112,8 @@ links and controls can be clicked; `E` again, or stepping away, closes it. An
 issue an agent has says who and how far they have got; its `Work` button opens
 the detail beside the columns, with the issue's description, the agent's note
 and its deliverable. For the CEO the detail also offers the moves the server
-will accept: `Assign…` on an open issue nobody has picks an agent, and work in
-hand can be approved, sent back for rework, started again or unassigned.
+will accept: `Assign…` on an open issue nobody has picks an agent — staff, or a
+live agent that can take issues, listed apart — and work in hand can be approved, sent back for rework, started again or unassigned.
 Everyone else sees the same detail with no controls.
 
 `1` to `5` fire the five emotes, which are also buttons in the chat panel.
@@ -744,10 +744,12 @@ Thirteen things are worth knowing before changing anything:
   `workMoves` beside it, which moves to offer, so what the panel shows and what
   the server accepts change together. Each snapshot the feed publishes
   releases unfinished work on an issue GitHub has closed (`releaseGoneWork`),
-  on the feed's timer rather than the tick's, and never on a stale snapshot.
+  on the feed's timer rather than the tick's, and never on a stale snapshot;
+  the exception is a live agent's review, which the closure ships as `done`.
   Hiring and firing have the same shape: `shared/staffing.ts` holds
   `mayManageStaff`, the one staffing gate, and the rules for what firing costs
-  in morale and what a departing agent's work does — work still in flight is
+  in morale. What any departing agent's work does, an employee's or a live
+  agent's, is `releaseWorkOf` in `shared/work.ts` — work still in flight is
   released, never left waiting on someone who has gone, while a handed-in
   review keeps its deliverable and assignee for the CEO to approve, or to
   release, since it can no longer go back to them for rework.

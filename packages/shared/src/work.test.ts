@@ -21,6 +21,7 @@ import {
   AiManager,
   HumanPlayer,
   IssueWork,
+  LiveAgent,
   type Occupant,
   PLAYER_ROLE,
   WORK_STATUS,
@@ -35,9 +36,11 @@ import {
   actorOf,
   applyWorkCommand,
   describeWorkProblems,
+  isIssueAssignee,
   mayActOnWork,
   mayAssignWork,
   releaseGoneWork,
+  releaseWorkOf,
   workForAgent,
   workMoves,
 } from "./work.js";
@@ -330,7 +333,7 @@ describe("releaseGoneWork", () => {
         { ...issue(2), closedAt: T0 },
       ],
     });
-    expect(releaseGoneWork(at.work, board).map((work) => work.issueNumber)).toEqual([1]);
+    expect(releaseGoneWork(at.work, board, []).map((work) => work.issueNumber)).toEqual([1]);
     expect([...at.work.keys()].sort()).toEqual(["2", "3"]);
     expect(at.work.get(workKey(3))?.title).toBe("Renamed");
   });
@@ -342,8 +345,8 @@ describe("releaseGoneWork", () => {
     expect(isIssueGone(cut, 7)).toBe(false);
     expect(isIssueGone({ ...snapshot(), stale: true }, 7)).toBe(false);
     expect(isIssueGone({ ...snapshot(), updatedAt: null }, 7)).toBe(false);
-    expect(releaseGoneWork(at.work, cut)).toEqual([]);
-    expect(releaseGoneWork(at.work, snapshot()).map((work) => work.issueNumber)).toEqual([7]);
+    expect(releaseGoneWork(at.work, cut, [])).toEqual([]);
+    expect(releaseGoneWork(at.work, snapshot(), []).map((work) => work.issueNumber)).toEqual([7]);
   });
 
   it("finds an open issue in either open list", () => {
@@ -352,6 +355,147 @@ describe("releaseGoneWork", () => {
     expect(openBoardIssue(board, 4)?.number).toBe(4);
     expect(openBoardIssue(board, 9)).toBeUndefined();
     expect(openBoardIssue(undefined, 1)).toBeUndefined();
+  });
+});
+
+/** Puts a live coding agent on the floor, as the crew would. */
+function liveAgent(at: Office, id: string, canTakeIssues: boolean): LiveAgent {
+  const agent = new LiveAgent();
+  agent.id = id;
+  agent.name = id;
+  agent.canTakeIssues = canTakeIssues;
+  at.occupants.set(id, agent);
+  return agent;
+}
+
+describe("a live agent", () => {
+  const LIVE_ID = "agent:runner-1/slot-1";
+  const claim: WorkCommand = { action: WORK_ACTION.claim, payload: { issueNumber: 1 } };
+  const attach: WorkCommand = { action: WORK_ACTION.attachOutput, payload: { issueNumber: 1, artifact: "PR #40" } };
+  const handIn: WorkCommand = { action: WORK_ACTION.handIn, payload: { issueNumber: 1 } };
+  const note: WorkCommand = { action: WORK_ACTION.note, payload: { issueNumber: 1, text: "Blocked: CI is red" } };
+
+  it("is an assignee only when it can take issues", () => {
+    const at = office();
+    const able = liveAgent(at, LIVE_ID, true);
+    const unable = liveAgent(at, "agent:reporter", false);
+    expect(isIssueAssignee(able)).toBe(true);
+    expect(isIssueAssignee(actorOf(able))).toBe(true);
+    expect(isIssueAssignee(unable)).toBe(false);
+    expect(isIssueAssignee(actorOf(unable))).toBe(false);
+  });
+
+  it("can be given an issue, and claims, attaches, notes and hands in its own work", () => {
+    const at = office();
+    liveAgent(at, LIVE_ID, true);
+    expect(run(at, assign(1, LIVE_ID)).ok).toBe(true);
+    expect(at.work.get(workKey(1))).toMatchObject({ status: WORK_STATUS.assigned, assigneeId: LIVE_ID });
+
+    expect(run(at, claim, "agent-1")).toEqual({ ok: false, rejection: WORK_REJECTION.forbidden });
+    expect(run(at, claim, LIVE_ID).ok).toBe(true);
+    expect(run(at, note, LIVE_ID).ok).toBe(true);
+    expect(at.work.get(workKey(1))?.note).toBe("Blocked: CI is red");
+    expect(run(at, attach, LIVE_ID).ok).toBe(true);
+    expect(run(at, handIn, LIVE_ID).ok).toBe(true);
+    expect(at.work.get(workKey(1))).toMatchObject({ status: WORK_STATUS.review, outputArtifact: "PR #40", note: "" });
+    expect(run(at, move(1, WORK_STATUS.done), LIVE_ID)).toEqual({ ok: false, rejection: WORK_REJECTION.forbidden });
+    expect(describeWorkProblems(at.work)).toEqual([]);
+  });
+
+  it("that cannot take issues is neither given one nor allowed to act on one", () => {
+    const at = office();
+    liveAgent(at, LIVE_ID, false);
+    expect(run(at, assign(1, LIVE_ID))).toEqual({ ok: false, rejection: WORK_REJECTION.unknownAssignee });
+    expect(at.work.size).toBe(0);
+
+    const held = workAt(at, 1, WORK_STATUS.assigned, LIVE_ID);
+    for (const command of [claim, note]) {
+      expect(run(at, command, LIVE_ID)).toEqual({ ok: false, rejection: WORK_REJECTION.forbidden });
+    }
+    held.status = WORK_STATUS.in_progress;
+    for (const command of [attach, handIn]) {
+      expect(run(at, command, LIVE_ID)).toEqual({ ok: false, rejection: WORK_REJECTION.forbidden });
+    }
+    expect(held).toMatchObject({ status: WORK_STATUS.in_progress, outputArtifact: "", note: "" });
+  });
+
+  it("ships its review when the issue closes, while everything else follows the old rule", () => {
+    const at = office();
+    liveAgent(at, LIVE_ID, true);
+    const shippedReview = workAt(at, 1, WORK_STATUS.review, LIVE_ID);
+    shippedReview.outputArtifact = "PR #40";
+    shippedReview.note = "Waiting on CI";
+    workAt(at, 2, WORK_STATUS.in_progress, LIVE_ID);
+    workAt(at, 3, WORK_STATUS.review, "agent-1");
+    workAt(at, 4, WORK_STATUS.done, LIVE_ID);
+    const closedAt = T0 + 50;
+    const board = snapshot({
+      open: [],
+      inProgress: [],
+      closed: [1, 2, 3, 4].map((number) => ({ ...issue(number), closedAt })),
+    });
+
+    const shipped: IssueWork[] = [];
+    const released = releaseGoneWork(at.work, board, shipped);
+    expect(shipped).toEqual([shippedReview]);
+    expect(shippedReview).toMatchObject({
+      status: WORK_STATUS.done,
+      assigneeId: LIVE_ID,
+      outputArtifact: "PR #40",
+      note: "",
+      updatedAt: closedAt,
+    });
+    expect(released.map((work) => work.issueNumber).sort()).toEqual([2, 3]);
+    expect([...at.work.keys()].sort()).toEqual(["1", "4"]);
+    expect(describeWorkProblems(at.work)).toEqual([]);
+  });
+
+  it("still ships its review when it left the office before the issue closed", () => {
+    const at = office();
+    liveAgent(at, LIVE_ID, true);
+    const review = workAt(at, 1, WORK_STATUS.review, LIVE_ID);
+    review.outputArtifact = "PR #40";
+    releaseWorkOf(LIVE_ID, at.work);
+    at.occupants.delete(LIVE_ID);
+
+    const shipped: IssueWork[] = [];
+    const board = snapshot({ open: [], inProgress: [], closed: [{ ...issue(1), closedAt: T0 + 50 }] });
+    expect(releaseGoneWork(at.work, board, shipped)).toEqual([]);
+    expect(shipped).toEqual([review]);
+    expect(at.work.get(workKey(1))).toMatchObject({ status: WORK_STATUS.done, assigneeId: LIVE_ID, outputArtifact: "PR #40" });
+  });
+
+  it("releases its review like anyone's when the issue only vanished from the board", () => {
+    const at = office();
+    liveAgent(at, LIVE_ID, true);
+    workAt(at, 7, WORK_STATUS.review, LIVE_ID);
+    const shipped: IssueWork[] = [];
+    expect(releaseGoneWork(at.work, snapshot(), shipped).map((work) => work.issueNumber)).toEqual([7]);
+    expect(shipped).toEqual([]);
+  });
+
+  it("puts down unfinished work when it leaves, and keeps a handed-in review with its deliverable", () => {
+    const at = office();
+    liveAgent(at, LIVE_ID, true);
+    workAt(at, 1, WORK_STATUS.assigned, LIVE_ID);
+    workAt(at, 2, WORK_STATUS.in_progress, LIVE_ID);
+    const review = workAt(at, 3, WORK_STATUS.review, LIVE_ID);
+    review.outputArtifact = "PR #41";
+    workAt(at, 4, WORK_STATUS.in_progress, "agent-1");
+
+    expect(releaseWorkOf(LIVE_ID, at.work)).toEqual([1, 2]);
+    at.occupants.delete(LIVE_ID);
+    expect([...at.work.keys()].sort()).toEqual(["3", "4"]);
+    expect(review).toMatchObject({ status: WORK_STATUS.review, assigneeId: LIVE_ID, outputArtifact: "PR #41" });
+
+    const ceo = at.occupants.get(CEO_ID);
+    if (ceo === undefined) {
+      throw new Error("missing fixture");
+    }
+    expect(workMoves(review, actorOf(ceo), (id) => at.occupants.has(id))).toEqual([
+      { action: WORK_ACTION.moveStatus, to: WORK_STATUS.done },
+      { action: WORK_ACTION.release },
+    ]);
   });
 });
 

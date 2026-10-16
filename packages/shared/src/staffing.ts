@@ -12,7 +12,8 @@
  * either way, so the two departures treat the work identically: every issue
  * the agent was still working is released, so it is free on the project board
  * for the CEO to hand on rather than pointing at somebody who is no longer
- * there.
+ * there. The rule itself is `releaseWorkOf` in `work.ts`, which a live agent
+ * leaving follows too.
  *
  * Everything is synchronous and allocation-light: the room calls the applier
  * from a message handler and {@link resolveQuitting} from the simulation tick,
@@ -42,10 +43,9 @@ import {
   type Company,
   type IssueWork,
   type Occupant,
-  WORK_STATUS,
   isAgentEmployee,
 } from "./state.js";
-import type { OfficeActor } from "./work.js";
+import { type OfficeActor, releaseWorkOf } from "./work.js";
 
 /** What a staffing command wants to do. */
 export const STAFF_ACTION = {
@@ -196,35 +196,14 @@ function fire(payload: StaffFireMessage, context: StaffCommandContext): StaffCom
 }
 
 /**
- * Takes an agent off the floor and hands their unfinished work back.
- *
- * Every issue the agent is still working — `assigned` or `in_progress` — is
- * released, so it is never left waiting on someone who has gone and is free on
- * the project board for whoever the CEO hands it to next. This deliberately
- * steps outside the transition table, which only walks `in_progress` back a
- * step at a time: that rule is for a player's command, and the person whose
- * work it was is no longer there to walk it.
- *
- * `review` and `done` work keeps the agent as its assignee, which is the
- * record of who did it: a review is already handed in with its deliverable, so
- * the CEO can still approve it after the agent has left, or release it; see
- * `workTransitions`.
+ * Takes an agent off the floor and hands their unfinished work back, by the
+ * rule every departure follows: see `releaseWorkOf`.
  */
 export function removeAgent(
   agent: AgentEmployee,
   context: Pick<StaffCommandContext, "occupants" | "work">,
 ): Departure {
-  const releasedIssues: number[] = [];
-  for (const [key, work] of context.work) {
-    if (
-      work.assigneeId !== agent.id ||
-      (work.status !== WORK_STATUS.assigned && work.status !== WORK_STATUS.in_progress)
-    ) {
-      continue;
-    }
-    context.work.delete(key);
-    releasedIssues.push(work.issueNumber);
-  }
+  const releasedIssues = releaseWorkOf(agent.id, context.work);
   context.occupants.delete(agent.id);
   return { agent, releasedIssues };
 }

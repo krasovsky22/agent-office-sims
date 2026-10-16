@@ -23,6 +23,7 @@ function person(id: string, isCeo = false): RosterEntry {
     caption: "",
     taskUrl: "",
     assignedUrl: "",
+    canTakeIssues: false,
     managerStatus: undefined,
   };
 }
@@ -40,11 +41,12 @@ function agent(id: string): RosterEntry {
     caption: "",
     taskUrl: "",
     assignedUrl: "",
+    canTakeIssues: false,
     managerStatus: undefined,
   };
 }
 
-function liveAgent(id: string): RosterEntry {
+function liveAgent(id: string, canTakeIssues = false): RosterEntry {
   return {
     id,
     name: id,
@@ -57,6 +59,7 @@ function liveAgent(id: string): RosterEntry {
     caption: "Working on #33",
     taskUrl: "https://github.com/krasovsky22/agent-office-sims/issues/33",
     assignedUrl: "",
+    canTakeIssues,
     managerStatus: undefined,
   };
 }
@@ -110,6 +113,11 @@ describe("assignableAgents", () => {
     expect(assignableAgents([manager(), person("Dana", true), agent("agent-1")]).map((entry) => entry.id)).toEqual([
       "agent-1",
     ]);
+  });
+
+  it("offers an issue to a live agent only when it can take issues", () => {
+    const roster = [agent("agent-1"), liveAgent("agent:reporter"), liveAgent("agent:r/s1", true)];
+    expect(assignableAgents(roster).map((entry) => entry.id)).toEqual(["agent-1", "agent:r/s1"]);
   });
 });
 

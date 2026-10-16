@@ -3,7 +3,7 @@
  *
  * The issues are GitHub's: the project board's snapshot says which are open,
  * and nothing here ever writes to GitHub. What the office does about an issue
- * — which agent employee has it, how far they have got, what they handed in —
+ * — which agent has it, how far they have got, what they handed in —
  * is an {@link IssueWork} in replicated state, and this module says what may
  * be done to one. The split matters because the schema replicates to every
  * browser while these rules only ever decide on the server: a client asks the
@@ -15,14 +15,18 @@
  *   for an arbitrary jump is rejected rather than obeyed.
  * - {@link mayActOnWork}, the one place authority is decided, reading the
  *   {@link WORK_ACTION_AUTHORITY} table: the CEO hands the work out and judges
- *   it, and the agent employee an issue was given to does the work on it.
+ *   it, and the agent an issue was given to does the work on it.
  * - {@link applyWorkCommand}, which validates a parsed command against the
  *   live office and the project board and mutates the work, or rejects it and
  *   leaves everything untouched.
  * - {@link workForAgent}, which issue an agent employee should pick up next,
  *   so that two agents can never be working the same one.
  * - {@link releaseGoneWork}, which takes work off its agent once GitHub says
- *   the issue is closed or gone.
+ *   the issue is closed or gone, and {@link releaseWorkOf}, which does the
+ *   same when the agent leaves the office.
+ *
+ * Who can hold work at all is {@link isIssueAssignee}: an agent employee, or a
+ * live coding agent whose source drives its work through these same rules.
  *
  * Everything is synchronous and allocation-light, so a command handler can run
  * inside the room without the simulation tick ever having to wait on it.
@@ -36,6 +40,7 @@ import {
   type WorkReleaseMessage,
   sanitizeWorkNote,
 } from "./messages.js";
+import { isLiveAgentKey } from "./liveAgents.js";
 import { type ProjectBoardSnapshot, isIssueGone, openBoardIssue } from "./projectBoard.js";
 import {
   IssueWork,
@@ -47,6 +52,7 @@ import {
   type WorkStatus,
   isAgentEmployee,
   isCeo,
+  isLiveAgent,
   isWorkStatus,
   workKey,
 } from "./state.js";
@@ -133,7 +139,7 @@ export type WorkAction = (typeof WORK_ACTION)[keyof typeof WORK_ACTION];
 export const WORK_AUTHORITY = {
   /** Only the player holding the CEO role. */
   ceo: "ceo",
-  /** Only the agent employee the work is assigned to. */
+  /** Only the agent the work is assigned to; see {@link isIssueAssignee}. */
   assignee: "assignee",
 } as const;
 
@@ -178,6 +184,8 @@ export interface OfficeActor {
   readonly id: string;
   readonly kind: OccupantKind;
   readonly isCeo: boolean;
+  /** A live agent's `canTakeIssues`; absent for anyone else. */
+  readonly canTakeIssues?: boolean;
 }
 
 /**
@@ -187,7 +195,25 @@ export interface OfficeActor {
  * to offer it read the role the same way.
  */
 export function actorOf(occupant: Occupant): OfficeActor {
-  return { id: occupant.id, kind: occupant.kind, isCeo: isCeo(occupant) };
+  const actor = { id: occupant.id, kind: occupant.kind, isCeo: isCeo(occupant) };
+  return isLiveAgent(occupant) ? { ...actor, canTakeIssues: occupant.canTakeIssues } : actor;
+}
+
+/**
+ * Whether issue work can be given to this occupant: an agent employee, or a
+ * live coding agent that can take issues. **Nothing else decides it**: the
+ * assignee branch of {@link mayActOnWork} and assigning work both ask this.
+ *
+ * A live agent only qualifies when its source drives its work through these
+ * rules, so one that merely reports what it is doing is never handed an issue
+ * it would not know it had. A player has no desk to work one at, and the
+ * manager hands work out rather than doing it.
+ */
+export function isIssueAssignee(occupant: Pick<OfficeActor, "kind" | "canTakeIssues">): boolean {
+  return (
+    occupant.kind === OCCUPANT_KIND.agent ||
+    (occupant.kind === OCCUPANT_KIND.liveAgent && occupant.canTakeIssues === true)
+  );
 }
 
 /**
@@ -235,7 +261,7 @@ export function mayActOnWork(query: WorkPermissionQuery): boolean {
       return query.actor.isCeo;
     case WORK_AUTHORITY.assignee:
       return (
-        query.actor.kind === OCCUPANT_KIND.agent &&
+        isIssueAssignee(query.actor) &&
         query.work !== undefined &&
         query.work.assigneeId === query.actor.id
       );
@@ -294,7 +320,7 @@ export const WORK_REJECTION = {
   noWork: "no-work",
   /** The requested status is not reachable from the current one. */
   illegalTransition: "illegal-transition",
-  /** The named assignee is not an agent employee in the office. */
+  /** The named assignee is not in the office, or is not one that can take issues. */
   unknownAssignee: "unknown-assignee",
   /** A hand-in with no deliverable attached, or an attachment with no text. */
   missingArtifact: "missing-artifact",
@@ -414,7 +440,7 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
 }
 
 /**
- * Gives an issue to an agent employee, or hands its work to another.
+ * Gives an issue to an agent, or hands its work to another.
  *
  * A new piece of work needs the issue open on the project board: an issue the
  * board does not show as open is closed, or not one the server knows about,
@@ -423,8 +449,7 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
  * back to `assigned` because it changed hands would lose the fact that work
  * had started.
  *
- * Only agent employees do issues: a player has no desk to work one at, and the
- * manager hands work out rather than doing it.
+ * Only an {@link isIssueAssignee} does issues.
  */
 function assignWork(
   work: IssueWork | undefined,
@@ -441,7 +466,7 @@ function assignWork(
     return reject(WORK_REJECTION.unknownIssue);
   }
   const assignee = context.occupants.get(payload.assigneeId);
-  if (assignee === undefined || !isAgentEmployee(assignee)) {
+  if (assignee === undefined || !isIssueAssignee(assignee)) {
     return reject(WORK_REJECTION.unknownAssignee);
   }
 
@@ -613,14 +638,34 @@ export function workForAgent(
  * finished it. Work on an issue the snapshot still lists takes the issue's
  * current title, so a renamed issue reads the same everywhere.
  *
+ * The one exception is a live agent's work in `review`. A live agent's
+ * deliverable is a pull request, and that pull request merging is what closes
+ * the issue, so releasing the work then would erase it at the moment it
+ * shipped. It becomes `done` instead, and is collected into `shipped` so the
+ * room can say so. Whose work it was is read from the assignee's key, so a
+ * review still ships after the live agent that handed it in has left.
+ *
  * Run by the room when the feed publishes, never from the simulation tick.
  *
+ * @param shipped Collects each live agent's review that the closure finished.
  * @returns the work released, in no particular order.
  */
-export function releaseGoneWork(work: MapSchema<IssueWork>, board: ProjectBoardSnapshot): IssueWork[] {
+export function releaseGoneWork(
+  work: MapSchema<IssueWork>,
+  board: ProjectBoardSnapshot,
+  shipped: IssueWork[],
+): IssueWork[] {
   const released: IssueWork[] = [];
   for (const [key, candidate] of work) {
     if (candidate.status !== WORK_STATUS.done && isIssueGone(board, candidate.issueNumber)) {
+      const closed = board.closed.find((issue) => issue.number === candidate.issueNumber);
+      if (closed !== undefined && candidate.status === WORK_STATUS.review && isLiveAgentKey(candidate.assigneeId)) {
+        candidate.status = WORK_STATUS.done;
+        candidate.note = "";
+        candidate.updatedAt = Math.max(candidate.updatedAt, closed.closedAt ?? board.updatedAt ?? 0);
+        shipped.push(candidate);
+        continue;
+      }
       work.delete(key);
       released.push(candidate);
       continue;
@@ -631,6 +676,38 @@ export function releaseGoneWork(work: MapSchema<IssueWork>, board: ProjectBoardS
     }
   }
   return released;
+}
+
+/**
+ * Releases the unfinished work of an agent who has left the office, and
+ * returns the numbers of the issues it was on, in the order the work was kept.
+ *
+ * The rule for every departure, an agent employee's or a live agent's: work
+ * still `assigned` or `in_progress` is released, so it is never left waiting
+ * on someone who has gone and is free on the project board for whoever the CEO
+ * hands it to next. This deliberately steps outside the transition table,
+ * which only walks `in_progress` back a step at a time: that rule is for a
+ * player's command, and the agent whose work it was is no longer there to walk
+ * it.
+ *
+ * `review` and `done` work keeps the agent as its assignee, which is the
+ * record of who did it: a review is already handed in with its deliverable, so
+ * the CEO can still approve it after the agent has left, or release it; see
+ * {@link workTransitions}.
+ */
+export function releaseWorkOf(assigneeId: string, work: MapSchema<IssueWork>): number[] {
+  const releasedIssues: number[] = [];
+  for (const [key, entry] of work) {
+    if (
+      entry.assigneeId !== assigneeId ||
+      (entry.status !== WORK_STATUS.assigned && entry.status !== WORK_STATUS.in_progress)
+    ) {
+      continue;
+    }
+    work.delete(key);
+    releasedIssues.push(entry.issueNumber);
+  }
+  return releasedIssues;
 }
 
 /**

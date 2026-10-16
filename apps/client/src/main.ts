@@ -338,6 +338,7 @@ function start(): void {
           caption: captionOf(view),
           taskUrl: view.taskUrl,
           assignedUrl: view.assignedUrl,
+          canTakeIssues: view.canTakeIssues,
           managerStatus: view.managerStatus,
         })),
         boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name),

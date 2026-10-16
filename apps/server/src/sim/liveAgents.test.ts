@@ -9,20 +9,27 @@
  * same route.
  */
 
+import { MapSchema } from "@colyseus/schema";
 import {
   ANIMATION_STATE,
   AgentEmployee,
   HumanPlayer,
   INTERACTION_KIND,
+  IssueWork,
   LIVE_AGENT_STATUS,
+  LiveAgent,
   OCCUPANT_RADIUS,
   OFFICE_LAYOUT,
   type Occupant,
   TICK_INTERVAL_MS,
+  WORK_STATUS,
+  type WorkStatus,
   interactableById,
   isBlocked,
   liveAgentSeats,
+  liveAgentKey,
   roomAt,
+  workKey,
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
@@ -33,7 +40,6 @@ import {
   LINE_GAP_MS,
   LiveAgentCrew,
   MEET_DISTANCE,
-  liveAgentKey,
 } from "./liveAgents.js";
 
 const STEP_SECONDS = TICK_INTERVAL_MS / 1000;
@@ -50,6 +56,7 @@ function seeded(seed: number): () => number {
 interface Office {
   readonly occupants: Map<string, Occupant>;
   readonly interaction: InteractionHost;
+  readonly work: MapSchema<IssueWork>;
   readonly crew: LiveAgentCrew;
   readonly said: { occupantId: string; text: string; at: number }[];
   now: number;
@@ -65,15 +72,18 @@ function createOffice(seed = 1): Office {
     lastUsedAt: new Map(),
   };
   const said: Office["said"] = [];
+  const work = new MapSchema<IssueWork>();
   const office: Office = {
     occupants,
     interaction,
+    work,
     said,
     now: 0,
     crew: new LiveAgentCrew({
       layout: OFFICE_LAYOUT,
       occupants,
       interaction,
+      work,
       say: (occupantId, text) => {
         said.push({ occupantId, text, at: office.now });
       },
@@ -424,6 +434,36 @@ describe("an agent that leaves", () => {
     const spoken = office.said.length;
     runUntil(office, 10, () => false);
     expect(office.said.length).toBe(spoken);
+  });
+});
+
+describe("issue work", () => {
+  function workAt(office: Office, issueNumber: number, status: WorkStatus): IssueWork {
+    const work = new IssueWork();
+    work.issueNumber = issueNumber;
+    work.status = status;
+    work.assigneeId = liveAgentKey("alpha");
+    office.work.set(workKey(issueNumber), work);
+    return work;
+  }
+
+  it("can be given to an agent only when its feed says so", () => {
+    const office = createOffice();
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    const body = agent(office, "alpha");
+    expect(body instanceof LiveAgent && body.canTakeIssues).toBe(false);
+    office.crew.sync([{ ...record("alpha", LIVE_AGENT_STATUS.idle), canTakeIssues: true }], office.now);
+    expect(body instanceof LiveAgent && body.canTakeIssues).toBe(true);
+  });
+
+  it("is put down when its agent leaves, except a review already handed in", () => {
+    const office = createOffice();
+    office.crew.sync([{ ...record("alpha", LIVE_AGENT_STATUS.idle), canTakeIssues: true }], office.now);
+    workAt(office, 1, WORK_STATUS.assigned);
+    workAt(office, 2, WORK_STATUS.in_progress);
+    workAt(office, 3, WORK_STATUS.review);
+    office.crew.sync([], office.now);
+    expect([...office.work.keys()]).toEqual(["3"]);
   });
 });
 
