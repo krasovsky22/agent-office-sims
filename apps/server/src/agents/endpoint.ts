@@ -4,8 +4,8 @@
  * them.
  *
  * `POST /agents/report` with `Authorization: Bearer <secret>` and a JSON body —
- * `{ "id", "name", "status": "working" | "idle" | "stopped", "task": { "title", "url" } }` —
- * one agent per request. The shape is `LiveAgentReport` in `@sim/shared`.
+ * `{ "id", "name", "status": "working" | "needs-input" | "idle" | "stopped", "task": { "title", "url" } }` —
+ * one agent per request; `needs-input` must carry a task. The shape is `LiveAgentReport` in `@sim/shared`.
  *
  * The route is built to be cheap to refuse. Everything a stranger can send is
  * turned away before its body is read: a missing or wrong secret is checked off

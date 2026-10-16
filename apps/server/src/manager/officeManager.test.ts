@@ -263,6 +263,24 @@ describe("OfficeManager", () => {
     expect(published).toHaveLength(1);
   });
 
+  it("posts for a slot already waiting on its first look, and only once", async () => {
+    const records: readonly LiveAgentRecord[] = [
+      {
+        id: "runner:runner-1:slot-1",
+        name: "Claude 1",
+        status: "needs-input",
+        activity: "Permission: Bash pnpm test",
+        task: { title: "Night shift", url: "https://github.com/o/r/issues/39" },
+      },
+    ];
+    const floor: LiveAgentSource = { current: () => records, subscribe: () => () => undefined };
+    const { published } = setUp(rules(), 10, floor);
+    await until(() => published.length === 1);
+    expect(published[0]?.text).toBe("Claude 1 needs you on #39: Permission: Bash pnpm test");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(published).toHaveLength(1);
+  });
+
   it("aborts the call in flight when stopped, and writes nothing after", async () => {
     const held = heldPlanner();
     const { dana, office, published } = setUp(createManagerAdvisor({ planner: held.planner, mode: "model" }));

@@ -248,7 +248,7 @@ export class OfficeManager {
         this.host.assignments?.madeBy(this.host.origin) ?? [],
         this.host.floor === undefined ? view.liveAgents : readLiveAgents(this.host.floor.current()),
       );
-      const lines = this.lastLook === undefined ? [] : describeChanges(this.lastLook, look);
+      const lines = describeChanges(this.lastLook ?? { ...look, waiting: new Map() }, look);
       this.lastLook = look;
       if (lines.length > 0) {
         this.say(MANAGER_ENTRY_KIND.update, MANAGER_NAME, lines.join("\n"));
