@@ -199,8 +199,8 @@ UTF-8 of the string as `JSON.stringify` writes it, escapes included and quotes
 not. A `name` is at most 18 bytes, an `activity` or a `pr` title 90, a `message`
 280 and a `pr` link 300; a sync with a longer one is refused rather than cut,
 which keeps every sync the server takes under 16 KB whatever its characters,
-sent as `JSON.stringify` writes it. A runner re-sends an event until a sync carrying it is answered, and
-the server passes each event id on once. The shape is `RunnerSync` in
+sent as `JSON.stringify` writes it. A runner re-sends an event until a sync
+carrying it is answered, and the server passes each event id on once. The shape is `RunnerSync` in
 `packages/shared/src/runner.ts`.
 
 Slots are live agents on the floor, beside the orchestrator's: a `starting`,
