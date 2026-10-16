@@ -33,13 +33,12 @@ import { ANIMATION_STATE, type AnimationState } from "./state.js";
  *
  * A held anchor is an exclusive one: the occupant is standing or sitting in it,
  * so a second occupant cannot be. That is what stops two players sharing a
- * chair. The whiteboard is not held — it is a glance, not a station — and nor
+ * chair. A wall board is not held — it is a glance, not a station — and nor
  * is the manager's desk, where a conversation holds nobody in place.
  */
 const HOLDS_ANCHOR: Record<InteractionKind, boolean> = {
   [INTERACTION_KIND.seat]: true,
   [INTERACTION_KIND.coffee]: true,
-  [INTERACTION_KIND.whiteboard]: false,
   [INTERACTION_KIND.board]: false,
   [INTERACTION_KIND.manager]: false,
 };
@@ -48,7 +47,6 @@ const HOLDS_ANCHOR: Record<InteractionKind, boolean> = {
 const HOLD_MS: Record<InteractionKind, number> = {
   [INTERACTION_KIND.seat]: 0,
   [INTERACTION_KIND.coffee]: COFFEE_BREAK_MS,
-  [INTERACTION_KIND.whiteboard]: 0,
   [INTERACTION_KIND.board]: 0,
   [INTERACTION_KIND.manager]: 0,
 };
@@ -63,7 +61,6 @@ const HOLD_MS: Record<InteractionKind, number> = {
 const HELD_ANIMATION: Record<InteractionKind, AnimationState> = {
   [INTERACTION_KIND.seat]: ANIMATION_STATE.sitting,
   [INTERACTION_KIND.coffee]: ANIMATION_STATE.idle,
-  [INTERACTION_KIND.whiteboard]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.board]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.manager]: ANIMATION_STATE.idle,
 };
@@ -72,7 +69,6 @@ const HELD_ANIMATION: Record<InteractionKind, AnimationState> = {
 const PROMPT: Record<InteractionKind, string> = {
   [INTERACTION_KIND.seat]: "Sit down",
   [INTERACTION_KIND.coffee]: "Pour a coffee",
-  [INTERACTION_KIND.whiteboard]: "Open the ticket board",
   [INTERACTION_KIND.board]: "Read the project board",
   [INTERACTION_KIND.manager]: "Talk to the manager",
 };

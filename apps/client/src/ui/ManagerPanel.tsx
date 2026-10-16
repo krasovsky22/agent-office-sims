@@ -8,10 +8,9 @@
  * message never appears as though it had been heard, and what this tab shows
  * is what every other tab shows.
  *
- * The panel takes the keyboard while it has focus, like the ticket board: it is
- * marked as a keyboard owner (see `keys.ts`), so walking, emotes and chat all
- * decline keys while the focus is inside it, and it pulls the focus to its
- * composer when it opens. `Enter` sends, `Escape` closes, and closing hands the
+ * The panel takes the keyboard while it has focus: it is marked as a keyboard
+ * owner (see `keys.ts`), so walking, emotes and chat all decline keys while
+ * the focus is inside it, and it pulls the focus to its composer when it opens. `Enter` sends, `Escape` closes, and closing hands the
  * keyboard back to walking. With the focus out in the office, `Esc` still
  * closes it, through the controller, and stepping away closes it too.
  *
@@ -101,15 +100,15 @@ export function ManagerPanel({ entries, access, thinking, actions }: ManagerPane
           {MANAGER_NAME}
           <span className="board__repo">AI Manager</span>
         </h2>
-        <button className="tickets__button" type="button" onClick={actions.close}>
+        <button className="panel__button" type="button" onClick={actions.close}>
           Close
         </button>
       </header>
 
       {entries.length === 0 ? (
         <p className="board__empty">
-          Nothing said yet. {MANAGER_NAME} answers the CEO&apos;s questions about the agents, the ticket board and
-          this repository&apos;s issues, and hands out work when asked.
+          Nothing said yet. {MANAGER_NAME} answers the CEO&apos;s questions about the agents and the project
+          board&apos;s issues and pull requests, and hands the issues out when asked.
         </p>
       ) : (
         <ol className="manager__log" ref={logRef} aria-live="polite">
@@ -148,7 +147,7 @@ export function ManagerPanel({ entries, access, thinking, actions }: ManagerPane
             name="manager-message"
             value={draft}
             maxLength={MAX_MANAGER_MESSAGE_LENGTH}
-            placeholder="“What is everyone working on?” · “Put Ada on ticket-2”"
+            placeholder="“What is everyone working on?” · “Put Ada on #12”"
             aria-label={`Message to ${MANAGER_NAME}`}
             autoComplete="off"
             onChange={(event) => setDraft(event.target.value)}

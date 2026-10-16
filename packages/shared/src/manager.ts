@@ -2,25 +2,25 @@
  * The AI manager: who it is, where it sits, and who it takes instructions from.
  *
  * One manager per office, the Sims-sized version of a fleet supervisor: it
- * keeps track of what every agent is doing, hands tickets and issues out to
- * them, and answers the CEO's questions about all of it. What it says and
+ * keeps track of what every agent is doing, hands the project board's issues
+ * out to them, and answers the CEO's questions about all of it. What it says and
  * decides is the server's business (`apps/server/src/manager/`); this module is
  * the part both sides need — the manager's identity and seat, so the server
  * puts it at its desk and the client recognises it, and the one rule about
  * talking to it, so the panel can say why a message would be refused before
  * the server refuses it.
  *
- * The rule is the board's: the CEO runs the office, so only the CEO instructs
+ * The rule is the work's: the CEO runs the office, so only the CEO instructs
  * the manager. Everyone else may read the conversation, which is broadcast,
  * but a message from them is turned away with {@link MANAGER_REJECTION.forbidden}.
  * The manager acts on what the CEO tells it as the CEO would, through the
- * board's own rules with the CEO as the actor, so it gains no authority of its
- * own: it can never do to the board what the CEO who asked could not.
+ * work's own rules with the CEO as the actor, so it gains no authority of its
+ * own: it can never do to the work what the CEO who asked could not.
  */
 
 import { INTERACTION_KIND, type InteractableSpec, MANAGER_DESK_ID, type OfficeLayout, interactables } from "./layout.js";
 import { ANIMATION_STATE, AiManager, MANAGER_STATUS, normalizeYaw } from "./state.js";
-import type { TicketActor } from "./tickets.js";
+import type { OfficeActor } from "./work.js";
 
 /**
  * The manager's occupant key.
@@ -51,7 +51,7 @@ export type ManagerRejection = (typeof MANAGER_REJECTION)[keyof typeof MANAGER_R
  * The server checks it on every message before anything is queued; the client
  * asks it only to disable the composer and say why.
  */
-export function mayInstructManager(actor: TicketActor): boolean {
+export function mayInstructManager(actor: OfficeActor): boolean {
   return actor.isCeo;
 }
 

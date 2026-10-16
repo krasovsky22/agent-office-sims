@@ -1,6 +1,6 @@
 # agent-office-sims
 
-A 3D multiplayer office simulator that runs in the browser, where employees are AI agents working a ticket board and the human player acts as CEO.
+A 3D multiplayer office simulator that runs in the browser, where employees are AI agents working this repository's GitHub issues from a project board and the human player acts as CEO.
 
 Prototype. Built with TypeScript, Three.js, and Colyseus.
 
@@ -16,12 +16,16 @@ with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
 one shadow-casting light that follows the in-game clock, sun by day and moon by
 night, with the room light turning warmer and the desk screens glowing brighter
 as the outside light falls. Some of it can be used: walk up to a desk chair, the
-kitchen's coffee machine, the meeting room's whiteboard or the project board and a
-prompt offers the action, which the server grants or refuses. On top of that, the ticket
-board exists as replicated state with its rules enforced on the server, and the
-meeting room's whiteboard opens it as a panel: five columns from backlog to
-done, where a card opens to its full text, a ticket can be filed, and a card
-moves only to the columns the server will accept. The agent employees have bodies
+kitchen's coffee machine or the project board and a prompt offers the action,
+which the server grants or refuses. The project board, on the open floor's north
+wall facing the desk rows, is this repository's own GitHub issues, grouped open,
+in progress and recently closed, beside its open pull requests, each with its
+labels (`wave-1`, `client`…), polled by the server and shown to everyone the
+same. Its open issues are the work the office does: the CEO hands one to an
+agent employee, and what the agents are doing about each issue — who has it,
+in progress, handed in for review, blocked, done — is replicated state with its
+rules enforced on the server, shown on the board's cards. Nothing is ever
+written back to GitHub. The agent employees have bodies
 now: a handful of them stand at their desks on the open floor, teal where
 players are orange, each labelled with a name and a job title and wearing a
 badge that says what it is doing, and the roster lists them apart from the
@@ -29,29 +33,30 @@ people. They can walk now, too: each has a queue of small instructions — go
 somewhere, sit at a desk, stand, face something, wait — that the server's tick
 works through, routing along the floor plan's waypoints and colliding exactly as
 players do, and giving up with a `Blocked` badge when geometry stops it. And
-they work: a ticket the CEO assigns to one is claimed, worked at the agent's
-own desk — seated, typing, badge `Working` — and carried to the meeting room's
-whiteboard, where the agent hands it in for review with its deliverable
-attached, then walks back to its desk. Work that fails leaves the agent
-`Blocked`, with the reason in a comment on the ticket. The
-open floor's north wall, facing the desk rows, carries a different board: this
-repository's own GitHub issues, grouped open, in progress and recently closed,
-beside its open pull requests, each with its labels (`wave-1`, `client`…),
-polled by the server and shown to everyone the same. The company has vital
+they work: an issue the CEO gives one is claimed, worked at the agent's own
+desk from the issue's title and description — seated, typing, badge
+`Working` — and carried to the project board, where the agent hands it in for
+review with its deliverable attached, then walks back to its desk. Work that
+fails leaves the agent `Blocked`, with the reason noted on the work, and an
+issue closed on GitHub is put down by whoever had it. The company has vital
 signs now too: cash, morale and productivity, moved once an in-game day by a
-server clock that runs two real minutes to the day. Payroll draws cash, finished
-tickets lift productivity and a growing backlog wears morale down; the HUD shows
+server clock that runs two real minutes to the day. Payroll draws cash, issues
+whose work is approved lift productivity and a growing backlog of open issues
+nobody is on wears morale down; the HUD shows
 all three with the day and the time, and when cash runs out the clock stops and
 every tab shows the company has folded. And the coding agents building this
 repository can be on the floor too: an orchestrator reports each one to the
 server, and it walks in, sits at a free desk and types while it has a task, and
 gets up to wander and chat with the other idle agents while it has none. And
 someone is in charge of all of them: Firstmate, the AI manager, a crimson body
-at its own desk in the lobby. The CEO walks up and talks to it — "what is
-everyone working on?", "what's the status of #12?", "put Ada on ticket-2",
-"put someone on #39" — and it answers from the office's live state, assigns
-in-game tickets to the agent employees through the board's own rules, and queues
-GitHub issues for the live coding agents, which their orchestrator collects. It
+at its own desk in the lobby. The CEO walks up and talks to it — "what's
+open?", "what's the status of #12?", "which PRs are open?", "what is everyone
+working on?", "put Ada on #12", "put someone on #39" — and it answers from the
+office's live state and the project board the server already polls, with
+labels, linked pull requests and who is on each issue; it hands issues to the
+agent employees through the work's own rules, and queues issues and pull
+requests for a live coding agent the CEO names, which their orchestrator
+collects. It
 posts updates of its own to the same conversation when work is handed in, an
 agent gets stuck, or a live agent starts or stops. Everyone can read the
 conversation; only the CEO can instruct it.
@@ -78,7 +83,7 @@ has to set the first three — see [Deploying it](#deploying-it).
 The server polls GitHub for the project board as soon as it starts, anonymously
 unless `PROJECT_BOARD_TOKEN` is set.
 
-Agents do their ticket work with canned text by default (`MOCK_AGENTS` is on), so
+Agents do their issue work with canned text by default (`MOCK_AGENTS` is on), so
 nothing in development calls a model or spends anything. `MOCK_AGENTS=off` with
 `ANTHROPIC_API_KEY` set switches to a real model. The AI manager is the same:
 by default (`MOCK_MANAGER` is on) it answers by rule from live state, and
@@ -86,22 +91,22 @@ by default (`MOCK_MANAGER` is on) it answers by rule from live state, and
 
 Walk with `W A S D` or the arrow keys. Click the canvas to capture the mouse,
 then move it to swing the camera; `Esc` releases it. Walk up to a desk chair, the
-coffee machine, the whiteboard, the project board or the manager's desk and a
-prompt appears; `E` uses it. Any movement key gets you out of a chair.
+coffee machine, the project board or the manager's desk and a prompt appears;
+`E` uses it. Any movement key gets you out of a chair.
 
 At the manager's desk in the lobby, `E` opens the conversation with Firstmate
 and puts the keyboard in its message box: `Enter` sends, `Esc` closes, and
 stepping away closes it too. Only the CEO's messages are taken; anyone else's
 panel says who can, and the server refuses theirs with that reason.
 
-At the whiteboard, `E` opens the ticket board and puts the keyboard in it, so
-movement keys, emotes and chat stay quiet while it has focus. Moving is
-click-to-move: open a card and it offers a button for each column it can go to,
-or an assignee picker to take it out of the backlog. `Esc` backs out of the
-new-ticket form, then the open card, then the board, and walking resumes.
-Clicking the office instead gives the keyboard back with the board left open;
-then `Esc` or `E` closes it (if the click captured the mouse, the first `Esc`
-releases it), and stepping away closes it too.
+At the project board, `E` opens its close-up, which releases the mouse so its
+links and controls can be clicked; `E` again, or stepping away, closes it. An
+issue an agent has says who and how far they have got; its `Work` button opens
+the detail beside the columns, with the issue's description, the agent's note
+and its deliverable. For the CEO the detail also offers the moves the server
+will accept: `Assign…` on an open issue nobody has picks an agent, and work in
+hand can be approved, sent back for rework, started again or unassigned.
+Everyone else sees the same detail with no controls.
 
 `1` to `5` fire the five emotes, which are also buttons in the chat panel.
 `Enter` moves focus to the chat box — and releases the mouse, since a captured
@@ -252,12 +257,13 @@ Then confirm all twenty:
     prompt reads `Sit down — taken`; `E` does nothing. Start the server with `AGENT_COUNT=0`
     and the floor is empty of them, or with `AGENT_COUNT=8` and every agent
     desk is taken.
-13. **Only the CEO runs the ticket board.** Milo's roster panel says the board
-    is read-only for him, names Dana as the CEO, and says what he can still do:
-    read it and comment. Dana's says she runs it. The rule is the server's, not
-    the panel's — a ticket command Milo sends straight down the socket is
-    refused with the board unchanged, and his tab says "Only the CEO can do
-    that." `apps/server/src/rooms/OfficeRoom.test.ts` checks exactly that
+13. **Only the CEO hands out the project board's work.** Milo's roster panel
+    says the project board is read-only for him, names Dana as the CEO, and
+    says what he can still do: read it and ask the manager about it. Dana's
+    says she hands out its issues and approves the work. The rule is the
+    server's, not the panel's — a `work:assign` Milo sends straight down the
+    socket is refused with nothing changed, and his tab says "Only the CEO can
+    do that." `apps/server/src/rooms/OfficeRoom.test.ts` checks exactly that
     against a live room.
 14. **Agents walk, in both tabs.** Start the server with `AGENT_DEBUG=on pnpm dev`,
     and in Dana's chat box type `/goto ada wp-meeting-table`. The HUD says Ada
@@ -274,31 +280,32 @@ Then confirm all twenty:
     `Blocked` badge rather than walking on the spot; the server log has an
     `agent-intent` line saying so. Without `AGENT_DEBUG=on` a `/goto` is
     answered with a line saying debug commands are off, and nobody moves.
-15. **Agents work what the CEO assigns, in both tabs.** As Dana, assign a
-    ticket to Ada (a `ticket:assign` with `assigneeId: "agent-1"`, which the
-    board panel sends). Within a second the ticket is `in_progress` and Ada's
-    badge reads `Working`: she sits at her desk and types for several seconds of
-    mock work, then gets up, walks to the meeting room's whiteboard and the
-    ticket moves to `review` with a deliverable in `outputArtifact` that quotes
-    the ticket. She walks back to her desk and goes `Idle`. Assign a ticket to
-    every agent at once and walk Dana around the whole time: her movement is
-    exactly as smooth as with nobody working. The server log has an
-    `agent-work` line for each step. To see a failure, start the server with
-    `MOCK_AGENTS=off`, `AGENT_CALLS_PER_RUN=0` and any `ANTHROPIC_API_KEY`: the
-    agent goes `Blocked`, the ticket stays `in_progress` and assigned to her
-    with the reason in a comment, and moving it back to `assigned` has her try
-    again.
-16. **The ticket board is live in both tabs.** Walk both players into the
-    meeting room to the whiteboard and press `E` at `Open the ticket board`;
-    nowhere else in the office opens it. Hold `W` with the board open: the
-    avatar does not move. In Dana's tab, `New ticket`, type a title and press
-    `Enter` — it appears in Milo's open board's backlog without reopening.
-    Milo's board offers no `New ticket` and no moves. In Dana's, open the
-    ticket: the only move offered is an assignee, and after assigning it
-    Milo's tab shows it under Assigned with that name. Each step after that
-    offers only the neighbouring columns, and `Done` offers nothing. `Esc`
-    closes the card, then the board; `E` again reopens it with no card open.
-    Reopen it, click the office floor, and `Esc` still closes it.
+15. **Agents work the issues the CEO assigns, in both tabs.** Walk both
+    players to the project board and press `E` at `Read the project board`.
+    In Dana's close-up, press `Assign…` on an open issue, pick Ada and press
+    `Assign`. Within a second the issue's card says `Ada Byrne · In progress`
+    in both tabs and Ada's badge reads `Working`: she sits at her desk and
+    types for several seconds of mock work, then gets up, walks to the
+    project board and the card turns to `Waiting for review`. Its `Work`
+    button opens the detail, with the issue's description from GitHub and a
+    deliverable that quotes the issue's title and description; she walks
+    back to her desk and goes `Idle`. Give an issue to every agent at once and
+    walk Dana around the whole time: her movement is exactly as smooth as with
+    nobody working. The server log has an `agent-work` line for each step.
+    Nothing appears on GitHub: no assignee, label, comment or state changes.
+    To see a failure, start the server with `MOCK_AGENTS=off`,
+    `AGENT_CALLS_PER_RUN=0` and any `ANTHROPIC_API_KEY`: the agent goes
+    `Blocked`, the card says `Blocked`, the detail shows the reason, and `Have
+    them start again` has her try again.
+16. **Work on the project board is live in both tabs, and only the CEO moves
+    it.** With both close-ups open, Milo's detail for the issue in review shows
+    the same deliverable and offers no controls; Dana's offers `Approve` and
+    `Send back for rework`. `Send back for rework` has Ada work it again and
+    hand in a new deliverable; `Approve` turns both tabs' card to `Done`, which
+    offers nothing, and the next midnight lifts productivity for it. An issue
+    an agent has not started offers Dana `Unassign`, which leaves it free on
+    the board. Close an issue on GitHub while an agent is on it: within a poll
+    interval the agent puts it down and goes back to her desk.
 17. **Live agents are the same in both tabs.** Start the server with
     `LIVE_AGENTS_SECRET` set and report one agent `working` and two `idle`, as
     in [Live coding agents](#live-coding-agents), repeating the reports every few
@@ -318,7 +325,7 @@ Then confirm all twenty:
     next midnight draws. Hire until all eight desks are filled and the panel
     says so instead of offering more. `Fire`, then `Let go`, on an agent: they
     leave both tabs, morale falls with a red `−8` beside it, and the chat log
-    says what it cost and how many of their tickets went back to the backlog.
+    says what it cost and how many issues they were on are free again.
     When morale ends a day under 30% the Company panel warns how many bad days
     have closed; after three in a row the newest agent quits, and the chat log
     says why. `apps/server/src/rooms/staffHandlers.test.ts` drives all of it
@@ -329,9 +336,14 @@ Then confirm all twenty:
     Walk Dana into the lobby to the desk, press `E` at `Talk to the manager`, and
     ask `what is everyone working on?`: the badge turns `Thinking…` for a moment
     and the answer lists every agent and what it is doing, from the live office.
-    Ask `what's the status of ticket-1?` and then `put Ada on ticket-1`: the
-    reply says it went to Ada, Ada's badge turns `Working` and the ticket moves
-    on the board as if Dana had assigned it. Milo's roster line for the
+    Ask `what's open?`: the answer lists the project board's open issues with
+    their labels and who in the office is on each, the reviews waiting and the
+    open pull requests, all from the board the server already polls. Ask
+    `which PRs are open?` for the pull requests with their authors and checks,
+    and `what's the status of #N?` for one issue, naming any number on the
+    board. Then `put Ada on #N`, with an open issue nobody has: the reply says
+    it went to Ada, Ada's badge turns `Working` and the issue's card on the
+    project board says so, as if Dana had assigned it. Milo's roster line for the
     manager counts the new lines; his panel at the desk shows the same
     conversation, no message box, and says only Dana can instruct it — a
     `manager:say` he sends down the socket is refused with that reason.
@@ -343,7 +355,7 @@ Then confirm all twenty:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, tickets, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the AI manager's answers, assignments, updates and orchestrator queue
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the AI manager's answers, assignments, updates and orchestrator queue
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -415,7 +427,7 @@ lists and marks them stale; a spent rate limit also holds the next poll until th
 limit resets.
 
 With `MOCK_AGENTS=off`, every model call an agent makes is counted against the
-two `AGENT_CALLS_*` ceilings, retries included, and a ticket that would pass one
+two `AGENT_CALLS_*` ceilings, retries included, and an issue that would pass one
 fails with a budget message instead of being worked. The counters live in memory,
 so a restart resets them. The key is sent only to the model API. With
 `MOCK_MANAGER=off`, each message the CEO sends the manager is one call against
@@ -501,10 +513,10 @@ packages/shared/   @sim/shared   the contract both sides import
   src/state.ts        replicated Colyseus schema
   src/agents.ts       the agent employees' roster, the hiring candidates and their salaries, and which desk each one gets
   src/messages.ts     commands and events, with the parsers for the untrusted ones
-  src/tickets.ts      the board's rules: transitions, authority, commands
-  src/staffing.ts     hiring, firing and quitting: authority, firing's morale cost, and handing back a leaver's tickets
+  src/work.ts         the rules of the agents' work on GitHub issues: transitions, authority, commands
+  src/staffing.ts     hiring, firing and quitting: authority, firing's morale cost, and releasing a leaver's issues
   src/company.ts      the company's tunables, clock ratio, and daily formulas
-  src/projectBoard.ts the project board's GitHub snapshot
+  src/projectBoard.ts the project board's GitHub snapshot, and which issues are open or gone
   src/liveAgents.ts   a live agent's report, its label, and the chairs it may take
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/layout.ts       the office floor plan and its interactables, as data
@@ -514,22 +526,23 @@ packages/shared/   @sim/shared   the contract both sides import
   src/interaction.ts  what each interactable does, and who may use it
   src/constants.ts    tick rate, speeds, radii, ranges, expression limits
 apps/server/       @sim/server   Colyseus room and simulation tick
-  src/sim/expression.ts   per-occupant emote, chat and comment budgets
+  src/rooms/workHandlers.ts  the CEO's work commands: assign, release, move
+  src/sim/expression.ts   per-occupant emote, chat and manager-message budgets
   src/sim/company.ts      the company clock, stepped by the simulation tick
   src/sim/agents.ts       hiring the agent employees when a room opens
   src/rooms/staffHandlers.ts  the CEO's hire and fire commands, and staff announcements
   src/sim/roles.ts        who holds the CEO role, and who inherits it
   src/sim/agentMotion.ts  each agent's intent queue, and the steering that walks it
-  src/sim/agentBrain.ts   each agent's work loop: claim a ticket, work it, hand it in
+  src/sim/agentBrain.ts   each agent's work loop: claim an issue, work it, hand it in at the project board
   src/rooms/agentDebug.ts the `/goto` debug command
   src/github/             the project board's feed: fetch, bucket, poll
-  src/work/               ticket work: the executor, its budget, mock and model providers
+  src/work/               issue work: the executor, its budget, mock and model providers
   src/agents/             the live agents' feed: the report and assignment routes, and the registry
   src/manager/            the AI manager: its view of the office, rule and model planners, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
 apps/client/       @sim/client   Three.js scene, React HUD overlay
-  src/boardAccess.ts      what the local player may do at the ticket board, and why
+  src/boardAccess.ts      what the local player may do about the project board's work, and why
   src/staffing.ts         the staff panel's payroll, desks, and why a hire was refused
   src/dayClock.ts         the replicated clock, run on smoothly between patches
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
@@ -538,8 +551,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
-  src/ticketBoard.ts     the ticket board panel's columns and labels
-  src/ui/TicketBoardPanel.tsx  the ticket board, opened at the whiteboard
+  src/projectBoard.ts     the project board's columns, filters, and how an issue's work reads
+  src/ui/ProjectBoardPanel.tsx  the project board's close-up, with the agents' work and the CEO's controls
   src/managerAccess.ts    what the local player may say to the manager, and why
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/assets/office-kit/ the vendored models, and their licence
@@ -565,21 +578,28 @@ Thirteen things are worth knowing before changing anything:
   happening. Nothing draws an emote or a bubble it did not receive from the
   server, including the one above your own head, so what you see over yourself
   is what everyone else sees.
-- **The board is server-authoritative, and has one gate.** A client asks; the
-  server decides. `shared/tickets.ts` holds the legal status transitions and
-  `mayActOnTicket`, the single predicate every command is checked against. It
-  reads `TICKET_ACTION_AUTHORITY`: creating, assigning, moving (approving and
-  rejecting included), editing and prioritising tickets are the CEO's, and
-  commenting is open to everyone. The client asks the same predicate, through
-  `client/boardAccess.ts`, to disable a control and say why — never to decide.
-  The board panel asks it, through `ticketMoves` beside it, which moves to
-  offer, so what the panel shows and what the server accepts change together.
+- **The work is server-authoritative, and has one gate; GitHub is read-only.**
+  The project board's issues come from GitHub and are never written back to:
+  no assignee, label, comment or state, and no token scope beyond reading.
+  What the office does about an issue is an `IssueWork` in replicated state,
+  keyed by the issue number. A client asks; the server decides.
+  `shared/work.ts` holds the legal status transitions and `mayActOnWork`, the
+  single predicate every command is checked against. It reads
+  `WORK_ACTION_AUTHORITY`: assigning an open issue, releasing it, and moving
+  the work (approving and sending back included) are the CEO's, and claiming,
+  attaching a deliverable and handing in are the assigned agent's. The client
+  asks the same predicate, through `client/boardAccess.ts`, to disable a
+  control and say why — never to decide. The board panel asks it, through
+  `workMoves` beside it, which moves to offer, so what the panel shows and what
+  the server accepts change together. Each snapshot the feed publishes
+  releases unfinished work on an issue GitHub has closed (`releaseGoneWork`),
+  on the feed's timer rather than the tick's, and never on a stale snapshot.
   Hiring and firing have the same shape: `shared/staffing.ts` holds
   `mayManageStaff`, the one staffing gate, and the rules for what firing costs
-  in morale and what a departing agent's tickets do — work still in flight goes
-  back to the backlog, never left waiting on someone who has gone, while a
-  handed-in review keeps its deliverable and assignee for the CEO to approve,
-  and sending it back for rework returns it to the backlog instead.
+  in morale and what a departing agent's work does — work still in flight is
+  released, never left waiting on someone who has gone, while a handed-in
+  review keeps its deliverable and assignee for the CEO to approve, or to
+  release, since it can no longer go back to them for rework.
   Exactly one player holds the CEO role while anyone is in the office;
   `server/sim/roles.ts` assigns it on arrival and passes it on, in the same
   patch as the departure, when its holder leaves.
@@ -619,22 +639,23 @@ Thirteen things are worth knowing before changing anything:
   that makes no progress for three seconds gives up, reports `blocked` and drops
   the rest of its queue, rather than walking into the wall forever.
 - **Agents think on their own loop, never the tick's.** Each agent's brain in
-  `sim/agentBrain.ts` is an async loop on its own timers: it polls the board,
-  pushes intents, awaits the work executor and writes the result, and the tick
-  never waits on any of it. Its ticket writes go through the same
-  `applyTicketCommand` and authority gate as a player's, with the agent as the
-  actor: the assignee may claim, attach a deliverable and hand in, and nothing
-  else, so assignment and approval stay the CEO's. The ticket is re-checked
-  after every wait, and watched while the work call runs, so work the CEO
-  moved or reassigned meanwhile is put down — the call cancelled at once —
+  `sim/agentBrain.ts` is an async loop on its own timers: it looks for work it
+  was given, pushes intents, awaits the work executor on the issue's title and
+  description and writes the result, and the tick never waits on any of it. Its
+  writes go through the same `applyWorkCommand` and authority gate as a
+  player's, with the agent as the actor: the assignee may claim, attach a
+  deliverable, hand in and note why it is stuck, and nothing else, so
+  assignment and approval stay the CEO's. The work is re-checked after every
+  wait, and watched while the work call runs, so work the CEO moved or
+  reassigned meanwhile, or an issue GitHub closed, is put down — the call cancelled at once —
   rather than delivered, and closing the room stops every brain, aborting work
   in flight, before anything else is torn down.
 - **The company's numbers have one home.** Every starting value, the clock's
   ratio and each daily formula live in `shared/company.ts`, and rebalancing is
   an edit there and nowhere else. The server's tick steps the clock and closes a
-  day at each midnight, synchronously, with the board read once a day rather
-  than every tick; the numbers replicate as schema, so every tab reads them off
-  the same patch.
+  day at each midnight, synchronously, with the work and the project board's
+  snapshot — already in memory — read once a day rather than every tick; the
+  numbers replicate as schema, so every tab reads them off the same patch.
 - **Live agents are fed off the tick and moved on it.** A report lands in the
   registry on Node's event loop and only raises a flag; the next tick reads the
   registry's finished list once, however many reports arrived, and the crew in
@@ -648,10 +669,10 @@ Thirteen things are worth knowing before changing anything:
   the CEO-only gate in `shared/manager.ts`, recorded and queued — and answered
   on the manager's own loop in `server/manager/officeManager.ts`, so the tick
   never waits on a model. A planner, by rule or by model, only proposes: what
-  it names is resolved against the live office afterwards, in-game tickets are
-  assigned through `applyTicketCommand` with the CEO as the actor, so the
-  manager can never do what the CEO who asked could not, and GitHub work goes
-  to the orchestrator's queue, which wraps the live agents' registry as their
+  it names is resolved against the live office afterwards, an issue for an
+  agent employee is assigned through `applyWorkCommand` with the CEO as the
+  actor, so the manager can never do what the CEO who asked could not, and
+  work for a live coding agent goes to the orchestrator's queue, which wraps the live agents' registry as their
   `LiveAgentSource` so an assignment shows on its agent until the agent's
   next report after collection settles it, as started or not taken. The model
   call sits behind its own call budget, timeout and retry in

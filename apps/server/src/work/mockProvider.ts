@@ -5,15 +5,15 @@
  * so this is the default (`MOCK_AGENTS`, see `../config.ts`). It makes no
  * network call and reports no tokens. What it does reproduce is the shape of
  * real work: a delay of several seconds, so an agent visibly sits at a desk,
- * and text that reads like a deliverable for the ticket in hand, so the board
+ * and text that reads like a deliverable for the issue in hand, so the board
  * panel has something worth opening.
  *
- * The kind of deliverable is guessed from the ticket's title — an email, a
+ * The kind of deliverable is guessed from the issue's title — an email, a
  * plan, a specification, or an analysis when nothing else fits — and the text
- * quotes the ticket so two tickets never look alike.
+ * quotes the issue's title and description so two issues never look alike.
  */
 
-import { type WorkContext, type WorkOutput, type WorkProvider, type WorkTicket } from "./executor.js";
+import { type WorkBrief, type WorkContext, type WorkOutput, type WorkProvider } from "./executor.js";
 
 export interface MockProviderOptions {
   /** Shortest and longest pretend working time. */
@@ -35,23 +35,23 @@ const KIND_KEYWORDS: readonly (readonly [ArtifactKind, RegExp])[] = [
   ["specification", /\b(spec|specification|design|feature|api|build|implement|add)\b/i],
 ];
 
-function kindOf(ticket: WorkTicket): ArtifactKind {
+function kindOf(brief: WorkBrief): ArtifactKind {
   for (const [kind, pattern] of KIND_KEYWORDS) {
-    if (pattern.test(ticket.title)) {
+    if (pattern.test(brief.title)) {
       return kind;
     }
   }
   return "analysis";
 }
 
-/** The ticket body as the deliverable quotes it, or a stand-in when there is none. */
-function brief(ticket: WorkTicket): string {
-  const body = ticket.body.trim();
+/** The issue's description as the deliverable quotes it, or a stand-in when there is none. */
+function describe(brief: WorkBrief): string {
+  const body = brief.body.trim();
   return body === "" ? "No further detail was given beyond the title." : body;
 }
 
-function write(kind: ArtifactKind, ticket: WorkTicket, context: WorkContext): WorkOutput {
-  const title = ticket.title.trim() === "" ? "Untitled ticket" : ticket.title.trim();
+function write(kind: ArtifactKind, brief: WorkBrief, context: WorkContext): WorkOutput {
+  const title = `#${brief.number} ${brief.title.trim() === "" ? "Untitled issue" : brief.title.trim()}`;
   const signature = `${context.agentName}, ${context.jobTitle}`;
   switch (kind) {
     case "email":
@@ -65,7 +65,7 @@ function write(kind: ArtifactKind, ticket: WorkTicket, context: WorkContext): Wo
           "",
           `A quick note on ${title.toLowerCase()}. The short version: the work is scoped, the owners are clear, and nothing below needs a reply unless you disagree.`,
           "",
-          `What prompted this: ${brief(ticket)}`,
+          `What prompted this: ${describe(brief)}`,
           "",
           "What happens next: I will circulate a follow-up once the first pieces land, and flag anything that changes the timeline as soon as I know.",
           "",
@@ -81,7 +81,7 @@ function write(kind: ArtifactKind, ticket: WorkTicket, context: WorkContext): Wo
           `# Plan: ${title}`,
           "",
           `## Goal`,
-          brief(ticket),
+          describe(brief),
           "",
           "## Phases",
           "1. **Prepare.** Confirm scope with the requester, list the open questions, and agree what done looks like.",
@@ -89,7 +89,7 @@ function write(kind: ArtifactKind, ticket: WorkTicket, context: WorkContext): Wo
           "3. **Close out.** Check the result against the goal, write down what changed, and hand over.",
           "",
           "## Risks",
-          "- Scope grows mid-flight. Mitigation: anything new becomes its own ticket.",
+          "- Scope grows mid-flight. Mitigation: anything new becomes its own issue.",
           "- A dependency slips. Mitigation: phase 2 is ordered so the riskiest step goes first.",
           "",
           `Prepared by ${signature}.`,
@@ -103,10 +103,10 @@ function write(kind: ArtifactKind, ticket: WorkTicket, context: WorkContext): Wo
           `# Specification: ${title}`,
           "",
           "## Problem",
-          brief(ticket),
+          describe(brief),
           "",
           "## Requirements",
-          "- It does the one thing the ticket asks, and nothing the ticket does not.",
+          "- It does the one thing the issue asks, and nothing the issue does not.",
           "- It fails visibly: a user can always tell whether it worked.",
           "- It can be switched off without a redeploy.",
           "",
@@ -127,7 +127,7 @@ function write(kind: ArtifactKind, ticket: WorkTicket, context: WorkContext): Wo
           `# Analysis: ${title}`,
           "",
           "## Question",
-          brief(ticket),
+          describe(brief),
           "",
           "## Findings",
           "1. The cause is narrower than it first looks: one path accounts for most of the effect.",
@@ -167,8 +167,8 @@ export function createMockProvider(options: MockProviderOptions = {}): WorkProvi
   const maxDelayMs = Math.max(minDelayMs, options.maxDelayMs ?? DEFAULT_MAX_DELAY_MS);
   const random = options.random ?? Math.random;
 
-  return async (ticket, context, signal) => {
+  return async (brief, context, signal) => {
     await delay(minDelayMs + Math.floor(random() * (maxDelayMs - minDelayMs)), signal);
-    return write(kindOf(ticket), ticket, context);
+    return write(kindOf(brief), brief, context);
   };
 }

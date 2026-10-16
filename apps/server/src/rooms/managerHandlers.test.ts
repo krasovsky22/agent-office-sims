@@ -3,7 +3,7 @@
  *
  * Its parts are tested in `manager/`. What only a running room can show is
  * the issue's acceptance: the manager is in the office at its own desk; in
- * mock mode a question about a ticket or the agents is answered from live
+ * mock mode a question about a GitHub issue or the agents is answered from live
  * state with no network call; an assignment it makes is one the agent then
  * works; an executive's instruction is refused with a reason; and the room
  * keeps ticking at full rate while the manager thinks.
@@ -26,11 +26,14 @@ import {
   OFFICE_ROOM_NAME,
   type OfficeState,
   SERVER_MESSAGE,
+  EMPTY_BOARD_LISTS,
+  type ProjectBoardSnapshot,
   TICK_RATE_HZ,
-  TICKET_STATUS,
+  WORK_STATUS,
   isAgentEmployee,
   isAiManager,
   managerSeat,
+  workKey,
 } from "@sim/shared";
 import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -40,6 +43,16 @@ import { createRulePlanner } from "../manager/fromConfig.js";
 import { createWorkExecutor } from "../work/executor.js";
 import { createMockProvider } from "../work/mockProvider.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./OfficeRoom.js";
+
+/** The project board the manager answers about and hands out from. */
+const BOARD: ProjectBoardSnapshot = {
+  ...EMPTY_BOARD_LISTS,
+  open: [{ number: 1, title: "Fix the login redirect loop", body: "", labels: [], assignees: [], pullRequests: [], closedAt: null }],
+  counts: { open: 1, inProgress: 0, pullRequests: 0 },
+  repository: "acme/office",
+  updatedAt: 1,
+  stale: false,
+};
 
 /** An office whose manager thinks forever, to watch the room tick meanwhile. */
 const PONDERING_ROOM = "office-pondering-manager";
@@ -55,6 +68,7 @@ beforeAll(async () => {
     agentDebug: false,
     workExecutor: createWorkExecutor({ provider: createMockProvider({ minDelayMs: 50, maxDelayMs: 50 }) }),
     manager: createManagerAdvisor({ planner: createRulePlanner(0), mode: "rules" }),
+    projectBoard: { current: () => BOARD, subscribe: () => () => undefined },
   } satisfies Partial<OfficeRoomOptions>);
   server.define(PONDERING_ROOM, OfficeRoom, {
     agentCount: 1,
@@ -99,6 +113,7 @@ function listen(room: Room<OfficeState>): Tab {
   });
   room.onMessage(SERVER_MESSAGE.throttled, () => undefined);
   room.onMessage(SERVER_MESSAGE.ceoChanged, () => undefined);
+  room.onMessage(SERVER_MESSAGE.projectBoard, () => undefined);
   return tab;
 }
 
@@ -146,11 +161,11 @@ describe("the AI manager in a live room", () => {
 
   it("answers the CEO's questions from live state, in every tab, and hands a joiner the conversation", async () => {
     const { dana, milo } = await openOffice();
-    say(dana, "what's the status of ticket-1?");
+    say(dana, "what's the status of #1?");
     await settled(() => replies(milo).length === 1);
     expect(milo.entries.map((entry) => [entry.kind, entry.authorName, entry.text])).toEqual([
-      [MANAGER_ENTRY_KIND.instruction, "Dana", "what's the status of ticket-1?"],
-      [MANAGER_ENTRY_KIND.reply, "Firstmate", "ticket-1 “Fix the login redirect loop” is in the backlog, unassigned."],
+      [MANAGER_ENTRY_KIND.instruction, "Dana", "what's the status of #1?"],
+      [MANAGER_ENTRY_KIND.reply, "Firstmate", "#1 “Fix the login redirect loop” is open. Nobody in the office is on it yet."],
     ]);
 
     say(dana, "what is everyone working on?");
@@ -168,24 +183,28 @@ describe("the AI manager in a live room", () => {
 
   it("refuses an executive's instruction with the reason, and nobody hears it", async () => {
     const { dana, milo } = await openOffice();
-    say(milo, "put Ada on ticket-1");
+    say(milo, "put Ada on #1");
     await settled(() => milo.rejections.length === 1);
     expect(milo.rejections).toEqual([{ rejection: MANAGER_REJECTION.forbidden }]);
     expect(dana.entries).toEqual([]);
-    expect(serverRoom(dana).state.tickets.get("ticket-1")?.status).toBe(TICKET_STATUS.backlog);
+    expect(serverRoom(dana).state.work.size).toBe(0);
 
     await milo.room.leave();
     await dana.room.leave();
   });
 
-  it("assigns a ticket on the CEO's word, and the agent then works it", async () => {
+  it("answers about the project board, assigns an issue on the CEO's word, and the agent then works it", async () => {
     const { dana, milo } = await openOffice();
-    say(dana, "put Ada on ticket-1");
+    say(dana, "what's open?");
     await settled(() => replies(dana).length === 1);
-    expect(replies(dana)[0]?.text).toContain("✓ ticket-1");
+    expect(replies(dana)[0]?.text).toContain("Open: #1 “Fix the login redirect loop”");
+
+    say(dana, "put Ada on #1");
+    await settled(() => replies(dana).length === 2);
+    expect(replies(dana)[1]?.text).toContain("✓ #1");
 
     const room = serverRoom(dana);
-    await settled(() => room.state.tickets.get("ticket-1")?.status === TICKET_STATUS.in_progress);
+    await settled(() => room.state.work.get(workKey(1))?.status === WORK_STATUS.in_progress);
     const ada = room.state.occupants.get("agent-1");
     expect(ada !== undefined && isAgentEmployee(ada) && ada.activity === AGENT_ACTIVITY.working).toBe(true);
 

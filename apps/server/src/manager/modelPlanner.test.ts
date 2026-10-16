@@ -22,9 +22,9 @@ type ModelMessage = Anthropic.Message;
 
 const VIEW: OfficeView = {
   ceo: "Dana",
-  agents: [{ id: "agent-1", name: "Ada Byrne", jobTitle: "Product Manager", activity: "idle", ticketId: undefined }],
+  agents: [{ id: "agent-1", name: "Ada Byrne", jobTitle: "Product Manager", activity: "idle", issueNumber: undefined }],
   liveAgents: [],
-  tickets: [],
+  work: [],
   project: undefined,
   orchestrator: false,
 };
@@ -33,7 +33,7 @@ const REQUEST: ManagerRequest = {
   message: "what is Ada doing?",
   ceoName: "Dana",
   view: VIEW,
-  history: [{ id: 1, kind: MANAGER_ENTRY_KIND.update, authorName: "Firstmate", text: "Ada handed in ticket-2.", at: 1 }],
+  history: [{ id: 1, kind: MANAGER_ENTRY_KIND.update, authorName: "Firstmate", text: "Ada handed in #12.", at: 1 }],
 };
 
 const SIGNAL = new AbortController().signal;
@@ -70,7 +70,7 @@ describe("the request", () => {
     const prompt = JSON.stringify(params?.messages);
     expect(prompt).toContain("Ada Byrne");
     expect(prompt).toContain("what is Ada doing?");
-    expect(prompt).toContain("Ada handed in ticket-2.");
+    expect(prompt).toContain("Ada handed in #12.");
     expect(JSON.stringify(params)).not.toContain("test-key");
   });
 
@@ -87,12 +87,12 @@ describe("readReply", () => {
       reply(
         JSON.stringify({
           reply: "Putting Ada on it.",
-          assignments: [{ work: " ticket-3 ", agent: "agent-1" }, { work: "" }, { work: "#39" }, "nonsense"],
+          assignments: [{ work: " #12 ", agent: "agent-1" }, { work: "" }, { work: "#39" }, "nonsense"],
         }),
       ),
     );
     expect(plan.assignments).toEqual([
-      { work: "ticket-3", agent: "agent-1" },
+      { work: "#12", agent: "agent-1" },
       { work: "#39", agent: "" },
     ]);
   });

@@ -1,7 +1,7 @@
 /**
  * The ceiling on how many model calls the office may make.
  *
- * A model call costs money, and an agent that keeps failing a ticket keeps
+ * A model call costs money, and an agent that keeps failing an issue keeps
  * trying it, so spend has to be capped by something that does not depend on
  * the caller behaving. Two limits, both counted in calls rather than tokens
  * because a call is what the executor can refuse before it is made:

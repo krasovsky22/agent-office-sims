@@ -124,13 +124,13 @@ const DEFAULT_AGENT_MODEL = "claude-opus-5-5";
 
 /**
  * Model calls allowed when no budget is configured. A day's worth covers an
- * office of a few agents working tickets all day; the per-run figure is the
+ * office of a few agents working issues all day; the per-run figure is the
  * total a long-lived server will spend before it needs a restart to spend more.
  */
 const DEFAULT_AGENT_CALLS_PER_DAY = 200;
 const DEFAULT_AGENT_CALLS_PER_RUN = 1000;
 
-/** How agents do ticket work: canned text for free, or a real model that costs money. */
+/** How agents do their issue work: canned text for free, or a real model that costs money. */
 export type AgentWorkConfig =
   | { readonly mode: "mock" }
   | {
@@ -151,7 +151,7 @@ export type AgentWorkConfig =
  * - `MOCK_AGENTS`: `on` (the default) or `off`. On, agents write canned text
  *   on a timer and nothing is spent, which is what development wants.
  * - `ANTHROPIC_API_KEY`: required when `MOCK_AGENTS` is off. Checked here so a
- *   missing key stops the server at boot rather than failing the first ticket.
+ *   missing key stops the server at boot rather than failing the first issue.
  * - `AGENT_MODEL`: optional, defaulting to {@link DEFAULT_AGENT_MODEL}.
  * - `AGENT_CALLS_PER_DAY`, `AGENT_CALLS_PER_RUN`: optional call budgets.
  */

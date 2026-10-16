@@ -1,5 +1,6 @@
 /**
- * One room's manager, against a real board and a planner the test controls:
+ * One room's manager, against a real office and project board and a planner
+ * the test controls:
  * who it listens to, what it says, what it does, and that it writes nothing
  * once stopped.
  *
@@ -12,6 +13,8 @@
 import {
   AGENT_ACTIVITY,
   type AgentEmployee,
+  type BoardIssue,
+  EMPTY_BOARD_LISTS,
   HumanPlayer,
   MANAGER_ENTRY_KIND,
   MANAGER_OCCUPANT_ID,
@@ -22,14 +25,17 @@ import {
   OCCUPANT_KIND,
   OfficeState,
   PLAYER_ROLE,
-  TICKET_STATUS,
+  type ProjectBoardSnapshot,
+  WORK_ACTION,
+  WORK_STATUS,
+  actorOf,
   employManager,
   isAiManager,
-  seedBoard,
+  workKey,
 } from "@sim/shared";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type TicketHost, createTicketIdFactory } from "../rooms/ticketHandlers.js";
+import { type WorkHost, applyAs } from "../rooms/workHandlers.js";
 import { hireAgentEmployees } from "../sim/agents.js";
 import { WORK_FAILURE } from "../work/executor.js";
 import { type ManagerAdvisor, type ManagerPlan, type ManagerPlanner, createManagerAdvisor } from "./advisor.js";
@@ -44,6 +50,19 @@ function player(id: string, name: string, ceo: boolean): HumanPlayer {
   occupant.role = ceo ? PLAYER_ROLE.ceo : PLAYER_ROLE.exec;
   return occupant;
 }
+
+function issue(number: number, title: string): BoardIssue {
+  return { number, title, body: "", labels: [], assignees: [], pullRequests: [], closedAt: null };
+}
+
+const BOARD: ProjectBoardSnapshot = {
+  ...EMPTY_BOARD_LISTS,
+  repository: "o/r",
+  updatedAt: 1,
+  stale: false,
+  open: [issue(10, "Fix the login redirect loop"), issue(11, "Write the onboarding email")],
+  counts: { open: 2, inProgress: 0, pullRequests: 0 },
+};
 
 const running: OfficeManager[] = [];
 
@@ -75,14 +94,12 @@ function setUp(advisor: ManagerAdvisor, updateIntervalMs = 60_000) {
   }
   state.occupants.set(manager.id, manager);
   const [ada] = hireAgentEmployees(state.occupants, OFFICE_LAYOUT, 2);
-  const tickets: TicketHost = { state, now: () => 5000, nextTicketId: createTicketIdFactory() };
-  seedBoard(state.tickets, 1000, tickets.nextTicketId);
+  const work: WorkHost = { state, now: () => 5000, board: () => BOARD };
 
   const published: ManagerEntry[] = [];
   const managerOfRoom = new OfficeManager({
-    tickets,
+    work,
     advisor,
-    projectBoard: () => undefined,
     liveAgents: undefined,
     assignments: undefined,
     origin: "room-a",
@@ -95,7 +112,7 @@ function setUp(advisor: ManagerAdvisor, updateIntervalMs = 60_000) {
     const occupant = state.occupants.get(MANAGER_OCCUPANT_ID);
     return occupant !== undefined && isAiManager(occupant) ? occupant.status : undefined;
   };
-  return { state, dana, milo, ada: ada as AgentEmployee, office: managerOfRoom, published, status };
+  return { state, work, dana, milo, ada: ada as AgentEmployee, office: managerOfRoom, published, status };
 }
 
 async function until(check: () => boolean, timeoutMs = 2000): Promise<void> {
@@ -113,7 +130,7 @@ const rules = () => createManagerAdvisor({ planner: async (request) => planFromR
 describe("OfficeManager", () => {
   it("takes instructions from the CEO alone, and records nothing from anyone else", () => {
     const { milo, office, published } = setUp(rules());
-    expect(office.instruct(milo, "put Ada on ticket-1")).toBe(MANAGER_REJECTION.forbidden);
+    expect(office.instruct(milo, "put Ada on #10")).toBe(MANAGER_REJECTION.forbidden);
     expect(published).toEqual([]);
     expect(office.history()).toEqual([]);
   });
@@ -122,39 +139,39 @@ describe("OfficeManager", () => {
     const held = heldPlanner();
     const { dana, office, published, status } = setUp(createManagerAdvisor({ planner: held.planner, mode: "model" }));
 
-    expect(office.instruct(dana, "what's the status of ticket-1?")).toBeUndefined();
+    expect(office.instruct(dana, "what's the status of #10?")).toBeUndefined();
     expect(published).toEqual([
-      expect.objectContaining({ id: 1, kind: MANAGER_ENTRY_KIND.instruction, authorName: "Dana", text: "what's the status of ticket-1?" }),
+      expect.objectContaining({ id: 1, kind: MANAGER_ENTRY_KIND.instruction, authorName: "Dana", text: "what's the status of #10?" }),
     ]);
     expect(status()).toBe(MANAGER_STATUS.thinking);
 
     await until(() => held.waiting.length === 1);
-    held.waiting[0]?.resolve({ reply: "ticket-1 is in the backlog.", assignments: [], tokensUsed: 0 });
+    held.waiting[0]?.resolve({ reply: "Nobody is on #10 yet.", assignments: [], tokensUsed: 0 });
     await until(() => published.length === 2);
-    expect(published[1]).toMatchObject({ kind: MANAGER_ENTRY_KIND.reply, authorName: "Firstmate", text: "ticket-1 is in the backlog." });
+    expect(published[1]).toMatchObject({ kind: MANAGER_ENTRY_KIND.reply, authorName: "Firstmate", text: "Nobody is on #10 yet." });
     expect(status()).toBe(MANAGER_STATUS.idle);
     expect(office.history()).toHaveLength(2);
   });
 
   it("carries out the assignments in its plan, and says how each went", async () => {
     const { dana, state, office, published } = setUp(rules());
-    office.instruct(dana, "put Ada on ticket-1");
+    office.instruct(dana, "put Ada on #10");
     await until(() => published.length === 2);
-    expect(published[1]?.text).toBe("Here's how that went:\n✓ ticket-1 “Fix the login redirect loop” → Ada Byrne, Backend Engineer.");
-    expect(state.tickets.get("ticket-1")).toMatchObject({ status: TICKET_STATUS.assigned, assigneeId: "agent-1" });
+    expect(published[1]?.text).toBe("Here's how that went:\n✓ #10 “Fix the login redirect loop” → Ada Byrne, Backend Engineer.");
+    expect(state.work.get(workKey(10))).toMatchObject({ status: WORK_STATUS.assigned, assigneeId: "agent-1" });
   });
 
   it("hands nothing out for a CEO who lost the role while it was thinking", async () => {
     const held = heldPlanner();
     const { dana, milo, state, office, published } = setUp(createManagerAdvisor({ planner: held.planner, mode: "model" }));
-    office.instruct(dana, "put Ada on ticket-1");
+    office.instruct(dana, "put Ada on #10");
     await until(() => held.waiting.length === 1);
     dana.role = PLAYER_ROLE.exec;
     milo.role = PLAYER_ROLE.ceo;
-    held.waiting[0]?.resolve({ reply: "On it.", assignments: [{ work: "ticket-1", agent: "agent-1" }], tokensUsed: 0 });
+    held.waiting[0]?.resolve({ reply: "On it.", assignments: [{ work: "#10", agent: "agent-1" }], tokensUsed: 0 });
     await until(() => published.length === 2);
     expect(published[1]?.text).toContain("You are no longer the CEO");
-    expect(state.tickets.get("ticket-1")?.status).toBe(TICKET_STATUS.backlog);
+    expect(state.work.size).toBe(0);
   });
 
   it("holds a few messages while it answers one, and turns away more", async () => {
@@ -174,36 +191,40 @@ describe("OfficeManager", () => {
       advise: async () => ({ ok: false, reason: WORK_FAILURE.timeout, message: "no answer within 60s", attempts: 2, tokensUsed: 0 }),
     };
     const { dana, office, published } = setUp(advisor);
-    office.instruct(dana, "status of ticket-2?");
+    office.instruct(dana, "status of #11?");
     await until(() => published.length === 2);
     expect(published[1]?.text).toBe(
       "(I couldn't reach my model — no answer within 60s — so this is my quick answer from the board.)\n" +
-        "ticket-2 “Write the onboarding email” is in the backlog, unassigned.",
+        "#11 “Write the onboarding email” is open. Nobody in the office is on it yet.",
     );
   });
 
   it("posts an update when work is handed in or an agent gets stuck, but not about what it found on arrival", async () => {
-    const { state, ada, published } = setUp(rules(), 10);
-    const ticket = state.tickets.get("ticket-1");
-    if (ticket === undefined) {
-      throw new Error("no ticket-1");
+    const { state, work, dana, ada, published } = setUp(rules(), 10);
+    const assigned = applyAs(work, actorOf(dana), {
+      action: WORK_ACTION.assign,
+      payload: { issueNumber: 10, assigneeId: ada.id },
+    });
+    const entry = state.work.get(workKey(10));
+    if (!assigned.ok || entry === undefined) {
+      throw new Error("could not give #10 to Ada");
     }
-    ticket.assigneeId = ada.id;
-    ticket.status = TICKET_STATUS.in_progress;
-    ada.currentTicketId = ticket.id;
+    entry.status = WORK_STATUS.in_progress;
+    ada.currentIssueNumber = 10;
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(published).toEqual([]);
 
-    ticket.status = TICKET_STATUS.review;
+    entry.status = WORK_STATUS.review;
     await until(() => published.length === 1);
     expect(published[0]).toMatchObject({
       kind: MANAGER_ENTRY_KIND.update,
-      text: "Ada Byrne handed in ticket-1 “Fix the login redirect loop” for your review.",
+      text: "Ada Byrne handed in #10 “Fix the login redirect loop” for your review.",
     });
 
+    entry.note = "Blocked: the model timed out.";
     ada.activity = AGENT_ACTIVITY.blocked;
     await until(() => published.length === 2);
-    expect(published[1]?.text).toContain("Ada Byrne is stuck on ticket-1");
+    expect(published[1]?.text).toBe("Ada Byrne is stuck on #10 “Fix the login redirect loop” — Blocked: the model timed out.");
   });
 
   it("aborts the call in flight when stopped, and writes nothing after", async () => {

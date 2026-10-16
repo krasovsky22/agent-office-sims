@@ -6,7 +6,7 @@
  * Nothing is decided here. Whether the local player may hire is
  * `mayManageStaff`, the server's own gate, and the payroll is `dailyPayroll`,
  * the rule behind the figure the server draws at midnight; this module only
- * words them, the way `boardAccess.ts` words the ticket board's rule.
+ * words them, the way `boardAccess.ts` words the work's rule.
  */
 
 import {
@@ -16,7 +16,7 @@ import {
   STAFF_REJECTION,
   type StaffChangedEvent,
   type StaffRejection,
-  type TicketActor,
+  type OfficeActor,
   dailyPayroll,
   mayManageStaff,
 } from "@sim/shared";
@@ -54,7 +54,7 @@ const CANDIDATES: readonly CandidateReadout[] = HIRING_CANDIDATES.map((candidate
  * The staff readout for the local player, from the salaries of the agents on
  * the floor — one per agent, the one thing the payroll reads.
  */
-export function readStaff(actor: TicketActor | undefined, salaries: readonly number[]): StaffReadout {
+export function readStaff(actor: OfficeActor | undefined, salaries: readonly number[]): StaffReadout {
   const capacity = OFFICE_LAYOUT.agentDesks.length;
   return {
     canManage: actor !== undefined && mayManageStaff(actor),
@@ -92,13 +92,13 @@ export function staffRejectionText(rejection: StaffRejection): string {
   return REJECTION_TEXT[rejection];
 }
 
-function ticketsReturned(count: number): string {
+function issuesReleased(count: number): string {
   if (count === 0) {
     return "";
   }
   return count === 1
-    ? " Their unfinished ticket is back in the backlog."
-    : ` Their ${count} unfinished tickets are back in the backlog.`;
+    ? " The issue they were on is free on the project board."
+    : ` The ${count} issues they were on are free on the project board.`;
 }
 
 /** The office's announcement of a staff change, for the chat log. */
@@ -110,9 +110,9 @@ export function staffChangeText(event: StaffChangedEvent): string {
     case STAFF_CHANGE.fired:
       return (
         `${who} was let go. Morale fell ${Math.round(event.moraleLost)} points.` +
-        ticketsReturned(event.releasedTickets)
+        issuesReleased(event.releasedIssues)
       );
     case STAFF_CHANGE.quit:
-      return `${who} quit: ${event.reason}.${ticketsReturned(event.releasedTickets)}`;
+      return `${who} quit: ${event.reason}.${issuesReleased(event.releasedIssues)}`;
   }
 }

@@ -17,8 +17,8 @@
  * agents' registry is made here for the same reason, and its report route is
  * only attached when a secret is configured.
  *
- * How agents do ticket work is read here too, so a model mode with no API key
- * stops the server at boot rather than failing the first ticket an agent takes,
+ * How agents do their issue work is read here too, so a model mode with no API key
+ * stops the server at boot rather than failing the first issue an agent takes,
  * and how the AI manager answers, for the same reason. The manager's queue of
  * work for the live agents is made beside the registry it wraps, and its
  * collection route is attached with the report route.

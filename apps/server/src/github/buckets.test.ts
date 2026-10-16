@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MAX_CLOSED_ISSUES, MAX_ITEM_LABELS } from "@sim/shared";
+import { MAX_CLOSED_ISSUES, MAX_ISSUE_BODY_LENGTH, MAX_ITEM_LABELS } from "@sim/shared";
 
 import {
   type GithubIssueItem,
@@ -23,6 +23,7 @@ function issue(number: number, extra: Partial<GithubIssueItem> = {}): GithubIssu
   return {
     number,
     title: `Issue ${number}`,
+    body: "",
     labels: [],
     open: true,
     author: "dana",
@@ -61,7 +62,7 @@ describe("bucketIssues", () => {
     const lists = bucketIssues([issue(7, { assignees: ["milo"] })], [], REPO);
     expect(numbers(lists.open)).toEqual([]);
     expect(lists.inProgress).toEqual([
-      { number: 7, title: "Issue 7", labels: [], assignees: ["milo"], pullRequests: [], closedAt: null },
+      { number: 7, title: "Issue 7", body: "", labels: [], assignees: ["milo"], pullRequests: [], closedAt: null },
     ]);
   });
 
@@ -164,6 +165,17 @@ describe("closingReferences", () => {
   });
 });
 
+describe("issue descriptions", () => {
+  it("carries an open issue's description, sanitized and capped, and drops a closed one's", () => {
+    const long = `Do this.\r\n\r\n\r\n\r\nThen that.${"x".repeat(MAX_ISSUE_BODY_LENGTH)}`;
+    const lists = bucketIssues([issue(1, { body: long })], [issue(2, { open: false, closedAt: 5, body: "old" })], REPO);
+    const body = lists.open[0]?.body ?? "";
+    expect(body.startsWith("Do this.\n\nThen that.")).toBe(true);
+    expect(body.length).toBe(MAX_ISSUE_BODY_LENGTH);
+    expect(lists.closed[0]?.body).toBe("");
+  });
+});
+
 describe("parseIssueItem", () => {
   const raw = {
     number: 32,
@@ -173,13 +185,14 @@ describe("parseIssueItem", () => {
     user: { login: "krasovsky22" },
     assignees: [{ login: "milo" }, { nope: true }],
     closed_at: null,
-    body: "ignored for an issue",
+    body: "The board on the lobby wall.\r\n\r\n\r\nShows open issues.",
   };
 
   it("reads an issue, sanitizing its title onto one line", () => {
     expect(parseIssueItem(raw)).toEqual({
       number: 32,
       title: "Lobby project board: live GitHub issues",
+      body: "The board on the lobby wall.\r\n\r\n\r\nShows open issues.",
       labels: [
         { name: "wave-1", color: "#0e8a16" },
         { name: "client", color: "#1d76db" },

@@ -32,8 +32,6 @@ import {
 import {
   INTERACTION_KIND,
   OFFICE_LAYOUT,
-  chairBoxes,
-  collisionBoxes,
   describeLayoutProblems,
   interactables,
   workstations,
@@ -171,29 +169,6 @@ describe("the office's interactables", () => {
       Math.hypot(machine.x - coffee.anchor.x, machine.z - coffee.anchor.z),
     ).toBeLessThan(INTERACT_RANGE);
   });
-
-  it("hangs the whiteboard on the meeting room wall without adding a footprint", () => {
-    const whiteboard = specOf("whiteboard-meeting");
-    expect(whiteboard.volume).toBeDefined();
-    // Every collision box is a wall, a desk, a prop or a chair; the whiteboard
-    // is none of them, so the collision world is exactly what it was without it.
-    const boxes = collisionBoxes(OFFICE_LAYOUT);
-    expect(boxes).toHaveLength(
-      OFFICE_LAYOUT.walls.length +
-        OFFICE_LAYOUT.desks.length +
-        OFFICE_LAYOUT.props.length +
-        chairBoxes(OFFICE_LAYOUT).length,
-    );
-    const room = OFFICE_LAYOUT.rooms.find((candidate) => candidate.id === "meeting-room");
-    expect(room).toBeDefined();
-    if (room === undefined) {
-      return;
-    }
-    expect(whiteboard.anchor.x).toBeGreaterThan(room.bounds.minX);
-    expect(whiteboard.anchor.x).toBeLessThan(room.bounds.maxX);
-    expect(whiteboard.anchor.z).toBeGreaterThan(room.bounds.minZ);
-    expect(whiteboard.anchor.z).toBeLessThan(room.bounds.maxZ);
-  });
 });
 
 describe("what each interaction means", () => {
@@ -212,9 +187,9 @@ describe("what each interaction means", () => {
     expect(heldAnimationFor(coffee)).toBe(ANIMATION_STATE.idle);
   });
 
-  it("does not hold an occupant at the whiteboard", () => {
-    const whiteboard = specOf("whiteboard-meeting");
-    expect(holdsAnchor(whiteboard)).toBe(false);
+  it("does not hold an occupant at the project board", () => {
+    const board = specOf("project-board");
+    expect(holdsAnchor(board)).toBe(false);
   });
 
   it("names the action in every prompt", () => {
@@ -394,11 +369,11 @@ describe("authorizeInteract", () => {
     expect(taken).toEqual({ allowed: false, refusal: INTERACT_REFUSAL.outOfRange });
   });
 
-  it("lets a second occupant use the whiteboard while the first is reading it", () => {
+  it("lets a second occupant read the project board while the first is reading it", () => {
     const decision = authorizeInteract(
       OFFICE_LAYOUT,
-      actorAt("whiteboard-meeting", 0, "bob"),
-      "whiteboard-meeting",
+      actorAt("project-board", 0, "bob"),
+      "project-board",
       SERVER_RANGE,
       () => "alice",
       () => "agent-1",

@@ -8,13 +8,14 @@
  * against the one gate, recorded, broadcast and queued — and nothing more. The
  * answer is worked out on the manager's own async loop, which may spend seconds
  * on a model call while the room ticks on at full rate; when it has one, it
- * writes the result between ticks: assignments through the board's rules,
+ * writes the result between ticks: assignments through the work's rules,
  * the reply into the conversation, and its badge back to idle.
  *
  * One question at a time, in order, with a few allowed to wait behind it, so
  * a CEO can ask two things in a row and a stuck model cannot pile up calls.
  * The office is read again when the answer is in, so an assignment is judged
- * against the board as it is then, not as it was when the question was asked.
+ * against the office and the project board as they are then, not as they were
+ * when the question was asked.
  *
  * When a configured model fails — a timeout, a spent budget, an outage — the
  * manager answers by rule instead and says so, so a question about status still
@@ -38,14 +39,13 @@ import {
   type ManagerEntryKind,
   type ManagerRejection,
   type Occupant,
-  type ProjectBoardSnapshot,
+  actorOf,
   isAiManager,
   mayInstructManager,
-  ticketActorOf,
 } from "@sim/shared";
 
 import type { LiveAgentSource } from "../agents/registry.js";
-import type { TicketHost } from "../rooms/ticketHandlers.js";
+import type { WorkHost } from "../rooms/workHandlers.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import { WORK_FAILURE } from "../work/executor.js";
 import { type AdviceResult, type ManagerAdvisor, type ManagerRequest } from "./advisor.js";
@@ -64,10 +64,9 @@ export const UPDATE_INTERVAL_MS = 2000;
 
 /** What the manager needs from its room, named so a test can supply it. */
 export interface ManagerHost {
-  /** The room's state, and how a ticket command is stamped. */
-  readonly tickets: TicketHost;
+  /** The room's state and project board, and how a work command is stamped. */
+  readonly work: WorkHost;
   readonly advisor: ManagerAdvisor;
-  readonly projectBoard: () => ProjectBoardSnapshot | undefined;
   /** The live agents, with their assignments; absent with no orchestrator. */
   readonly liveAgents: LiveAgentSource | undefined;
   /** Where GitHub work for live agents is queued; absent with no orchestrator. */
@@ -101,7 +100,7 @@ export class OfficeManager {
   private lastLook: Observation | undefined;
 
   public constructor(private readonly host: ManagerHost) {
-    this.conversation = new ManagerConversation(host.tickets.now);
+    this.conversation = new ManagerConversation(host.work.now);
   }
 
   /** The conversation so far, oldest first, for a client that has just joined. */
@@ -143,7 +142,7 @@ export class OfficeManager {
    * recorded, broadcast, and queued for an answer.
    */
   public instruct(sender: Occupant, text: string): ManagerRejection | undefined {
-    if (!mayInstructManager(ticketActorOf(sender))) {
+    if (!mayInstructManager(actorOf(sender))) {
       return MANAGER_REJECTION.forbidden;
     }
     if (this.stopped || this.waiting.length >= MAX_WAITING_MESSAGES) {
@@ -200,19 +199,19 @@ export class OfficeManager {
     if (this.stopped || (!result.ok && result.reason === WORK_FAILURE.cancelled)) {
       return;
     }
-    // Read again now the answer is in: the board has moved on while it was thought about.
+    // Read again now the answer is in: the office has moved on while it was thought about.
     const view = this.look();
     const plan = result.ok ? result.plan : planFromRules({ ...request, view });
     const preface = result.ok ? "" : fallbackNote(result);
 
     let outcomes: string[] = [];
     if (plan.assignments.length > 0) {
-      const ceo = this.host.tickets.state.occupants.get(question.ceoId);
+      const ceo = this.host.work.state.occupants.get(question.ceoId);
       outcomes =
-        ceo === undefined || !mayInstructManager(ticketActorOf(ceo))
+        ceo === undefined || !mayInstructManager(actorOf(ceo))
           ? ["✗ You are no longer the CEO, so I didn't hand anything out."]
           : carryOut(plan.assignments, {
-              tickets: this.host.tickets,
+              work: this.host.work,
               ceo,
               view,
               queue: this.host.assignments,
@@ -249,8 +248,8 @@ export class OfficeManager {
 
   private look(): OfficeView {
     return readOfficeView({
-      state: this.host.tickets.state,
-      project: this.host.projectBoard(),
+      state: this.host.work.state,
+      project: this.host.work.board(),
       liveAgents: this.host.liveAgents?.current(),
     });
   }
@@ -265,7 +264,7 @@ export class OfficeManager {
 
   /** The badge over the manager's head, written only when it changes. */
   private showThinking(thinking: boolean): void {
-    const manager = this.host.tickets.state.occupants.get(MANAGER_OCCUPANT_ID);
+    const manager = this.host.work.state.occupants.get(MANAGER_OCCUPANT_ID);
     const status = thinking || this.answering ? MANAGER_STATUS.thinking : MANAGER_STATUS.idle;
     if (manager !== undefined && isAiManager(manager) && manager.status !== status) {
       manager.status = status;

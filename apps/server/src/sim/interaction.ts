@@ -47,7 +47,7 @@ export const SERVER_INTERACT_RANGE = INTERACT_RANGE * INTERACT_RANGE_TOLERANCE;
  * Shortest gap between two uses of an interaction that holds nothing.
  *
  * Such a use changes no state and only leaves a trace in the event sink, so
- * without a floor a client in reach of the whiteboard could write log lines as
+ * without a floor a client in reach of a wall board could write log lines as
  * fast as it can send messages. Server-only: an honest client never presses
  * the key this often, and the protocol does not need to know.
  */
@@ -135,7 +135,7 @@ export interface InteractionHost {
 /**
  * What came of an interact request.
  *
- * `used` is an interaction that holds nothing — the whiteboard — and so changes
+ * `used` is an interaction that holds nothing — a wall board — and so changes
  * no state; the room decides what trace, if any, it leaves. `cooling` is the
  * same request arriving inside {@link USE_COOLDOWN_MS}, dropped with no trace.
  */

@@ -30,7 +30,7 @@
  * accessors exactly as a tracked write should.
  */
 
-import { ArraySchema, MapSchema, Schema, defineTypes } from "@colyseus/schema";
+import { MapSchema, Schema, defineTypes } from "@colyseus/schema";
 
 import {
   COMPANY_STATUS,
@@ -44,7 +44,7 @@ import {
 /**
  * What sort of thing an occupant is.
  *
- * `agent` is the simulated agent employee who works the in-game ticket board;
+ * `agent` is the simulated agent employee who works the project board's issues;
  * `liveAgent` is one of the real coding agents working on this repository,
  * reported by its orchestrator. The two are different people with different
  * sources of truth, so they are different kinds rather than one kind with a flag.
@@ -189,13 +189,13 @@ export function isCeo(occupant: Occupant): boolean {
  * What an agent employee is doing, as the floor should read it.
  *
  * Separate from {@link ANIMATION_STATE}, which is what the body is doing. An
- * agent stuck on a ticket and an agent with nothing to do may both be standing
+ * agent stuck on an issue and an agent with nothing to do may both be standing
  * still; this is the field that tells them apart, and it is what the badge
  * above an agent's head shows.
  *
  * Agent movement writes `walking`, and `blocked` when a body cannot get where
  * it was sent; an agent's brain (`apps/server/src/sim/agentBrain.ts`) writes
- * `working` while it has a ticket, `blocked` when the work on one failed, and
+ * `working` while it has an issue, `blocked` when the work on one failed, and
  * `idle` in between. `meeting` waits for the issue that gives agents meetings.
  */
 export const AGENT_ACTIVITY = {
@@ -217,10 +217,10 @@ export const AGENT_STAT_MAX = 100;
  * Every field is written by the server alone: no client message names an agent,
  * so nothing a client sends can reach one.
  *
- * `currentTicketId` holds a {@link Ticket.id}, or `""` when the agent has
- * nothing, for the same reason a ticket holds occupant ids rather than
- * references — Colyseus replicates trees, not graphs. An id that is no longer
- * on the board is rendered as no ticket rather than repaired.
+ * `currentIssueNumber` is the GitHub issue the agent is working, or `0` when
+ * it has nothing — GitHub numbers issues from 1. Its work is the
+ * {@link IssueWork} under that number; one that is no longer there is
+ * rendered as no work rather than repaired.
  *
  * Morale and energy are whole numbers out of {@link AGENT_STAT_MAX}, `uint8` on
  * the wire, because nothing reads them finer than a percentage.
@@ -233,7 +233,7 @@ export class AgentEmployee extends Occupant {
   declare public jobTitle: string;
   /** Id of the desk in the layout this agent works at. */
   declare public deskId: string;
-  declare public currentTicketId: string;
+  declare public currentIssueNumber: number;
   declare public activity: AgentActivity;
   declare public morale: number;
   declare public energy: number;
@@ -244,7 +244,7 @@ export class AgentEmployee extends Occupant {
     this.kind = OCCUPANT_KIND.agent;
     this.jobTitle = "";
     this.deskId = "";
-    this.currentTicketId = "";
+    this.currentIssueNumber = 0;
     this.activity = AGENT_ACTIVITY.idle;
     this.morale = AGENT_STAT_MAX;
     this.energy = AGENT_STAT_MAX;
@@ -255,7 +255,7 @@ export class AgentEmployee extends Occupant {
 defineTypes(AgentEmployee, {
   jobTitle: "string",
   deskId: "string",
-  currentTicketId: "string",
+  currentIssueNumber: "uint32",
   activity: "string",
   morale: "uint8",
   energy: "uint8",
@@ -354,154 +354,98 @@ export class AiManager extends Occupant {
 defineTypes(AiManager, { jobTitle: "string", status: "string" });
 
 /**
- * Where a ticket sits on the board.
+ * Where an agent employee's work on a GitHub issue stands.
  *
- * The order of these keys is the order of the board's columns, left to right,
- * and the transition table in `tickets.ts` is written against it. Anything that
- * needs to list the statuses should read {@link TICKET_STATUSES} rather than
- * spelling them out again.
+ * An open issue nobody in the office is working has no status at all: it is
+ * simply on the project board, with no {@link IssueWork} for it. Everything
+ * from the moment the CEO hands it to an agent is one of these, and the order
+ * of the keys is the order the work moves through them. Anything that needs
+ * to list the statuses should read {@link WORK_STATUSES} rather than spelling
+ * them out again.
+ *
+ * None of this is written back to GitHub. `done` is the office's own verdict
+ * on the agent's deliverable, and the issue stays open on GitHub until
+ * somebody closes it there.
  */
-export const TICKET_STATUS = {
-  backlog: "backlog",
+export const WORK_STATUS = {
   assigned: "assigned",
   in_progress: "in_progress",
   review: "review",
   done: "done",
 } as const;
 
-export type TicketStatus = (typeof TICKET_STATUS)[keyof typeof TICKET_STATUS];
+export type WorkStatus = (typeof WORK_STATUS)[keyof typeof WORK_STATUS];
 
-/** Every status, in board-column order. */
-export const TICKET_STATUSES: readonly TicketStatus[] = Object.values(TICKET_STATUS);
+/** Every status, in the order work moves through them. */
+export const WORK_STATUSES: readonly WorkStatus[] = Object.values(WORK_STATUS);
 
-/** Whether an arbitrary value is one of the five statuses. */
-export function isTicketStatus(value: unknown): value is TicketStatus {
-  return typeof value === "string" && (TICKET_STATUSES as readonly string[]).includes(value);
+/** Whether an arbitrary value is one of the statuses. */
+export function isWorkStatus(value: unknown): value is WorkStatus {
+  return typeof value === "string" && (WORK_STATUSES as readonly string[]).includes(value);
 }
 
 /**
- * How urgent a ticket is, lowest first.
+ * An agent employee's work on one GitHub issue from the project board.
  *
- * Set by the CEO and only by the CEO: deciding what matters most is the
- * decision this role exists to make. Iterate {@link TICKET_PRIORITIES} rather
- * than these keys when an order is needed.
- */
-export const TICKET_PRIORITY = {
-  low: "low",
-  normal: "normal",
-  high: "high",
-} as const;
-
-export type TicketPriority = (typeof TICKET_PRIORITY)[keyof typeof TICKET_PRIORITY];
-
-/** Every priority, lowest first. */
-export const TICKET_PRIORITIES: readonly TicketPriority[] = Object.values(TICKET_PRIORITY);
-
-/** Whether an arbitrary value is one of the priorities. */
-export function isTicketPriority(value: unknown): value is TicketPriority {
-  return typeof value === "string" && (TICKET_PRIORITIES as readonly string[]).includes(value);
-}
-
-/**
- * A remark left on a ticket.
+ * The issue itself is GitHub's and arrives with the project board's snapshot;
+ * this is only what the office has done about it, and it never travels back.
+ * Keyed in {@link OfficeState.work} by the issue number as a string, so there
+ * is at most one piece of work per issue.
  *
- * The one board write open to everyone, so it is how an executive who may not
- * move a ticket still advises on it. Append-only: a comment is never edited,
- * and the oldest are dropped once a ticket holds `MAX_TICKET_COMMENTS`.
- */
-export class TicketComment extends Schema {
-  /** Occupant id of whoever wrote it; resolved like {@link Ticket.createdById}. */
-  declare public authorId: string;
-  /** Sanitized and length-capped by the parser. Safe to render as text. */
-  declare public text: string;
-  declare public createdAt: number;
-
-  public constructor() {
-    super();
-    this.authorId = "";
-    this.text = "";
-    this.createdAt = 0;
-  }
-}
-
-defineTypes(TicketComment, {
-  authorId: "string",
-  text: "string",
-  createdAt: "number",
-});
-
-/**
- * One unit of work on the board.
+ * `assigneeId` holds an occupant id rather than a reference, because Colyseus
+ * replicates trees and not graphs; an id no longer in
+ * {@link OfficeState.occupants} is an agent who has left, which a panel renders
+ * rather than repairs. `title` is the issue's, as of the last snapshot that
+ * listed it, so the record still reads once GitHub's list has moved on.
  *
- * `assigneeId` and `createdById` hold occupant ids — a session id for a human,
- * an `agent-` id for an agent employee — rather than object references, because
- * Colyseus replicates trees and not graphs. A consumer resolves them against
- * {@link OfficeState.occupants}; an id that is no longer in that map is a
- * ticket whose assignee has disconnected, which the board renders rather than
- * repairs.
- *
- * `outputArtifact` is the agent employee's deliverable — the thing a reviewer
- * reads before moving the ticket to `done`. Only the assignee's
- * `attach-output` command writes it, from the agent's brain on the server.
+ * `outputArtifact` is the agent's deliverable — the thing the CEO reads before
+ * approving the work — and `note` is the latest word on it from the agent or
+ * the office: why the agent is stuck, or why the work changed hands.
  *
  * Timestamps are epoch milliseconds under the `number` type, which is
  * variable-length on the wire and so holds a value that `uint32` could not.
  */
-export class Ticket extends Schema {
-  declare public id: string;
+export class IssueWork extends Schema {
+  declare public issueNumber: number;
   declare public title: string;
-  declare public body: string;
-  declare public status: TicketStatus;
-  /** Occupant id of the current assignee, or `""` when unassigned. */
+  declare public status: WorkStatus;
+  /** Occupant id of the agent employee doing it. Never `""`. */
   declare public assigneeId: string;
-  /** Occupant id of whoever filed it, or {@link SYSTEM_AUTHOR_ID} for a seed. */
-  declare public createdById: string;
   /** The assignee's deliverable, written when an agent finishes. `""` until. */
   declare public outputArtifact: string;
-  declare public priority: TicketPriority;
-  /** Oldest first. */
-  declare public comments: ArraySchema<TicketComment>;
-  declare public createdAt: number;
+  /** Sanitized and length-capped. `""` when there is nothing to say. */
+  declare public note: string;
+  declare public assignedAt: number;
   declare public updatedAt: number;
 
   public constructor() {
     super();
-    this.id = "";
+    this.issueNumber = 0;
     this.title = "";
-    this.body = "";
-    this.status = TICKET_STATUS.backlog;
+    this.status = WORK_STATUS.assigned;
     this.assigneeId = "";
-    this.createdById = "";
     this.outputArtifact = "";
-    this.priority = TICKET_PRIORITY.normal;
-    this.comments = new ArraySchema<TicketComment>();
-    this.createdAt = 0;
+    this.note = "";
+    this.assignedAt = 0;
     this.updatedAt = 0;
   }
 }
 
-defineTypes(Ticket, {
-  id: "string",
+defineTypes(IssueWork, {
+  issueNumber: "uint32",
   title: "string",
-  body: "string",
   status: "string",
   assigneeId: "string",
-  createdById: "string",
   outputArtifact: "string",
-  priority: "string",
-  comments: [TicketComment],
-  createdAt: "number",
+  note: "string",
+  assignedAt: "number",
   updatedAt: "number",
 });
 
-/**
- * Author recorded on a ticket the room created itself.
- *
- * Not an occupant id, and deliberately not resolvable in
- * {@link OfficeState.occupants}: a consumer that looks it up finds nothing and
- * should render the ticket as unattributed.
- */
-export const SYSTEM_AUTHOR_ID = "system";
+/** The key an issue's work is stored under in {@link OfficeState.work}. */
+export function workKey(issueNumber: number): string {
+  return String(issueNumber);
+}
 
 /**
  * The company's vital signs and the in-game clock that moves them.
@@ -555,15 +499,15 @@ defineTypes(Company, {
 
 export class OfficeState extends Schema {
   declare public occupants: MapSchema<Occupant>;
-  /** The ticket board, keyed by {@link Ticket.id}. */
-  declare public tickets: MapSchema<Ticket>;
+  /** The agents' work on the project board's issues, keyed by {@link workKey}. */
+  declare public work: MapSchema<IssueWork>;
   declare public company: Company;
   declare public tick: number;
 
   public constructor() {
     super();
     this.occupants = new MapSchema<Occupant>();
-    this.tickets = new MapSchema<Ticket>();
+    this.work = new MapSchema<IssueWork>();
     this.company = new Company();
     this.tick = 0;
   }
@@ -571,7 +515,7 @@ export class OfficeState extends Schema {
 
 defineTypes(OfficeState, {
   occupants: { map: Occupant },
-  tickets: { map: Ticket },
+  work: { map: IssueWork },
   company: Company,
   tick: "uint32",
 });

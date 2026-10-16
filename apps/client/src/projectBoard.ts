@@ -6,16 +6,28 @@
  * columns, row wording and status line from here, so the two cannot disagree
  * about which column an issue is in or whether the board is stale.
  *
- * Every string comes from the server's snapshot, which has already sanitized
- * it; both renderers take text rather than markup.
+ * The close-up also shows what the office's agents are doing about each issue
+ * — who has it and how far they have got — and the CEO's controls for it. How
+ * that work reads is decided here too; what the local player may do about it
+ * is `boardAccess.ts`'s.
+ *
+ * Every string comes from the server's snapshot or replicated state, which the
+ * server has already sanitized; both renderers take text rather than markup.
  */
 
 import {
+  AGENT_ACTIVITY,
+  type AgentActivity,
   type BoardIssue,
   type BoardLabel,
   type BoardPullRequest,
   type CheckStatus,
   type ProjectBoardSnapshot,
+  WORK_ACTION,
+  WORK_STATUS,
+  type WorkData,
+  type WorkMove,
+  type WorkStatus,
 } from "@sim/shared";
 
 export type BoardColumnKey = "open" | "inProgress" | "closed" | "pullRequests";
@@ -25,6 +37,8 @@ export type BoardTone = "plain" | "good" | "bad" | "pending";
 
 export interface BoardRow {
   readonly key: string;
+  /** The issue's number, which is what the office's work on it is keyed by; `null` for a pull request. */
+  readonly issueNumber: number | null;
   /** `#32`, so a row is findable on GitHub. */
   readonly label: string;
   readonly title: string;
@@ -95,6 +109,7 @@ function issueRow(issue: BoardIssue, repository: string, formatDate: TimeFormatt
   const detail = parts.join(" · ");
   return {
     key: `issue-${issue.number}`,
+    issueNumber: issue.number,
     label,
     title: issue.title,
     url: githubItemUrl(repository, "issues", issue.number),
@@ -112,6 +127,7 @@ function pullRequestRow(pull: BoardPullRequest, repository: string): BoardRow {
   const detail = parts.join(" · ");
   return {
     key: `pull-${pull.number}`,
+    issueNumber: null,
     label,
     title: pull.title,
     url: githubItemUrl(repository, "pull", pull.number),
@@ -259,3 +275,67 @@ export const formatClockTime: TimeFormatter = (epochMs) =>
 /** Day and month, for when an issue was closed. */
 export const formatShortDate: TimeFormatter = (epochMs) =>
   new Date(epochMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+/** An agent employee as the board names them; `Hud.tsx`'s roster entries satisfy it. */
+export interface BoardAgent {
+  readonly id: string;
+  readonly name: string;
+  readonly activity: AgentActivity | undefined;
+}
+
+export const WORK_STATUS_TITLES: Readonly<Record<WorkStatus, string>> = {
+  [WORK_STATUS.assigned]: "Assigned",
+  [WORK_STATUS.in_progress]: "In progress",
+  [WORK_STATUS.review]: "Waiting for review",
+  [WORK_STATUS.done]: "Done",
+};
+
+/** How an issue's work reads in a word or two: its status, or that its agent is stuck. */
+export function workStatusText(work: WorkData, agents: readonly BoardAgent[]): string {
+  const agent = agents.find((candidate) => candidate.id === work.assigneeId);
+  if (work.status === WORK_STATUS.in_progress && agent?.activity === AGENT_ACTIVITY.blocked) {
+    return "Blocked";
+  }
+  return WORK_STATUS_TITLES[work.status];
+}
+
+/**
+ * Who has the work, as the board names them. An id with no matching agent is
+ * one who has left, which the board shows rather than repairs.
+ */
+export function workAgentName(work: WorkData, agents: readonly BoardAgent[]): string {
+  return agents.find((candidate) => candidate.id === work.assigneeId)?.name ?? "Left the office";
+}
+
+/** The line a card carries for an issue an agent has: who, and how far they have got. */
+export function workBadge(work: WorkData, agents: readonly BoardAgent[]): { text: string; tone: BoardTone } {
+  const status = workStatusText(work, agents);
+  const tone: BoardTone =
+    status === "Blocked" ? "bad" : work.status === WORK_STATUS.done ? "good" : work.status === WORK_STATUS.review ? "pending" : "plain";
+  return { text: `${workAgentName(work, agents)} · ${status}`, tone };
+}
+
+/** What the button for a move reads, named for what it does to the work rather than the column. */
+export function workMoveLabel(move: WorkMove, work: WorkData): string {
+  if (move.action === WORK_ACTION.release) {
+    return "Unassign";
+  }
+  switch (move.to) {
+    case WORK_STATUS.assigned:
+      return "Have them start again";
+    case WORK_STATUS.in_progress:
+      return work.status === WORK_STATUS.review ? "Send back for rework" : "Mark in progress";
+    case WORK_STATUS.review:
+      return "Move to review";
+    case WORK_STATUS.done:
+      return "Approve";
+  }
+}
+
+/** The issue with this number in any of the snapshot's lists, or `undefined`. */
+export function boardIssue(snapshot: ProjectBoardSnapshot | undefined, issueNumber: number): BoardIssue | undefined {
+  if (snapshot === undefined) {
+    return undefined;
+  }
+  return [...snapshot.open, ...snapshot.inProgress, ...snapshot.closed].find((issue) => issue.number === issueNumber);
+}

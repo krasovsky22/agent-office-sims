@@ -251,7 +251,6 @@ describe("OFFICE_LAYOUT seats", () => {
         INTERACTION_KIND.board,
         INTERACTION_KIND.coffee,
         INTERACTION_KIND.manager,
-        INTERACTION_KIND.whiteboard,
       ].sort(),
     );
     for (const spec of others) {

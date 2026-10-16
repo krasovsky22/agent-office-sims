@@ -2,7 +2,7 @@
  * CEO authority, and the agents working what the CEO assigns, checked end to
  * end against a real room over real sockets.
  *
- * The rules themselves are tested in `@sim/shared`'s `tickets.test.ts`. What
+ * The rules themselves are tested in `@sim/shared`'s `work.test.ts`. What
  * only a running room can show is that they hold for a client that skips the
  * UI and sends a command straight down the socket, that the role is assigned
  * and passed on the way the issue says, and that a dropped connection comes
@@ -11,30 +11,35 @@
  *
  * The agents' brains are tested in `sim/agentBrain.test.ts`. What only a room
  * can show is that it starts them and stops them: that an assignment sent down
- * a socket comes back as a ticket in review, that an agent hired later works
- * too, and that firing an agent or closing the room cancels the work in flight.
+ * a socket comes back as an issue in review, that an agent hired later works
+ * too, and that firing an agent, closing the room, or GitHub closing the issue
+ * cancels the work in flight.
  */
 
 import { Server, matchMaker } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
+  type BoardIssue,
   type CeoChangedEvent,
   CLIENT_MESSAGE,
+  EMPTY_BOARD_LISTS,
   HIRING_CANDIDATES,
   OFFICE_ROOM_NAME,
   type OfficeState,
   PLAYER_ROLE,
+  type ProjectBoardSnapshot,
   SERVER_MESSAGE,
-  TICKET_ACTION,
-  TICKET_PRIORITY,
-  TICKET_REJECTION,
-  TICKET_STATUS,
-  type TicketRejectedEvent,
+  WORK_ACTION,
+  WORK_REJECTION,
+  WORK_STATUS,
+  type WorkRejectedEvent,
   isCeo,
+  workKey,
 } from "@sim/shared";
 import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import type { ProjectBoardSource } from "../github/feed.js";
 import { describeRoleProblems } from "../sim/roles.js";
 import { type WorkExecutor, createWorkExecutor } from "../work/executor.js";
 import { createMockProvider } from "../work/mockProvider.js";
@@ -55,31 +60,81 @@ function mockExecutor(delayMs: number, signals?: AbortSignal[]): WorkExecutor {
     provider: createMockProvider({ minDelayMs: delayMs, maxDelayMs: delayMs }),
   });
   return {
-    work: (ticket, context, signal) => {
+    work: (brief, context, signal) => {
       if (signal !== undefined) {
         signals?.push(signal);
       }
-      return executor.work(ticket, context, signal);
+      return executor.work(brief, context, signal);
     },
   };
 }
+
+function issue(number: number, title: string): BoardIssue {
+  return { number, title, body: `Details of ${title}.`, labels: [], assignees: [], pullRequests: [], closedAt: null };
+}
+
+const OPEN_ISSUES = [issue(1, "Fix the login redirect loop"), issue(2, "Write the onboarding email"), issue(3, "Draft the roadmap")];
+
+function snapshotOf(open: readonly BoardIssue[], closed: readonly BoardIssue[] = []): ProjectBoardSnapshot {
+  return {
+    ...EMPTY_BOARD_LISTS,
+    open,
+    closed,
+    counts: { open: open.length, inProgress: 0, pullRequests: 0 },
+    repository: "acme/office",
+    updatedAt: Date.now(),
+    stale: false,
+  };
+}
+
+/** A project board feed the test publishes to by hand, as a poll would. */
+class FakeBoard implements ProjectBoardSource {
+  private snapshot = snapshotOf(OPEN_ISSUES);
+  private readonly listeners = new Set<(snapshot: ProjectBoardSnapshot) => void>();
+
+  public current(): ProjectBoardSnapshot {
+    return this.snapshot;
+  }
+
+  public subscribe(listener: (snapshot: ProjectBoardSnapshot) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  public publish(snapshot: ProjectBoardSnapshot): void {
+    this.snapshot = snapshot;
+    this.listeners.forEach((listener) => listener(snapshot));
+  }
+}
+
+/** Each room type's own feed, so closing an issue in one test touches no other room type. */
+const officeBoard = new FakeBoard();
+const quickBoard = new FakeBoard();
+const slowBoard = new FakeBoard();
 
 let server: Server;
 let endpoint: string;
 
 beforeAll(async () => {
   server = new Server({ transport: new WebSocketTransport(), greet: false });
+  // An agent, so there is someone to give an issue to, but no executor, so it
+  // never picks one up and the work stays where a test puts it.
   server.define(OFFICE_ROOM_NAME, OfficeRoom, {
     reconnectGraceSeconds: GRACE_SECONDS,
+    agentCount: 1,
+    agentDebug: false,
+    projectBoard: officeBoard,
   } satisfies Partial<OfficeRoomOptions>);
   server.define(QUICK_AGENTS_ROOM, OfficeRoom, {
     reconnectGraceSeconds: GRACE_SECONDS,
+    projectBoard: quickBoard,
     agentCount: 2,
     agentDebug: false,
     workExecutor: mockExecutor(100),
   } satisfies Partial<OfficeRoomOptions>);
   server.define(SLOW_AGENTS_ROOM, OfficeRoom, {
     reconnectGraceSeconds: GRACE_SECONDS,
+    projectBoard: slowBoard,
     agentCount: 1,
     agentDebug: false,
     workExecutor: mockExecutor(60_000, slowWork),
@@ -100,13 +155,13 @@ afterAll(async () => {
 interface Tab {
   readonly client: Client;
   room: Room<OfficeState>;
-  readonly rejections: TicketRejectedEvent[];
+  readonly rejections: WorkRejectedEvent[];
   readonly announcements: CeoChangedEvent[];
 }
 
 function listen(tab: Tab, room: Room<OfficeState>): void {
   tab.room = room;
-  room.onMessage<TicketRejectedEvent>(SERVER_MESSAGE.ticketRejected, (event) => {
+  room.onMessage<WorkRejectedEvent>(SERVER_MESSAGE.workRejected, (event) => {
     tab.rejections.push(event);
   });
   room.onMessage<CeoChangedEvent>(SERVER_MESSAGE.ceoChanged, (event) => {
@@ -115,6 +170,7 @@ function listen(tab: Tab, room: Room<OfficeState>): void {
   // Registered so the client library does not warn about them; unused here.
   room.onMessage(SERVER_MESSAGE.throttled, () => undefined);
   room.onMessage(SERVER_MESSAGE.staffChanged, () => undefined);
+  room.onMessage(SERVER_MESSAGE.projectBoard, () => undefined);
 }
 
 /** Opens a fresh office as its first, and so CEO, occupant. */
@@ -147,9 +203,9 @@ function roleOf(tab: Tab, sessionId: string): string | undefined {
   return occupant === undefined ? undefined : isCeo(occupant) ? PLAYER_ROLE.ceo : PLAYER_ROLE.exec;
 }
 
-/** The board as plain data, for an "unchanged" comparison. */
-function boardOf(tab: Tab): unknown {
-  return serverRoom(tab).state.tickets.toJSON();
+/** The office's work as plain data, for an "unchanged" comparison. */
+function workOf(tab: Tab): unknown {
+  return serverRoom(tab).state.work.toJSON();
 }
 
 /** Polls until `ready` holds; there is no event for "the server got there". */
@@ -198,44 +254,38 @@ describe("CEO authority over a live socket", () => {
     const dana = await openOffice("Dana");
     const milo = await joinOffice(dana, "Milo");
 
-    // Something in review, so approve and reject have a ticket to act on.
-    dana.room.send(CLIENT_MESSAGE.ticketAssign, { ticketId: "ticket-1", assigneeId: milo.room.sessionId });
-    dana.room.send(CLIENT_MESSAGE.ticketMoveStatus, { ticketId: "ticket-1", status: TICKET_STATUS.in_progress });
-    dana.room.send(CLIENT_MESSAGE.ticketMoveStatus, { ticketId: "ticket-1", status: TICKET_STATUS.review });
+    // Something in review, so approve and reject have work to act on.
+    dana.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 1, assigneeId: "agent-1" });
+    dana.room.send(CLIENT_MESSAGE.workMove, { issueNumber: 1, status: WORK_STATUS.in_progress });
+    dana.room.send(CLIENT_MESSAGE.workMove, { issueNumber: 1, status: WORK_STATUS.review });
     await roundTrip(dana);
     expect(dana.rejections).toEqual([]);
-    expect(serverRoom(dana).state.tickets.get("ticket-1")?.status).toBe(TICKET_STATUS.review);
+    expect(serverRoom(dana).state.work.get(workKey(1))?.status).toBe(WORK_STATUS.review);
 
-    const before = boardOf(dana);
+    const before = workOf(dana);
     const ceoOnly: readonly [string, unknown][] = [
-      [CLIENT_MESSAGE.ticketCreate, { title: "Milo's idea", body: "" }],
-      [CLIENT_MESSAGE.ticketAssign, { ticketId: "ticket-2", assigneeId: milo.room.sessionId }],
-      [CLIENT_MESSAGE.ticketAssign, { ticketId: "ticket-1", assigneeId: dana.room.sessionId }],
-      [CLIENT_MESSAGE.ticketUnassign, { ticketId: "ticket-1" }],
-      [CLIENT_MESSAGE.ticketMoveStatus, { ticketId: "ticket-1", status: TICKET_STATUS.done }],
-      [CLIENT_MESSAGE.ticketMoveStatus, { ticketId: "ticket-1", status: TICKET_STATUS.in_progress }],
-      [CLIENT_MESSAGE.ticketEdit, { ticketId: "ticket-2", title: "Renamed" }],
-      [CLIENT_MESSAGE.ticketSetPriority, { ticketId: "ticket-2", priority: TICKET_PRIORITY.high }],
+      [CLIENT_MESSAGE.workAssign, { issueNumber: 2, assigneeId: "agent-1" }],
+      [CLIENT_MESSAGE.workAssign, { issueNumber: 1, assigneeId: "agent-1" }],
+      [CLIENT_MESSAGE.workRelease, { issueNumber: 1 }],
+      [CLIENT_MESSAGE.workMove, { issueNumber: 1, status: WORK_STATUS.done }],
+      [CLIENT_MESSAGE.workMove, { issueNumber: 1, status: WORK_STATUS.in_progress }],
     ];
     for (const [type, payload] of ceoOnly) {
       milo.room.send(type, payload);
     }
     await roundTrip(milo);
 
-    expect(boardOf(dana)).toEqual(before);
+    expect(workOf(dana)).toEqual(before);
     expect(milo.rejections).toHaveLength(ceoOnly.length);
     for (const event of milo.rejections) {
-      expect(event.rejection).toBe(TICKET_REJECTION.forbidden);
+      expect(event.rejection).toBe(WORK_REJECTION.forbidden);
     }
     expect(milo.rejections.map((event) => event.action)).toEqual([
-      TICKET_ACTION.create,
-      TICKET_ACTION.assign,
-      TICKET_ACTION.assign,
-      TICKET_ACTION.unassign,
-      TICKET_ACTION.moveStatus,
-      TICKET_ACTION.moveStatus,
-      TICKET_ACTION.edit,
-      TICKET_ACTION.setPriority,
+      WORK_ACTION.assign,
+      WORK_ACTION.assign,
+      WORK_ACTION.release,
+      WORK_ACTION.moveStatus,
+      WORK_ACTION.moveStatus,
     ]);
     // Told only to the sender.
     expect(dana.rejections).toEqual([]);
@@ -244,26 +294,26 @@ describe("CEO authority over a live socket", () => {
     await dana.room.leave();
   });
 
-  it("lets an executive comment, and the CEO run the board", async () => {
+  it("hands out only open issues on the board, and only to agent employees", async () => {
     const dana = await openOffice("Dana");
-    const milo = await joinOffice(dana, "Milo");
 
-    milo.room.send(CLIENT_MESSAGE.ticketComment, { ticketId: "ticket-1", text: "Measure first." });
-    dana.room.send(CLIENT_MESSAGE.ticketSetPriority, { ticketId: "ticket-1", priority: TICKET_PRIORITY.high });
-    dana.room.send(CLIENT_MESSAGE.ticketCreate, { title: "Dana's call", body: "" });
-    await roundTrip(milo);
+    dana.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 99, assigneeId: "agent-1" });
+    dana.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 2, assigneeId: dana.room.sessionId });
+    dana.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 2, assigneeId: "agent-1" });
     await roundTrip(dana);
 
-    expect(milo.rejections).toEqual([]);
-    expect(dana.rejections).toEqual([]);
-    const ticket = serverRoom(dana).state.tickets.get("ticket-1");
-    expect(ticket?.priority).toBe(TICKET_PRIORITY.high);
-    expect(ticket?.comments.map((comment) => comment.toJSON())).toEqual([
-      expect.objectContaining({ authorId: milo.room.sessionId, text: "Measure first." }),
+    expect(dana.rejections.map((event) => event.rejection)).toEqual([
+      WORK_REJECTION.unknownIssue,
+      WORK_REJECTION.unknownAssignee,
     ]);
-    expect([...serverRoom(dana).state.tickets.values()].map((t) => t.title)).toContain("Dana's call");
+    // Seen from Dana's tab, as the project board panel would see it.
+    await settled(() => dana.room.state.work.get(workKey(2))?.assigneeId === "agent-1");
+    expect(dana.room.state.work.get(workKey(2))?.title).toBe("Write the onboarding email");
 
-    await milo.room.leave();
+    dana.room.send(CLIENT_MESSAGE.workRelease, { issueNumber: 2 });
+    await roundTrip(dana);
+    expect(serverRoom(dana).state.work.size).toBe(0);
+
     await dana.room.leave();
   });
 
@@ -274,7 +324,7 @@ describe("CEO authority over a live socket", () => {
     await dana.room.leave();
     await settled(() => roleOf(milo, milo.room.sessionId) === PLAYER_ROLE.ceo);
 
-    milo.room.send(CLIENT_MESSAGE.ticketCreate, { title: "Milo runs it now", body: "" });
+    milo.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 1, assigneeId: "agent-1" });
     await roundTrip(milo);
     expect(milo.rejections).toEqual([]);
 
@@ -372,7 +422,7 @@ describe("the role across a reconnect", () => {
     expect(milo.announcements).toEqual([]);
 
     // And still has the CEO's authority.
-    dana.room.send(CLIENT_MESSAGE.ticketCreate, { title: "Back again", body: "" });
+    dana.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 3, assigneeId: "agent-1" });
     await roundTrip(dana);
     expect(dana.rejections).toEqual([]);
 
@@ -399,17 +449,18 @@ describe("the role across a reconnect", () => {
   });
 });
 
-describe("agents working the board", () => {
-  it("turns an assignment into a ticket in review with the deliverable attached", async () => {
+describe("agents working the project board", () => {
+  it("turns an assignment into an issue in review with the deliverable attached", async () => {
     const dana = await openOffice("Dana", QUICK_AGENTS_ROOM);
 
-    dana.room.send(CLIENT_MESSAGE.ticketAssign, { ticketId: "ticket-2", assigneeId: "agent-1" });
+    dana.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 2, assigneeId: "agent-1" });
     // Seen from Dana's tab, as the board panel would see it.
-    const ticket = () => dana.room.state.tickets.get("ticket-2");
-    await settled(() => ticket()?.status === TICKET_STATUS.in_progress);
-    await settled(() => ticket()?.status === TICKET_STATUS.review, 30_000);
-    expect(ticket()?.assigneeId).toBe("agent-1");
-    expect(ticket()?.outputArtifact).toContain("Write the onboarding email");
+    const work = () => dana.room.state.work.get(workKey(2));
+    await settled(() => work()?.status === WORK_STATUS.in_progress);
+    await settled(() => work()?.status === WORK_STATUS.review, 30_000);
+    expect(work()?.assigneeId).toBe("agent-1");
+    expect(work()?.outputArtifact).toContain("Write the onboarding email");
+    expect(work()?.outputArtifact).toContain("Details of Write the onboarding email.");
     expect(dana.rejections).toEqual([]);
 
     await dana.room.leave();
@@ -419,25 +470,51 @@ describe("agents working the board", () => {
     const dana = await openOffice("Dana", SLOW_AGENTS_ROOM);
     const room = serverRoom(dana);
 
-    dana.room.send(CLIENT_MESSAGE.ticketAssign, { ticketId: "ticket-1", assigneeId: "agent-1" });
+    dana.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 1, assigneeId: "agent-1" });
     await settled(() => slowWork.length === 1);
-    expect(room.state.tickets.get("ticket-1")?.status).toBe(TICKET_STATUS.in_progress);
-    const board = room.state.tickets.toJSON();
+    expect(room.state.work.get(workKey(1))?.status).toBe(WORK_STATUS.in_progress);
+    const work = room.state.work.toJSON();
 
     await dana.room.leave();
     await settled(() => slowWork[0]?.aborted === true);
     await new Promise((resolve) => setTimeout(resolve, 1_500));
-    expect(room.state.tickets.toJSON()).toEqual(board);
+    expect(room.state.work.toJSON()).toEqual(work);
   }, 20_000);
 
-  it("works a hire's tickets, and frees its chair and its work when it is fired", async () => {
+  it("puts the work down when GitHub closes the issue", async () => {
+    const dana = await openOffice("Dana", SLOW_AGENTS_ROOM);
+    const room = serverRoom(dana);
+    const startedBefore = slowWork.length;
+
+    dana.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 3, assigneeId: "agent-1" });
+    await settled(() => slowWork.length === startedBefore + 1);
+
+    const closed = OPEN_ISSUES.find((candidate) => candidate.number === 3);
+    if (closed === undefined) {
+      throw new Error("no issue 3 on the board");
+    }
+    slowBoard.publish(
+      snapshotOf(
+        OPEN_ISSUES.filter((candidate) => candidate !== closed),
+        [{ ...closed, body: "", closedAt: Date.now() }],
+      ),
+    );
+    expect(room.state.work.has(workKey(3))).toBe(false);
+    await settled(() => slowWork[startedBefore]?.aborted === true);
+    await settled(() => (room.state.occupants.get("agent-1") as { currentIssueNumber?: number } | undefined)?.currentIssueNumber === 0);
+    slowBoard.publish(snapshotOf(OPEN_ISSUES));
+
+    await dana.room.leave();
+  }, 20_000);
+
+  it("works a hire's issues, and frees its chair and its work when it is fired", async () => {
     const dana = await openOffice("Dana", SLOW_AGENTS_ROOM);
     const room = serverRoom(dana);
     const startedBefore = slowWork.length;
 
     dana.room.send(CLIENT_MESSAGE.staffHire, { candidateId: HIRING_CANDIDATES[0]?.id });
     await settled(() => room.state.occupants.has("agent-2"));
-    dana.room.send(CLIENT_MESSAGE.ticketAssign, { ticketId: "ticket-1", assigneeId: "agent-2" });
+    dana.room.send(CLIENT_MESSAGE.workAssign, { issueNumber: 1, assigneeId: "agent-2" });
     await settled(() => slowWork.length === startedBefore + 1);
     const seat = room.state.occupants.get("agent-2")?.interactableId ?? "";
     expect(seat).not.toBe("");
@@ -445,7 +522,7 @@ describe("agents working the board", () => {
 
     dana.room.send(CLIENT_MESSAGE.staffFire, { agentId: "agent-2" });
     await settled(() => slowWork[startedBefore]?.aborted === true);
-    expect(room.state.tickets.get("ticket-1")?.status).toBe(TICKET_STATUS.backlog);
+    expect(room.state.work.has(workKey(1))).toBe(false);
     expect(room["holds"].holderOf(seat)).toBeUndefined();
 
     await dana.room.leave();

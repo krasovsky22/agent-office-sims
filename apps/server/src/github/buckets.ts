@@ -21,10 +21,12 @@ import {
   type CheckStatus,
   MAX_BOARD_ITEMS,
   MAX_CLOSED_ISSUES,
+  MAX_ISSUE_BODY_LENGTH,
   MAX_ITEM_LABELS,
   MAX_LABEL_LENGTH,
   type ProjectBoardLists,
-  sanitizeTicketTitle,
+  sanitizeBody,
+  sanitizeTitle,
 } from "@sim/shared";
 
 /**
@@ -36,6 +38,8 @@ import {
 export interface GithubIssueItem {
   readonly number: number;
   readonly title: string;
+  /** The description as GitHub sent it, unsanitized; `""` when there is none. */
+  readonly body: string;
   readonly labels: readonly BoardLabel[];
   readonly open: boolean;
   readonly author: string;
@@ -68,7 +72,7 @@ function loginOf(raw: unknown): string | undefined {
   if (typeof login !== "string") {
     return undefined;
   }
-  const clean = sanitizeTicketTitle(login);
+  const clean = sanitizeTitle(login);
   return clean === "" ? undefined : clean;
 }
 
@@ -84,7 +88,7 @@ const LABEL_COLOUR = /^[0-9a-f]{6}$/i;
  */
 function labelOf(raw: unknown): BoardLabel | undefined {
   const record = asRecord(raw);
-  const name = sanitizeTicketTitle(record === undefined ? raw : record["name"]).slice(0, MAX_LABEL_LENGTH).trim();
+  const name = sanitizeTitle(record === undefined ? raw : record["name"]).slice(0, MAX_LABEL_LENGTH).trim();
   if (name === "") {
     return undefined;
   }
@@ -135,7 +139,7 @@ export function parseIssueItem(raw: unknown): GithubIssueItem | undefined {
   if (state !== "open" && state !== "closed") {
     return undefined;
   }
-  const title = sanitizeTicketTitle(item["title"]);
+  const title = sanitizeTitle(item["title"]);
   if (title === "") {
     return undefined;
   }
@@ -145,9 +149,11 @@ export function parseIssueItem(raw: unknown): GithubIssueItem | undefined {
     : [];
 
   const isPullRequest = asRecord(item["pull_request"]) !== undefined;
+  const body = typeof item["body"] === "string" ? item["body"] : "";
   return {
     number: item["number"],
     title,
+    body,
     labels: labelsOf(item["labels"]),
     open: state === "open",
     author: loginOf(item["user"]) ?? "unknown",
@@ -156,7 +162,7 @@ export function parseIssueItem(raw: unknown): GithubIssueItem | undefined {
     pullRequest: isPullRequest
       ? {
           draft: item["draft"] === true,
-          body: typeof item["body"] === "string" ? item["body"] : "",
+          body,
         }
       : null,
   };
@@ -202,10 +208,12 @@ export function closingReferences(body: string, repository: string): number[] {
   return [...found];
 }
 
+/** An issue as a card, carrying its description only while there is work to do on it. */
 function toBoardIssue(item: GithubIssueItem, pullRequests: readonly number[]): BoardIssue {
   return {
     number: item.number,
     title: item.title,
+    body: item.open ? sanitizeBody(item.body, MAX_ISSUE_BODY_LENGTH) : "",
     labels: item.labels,
     assignees: item.assignees,
     pullRequests,
