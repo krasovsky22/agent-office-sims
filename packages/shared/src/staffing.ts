@@ -12,7 +12,8 @@
  * either way, so the two departures treat the work identically: every issue
  * the agent was still working is released, so it is free on the project board
  * for the CEO to hand on rather than pointing at somebody who is no longer
- * there.
+ * there. The rule itself is `releaseWorkOf` in `work.ts`, which a live agent
+ * leaving follows too.
  *
  * Everything is synchronous and allocation-light: the room calls the applier
  * from a message handler and {@link resolveQuitting} from the simulation tick,

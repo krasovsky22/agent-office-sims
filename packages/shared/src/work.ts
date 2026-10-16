@@ -3,7 +3,7 @@
  *
  * The issues are GitHub's: the project board's snapshot says which are open,
  * and nothing here ever writes to GitHub. What the office does about an issue
- * — which agent employee has it, how far they have got, what they handed in —
+ * — which agent has it, how far they have got, what they handed in —
  * is an {@link IssueWork} in replicated state, and this module says what may
  * be done to one. The split matters because the schema replicates to every
  * browser while these rules only ever decide on the server: a client asks the
@@ -15,7 +15,7 @@
  *   for an arbitrary jump is rejected rather than obeyed.
  * - {@link mayActOnWork}, the one place authority is decided, reading the
  *   {@link WORK_ACTION_AUTHORITY} table: the CEO hands the work out and judges
- *   it, and the agent employee an issue was given to does the work on it.
+ *   it, and the agent an issue was given to does the work on it.
  * - {@link applyWorkCommand}, which validates a parsed command against the
  *   live office and the project board and mutates the work, or rejects it and
  *   leaves everything untouched.
