@@ -141,7 +141,7 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     return { reply: lines.join("\n"), assignments: [] };
   }
   if (agents.length > 0) {
-    return { reply: agents.slice(0, LIST_LIMIT).map(describeLiveAgent).join("\n"), assignments: [] };
+    return { reply: agents.slice(0, LIST_LIMIT).map((agent) => describeAgent(agent, view)).join("\n"), assignments: [] };
   }
   const pulls = PULL_WORDS.test(message);
   const board = BOARD_WORDS.test(message);
@@ -375,7 +375,7 @@ function workId(ref: WorkRef): string {
 }
 
 function adviceFor(view: OfficeView): string {
-  const free = view.liveAgents.filter((agent) => agent.status === "idle" && agent.assigned === undefined).map((agent) => agent.name);
+  const free = freeAgents(view);
   const first = free[0];
   return first === undefined
     ? "Nobody suitable is free right now; name someone and I'll queue it for them."
@@ -454,6 +454,42 @@ function pullLine(pull: PullRequestView): string {
   return `PR #${pull.number} “${pull.title}”${labelText(pull.labels)} by ${pull.author}${draft} is open.${checks}`;
 }
 
+type FloorAgent = IssueAgentView | LiveAgentView;
+
+function isIssueAgent(agent: FloorAgent): agent is IssueAgentView {
+  return !("status" in agent);
+}
+
+/** The issue an agent that takes issues has in hand, the one it is working first. */
+function workInHand(agent: IssueAgentView, view: OfficeView): WorkView | undefined {
+  const mine = view.work.filter((work) => work.assigneeId === agent.id);
+  return (
+    mine.find((work) => work.status === WORK_STATUS.in_progress) ??
+    mine.find((work) => work.status === WORK_STATUS.assigned)
+  );
+}
+
+function describeAgent(agent: FloorAgent, view: OfficeView): string {
+  return isIssueAgent(agent) ? describeIssueAgent(agent, view) : describeLiveAgent(agent);
+}
+
+function describeIssueAgent(agent: IssueAgentView, view: OfficeView): string {
+  const work = workInHand(agent, view);
+  const issue = work === undefined ? "" : `#${work.issueNumber} “${work.title}”`;
+  if (work?.status === WORK_STATUS.assigned) {
+    return `${agent.name} (live coding agent) has ${issue} and hasn't started yet.`;
+  }
+  return `${agent.name} (live coding agent) is ${work === undefined ? "idle" : `working on ${issue}`}.`;
+}
+
+/** The agents free for something new, those that take issues first. */
+function freeAgents(view: OfficeView): string[] {
+  return [
+    ...view.issueAgents.filter((agent) => workInHand(agent, view) === undefined),
+    ...view.liveAgents.filter((agent) => agent.status === "idle" && agent.assigned === undefined),
+  ].map((agent) => agent.name);
+}
+
 function describeLiveAgent(agent: LiveAgentView): string {
   const doing =
     agent.status === "working"
@@ -468,13 +504,12 @@ function linkText(link: { readonly title: string; readonly reference: string }):
 }
 
 function teamSummary(view: OfficeView): string {
-  if (view.liveAgents.length === 0) {
+  const agents: FloorAgent[] = [...view.issueAgents, ...view.liveAgents];
+  if (agents.length === 0) {
     return "Nobody is on the floor right now: there are no agents to report on.";
   }
-  const lines = ["Live coding agents:", ...view.liveAgents.map((agent) => `- ${describeLiveAgent(agent)}`)];
-  const free = view.liveAgents
-    .filter((agent) => agent.status === "idle" && agent.assigned === undefined)
-    .map((agent) => agent.name);
+  const lines = ["Live coding agents:", ...agents.map((agent) => `- ${describeAgent(agent, view)}`)];
+  const free = freeAgents(view);
   lines.push(free.length === 0 ? "Nobody is free." : `Free for something new: ${free.join(", ")}.`);
   return lines.join("\n");
 }

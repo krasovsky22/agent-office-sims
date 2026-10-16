@@ -165,10 +165,10 @@ export function resolveAgent(name: string, view: OfficeView): IssueAgentView | L
 }
 
 /** Every agent a message names, as a whole word, in the order it names them. */
-export function findAgents(message: string, view: OfficeView): LiveAgentView[] {
+export function findAgents(message: string, view: OfficeView): (IssueAgentView | LiveAgentView)[] {
   const lower = message.toLowerCase();
-  const found: { readonly at: number; readonly agent: LiveAgentView }[] = [];
-  for (const agent of view.liveAgents) {
+  const found: { readonly at: number; readonly agent: IssueAgentView | LiveAgentView }[] = [];
+  for (const agent of [...view.issueAgents, ...view.liveAgents]) {
     let at = Number.POSITIVE_INFINITY;
     for (const candidate of namesOf(agent)) {
       const match = new RegExp(`(^|[^a-z0-9])${escape(candidate)}($|[^a-z0-9])`).exec(lower);

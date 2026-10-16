@@ -282,3 +282,41 @@ describe("planFromRules: assignments", () => {
     expect(ask("put Deckhand on #999")).toMatchObject({ assignments: [], reply: expect.stringContaining("can't find #999") });
   });
 });
+
+describe("planFromRules: live agents that take issues", () => {
+  const RUNNER_VIEW: OfficeView = {
+    ...VIEW,
+    liveAgents: [],
+    issueAgents: [
+      { id: "agent-1", name: "Ada Byrne" },
+      { id: "agent:runner/2", name: "Claude 2" },
+    ],
+    orchestrator: false,
+  };
+
+  it("reports on them from their work when no orchestrator is connected", () => {
+    expect(ask("who's free?", RUNNER_VIEW).reply).toBe(
+      [
+        "Live coding agents:",
+        "- Ada Byrne (live coding agent) is working on #11 “Write the onboarding email”.",
+        "- Claude 2 (live coding agent) is idle.",
+        "Free for something new: Claude 2.",
+      ].join("\n"),
+    );
+    expect(ask("what is Claude 2 doing?", RUNNER_VIEW).reply).toBe("Claude 2 (live coding agent) is idle.");
+  });
+
+  it("says when one has an issue it has not started", () => {
+    const assigned = {
+      ...RUNNER_VIEW,
+      work: [work({ issueNumber: 39, title: "Night shift", status: WORK_STATUS.assigned, assigneeId: "agent:runner/2" })],
+    };
+    expect(ask("what is Claude 2 doing?", assigned).reply).toBe(
+      "Claude 2 (live coding agent) has #39 “Night shift” and hasn't started yet.",
+    );
+  });
+
+  it("suggests a free one when asked who should do an issue", () => {
+    expect(ask("who should I give #39 to?", RUNNER_VIEW).reply).toContain("Claude 2 is free.");
+  });
+});
