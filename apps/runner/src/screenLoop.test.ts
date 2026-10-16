@@ -120,6 +120,25 @@ describe("ScreenLoop", () => {
     ]);
   });
 
+  it("sends a slot whole again after its frame had to be fitted to the size limit", async () => {
+    const mirror = new ScreenMirror(0, 200, 60);
+    const row = Array.from({ length: 200 }, (_, index) => `\u001b[38;2;${index};1;2;48;2;3;${index};4;1;7mx`).join("");
+    mirror.write(Array.from({ length: 60 }, () => row).join("\r\n"));
+    await mirror.written();
+    const { posts, client } = server();
+    const loop = new ScreenLoop({
+      runnerId: "runner-1",
+      screens: () => [["slot-1", mirror] as const],
+      redactor: createRedactor([SECRET]),
+      client,
+      now: () => 0,
+    });
+    await loop.flushOnce();
+    expect(posts[0]?.screens[0]?.frame.lines[0]).toEqual([["x".repeat(200), -1, -1, 0]]);
+    await loop.flushOnce();
+    expect(kinds(posts[1])).toEqual([["slot-1", true]]);
+  });
+
   it("never posts the runner's secret", async () => {
     const { posts, loop, write } = await setup();
     await write("slot-1", `RUNNER_SECRET=${SECRET}\r\n`);

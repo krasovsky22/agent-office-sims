@@ -13,7 +13,9 @@
  * A diff only means something on top of the screen it was taken against. One
  * that arrives with no screen to apply it to, after a server restart say, or
  * with a size other than the stored screen's, is not kept or relayed, and the
- * runner is told to send that slot whole instead.
+ * runner is told to send that slot whole instead. So is any frame for a slot
+ * its runner has not reported yet, a screen posted before the first sync say,
+ * so the screen arrives whole once the sync has.
  *
  * A screen is kept only while its runner reports the slot, so the store holds
  * at most `MAX_RUNNER_SLOTS` screens, and a slot leaving the floor takes its
@@ -57,7 +59,7 @@ export interface ScreenStoreOptions {
 
 /** What came of one batch. */
 export interface ScreenBatchOutcome {
-  /** Slots whose diff could not be applied, which the runner should send whole. */
+  /** Slots whose frame was not taken, which the runner should send whole. */
   readonly resend: readonly string[];
 }
 
@@ -88,13 +90,14 @@ export class ScreenStore implements ScreenSource {
   /**
    * Applies a runner's batch: keeps every full frame, applies every diff it
    * can, and tells the rooms what it took. A frame for a slot the runner does
-   * not report is ignored.
+   * not report is neither kept nor relayed, and that slot is asked for whole.
    */
   public accept(batch: RunnerScreens): ScreenBatchOutcome {
     const accepted: OccupantScreen[] = [];
     const resend: string[] = [];
     for (const { slotId, frame } of batch.screens) {
       if (!this.options.slots.hasSlot(batch.runnerId, slotId)) {
+        resend.push(slotId);
         continue;
       }
       const occupantId = liveAgentKey(runnerSlotAgentId(batch.runnerId, slotId));

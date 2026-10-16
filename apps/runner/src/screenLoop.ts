@@ -4,7 +4,8 @@
  *
  * Posts run one at a time, never overlapping. A diff only means something on
  * top of the frame before it, so a slot whose frame may not have arrived (the
- * post failed, was refused, or had no room for it) is sent whole next time,
+ * post failed, was refused, or had no room for it) or arrived only in part
+ * (fitted to the size limit, below) is sent whole next time,
  * as is one the server says it could not apply. A screen that changes faster
  * than it can be posted is not queued: the next post carries it as it is by
  * then. Refusals and an unreachable server back off, the way syncs do.
@@ -78,9 +79,9 @@ export class ScreenLoop {
       return true;
     }
     const screens = fitBatch(this.options.runnerId, changed);
-    for (const { slotId } of changed) {
-      if (!screens.some((screen) => screen.slotId === slotId)) {
-        mirrors.get(slotId)?.sendWhole();
+    for (const screen of changed) {
+      if (!screens.includes(screen)) {
+        mirrors.get(screen.slotId)?.sendWhole();
       }
     }
 

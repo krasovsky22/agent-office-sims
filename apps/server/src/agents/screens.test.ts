@@ -111,7 +111,7 @@ describe("ScreenStore", () => {
     expect(store.fullScreens().screens[0]?.frame.lines[0]).toEqual([run("$ pnpm test")]);
   });
 
-  it("ignores a frame for a slot the runner does not report", () => {
+  it("asks for a slot the runner does not report whole, without keeping or relaying it", () => {
     const { store, heard } = storeWithSlots(["runner-1/slot-1"]);
     expect(
       store.accept({
@@ -121,8 +121,10 @@ describe("ScreenStore", () => {
           { slotId: "slot-1", frame: FULL },
         ],
       }),
-    ).toEqual({ resend: [] });
-    expect(store.accept({ runnerId: "runner-2", screens: [{ slotId: "slot-1", frame: FULL }] })).toEqual({ resend: [] });
+    ).toEqual({ resend: ["slot-9"] });
+    expect(store.accept({ runnerId: "runner-2", screens: [{ slotId: "slot-1", frame: FULL }] })).toEqual({
+      resend: ["slot-1"],
+    });
     expect(heard).toEqual([{ screens: [{ occupantId: OCCUPANT, frame: FULL }] }]);
     expect(store.fullScreens().screens.map((screen) => screen.occupantId)).toEqual([OCCUPANT]);
   });

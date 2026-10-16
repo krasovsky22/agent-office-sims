@@ -4,8 +4,8 @@
  * `POST /agents/runner/screens` with `Authorization: Bearer <RUNNER_SECRET>`
  * and a JSON body — `{ "runnerId", "screens": [{ "slotId", "frame" }] }`, the
  * shape `RunnerScreens` in `@sim/shared` — answered with
- * `{ "ok": true, "resend": [slotIds] }`: the slots whose diff the server could
- * not apply, which the runner sends whole next. See `./screens.ts` for what
+ * `{ "ok": true, "resend": [slotIds] }`: the slots whose frame the server could
+ * not take, which the runner sends whole next. See `./screens.ts` for what
  * the store does with a batch.
  *
  * Refused the way the sync route is (`./runnerEndpoint.ts`): method, then

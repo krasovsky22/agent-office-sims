@@ -265,8 +265,9 @@ each diff to it, and broadcasts every frame it accepts to every room as a
 `screens` message (`ScreenFramesEvent`), keyed by the slot's occupant id,
 `agent:runner:<runnerId>:<slotId>`. A client joining is sent every screen
 whole, so every tab holds the same screens. A diff with no screen to apply to,
-or a size other than the screen's, is not kept or relayed, and the reply's
-`resend` names its slot so the runner sends that one whole. A slot leaving the
+or a size other than the screen's, and any frame for a slot the runner has not
+reported in a sync yet, is not kept or relayed, and the reply's `resend` names
+its slot so the runner sends that one whole. A slot leaving the
 floor takes its screen with it.
 
 The route is refused as the sync route is: `405`, `401`, `413` over 64 KB,

@@ -154,6 +154,12 @@ describe(`POST ${RUNNER_SCREENS_PATH}`, () => {
     expect(await response.json()).toEqual({ ok: true, resend: ["slot-2"] });
   });
 
+  it("names a slot posted before its runner's sync, and keeps nothing of it", async () => {
+    const response = await post({ runnerId: "runner-2", screens: [{ slotId: "slot-1", frame: FULL }] });
+    expect(await response.json()).toEqual({ ok: true, resend: ["slot-1"] });
+    expect(store.fullScreens().screens).toEqual([]);
+  });
+
   it.each([
     ["no Authorization header", { Authorization: "" }],
     ["the wrong secret", { Authorization: "Bearer not-the-secret" }],
