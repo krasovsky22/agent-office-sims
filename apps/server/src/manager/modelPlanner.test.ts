@@ -22,7 +22,7 @@ type ModelMessage = Anthropic.Message;
 
 const VIEW: OfficeView = {
   ceo: "Dana",
-  liveAgents: [{ id: "agent-1", name: "Ada Byrne", status: "idle", task: undefined, assigned: undefined }],
+  liveAgents: [{ id: "agent-1", name: "Ada Byrne", status: "idle", task: undefined, activity: "", assigned: undefined }],
   issueAgents: [],
   work: [],
   project: undefined,
