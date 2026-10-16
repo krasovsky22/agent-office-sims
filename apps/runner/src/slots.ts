@@ -46,6 +46,9 @@ import { ScreenMirror } from "./terminal.js";
  */
 const MAX_PENDING_EVENTS = 256;
 
+/** A slot's activity once its agent's turn has ended: `idle`, still holding the task. */
+export const TURN_DONE = "Turn done";
+
 /** Where a slot's tasks work. */
 export interface SlotWorkspaces {
   /** A working directory for the task, ready to work in; rejects with why not. */
@@ -83,6 +86,8 @@ interface ActiveRun {
   readonly timeout: ReturnType<typeof setTimeout>;
   /** Cleared the moment the work ends, so nothing the agent says afterwards lands. */
   live: boolean;
+  /** Whether its `started` event has been queued. */
+  started: boolean;
 }
 
 /** The bytes a string takes in a sync body, as the contract measures them. */
@@ -219,7 +224,13 @@ export class SlotPool {
     slot.issueNumber = task.issueNumber;
     slot.activity = "Making a worktree";
     slot.pr = undefined;
-    const run: ActiveRun = { issueNumber: task.issueNumber, agentRun: { stop: () => undefined }, timeout, live: true };
+    const run: ActiveRun = {
+      issueNumber: task.issueNumber,
+      agentRun: { stop: () => undefined },
+      timeout,
+      live: true,
+      started: false,
+    };
     slot.run = run;
     this.log(`${slot.id} starting on #${task.issueNumber} for ${task.requestedBy}`);
     void this.launch(slot, run, task);
@@ -241,22 +252,23 @@ export class SlotPool {
     }
     slot.activity = "Starting";
 
-    const reporter: AgentReporter = {
-      started: () => {
-        if (!run.live) {
-          return;
-        }
-        slot.status = RUNNER_SLOT_STATUS.working;
-        slot.activity = "";
+    /** Sets the slot's status while the work is live, saying `started` first if nothing has yet. */
+    const report = (status: RunnerSlotStatus, activity: string): void => {
+      if (!run.live) {
+        return;
+      }
+      if (!run.started) {
+        run.started = true;
         this.emit(slot, RUNNER_EVENT_KIND.started, run.issueNumber, undefined, "");
-      },
-      progress: (activity) => {
-        if (!run.live) {
-          return;
-        }
-        slot.status = RUNNER_SLOT_STATUS.working;
-        slot.activity = fitBytes(activity, MAX_TITLE_LENGTH);
-      },
+      }
+      slot.status = status;
+      slot.activity = fitBytes(activity, MAX_TITLE_LENGTH);
+    };
+    const reporter: AgentReporter = {
+      started: () => report(RUNNER_SLOT_STATUS.idle, ""),
+      progress: (activity) => report(RUNNER_SLOT_STATUS.working, activity),
+      needsInput: (reason) => report(RUNNER_SLOT_STATUS.needsInput, reason),
+      turnDone: () => report(RUNNER_SLOT_STATUS.idle, TURN_DONE),
       output: (data) => {
         if (run.live) {
           slot.screen.write(data);
@@ -271,6 +283,12 @@ export class SlotPool {
       failed: (message) => {
         if (run.live) {
           this.end(slot, RUNNER_EVENT_KIND.failed, message);
+        }
+      },
+      exited: (message, clean) => {
+        if (run.live) {
+          const kind = clean ? RUNNER_EVENT_KIND.finished : RUNNER_EVENT_KIND.failed;
+          this.end(slot, kind, message, undefined, RUNNER_SLOT_STATUS.exited);
         }
       },
     };
@@ -299,8 +317,14 @@ export class SlotPool {
     }
   }
 
-  /** Ends a slot's run, says how, and leaves the slot idle for the next start. */
-  private end(slot: Slot, kind: RunnerEventKind, message: string, pr?: RunnerPullRequest): void {
+  /** Ends a slot's run, says how, and leaves the slot free for the next start, `idle` unless its agent `exited`. */
+  private end(
+    slot: Slot,
+    kind: RunnerEventKind,
+    message: string,
+    pr?: RunnerPullRequest,
+    status: RunnerSlotStatus = RUNNER_SLOT_STATUS.idle,
+  ): void {
     const run = slot.run;
     if (run === undefined) {
       return;
@@ -309,7 +333,7 @@ export class SlotPool {
     clearTimeout(run.timeout);
     run.agentRun.stop();
     slot.run = undefined;
-    slot.status = RUNNER_SLOT_STATUS.idle;
+    slot.status = status;
     slot.issueNumber = undefined;
     slot.activity = "";
     slot.pr = undefined;

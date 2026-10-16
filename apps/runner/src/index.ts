@@ -16,7 +16,10 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { claudeAdapter } from "./agents/claude.js";
+import { HookServer } from "./agents/hookServer.js";
 import { createMockAgent } from "./agents/mock.js";
+import { createPtyAgent } from "./agents/ptyAgent.js";
 import type { Agent } from "./agents/types.js";
 import { type RunnerConfig, readConfig } from "./config.js";
 import { createRedactor, runnerSecrets } from "./redact.js";
@@ -60,16 +63,31 @@ const workspaces = new SlotWorktrees({
   log,
 });
 
-function createAgent(runnerConfig: RunnerConfig): Agent {
+async function createAgent(runnerConfig: RunnerConfig): Promise<Agent> {
   switch (runnerConfig.agent) {
     case "mock":
       return createMockAgent({ outcome: runnerConfig.mockOutcome, repo: runnerConfig.repo });
+    case "claude":
+      return createPtyAgent({
+        adapter: claudeAdapter(runnerConfig.model === undefined ? {} : { model: runnerConfig.model }),
+        dataDir: runnerConfig.dataDir,
+        hooks: await HookServer.start(),
+      });
   }
+}
+
+let agent: Agent;
+try {
+  agent = await createAgent(config);
+} catch (error) {
+  // eslint-disable-next-line no-console -- the runner's log is its console, read by its operator
+  console.error(`[runner] refusing to start: ${(error as Error).message}`);
+  process.exit(1);
 }
 
 const pool = new SlotPool({
   count: config.maxAgents,
-  agent: createAgent(config),
+  agent,
   workspaces,
   taskTimeoutMs: config.taskTimeoutMs,
   log,

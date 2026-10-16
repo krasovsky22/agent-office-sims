@@ -1,0 +1,260 @@
+// Adapted from agent-office (MIT, Copyright (c) 2026 AgentSystemLabs): src/server/workers/manager.ts. See THIRD_PARTY_NOTICES.md.
+/**
+ * An agent CLI in a terminal of its own: a PTY per task, started in the
+ * task's worktree with its first prompt, and read for what it is doing.
+ *
+ * Its hooks are what say so first (`./hookServer.ts`); its OSC 9;4 progress
+ * catches a turn that ends without one; and its output, read as text, catches
+ * a first-run or sign-in screen it can sit on before any hook runs. Its
+ * adapter (`./provider.ts`) says what each of those means.
+ *
+ * It runs as the leader of its own process group, so stopping it, whether
+ * asked to or at the task timeout, ends what it started too.
+ */
+
+import { accessSync, constants } from "node:fs";
+import { delimiter, isAbsolute, join } from "node:path";
+
+import * as pty from "@lydell/node-pty";
+
+import { SCREEN_COLS, SCREEN_ROWS } from "../terminal.js";
+import { childEnv } from "./childEnv.js";
+import { HOOK_ENV, type HookServer } from "./hookServer.js";
+import { startPrompt } from "./prompt.js";
+import type { ProviderAdapter, RunHandle, RunStatus } from "./provider.js";
+import { ScreenReader } from "./screen.js";
+import type { Agent, AgentReporter, AgentRun, AgentTask } from "./types.js";
+
+/** How long a stopped agent has to exit before its process group is killed outright. */
+const DEFAULT_STOP_GRACE_MS = 5000;
+
+/** How long an agent that says itself when it is up may stay silent before it is taken to be waiting on a person. */
+const DEFAULT_BOOT_HINT_MS = 12_000;
+
+export interface PtyAgentOptions<P> {
+  readonly adapter: ProviderAdapter<P>;
+  /** Where the adapter writes its settings: the runner's data dir. */
+  readonly dataDir: string;
+  readonly hooks: HookServer;
+  /** Runs this instead of the adapter's CLI: a fake one, in a test. */
+  readonly command?: string;
+  /** The environment its own is picked from; the runner's by default. */
+  readonly env?: NodeJS.ProcessEnv;
+  readonly stopGraceMs?: number;
+  readonly bootHintMs?: number;
+}
+
+/** The absolute path of `command` on `PATH`, or `undefined` when it is not there. */
+export function findOnPath(command: string, path: string = process.env["PATH"] ?? ""): string | undefined {
+  const candidates = isAbsolute(command) ? [command] : path.split(delimiter).filter(Boolean).map((dir) => join(dir, command));
+  return candidates.find((candidate) => {
+    try {
+      accessSync(candidate, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * An agent running `options.adapter`'s CLI in a PTY.
+ *
+ * @throws when the CLI is not on `PATH`, so a runner that could never start it refuses to boot.
+ */
+export function createPtyAgent<P>(options: PtyAgentOptions<P>): Agent {
+  const { adapter } = options;
+  const source = options.env ?? process.env;
+  const command = findOnPath(options.command ?? adapter.command, source["PATH"] ?? "");
+  if (command === undefined) {
+    throw new Error(`${options.command ?? adapter.command} is not on PATH; install it or put it there`);
+  }
+  const setup = adapter.prepare(options.dataDir);
+  return {
+    label: adapter.label,
+    start: (task, reporter) => startRun(options, command, setup, source, task, reporter),
+  };
+}
+
+function startRun<P>(
+  options: PtyAgentOptions<P>,
+  command: string,
+  setup: P,
+  source: NodeJS.ProcessEnv,
+  task: AgentTask,
+  reporter: AgentReporter,
+): AgentRun {
+  const { adapter } = options;
+  const screen = new ScreenReader();
+  let status: RunStatus = "starting";
+  let bootBlocked = false;
+  /** Its work is over: it exited, or was stopped. Nothing it says from then on is reported. */
+  let ended = false;
+
+  const run: RunHandle = {
+    get status() {
+      return status;
+    },
+    get bootBlocked() {
+      return bootBlocked;
+    },
+    set bootBlocked(value) {
+      bootBlocked = value;
+    },
+    setStatus(next, activity = "") {
+      if (ended) {
+        return;
+      }
+      status = next;
+      switch (next) {
+        case "starting":
+          return;
+        case "idle":
+          reporter.started();
+          return;
+        case "working":
+          reporter.progress(activity);
+          return;
+        case "needs-input":
+          reporter.needsInput(activity);
+          return;
+        case "turn-done":
+          reporter.turnDone();
+          return;
+      }
+    },
+  };
+
+  const route = options.hooks.register((event, payload) => {
+    // A session starting or a prompt taken means it got past whatever screen it
+    // was on, so only output from here on counts.
+    if (event === "SessionStart" || event === "UserPromptSubmit") {
+      screen.clear();
+    }
+    adapter.hook.handle(run, event, payload);
+    checkBlocked();
+  });
+  const plan = adapter.launch({ prompt: startPrompt(task), cwd: task.workdir, setup });
+  const env = childEnv(
+    {
+      ...(adapter.credentialEnv === undefined ? {} : { credentials: adapter.credentialEnv }),
+      ...(adapter.scrubEnv === undefined ? {} : { scrub: adapter.scrubEnv }),
+      set: {
+        TERM: "xterm-256color",
+        COLORTERM: "truecolor",
+        [HOOK_ENV.url]: options.hooks.url,
+        [HOOK_ENV.run]: route.runId,
+        [HOOK_ENV.token]: route.token,
+        ...plan.env,
+      },
+    },
+    source,
+  );
+
+  let proc: pty.IPty;
+  try {
+    proc = pty.spawn(command, plan.args, { name: "xterm-256color", cols: SCREEN_COLS, rows: SCREEN_ROWS, cwd: task.workdir, env });
+  } catch (error) {
+    route.dispose();
+    throw error;
+  }
+
+  /**
+   * A first-run or sign-in screen needs a person, until a hook says it moved
+   * on. Read while it is not busy: before it starts, at its prompt, and once a
+   * turn has ended, which is where a turn refused for want of a sign-in ends up.
+   */
+  const checkBlocked = (): void => {
+    const blockedBy = adapter.screen?.blocked;
+    if (blockedBy === undefined || (status !== "starting" && status !== "idle" && status !== "turn-done" && !bootBlocked)) {
+      return;
+    }
+    const blocked = blockedBy(screen.text, status === "starting" || bootBlocked);
+    if (blocked !== undefined && status !== "needs-input") {
+      bootBlocked = true;
+      run.setStatus("needs-input", blocked);
+    }
+  };
+
+  // Progress stays busy while a permission prompt is open, so going idle from
+  // needs-input means the turn ended without a Stop hook: the prompt was refused or Esc'd.
+  const onProgress = (busy: boolean): void => {
+    if (busy && (status === "idle" || status === "turn-done" || status === "starting")) {
+      run.setStatus("working");
+    } else if (!busy && (status === "working" || (status === "needs-input" && !bootBlocked))) {
+      run.setStatus("turn-done");
+    }
+  };
+
+  const data = proc.onData((chunk) => {
+    if (!ended) {
+      reporter.output(chunk);
+    }
+    const busy = screen.feed(chunk);
+    if (busy !== undefined && adapter.screen?.progress === true) {
+      onProgress(busy);
+    }
+    checkBlocked();
+  });
+
+  const bootHint =
+    adapter.bootHint === undefined
+      ? undefined
+      : setTimeout(() => {
+          if (status === "starting" && adapter.bootHint !== undefined) {
+            bootBlocked = true;
+            run.setStatus("needs-input", adapter.bootHint);
+          }
+        }, options.bootHintMs ?? DEFAULT_BOOT_HINT_MS);
+  bootHint?.unref();
+
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Signals its whole process group, which it leads, as a PTY's process does. Says whether any of it was there. */
+  const signalGroup = (name: NodeJS.Signals): boolean => {
+    try {
+      process.kill(-proc.pid, name);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const exit = proc.onExit(({ exitCode, signal: killedBy }) => {
+    data.dispose();
+    exit.dispose();
+    route.dispose();
+    clearTimeout(bootHint);
+    clearTimeout(killTimer);
+    // Its work is over and its terminal gone: anything it left running in its group goes too.
+    signalGroup("SIGKILL");
+    if (ended) {
+      return;
+    }
+    ended = true;
+    const clean = exitCode === 0 && !killedBy;
+    const how = killedBy ? `was killed by signal ${killedBy}` : `exited with code ${exitCode}`;
+    const lastLine = screen.text.split("\n").map((line) => line.trim()).filter(Boolean).pop();
+    reporter.exited(clean || lastLine === undefined ? `${adapter.label} ${how}` : `${adapter.label} ${how}: ${lastLine}`, clean);
+  });
+
+  return {
+    stop() {
+      if (ended) {
+        return;
+      }
+      ended = true;
+      clearTimeout(bootHint);
+      route.dispose();
+      if (!signalGroup("SIGTERM")) {
+        // Not a group leader after all; its own pid is still its own until it exits.
+        proc.kill("SIGTERM");
+      }
+      killTimer = setTimeout(() => {
+        if (!signalGroup("SIGKILL")) {
+          proc.kill("SIGKILL");
+        }
+      }, options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS);
+      killTimer.unref();
+    },
+  };
+}

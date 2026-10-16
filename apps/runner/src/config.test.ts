@@ -36,6 +36,7 @@ describe("readConfig", () => {
     expect(read.dataDir).toBe(join(homedir(), ".sim-runner"));
     expect(read.agent).toBe("mock");
     expect(read.mockOutcome).toBe("failed");
+    expect(read.model).toBeUndefined();
     expect(read.maxAgents).toBe(2);
     expect(read.taskTimeoutMs).toBe(60 * 60_000);
     expect(read.runnerId).toBe("build-box");
@@ -46,16 +47,18 @@ describe("readConfig", () => {
       RUNNER_SERVER_URL: "https://office-server.example/",
       RUNNER_REPO: "someone/something.else",
       RUNNER_DATA_DIR: "/srv/runner",
-      RUNNER_AGENT: "MOCK",
+      RUNNER_AGENT: "Claude",
       RUNNER_MOCK_OUTCOME: "pr-opened",
+      RUNNER_MODEL: "claude-sonnet-4-5",
       RUNNER_MAX_AGENTS: "4",
       RUNNER_TASK_TIMEOUT_MINUTES: "15",
     });
     expect(read.serverUrl.href).toBe("https://office-server.example/");
     expect(read.repo).toBe("someone/something.else");
     expect(read.dataDir).toBe("/srv/runner");
-    expect(read.agent).toBe("mock");
+    expect(read.agent).toBe("claude");
     expect(read.mockOutcome).toBe("pr-opened");
+    expect(read.model).toBe("claude-sonnet-4-5");
     expect(read.maxAgents).toBe(4);
     expect(read.taskTimeoutMs).toBe(15 * 60_000);
   });
@@ -107,8 +110,14 @@ describe("readConfig", () => {
   });
 
   it("refuses an agent it cannot run, and a mock outcome it does not know", () => {
-    expect(() => config({ RUNNER_AGENT: "claude" })).toThrow(/RUNNER_AGENT must be one of mock, got "claude"/);
+    expect(() => config({ RUNNER_AGENT: "codex" })).toThrow(/RUNNER_AGENT must be one of mock, claude, got "codex"/);
     expect(() => config({ RUNNER_MOCK_OUTCOME: "merged" })).toThrow(/RUNNER_MOCK_OUTCOME must be one of failed, pr-opened/);
+  });
+
+  it("refuses a model name that is not one", () => {
+    expect(config({ RUNNER_MODEL: "opus[1m]" }).model).toBe("opus[1m]");
+    expect(() => config({ RUNNER_MODEL: "--dangerously-skip-permissions" })).toThrow(/RUNNER_MODEL must be a model name/);
+    expect(() => config({ RUNNER_MODEL: "sonnet; rm -rf /" })).toThrow(/RUNNER_MODEL must be a model name/);
   });
 
   it("refuses a task timeout that is not whole minutes", () => {

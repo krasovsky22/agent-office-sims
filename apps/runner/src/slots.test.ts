@@ -16,10 +16,10 @@ import { MAX_NAME_LENGTH, MAX_TITLE_LENGTH, type RunnerCommand } from "@sim/shar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createMockAgent } from "./agents/mock.js";
-import type { Agent, AgentTask } from "./agents/types.js";
+import type { Agent, AgentReporter, AgentTask } from "./agents/types.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
 import { createRedactor } from "./redact.js";
-import { type SlotWorkspaces, SlotPool, fitBytes } from "./slots.js";
+import { type SlotWorkspaces, SlotPool, TURN_DONE, fitBytes } from "./slots.js";
 
 const REPO = "krasovsky22/agent-office-sims";
 const STEP_MS = 100;
@@ -307,6 +307,60 @@ describe("SlotPool", () => {
     expect(Buffer.byteLength(report?.activity ?? "")).toBe(MAX_TITLE_LENGTH);
   });
 
+  it("reports a terminal agent's turn: idle, working, needs-input, turn done, and its exit", async () => {
+    let reporter: AgentReporter | undefined;
+    const agent: Agent = {
+      label: "Claude",
+      start: (_task, given) => {
+        reporter = given;
+        return { stop: () => undefined };
+      },
+    };
+    const slots = pool("failed", agent);
+    slots.handle(START);
+    await settle();
+    reporter?.started();
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: "" });
+    reporter?.progress("Bash: pnpm test");
+    expect(slot(slots)).toMatchObject({ status: "working", issueNumber: 39, activity: "Bash: pnpm test" });
+    reporter?.needsInput("Wants permission: Bash: git push");
+    expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: "Wants permission: Bash: git push" });
+    reporter?.turnDone();
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE });
+    expect(asked).toEqual(["open slot-1 #39"]);
+    reporter?.exited("Claude exited with code 0", true);
+    expect(slot(slots)).toMatchObject({ status: "exited", issueNumber: undefined, activity: "" });
+    expect(slots.pendingEvents().map((event) => [event.kind, event.message])).toEqual([
+      ["started", ""],
+      ["finished", "Claude exited with code 0"],
+    ]);
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
+  });
+
+  it("reports started once, whatever an agent says first, and an exit with an error as failed", async () => {
+    let reporter: AgentReporter | undefined;
+    const agent: Agent = {
+      label: "Claude",
+      start: (_task, given) => {
+        reporter = given;
+        return { stop: () => undefined };
+      },
+    };
+    const slots = pool("failed", agent);
+    slots.handle(START);
+    await settle();
+    reporter?.needsInput("Claude isn't signed in");
+    reporter?.started();
+    reporter?.exited("Claude exited with code 1", false);
+    expect(slots.pendingEvents().map((event) => [event.kind, event.message])).toEqual([
+      ["started", ""],
+      ["failed", "Claude exited with code 1"],
+    ]);
+    expect(slot(slots)?.status).toBe("exited");
+    slots.handle({ ...START, id: "command-2" });
+    expect(slot(slots)).toMatchObject({ status: "starting", issueNumber: 39 });
+  });
+
   it("reports nothing an agent says once its work has ended", async () => {
     let late: (() => void) | undefined;
     const agent: Agent = {
@@ -395,7 +449,10 @@ describe("SlotPool screens", () => {
       taskTimeoutMs: TIMEOUT_MS,
     });
     slots.handle(START);
-    await vi.waitFor(() => expect(slot(slots)?.status).toBe("idle"));
+    // `idle` is also the status just after `started`; the run is over once its pull request is open.
+    await vi.waitFor(() => expect(slots.pendingEvents().map((event) => event.kind)).toContain("pr-opened"), {
+      timeout: 10_000,
+    });
     expect(await screenText(slots)).toEqual([
       "mock agent on #39: Night shift",
       "for Dana",
