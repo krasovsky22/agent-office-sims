@@ -17,7 +17,9 @@
  * - **To a live coding agent**, an issue or pull request goes through the
  *   orchestrator's queue (`./liveAssignments.ts`); the manager decides and the
  *   orchestrator carries the work to the real agent. Pull requests only go
- *   this way: the agent employees work issues.
+ *   this way: the agent employees work issues. A real agent runs code on a
+ *   real machine, so where the office has an operator passphrase this takes
+ *   a CEO who has proved it, by `mayCommandRealAgents`.
  *
  * "Someone" — an empty agent — is whoever is least loaded and not stuck, among
  * the agents who can do that kind of work, counting what this same plan has
@@ -37,6 +39,7 @@ import {
   WORK_STATUS,
   type WorkRejection,
   actorOf,
+  mayCommandRealAgents,
   sanitizeManagerText,
 } from "@sim/shared";
 
@@ -162,6 +165,9 @@ function queueForLiveAgent(
     return work.kind === "pull"
       ? `✗ ${label}: pull requests go to live coding agents, and no agent orchestrator is connected.`
       : `✗ ${label}: no agent orchestrator is connected, so I can't hand GitHub work to live agents.`;
+  }
+  if (context.work.state.operatorRequired && !mayCommandRealAgents(actorOf(context.ceo))) {
+    return `✗ ${label}: only a verified operator can send work to live coding agents; verify with the operator passphrase first.`;
   }
   const agent = named ?? freeLiveAgent(context.view, load);
   if (agent === undefined) {

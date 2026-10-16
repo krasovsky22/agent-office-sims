@@ -16,6 +16,8 @@
  * - {@link mayActOnWork}, the one place authority is decided, reading the
  *   {@link WORK_ACTION_AUTHORITY} table: the CEO hands the work out and judges
  *   it, and the agent an issue was given to does the work on it.
+ *   Beside it, {@link mayCommandRealAgents}, the stricter rule for work that
+ *   reaches a real coding agent.
  * - {@link applyWorkCommand}, which validates a parsed command against the
  *   live office and the project board and mutates the work, or rejects it and
  *   leaves everything untouched.
@@ -53,6 +55,7 @@ import {
   isAgentEmployee,
   isCeo,
   isLiveAgent,
+  isOperator,
   isWorkStatus,
   workKey,
 } from "./state.js";
@@ -184,6 +187,8 @@ export interface OfficeActor {
   readonly id: string;
   readonly kind: OccupantKind;
   readonly isCeo: boolean;
+  /** Whether they proved the operator passphrase; see {@link mayCommandRealAgents}. */
+  readonly isOperator: boolean;
   /** A live agent's `canTakeIssues`; absent for anyone else. */
   readonly canTakeIssues?: boolean;
 }
@@ -195,7 +200,7 @@ export interface OfficeActor {
  * to offer it read the role the same way.
  */
 export function actorOf(occupant: Occupant): OfficeActor {
-  const actor = { id: occupant.id, kind: occupant.kind, isCeo: isCeo(occupant) };
+  const actor = { id: occupant.id, kind: occupant.kind, isCeo: isCeo(occupant), isOperator: isOperator(occupant) };
   return isLiveAgent(occupant) ? { ...actor, canTakeIssues: occupant.canTakeIssues } : actor;
 }
 
@@ -266,6 +271,22 @@ export function mayActOnWork(query: WorkPermissionQuery): boolean {
         query.work.assigneeId === query.actor.id
       );
   }
+}
+
+/**
+ * Whether an actor may give an order that reaches a real coding agent: the CEO,
+ * and only once they have proved the operator passphrase.
+ *
+ * The simulated staff are the CEO's alone, by {@link mayActOnWork}. A real
+ * agent's work is code run and pushed on the runner's host, and the CEO is
+ * just whoever joined first, so it takes the passphrase as well. The server
+ * asks this only when an operator passphrase is configured (the replicated
+ * `operatorRequired`); without one, an office trusts its CEO, which the boot
+ * rule allows only where the operator said so. The client asks it to disable
+ * what the server would refuse, and to say why.
+ */
+export function mayCommandRealAgents(actor: OfficeActor): boolean {
+  return actor.isCeo && actor.isOperator;
 }
 
 /** A change the board panel may offer on work in hand, and the command that makes it. */

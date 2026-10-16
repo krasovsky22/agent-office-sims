@@ -178,6 +178,36 @@ Until then its nameplate and roster line say `next #39`; its own task still
 comes only from its reports. The manager says in the conversation when the
 orchestrator picks an assignment up, and when the agent starts on it or does not.
 
+#### The operator
+
+Nothing authenticates a player: the CEO is whoever joined first. That is fine
+for the simulated staff, but work for a live agent becomes code run and pushed
+on a real machine, so a server can ask for more. Set `OPERATOR_PASSPHRASE`
+(16 to 256 characters) and only a CEO who has proved it can have the manager
+send work to a live agent; anyone else is refused in the conversation, with the
+reason, and nothing is queued. Work for the agent employees still takes only
+the CEO.
+
+Any player proves it from the manager's panel (`E` at the manager's desk),
+which shows a passphrase field whenever verifying would change something. A
+right answer marks them operator, shown as an `Operator` badge in every tab's
+roster, and gives them the CEO role if someone else holds it; the change is
+announced in the chat log like a succession, and the previous CEO stays on as
+an executive. A wrong answer is refused, and each client gets five attempts,
+refilling over five minutes. Leaving and rejoining does not start a guesser
+over: the whole server also shares twenty wrong answers across every room,
+refilling over five minutes, and while those are spent every attempt, right or
+wrong, is refused until they refill. The passphrase is compared in constant time and
+goes no further than the server process: it is not in the replicated state, in
+any message or in the logs. The operator mark lasts as long as the player's
+place in the office, through a reconnection inside the grace period but not a
+restart.
+
+A server with `RUNNER_SECRET` set and no `OPERATOR_PASSPHRASE` refuses to
+start, because a runner would otherwise take orders from whoever opens the page
+first. For local development, `REAL_AGENTS_TRUST_CEO=on` lets it start anyway
+and trusts the CEO as before; never set it on a deployment.
+
 ### The runner link
 
 An agent runner is the separate process that owns real coding agents, kept out
@@ -293,7 +323,9 @@ on one issue at a time. The default agent is `mock`, which needs no
 credentials and spends nothing, so the whole loop can be developed and tested
 without a real one; `RUNNER_AGENT=claude` runs Claude Code instead (see
 [Claude Code in the runner](#claude-code-in-the-runner)). With `pnpm dev` running and `RUNNER_SECRET` set on the
-server, start it in a second terminal with the same secret:
+server, along with `OPERATOR_PASSPHRASE` or, on your own machine,
+`REAL_AGENTS_TRUST_CEO=on` (see [The operator](#the-operator)), start it in a
+second terminal with the same secret:
 
 ```sh
 RUNNER_SECRET=<the server's RUNNER_SECRET> pnpm dev:runner
@@ -447,7 +479,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twenty:
+Then confirm all twenty-one:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -613,7 +645,20 @@ Then confirm all twenty:
     `manager:say` he sends down the socket is refused with that reason.
     `apps/server/src/rooms/managerHandlers.test.ts` checks all of it against a
     live room, including that the room keeps ticking while the manager thinks.
-20. **`pnpm typecheck` passes** across the whole repository.
+20. **The operator commands the live agents.** Restart the server with
+    `OPERATOR_PASSPHRASE` set (16 characters or more) and `LIVE_AGENTS_SECRET`,
+    report one idle live agent as in step 17, and open both tabs. Dana's manager
+    panel says sending work to the live coding agents takes a verified operator
+    and offers a passphrase field; `put <agent> on #N` is answered with that
+    reason and nothing is queued. In Milo's panel, a wrong passphrase is
+    refused with a notice; after five attempts even the right one is refused
+    as too many tries. In a fresh pair of tabs, Milo enters the right one:
+    both rosters show him as `CEO` and `Operator`, Dana as an executive, both
+    chat logs say Milo verified as operator and is now the CEO, and his
+    `put <agent> on #N` is queued. `apps/server/src/rooms/operatorHandlers.test.ts`
+    checks all of it against a live room, including that the passphrase is in
+    no state, message or log line.
+21. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
@@ -664,7 +709,9 @@ public.
 | `AGENT_DEBUG` | server | runtime | No, and leave it off. `on` lets any connected client send agents walking with `/goto`; defaults to `off`. |
 | `LIVE_AGENTS_SECRET` | server | runtime | No. The shared secret an agent orchestrator reports with and collects the manager's assignments with, at least 16 characters; without it no live agents appear. |
 | `LIVE_AGENTS_TIMEOUT_SECONDS` | server | runtime | No. Silence after which a live agent, or a runner with its slots, leaves, at least 5. Defaults to 60. |
-| `RUNNER_SECRET` | server | runtime | No. The shared secret an agent runner syncs with, at least 16 characters; without it the runner link is off. |
+| `RUNNER_SECRET` | server | runtime | No. The shared secret an agent runner syncs with, at least 16 characters; without it the runner link is off. With it, the server needs `OPERATOR_PASSPHRASE` to start. |
+| `OPERATOR_PASSPHRASE` | server | runtime | Yes, with `RUNNER_SECRET`. The passphrase a player proves to command the live coding agents, 16 to 256 characters; see [The operator](#the-operator). A secret. |
+| `REAL_AGENTS_TRUST_CEO` | server | runtime | No, and leave it off. `on` lets a server with `RUNNER_SECRET` and no passphrase start, trusting the CEO; for local development only. Defaults to `off`. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
 static file cannot be reconfigured afterwards. Changing it means rebuilding and
@@ -704,7 +751,9 @@ against the report route's `Authorization` header in constant time and never
 leaves the server: clients see each agent's name, status and task and nothing
 about how they were reported. `RUNNER_SECRET` is treated the same way on the
 runner's sync and screens routes, and the runner masks it out of every screen
-it sends.
+it sends. `OPERATOR_PASSPHRASE` is a secret too, set the same way:
+the server compares a player's attempt against it in constant time and never
+replicates, broadcasts or logs it.
 
 ### Order of operations
 
@@ -767,7 +816,7 @@ thing the page talks to is the WebSocket.
   `POST /agents/runner/screens` when `RUNNER_SECRET` is set, the only HTTP the
   server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same twenty things.
+  [The two-tab check](#the-two-tab-check), and confirm the same twenty-one things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -789,6 +838,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/runner.ts       the runner link's wire contract: a sync, its slots and events, and the commands
   src/screens.ts      the slots' terminal screens: a frame of styled runs, a runner's batch, and its parser
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
+  src/operator.ts     the operator passphrase's limits, and why an attempt was refused
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
   src/collision.ts    capsule-vs-AABB movement resolution
@@ -810,6 +860,8 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/agents/             the live agents' feeds: the report and assignment routes, the registry, the runner link, and the slots' screens
   src/manager/            the AI manager: its view of the office, rule and model planners, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
+  src/rooms/operatorHandlers.ts  verifying as operator, and the CEO role it takes
+  src/sim/operator.ts     the passphrase check, in constant time, and the attempt allowances
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
 apps/runner/       @sim/runner   the agent runner: slots, agents, their screens, and the sync with the server
   src/config.ts           its RUNNER_* variables, refused at boot when wrong
@@ -843,6 +895,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/projectBoard.ts     the project board's columns, filters, and how an issue's work reads
   src/ui/ProjectBoardPanel.tsx  the project board's close-up, with the agents' work and the CEO's controls
   src/managerAccess.ts    what the local player may say to the manager, and why
+  src/operatorAccess.ts   whether the local player's word reaches the live agents, and why
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/assets/office-kit/ the vendored models, and their licence
 ```
@@ -893,7 +946,10 @@ Thirteen things are worth knowing before changing anything:
   release, since it can no longer go back to them for rework.
   Exactly one player holds the CEO role while anyone is in the office;
   `server/sim/roles.ts` assigns it on arrival and passes it on, in the same
-  patch as the departure, when its holder leaves.
+  patch as the departure, when its holder leaves, or to a player who verifies
+  as operator. Work that reaches a real coding agent has a stricter gate
+  beside `mayActOnWork`: `mayCommandRealAgents`, the CEO who has also proved
+  the operator passphrase, checked wherever one is configured.
 - **The furniture is data too, and only some of it collides.** `shared/props.ts`
   derives every prop from the floor plan — a chair and a screen per workstation, a
   frame in every doorway gap, a plant in each room — so a layout change furnishes

@@ -18,9 +18,11 @@ import {
   parseDebugGotoMessage,
   parseEmoteMessage,
   parseInteractMessage,
+  parseOperatorVerifyMessage,
   parsePoseMessage,
   sanitizeChatText,
 } from "./messages.js";
+import { MAX_OPERATOR_PASSPHRASE_LENGTH } from "./operator.js";
 import { ANIMATION_STATE } from "./state.js";
 
 describe("parseEmoteMessage", () => {
@@ -193,4 +195,22 @@ describe("parseDebugGotoMessage", () => {
       expect(parseDebugGotoMessage(payload)).toBeUndefined();
     });
   }
+});
+
+describe("parseOperatorVerifyMessage", () => {
+  it("keeps the passphrase exactly as sent", () => {
+    expect(parseOperatorVerifyMessage({ passphrase: " correct horse\tbattery " })).toEqual({
+      passphrase: " correct horse\tbattery ",
+    });
+  });
+
+  it("rejects anything that is not a passphrase someone typed", () => {
+    expect(parseOperatorVerifyMessage(undefined)).toBeUndefined();
+    expect(parseOperatorVerifyMessage("correct horse battery")).toBeUndefined();
+    expect(parseOperatorVerifyMessage({})).toBeUndefined();
+    expect(parseOperatorVerifyMessage({ passphrase: "" })).toBeUndefined();
+    expect(parseOperatorVerifyMessage({ passphrase: 1234567890123456 })).toBeUndefined();
+    expect(parseOperatorVerifyMessage({ passphrase: "x".repeat(MAX_OPERATOR_PASSPHRASE_LENGTH + 1) })).toBeUndefined();
+    expect(parseOperatorVerifyMessage({ passphrase: "x".repeat(MAX_OPERATOR_PASSPHRASE_LENGTH) })).toBeDefined();
+  });
 });

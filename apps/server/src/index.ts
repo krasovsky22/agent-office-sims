@@ -58,10 +58,25 @@ import { ProjectFeed } from "./github/feed.js";
 import { type RouteHandler, createHealthServer } from "./http.js";
 import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
+import { createOperatorGate } from "./sim/operator.js";
 import { createConfiguredExecutor, describeAgentWork } from "./work/fromConfig.js";
 
-const { port, allowedOrigins, projectBoard, agentWork, agentCount, agentDebug, liveAgents, runner, manager } =
-  readConfig();
+const {
+  port,
+  allowedOrigins,
+  projectBoard,
+  agentWork,
+  agentCount,
+  agentDebug,
+  liveAgents,
+  runner,
+  operator,
+  manager,
+} = readConfig();
+
+// The passphrase goes no further than this closure: rooms get a gate that
+// answers yes or no.
+const operatorGate = operator.passphrase === undefined ? undefined : createOperatorGate(operator.passphrase);
 
 const projectFeed = new ProjectFeed({
   repository: projectBoard.repository,
@@ -146,6 +161,7 @@ server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   ...(liveAssignments === undefined ? {} : { liveAssignments }),
   ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink }),
   ...(screens === undefined ? {} : { screens }),
+  ...(operatorGate === undefined ? {} : { operatorGate }),
 } satisfies OfficeRoomOptions);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -189,5 +205,12 @@ console.log(
     : `runner link: POST ${RUNNER_SYNC_PATH} for ${projectBoard.repository}, ` +
         `up to ${MAX_RUNNER_SLOTS} slots, leaving after ${liveAgents.timeoutMs / 1000}s of silence; ` +
         `screens on POST ${RUNNER_SCREENS_PATH}`,
+);
+console.log(
+  operator.passphrase !== undefined
+    ? "real agents: commanded by a verified operator (OPERATOR_PASSPHRASE is set)"
+    : operator.trustCeo
+      ? "real agents: commanded by the CEO, unverified (REAL_AGENTS_TRUST_CEO=on; local development only)"
+      : "real agents: commanded by the CEO, unverified (OPERATOR_PASSPHRASE is not set)",
 );
 /* eslint-enable no-console */

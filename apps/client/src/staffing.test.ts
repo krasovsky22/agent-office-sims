@@ -17,8 +17,8 @@ import { describe, expect, it } from "vitest";
 import { formatCash } from "./companyReadout.js";
 import { readStaff, sameStaff, staffChangeText, staffRejectionText } from "./staffing.js";
 
-const DANA: OfficeActor = { id: "dana", kind: OCCUPANT_KIND.human, isCeo: true };
-const MILO: OfficeActor = { id: "milo", kind: OCCUPANT_KIND.human, isCeo: false };
+const DANA: OfficeActor = { id: "dana", kind: OCCUPANT_KIND.human, isCeo: true, isOperator: false };
+const MILO: OfficeActor = { id: "milo", kind: OCCUPANT_KIND.human, isCeo: false, isOperator: false };
 
 describe("readStaff", () => {
   it("lets the CEO manage staff and nobody else", () => {

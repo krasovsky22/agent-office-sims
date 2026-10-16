@@ -165,14 +165,22 @@ export class HumanPlayer extends Occupant {
    * longest. The server's `sim/roles.ts` is the only writer.
    */
   declare public role: PlayerRole;
+  /**
+   * Whether this player proved they know the operator passphrase, which is
+   * what lets a CEO command the real coding agents. Only the flag replicates;
+   * the passphrase never leaves the server. Kept for as long as the player is
+   * in the office, so a reconnection inside the grace period keeps it.
+   */
+  declare public operator: boolean;
 
   public constructor() {
     super();
     this.role = PLAYER_ROLE.exec;
+    this.operator = false;
   }
 }
 
-defineTypes(HumanPlayer, { role: "string" });
+defineTypes(HumanPlayer, { role: "string", operator: "boolean" });
 
 /**
  * Whether an occupant holds the CEO role.
@@ -183,6 +191,11 @@ defineTypes(HumanPlayer, { role: "string" });
  */
 export function isCeo(occupant: Occupant): boolean {
   return isHumanPlayer(occupant) && occupant.role === PLAYER_ROLE.ceo;
+}
+
+/** Whether an occupant is a verified operator; never an agent, like {@link isCeo}. */
+export function isOperator(occupant: Occupant): boolean {
+  return isHumanPlayer(occupant) && occupant.operator;
 }
 
 /**
@@ -511,6 +524,13 @@ export class OfficeState extends Schema {
   declare public work: MapSchema<IssueWork>;
   declare public company: Company;
   declare public tick: number;
+  /**
+   * Whether the server has an operator passphrase, and so whether commanding
+   * the real coding agents takes a verified operator. Replicated so a client
+   * can offer verification, and say why a command would be refused, only when
+   * it means something; the passphrase itself is never part of the state.
+   */
+  declare public operatorRequired: boolean;
 
   public constructor() {
     super();
@@ -518,6 +538,7 @@ export class OfficeState extends Schema {
     this.work = new MapSchema<IssueWork>();
     this.company = new Company();
     this.tick = 0;
+    this.operatorRequired = false;
   }
 }
 
@@ -526,6 +547,7 @@ defineTypes(OfficeState, {
   work: { map: IssueWork },
   company: Company,
   tick: "uint32",
+  operatorRequired: "boolean",
 });
 
 const TAU = Math.PI * 2;
