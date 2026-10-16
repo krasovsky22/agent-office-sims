@@ -377,8 +377,8 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
       name: slot.name,
       status: FLOOR_STATUS[slot.status],
       task: this.task(runner, slot),
-      // #65: once `LiveAgentRecord` has `canTakeIssues`, a runner slot sets it
-      // to `true` here; slots are the live agents that can take issue work.
+      // A slot's work goes through the office's work rules, so it can take issues.
+      canTakeIssues: true,
     };
   }
 

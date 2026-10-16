@@ -24,9 +24,11 @@
  * through {@link LiveAgentCrew.sync} without waiting on anything.
  */
 
+import { type MapSchema } from "@colyseus/schema";
 import {
   ANIMATION_STATE,
   type InteractableSpec,
+  type IssueWork,
   LIVE_AGENT_STATUS,
   LiveAgent,
   type LiveAgentStatus,
@@ -42,6 +44,7 @@ import {
   liveAgentSeats,
   nearestWaypoint,
   normalizeYaw,
+  releaseWorkOf,
   resolveMove,
   roomAt,
 } from "@sim/shared";
@@ -152,6 +155,11 @@ export interface LiveAgentHost {
     delete(key: string): unknown;
   };
   readonly interaction: InteractionHost;
+  /**
+   * The office's issue work, so an agent leaving puts down what it had not
+   * finished, by the same rule as a departing employee; see `releaseWorkOf`.
+   */
+  readonly work: MapSchema<IssueWork>;
   /** Broadcasts a line of chat from an occupant. */
   readonly say: (occupantId: string, text: string) => void;
   /** In [0, 1). Injected so a test can make the wandering repeatable. */
@@ -269,6 +277,10 @@ export class LiveAgentCrew {
     if (occupant.assignedUrl !== assignedUrl) {
       occupant.assignedUrl = assignedUrl;
     }
+    const canTakeIssues = record.canTakeIssues === true;
+    if (occupant.canTakeIssues !== canTakeIssues) {
+      occupant.canTakeIssues = canTakeIssues;
+    }
     if (body.status !== record.status) {
       body.status = record.status;
       body.restUntil = now;
@@ -283,6 +295,7 @@ export class LiveAgentCrew {
     // body disappears in.
     this.host.interaction.holds.release(body.key);
     this.host.interaction.lastUsedAt.delete(body.key);
+    releaseWorkOf(body.key, this.host.work);
     this.host.occupants.delete(body.key);
     this.bodies.delete(id);
   }

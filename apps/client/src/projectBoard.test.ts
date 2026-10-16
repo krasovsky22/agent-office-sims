@@ -5,12 +5,21 @@
  * line tells fresh from stale.
  */
 
-import { AGENT_ACTIVITY, EMPTY_BOARD_LISTS, type ProjectBoardSnapshot, WORK_ACTION, WORK_STATUS, type WorkData } from "@sim/shared";
+import {
+  AGENT_ACTIVITY,
+  EMPTY_BOARD_LISTS,
+  OCCUPANT_KIND,
+  type ProjectBoardSnapshot,
+  WORK_ACTION,
+  WORK_STATUS,
+  type WorkData,
+} from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import {
   type BoardAgent,
   NO_BOARD_FILTER,
+  assigneeGroups,
   boardColumns,
   boardIssue,
   boardLabels,
@@ -220,8 +229,20 @@ describe("githubItemUrl", () => {
   });
 });
 
+describe("assigneeGroups", () => {
+  it("lists staff and live agents under their own headings, leaving out an empty one", () => {
+    const staff: BoardAgent = { id: "agent-1", name: "Ada", kind: OCCUPANT_KIND.agent, activity: undefined };
+    const live: BoardAgent = { id: "agent:r/s1", name: "Slot 1", kind: OCCUPANT_KIND.liveAgent, activity: undefined };
+    expect(assigneeGroups([live, staff])).toEqual([
+      { label: "Staff", agents: [staff] },
+      { label: "Live agents", agents: [live] },
+    ]);
+    expect(assigneeGroups([live])).toEqual([{ label: "Live agents", agents: [live] }]);
+  });
+});
+
 describe("the office's work on an issue", () => {
-  const ada: BoardAgent = { id: "agent-1", name: "Ada Byrne", activity: AGENT_ACTIVITY.working };
+  const ada: BoardAgent = { id: "agent-1", name: "Ada Byrne", kind: OCCUPANT_KIND.agent, activity: AGENT_ACTIVITY.working };
   const work: WorkData = {
     issueNumber: 31,
     title: "Desk screens face away",

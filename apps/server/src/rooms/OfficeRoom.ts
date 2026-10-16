@@ -79,6 +79,8 @@ import {
   CLIENT_MESSAGE,
   type EmoteEvent,
   HumanPlayer,
+  type IssueWork,
+  MAX_CHAT_LENGTH,
   type ManagerEntry,
   type ManagerHistoryEvent,
   OCCUPANT_KIND,
@@ -291,9 +293,14 @@ export class OfficeRoom extends Room<OfficeState> {
       this.projectBoard = source;
       this.stopRelayingProjectBoard = relayProjectBoard(this, source);
       // On the feed's own timer, between ticks: an issue GitHub closed is no
-      // longer anyone's to work, and its agent puts it down on its next look.
+      // longer anyone's to work, and its agent puts it down on its next look,
+      // unless it was a live agent's review, which the closure shipped.
       this.stopReleasingWork = source.subscribe((snapshot) => {
-        releaseGoneWork(this.state.work, snapshot);
+        const shipped: IssueWork[] = [];
+        releaseGoneWork(this.state.work, snapshot, this.state.occupants, shipped);
+        for (const work of shipped) {
+          this.announceShipped(work);
+        }
       });
     }
 
@@ -301,6 +308,7 @@ export class OfficeRoom extends Room<OfficeState> {
       layout: OFFICE_LAYOUT,
       occupants: this.state.occupants,
       interaction: this.interaction,
+      work: this.state.work,
       say: (occupantId, text) => {
         this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
       },
@@ -637,6 +645,17 @@ export class OfficeRoom extends Room<OfficeState> {
     this.agentMotion.clear(agentId, this.clock.currentTime);
     this.holds.release(agentId);
     this.interaction.lastUsedAt.delete(agentId);
+  }
+
+  /**
+   * Says that a live agent's review shipped, in the agent's own voice, through
+   * the chat everyone already reads: the work's move to `done` is state, and
+   * this is the why that state cannot carry.
+   */
+  private announceShipped(work: IssueWork): void {
+    recordOfficeEvent("work-shipped", { agent: work.assigneeId, issue: work.issueNumber });
+    const text = `Shipped #${work.issueNumber}: ${work.title}`.slice(0, MAX_CHAT_LENGTH);
+    this.broadcast(SERVER_MESSAGE.chat, { occupantId: work.assigneeId, text } satisfies ChatEvent);
   }
 
   /** Cycles the layout's spawn points so arrivals do not stack on one spot. */

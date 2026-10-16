@@ -716,7 +716,8 @@ Thirteen things are worth knowing before changing anything:
   `workMoves` beside it, which moves to offer, so what the panel shows and what
   the server accepts change together. Each snapshot the feed publishes
   releases unfinished work on an issue GitHub has closed (`releaseGoneWork`),
-  on the feed's timer rather than the tick's, and never on a stale snapshot.
+  on the feed's timer rather than the tick's, and never on a stale snapshot;
+  the exception is a live agent's review, which the closure ships as `done`.
   Hiring and firing have the same shape: `shared/staffing.ts` holds
   `mayManageStaff`, the one staffing gate, and the rules for what firing costs
   in morale and what a departing agent's work does — work still in flight is

@@ -38,6 +38,7 @@ import {
   type BoardColumnKey,
   type BoardFilter,
   NO_BOARD_FILTER,
+  assigneeGroups,
   boardColumns,
   boardIssue,
   boardLabels,
@@ -442,9 +443,10 @@ function IssueDetail({
 /**
  * Who to give an issue to.
  *
- * Offers only the agent employees in the office, since the server refuses
- * anyone else, and re-checks the choice against them as they stand when sent:
- * an agent picked and then gone is no longer one the server will take.
+ * Offers only the agents the server will take — the agent employees and the
+ * live agents that can take issues, grouped apart — and re-checks the choice
+ * against them as they stand when sent: an agent picked and then gone is no
+ * longer one the server will take.
  */
 function AssignPicker({ agents, onAssign }: { agents: readonly BoardAgent[]; onAssign: (agentId: string) => void }) {
   const [choice, setChoice] = useState("");
@@ -470,10 +472,14 @@ function AssignPicker({ agents, onAssign }: { agents: readonly BoardAgent[]; onA
         <option value="" disabled>
           Give it to…
         </option>
-        {agents.map((agent) => (
-          <option key={agent.id} value={agent.id}>
-            {agent.name}
-          </option>
+        {assigneeGroups(agents).map((group) => (
+          <optgroup key={group.label} label={group.label}>
+            {group.agents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
       <button
