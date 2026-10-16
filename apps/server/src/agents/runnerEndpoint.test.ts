@@ -24,6 +24,7 @@ import {
   MAX_TITLE_LENGTH,
   MAX_WORK_NOTE_LENGTH,
   type OfficeState,
+  RUNNER_SYNC_PATH,
   type RunnerCommand,
   TICK_RATE_HZ,
 } from "@sim/shared";
@@ -36,7 +37,7 @@ import { liveAgentKey } from "../sim/liveAgents.js";
 import { CombinedLiveAgentSource } from "./combined.js";
 import { LIVE_AGENT_REPORT_PATH, createLiveAgentEndpoint } from "./endpoint.js";
 import { LiveAgentRegistry } from "./registry.js";
-import { MAX_SYNC_BYTES, RUNNER_SYNC_PATH, createRunnerEndpoint } from "./runnerEndpoint.js";
+import { MAX_SYNC_BYTES, createRunnerEndpoint } from "./runnerEndpoint.js";
 import { RunnerLink, runnerSlotAgentId } from "./runnerLink.js";
 
 const SECRET = "a-runner-secret-long-enough";

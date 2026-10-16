@@ -76,8 +76,8 @@ configuration is required; `.env.example` lists the variables (`PORT`,
 `ALLOWED_ORIGINS`, and `VITE_SERVER_URL`, plus the project board's
 `PROJECT_BOARD_*`, the agents' `MOCK_AGENTS`, `ANTHROPIC_API_KEY` and
 `AGENT_*`, the manager's `MOCK_MANAGER` and `MANAGER_*`, the staff size,
-`AGENT_COUNT`, `AGENT_DEBUG`, the live agents' `LIVE_AGENTS_*`, and the runner's
-`RUNNER_SECRET`) if you need
+`AGENT_COUNT`, `AGENT_DEBUG`, the live agents' `LIVE_AGENTS_*`, the runner
+link's `RUNNER_SECRET`, and the runner's own `RUNNER_*`) if you need
 to point the client somewhere else. A deployment
 has to set the first three — see [Deploying it](#deploying-it).
 
@@ -226,6 +226,56 @@ second, `400` for a body that is not a sync or lists too many slots, `403` for
 a runner whose `repo` is not `PROJECT_BOARD_REPO`, and `409` when the floor has
 no room for its slots.
 Without the secret the route does not exist.
+
+### Running the runner
+
+`apps/runner` (`@sim/runner`) is that runner. Each of its slots runs one agent
+on one issue at a time; for now the only agent is `mock`, which needs no
+credentials and spends nothing, so the whole loop can be developed and tested
+without a real one. With `pnpm dev` running and `RUNNER_SECRET` set on the
+server, start it in a second terminal with the same secret:
+
+```sh
+RUNNER_SECRET=<the server's RUNNER_SECRET> pnpm dev:runner
+```
+
+Two idle slots, `Mock 1` and `Mock 2`, walk onto the floor. The runner syncs
+about once a second, backing off up to 30 seconds while the server is
+unreachable or refusing it, and logs each new reason once. On a `start`
+command a mock slot reports `started`, works through a few scripted steps on
+its desk, and reports `failed`, or `pr-opened` with a pull request that does not
+exist when `RUNNER_MOCK_OUTCOME=pr-opened`, then goes back to idle. A `stop`
+command ends the work at once and reports it `failed` with the reason, and so
+does the task timeout. A runner that is killed leaves the floor after
+`LIVE_AGENTS_TIMEOUT_SECONDS` of silence. `pnpm --filter @sim/runner start` runs
+it without the file watcher.
+
+It reads its own variables, listed in `.env.example`:
+
+| Variable | Default | |
+| --- | --- | --- |
+| `RUNNER_SECRET` | none; required | The server's `RUNNER_SECRET`, at least 16 characters. |
+| `RUNNER_SERVER_URL` | `http://localhost:2567` | The server's origin; `https:` for any host but this machine, since every sync carries the secret. |
+| `RUNNER_REPO` | `krasovsky22/agent-office-sims` | `owner/name`; must be the server's `PROJECT_BOARD_REPO`. |
+| `RUNNER_DATA_DIR` | `~/.sim-runner` | An absolute path for the runner's own files, created private to its user. |
+| `RUNNER_AGENT` | `mock` | The agent each slot runs. |
+| `RUNNER_MOCK_OUTCOME` | `failed` | How a mock agent's work ends: `failed` or `pr-opened`. |
+| `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
+| `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes one task may run before its slot stops it. |
+
+A value it cannot use stops it at boot with the reason, including more slots
+than the server will take. Its id on the floor is the machine's host name, so
+a restarted runner replaces its own slots rather than adding a second set.
+
+The runner is the part of the office that will run code. Run it as a dedicated
+unprivileged user, on a machine or VM of its own, and never on the game
+server: the game server is public and unauthenticated, and the runner is what
+will hold a GitHub write identity and start agent processes. Its secret goes
+only to `RUNNER_SERVER_URL`, never to a redirect, and is never logged.
+
+The runner follows the design of AgentSystemLabs' agent-office, which is MIT;
+code adapted from it keeps that notice, recorded with the convention for
+marking adapted files in `THIRD_PARTY_NOTICES.md`.
 
 Two query parameters are useful while developing. `?props=off` renders the
 grey-box office instead of the asset kit, and `?debug` puts the draw-call count
@@ -412,7 +462,7 @@ Then confirm all twenty:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the runner link's syncs, commands and events, the AI manager's answers, assignments, updates and orchestrator queue
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the runner link's syncs, commands and events, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, and its round trip with the runner link
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -601,6 +651,12 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/manager/            the AI manager: its view of the office, rule and model planners, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
+apps/runner/       @sim/runner   the agent runner: slots, agents, and the sync with the server
+  src/config.ts           its RUNNER_* variables, refused at boot when wrong
+  src/syncLoop.ts         the sync about once a second: acks, events, backoff
+  src/syncClient.ts       one sync over HTTP, and reading back its commands
+  src/slots.ts            the slot pool: commands to agent runs, runs to status and events
+  src/agents/mock.ts      the mock agent: scripted progress, then failed or a fake pull request
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do about the project board's work, and why
   src/staffing.ts         the staff panel's payroll, desks, and why a hire was refused

@@ -26,8 +26,6 @@ import { type TokenBucket, createTokenBucket, tryConsume } from "../sim/expressi
 import { declaresTooMuch, digest, isAuthorized, readBody, refuse, reply } from "./routeGuards.js";
 import type { RunnerLink } from "./runnerLink.js";
 
-export const RUNNER_SYNC_PATH = "/agents/runner/sync";
-
 /**
  * The parser refuses any list past its cap and any string past its budget in
  * UTF-8 bytes as `JSON.stringify` writes it, so a sync it would take, every

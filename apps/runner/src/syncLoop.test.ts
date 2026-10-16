@@ -1,0 +1,160 @@
+/**
+ * The sync loop against a scripted client: what each sync carries, that a
+ * command is carried out once however often it comes back, that acks and
+ * events are dropped only once a sync carrying them is answered, and the
+ * backoff while the server is away.
+ */
+
+import {
+  MAX_RUNNER_ACKS,
+  MAX_RUNNER_EVENTS,
+  type RunnerCommand,
+  type RunnerEvent,
+  type RunnerSlotReport,
+  type RunnerSync,
+} from "@sim/shared";
+import { describe, expect, it } from "vitest";
+
+import { SyncError, type SyncReply } from "./syncClient.js";
+import { SyncLoop } from "./syncLoop.js";
+
+const REPO = "krasovsky22/agent-office-sims";
+
+const SLOTS: RunnerSlotReport[] = [
+  { id: "slot-1", name: "Mock 1", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
+];
+
+function event(id: string): RunnerEvent {
+  return { id, kind: "started", slotId: "slot-1", issueNumber: 39, pr: undefined, message: "" };
+}
+
+function stop(id: string): RunnerCommand {
+  return { id, slotId: "slot-1", kind: "stop", reason: "" };
+}
+
+/** A pool that records what it is handed, and a client that answers from a script. */
+function setup(replies: (SyncReply | Error)[], events: RunnerEvent[] = []) {
+  const sent: RunnerSync[] = [];
+  const handled: string[] = [];
+  const logged: string[] = [];
+  let pending = [...events];
+  const loop = new SyncLoop({
+    runnerId: "runner-1",
+    repo: REPO,
+    pool: {
+      report: () => SLOTS,
+      pendingEvents: () => pending,
+      delivered: (ids) => {
+        pending = pending.filter((candidate) => !ids.has(candidate.id));
+      },
+      handle: (command) => {
+        handled.push(command.id);
+      },
+    },
+    client: async (sync) => {
+      sent.push(sync);
+      const reply = replies.shift() ?? { commands: [], unreadable: [] };
+      if (reply instanceof Error) {
+        throw reply;
+      }
+      return reply;
+    },
+    intervalMs: 1000,
+    maxBackoffMs: 30_000,
+    log: (line) => logged.push(line),
+  });
+  return { loop, sent, handled, logged, pending: () => pending };
+}
+
+describe("SyncLoop", () => {
+  it("reports the runner, its repository and its slots on every sync", async () => {
+    const { loop, sent } = setup([]);
+    expect(await loop.syncOnce()).toBe(true);
+    expect(sent).toEqual([{ runnerId: "runner-1", repo: REPO, acked: [], slots: SLOTS, events: [] }]);
+  });
+
+  it("carries out a command once, and acks it until a sync carrying the ack is answered", async () => {
+    const command = stop("command-1");
+    const { loop, sent, handled } = setup([
+      { commands: [command], unreadable: [] },
+      // The ack was lost with this sync, so the server sends the command again.
+      new SyncError("could not reach the server"),
+      { commands: [command], unreadable: [] },
+      { commands: [], unreadable: [] },
+    ]);
+    await loop.syncOnce();
+    expect(handled).toEqual(["command-1"]);
+
+    await loop.syncOnce();
+    expect(sent[1]?.acked).toEqual(["command-1"]);
+
+    await loop.syncOnce();
+    expect(sent[2]?.acked).toEqual(["command-1"]);
+    expect(handled).toEqual(["command-1"]);
+
+    await loop.syncOnce();
+    expect(sent[3]?.acked).toEqual(["command-1"]);
+    await loop.syncOnce();
+    expect(sent[4]?.acked).toEqual([]);
+  });
+
+  it("acks a command it cannot read, without acting on it", async () => {
+    const { loop, sent, handled, logged } = setup([{ commands: [], unreadable: ["command-1"] }]);
+    await loop.syncOnce();
+    await loop.syncOnce();
+    expect(handled).toEqual([]);
+    expect(sent[1]?.acked).toEqual(["command-1"]);
+    expect(logged).toContain("command command-1 could not be read; acked without acting on it");
+  });
+
+  it("keeps sending an event until a sync carrying it is answered", async () => {
+    const { loop, sent, pending } = setup([new SyncError("refused with HTTP 429: too many syncs", 429)], [event("event-1")]);
+    await loop.syncOnce();
+    await loop.syncOnce();
+    expect(sent.map((sync) => sync.events.map((item) => item.id))).toEqual([["event-1"], ["event-1"]]);
+    expect(pending()).toEqual([]);
+  });
+
+  it("sends no more events or acks in one sync than the contract allows, and the rest next time", async () => {
+    const events = Array.from({ length: MAX_RUNNER_EVENTS + 2 }, (_, index) => event(`event-${index}`));
+    const commands = Array.from({ length: MAX_RUNNER_ACKS + 3 }, (_, index) => stop(`command-${index}`));
+    const { loop, sent, pending } = setup([{ commands, unreadable: [] }], events);
+    await loop.syncOnce();
+    expect(sent[0]?.events).toHaveLength(MAX_RUNNER_EVENTS);
+    expect(pending()).toHaveLength(2);
+
+    await loop.syncOnce();
+    expect(sent[1]?.acked).toHaveLength(MAX_RUNNER_ACKS);
+    expect(sent[1]?.events).toHaveLength(2);
+    await loop.syncOnce();
+    expect(sent[2]?.acked).toEqual(["command-32", "command-33", "command-34"]);
+  });
+
+  it("backs off while syncs fail, says why once per reason, and recovers", async () => {
+    const down = new SyncError("could not reach http://localhost:2567: fetch failed");
+    const { loop, logged } = setup([
+      down,
+      down,
+      down,
+      new SyncError("refused with HTTP 401: unauthorized", 401),
+      ...Array.from({ length: 10 }, () => down),
+    ]);
+    expect(loop.nextDelayMs()).toBe(1000);
+    const delays: number[] = [];
+    for (let attempt = 0; attempt < 14; attempt += 1) {
+      expect(await loop.syncOnce()).toBe(false);
+      delays.push(loop.nextDelayMs());
+    }
+    expect(delays.slice(0, 6)).toEqual([2000, 4000, 8000, 16_000, 30_000, 30_000]);
+    expect(delays.at(-1)).toBe(30_000);
+    expect(logged).toEqual([
+      "sync failed: could not reach http://localhost:2567: fetch failed; retrying with backoff",
+      "sync failed: refused with HTTP 401: unauthorized; retrying with backoff",
+      "sync failed: could not reach http://localhost:2567: fetch failed; retrying with backoff",
+    ]);
+
+    expect(await loop.syncOnce()).toBe(true);
+    expect(loop.nextDelayMs()).toBe(1000);
+    expect(logged.at(-1)).toBe("synced with the server after 14 failed syncs");
+  });
+});
