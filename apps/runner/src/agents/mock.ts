@@ -6,8 +6,18 @@
  * By default the work fails, which is what a real agent does most often while
  * this is being built; configured to, it opens a pull request that does not
  * exist instead.
+ *
+ * It does one real thing, writing a file in its worktree and committing it, so
+ * a task's worktree is exercised end to end too: stopped before it writes, its
+ * worktree is removed, and from then on kept, first with an uncommitted change
+ * and then with a commit nothing pushes yet.
  */
 
+import { execFileSync } from "node:child_process";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import { gitError } from "../worktrees.js";
 import type { Agent, AgentReporter, AgentRun, AgentTask } from "./types.js";
 
 export const MOCK_OUTCOMES = ["failed", "pr-opened"] as const;
@@ -30,9 +40,58 @@ const DEFAULT_STEP_MS = 2000;
  */
 const FAKE_PR_OFFSET = 1_000_000;
 
-/** What the mock says it is doing, one step at a time. */
-function script(task: AgentTask): readonly string[] {
-  return [`Reading issue #${task.issueNumber}`, "Bash: pnpm install", "Edit: src/index.ts", "Bash: pnpm test"];
+/** Where in its worktree the mock writes, apart from anything the repository has. */
+const MOCK_DIR = ".sims-mock";
+
+interface Step {
+  readonly activity: string;
+  /** What the step really does, if anything; throws to fail the work. */
+  readonly act?: () => void;
+}
+
+/** What the mock does, one step at a time. */
+function script(task: AgentTask): readonly Step[] {
+  const file = join(MOCK_DIR, `issue-${task.issueNumber}.md`);
+  return [
+    { activity: `Reading issue #${task.issueNumber}` },
+    {
+      activity: `Edit: ${file}`,
+      act: () => {
+        mkdirSync(join(task.workdir, MOCK_DIR), { recursive: true });
+        writeFileSync(join(task.workdir, file), `# ${task.title}\n\n${task.url}\n${task.note === "" ? "" : `\n${task.note}\n`}`);
+      },
+    },
+    { activity: "Bash: git commit", act: () => commit(task.workdir, `mock: work on #${task.issueNumber}`) },
+    { activity: "Bash: pnpm test" },
+  ];
+}
+
+/**
+ * Commits everything in `workdir` as the mock, whatever the machine's git
+ * identity, signing or hooks, and even when there is nothing new: a task
+ * picked up again from its kept worktree writes the same file over. Synchronous:
+ * one small commit is milliseconds, and it keeps each step a single timer.
+ */
+function commit(workdir: string, message: string): void {
+  // Only the worktree's own repository: never one git would find above it.
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: realpathSync(dirname(workdir)) };
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: workdir, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 });
+  git("add", "--all");
+  git(
+    "-c",
+    "user.name=Sims mock agent",
+    "-c",
+    "user.email=mock-agent@sims.invalid",
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "--quiet",
+    "--no-verify",
+    "--allow-empty",
+    "-m",
+    message,
+  );
 }
 
 export function createMockAgent(options: MockAgentOptions): Agent {
@@ -45,10 +104,17 @@ export function createMockAgent(options: MockAgentOptions): Agent {
       let timer: ReturnType<typeof setTimeout> | undefined;
 
       const next = (): void => {
-        const activity = steps[step];
+        const current = steps[step];
         step += 1;
-        if (activity !== undefined) {
-          reporter.progress(activity);
+        if (current !== undefined) {
+          reporter.progress(current.activity);
+          try {
+            current.act?.();
+          } catch (error) {
+            timer = undefined;
+            reporter.failed(`${current.activity} failed: ${gitError(error)}`);
+            return;
+          }
           timer = setTimeout(next, stepMs);
           return;
         }

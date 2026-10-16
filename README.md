@@ -257,6 +257,32 @@ does the task timeout. A runner that is killed leaves the floor after
 `LIVE_AGENTS_TIMEOUT_SECONDS` of silence. `pnpm --filter @sim/runner start` runs
 it without the file watcher.
 
+Each task works in a git worktree of its own. At boot the runner clones
+`RUNNER_REPO` into `<RUNNER_DATA_DIR>/repo` with `gh repo clone`, so it needs
+the [GitHub CLI](https://cli.github.com/) on its `PATH`. A `start` fetches
+origin's default branch, at most once every 15 seconds, and cuts the task a
+worktree at `<RUNNER_DATA_DIR>/worktrees/issue-<n>-<slot>` on the branch
+`sims/issue-<n>-<slot>`; the agent works there. When the work ends, by
+`stop`, the timeout or the agent finishing, the worktree and its branch are
+removed if nothing in them would be lost. A worktree with uncommitted changes
+or commits no remote has is kept, the log says why, and the same issue on the
+same slot picks it up again. The mock agent writes `.sims-mock/issue-<n>.md`
+and commits it, and nothing pushes yet, so a mock task that gets that far
+leaves its worktree kept. Which slot holds which worktree is kept in
+`<RUNNER_DATA_DIR>/worktrees.json`. A restarted runner finds the worktrees its
+last run left mid-task and settles them the same way, and logs anything else in
+its worktrees folder as a stray that it leaves alone. To discard a kept
+worktree, run `git worktree remove --force <path>` and
+`git branch -D sims/issue-<n>-<slot>` in `<RUNNER_DATA_DIR>/repo` while the
+runner is stopped. Every git command runs inside the data dir with nothing
+above it searched, so the runner never touches the checkout it is started from.
+
+Cloning and fetching need only read access. For a private repository, give the
+runner's user GitHub CLI credentials, either `GH_TOKEN` in its environment or
+`gh auth login`, and run `gh auth setup-git` so git's own fetches use them too.
+Git never prompts for a password: without credentials a fetch fails, is logged
+once, and new worktrees start from the last fetch.
+
 It reads its own variables, listed in `.env.example`:
 
 | Variable | Default | |
@@ -264,7 +290,7 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_SECRET` | none; required | The server's `RUNNER_SECRET`, at least 16 characters. |
 | `RUNNER_SERVER_URL` | `http://localhost:2567` | The server's origin; `https:` for any host but this machine, since every sync carries the secret. |
 | `RUNNER_REPO` | `krasovsky22/agent-office-sims` | `owner/name`; must be the server's `PROJECT_BOARD_REPO`. |
-| `RUNNER_DATA_DIR` | `~/.sim-runner` | An absolute path for the runner's own files, created private to its user. |
+| `RUNNER_DATA_DIR` | `~/.sim-runner` | An absolute path for the runner's own files, its clone and its tasks' worktrees, created private to its user. |
 | `RUNNER_AGENT` | `mock` | The agent each slot runs. |
 | `RUNNER_MOCK_OUTCOME` | `failed` | How a mock agent's work ends: `failed` or `pr-opened`. |
 | `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
@@ -469,7 +495,7 @@ Then confirm all twenty:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the runner link's syncs, commands and events, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, and its round trip with the runner link
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the runner link's syncs, commands and events, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, task worktrees, and its round trip with the runner link
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -663,7 +689,9 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, and the sync w
   src/syncLoop.ts         the sync about once a second: acks, events, backoff
   src/syncClient.ts       one sync over HTTP, and reading back its commands
   src/slots.ts            the slot pool: commands to agent runs, runs to status and events
-  src/agents/mock.ts      the mock agent: scripted progress, then failed or a fake pull request
+  src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
+  src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
+  src/agents/mock.ts      the mock agent: scripted progress and a commit, then failed or a fake pull request
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do about the project board's work, and why
   src/staffing.ts         the staff panel's payroll, desks, and why a hire was refused

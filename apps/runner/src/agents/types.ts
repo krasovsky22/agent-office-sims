@@ -17,6 +17,8 @@ export interface AgentTask {
   /** The CEO's words. */
   readonly note: string;
   readonly requestedBy: string;
+  /** The task's own git worktree, on a branch of its own: where the agent works. */
+  readonly workdir: string;
 }
 
 /** How an agent tells its slot what it is doing. */
