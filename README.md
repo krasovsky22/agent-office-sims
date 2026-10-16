@@ -1,6 +1,6 @@
 # agent-office-sims
 
-A 3D multiplayer office simulator that runs in the browser, where employees are AI agents working this repository's GitHub issues from a project board and the human player acts as CEO.
+A 3D multiplayer office simulator that runs in the browser, where live AI coding agents work this repository's GitHub issues from a project board and the human player acts as CEO.
 
 Prototype. Built with TypeScript, Three.js, and Colyseus.
 
