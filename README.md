@@ -181,7 +181,8 @@ orchestrator picks an assignment up, and when the agent starts on it or does not
 ### The runner link
 
 An agent runner is the separate process that owns real coding agents, kept out
-of the game server. It talks to the server over one route. Set `RUNNER_SECRET`
+of the game server. It talks to the server over two routes, a sync and its
+slots' screens. Set `RUNNER_SECRET`
 (16 characters or more) on the server, and the runner syncs about once a second
 to `/agents/runner/sync` with the secret as a bearer token:
 
@@ -234,6 +235,55 @@ a runner whose `repo` is not `PROJECT_BOARD_REPO`, and `409` when the floor has
 no room for its slots.
 Without the secret the route does not exist.
 
+#### Screens
+
+Each slot has a terminal, and its laptop will show it. The runner mirrors what
+the slot's agent prints in a headless xterm and posts the rows that changed
+about four times a second, all slots in one batch, to `/agents/runner/screens`
+with the same bearer token:
+
+```sh
+curl -X POST localhost:2567/agents/runner/screens \
+  -H "Authorization: Bearer $RUNNER_SECRET" -H 'Content-Type: application/json' \
+  -d '{"runnerId":"runner-1","screens":[{"slotId":"slot-1","frame":
+       {"cols":100,"rows":30,"full":false,"cursor":[0,3],
+        "lines":{"2":[["● ",6,-1,0],["Bash: pnpm test",-1,-1,1]]}}}]}'
+# {"ok":true,"resend":[]}
+```
+
+A frame is the shape `ScreenFrame` in `packages/shared/src/screens.ts`: rows by
+index, each a list of runs `[text, fg, bg, flags]`, where a colour is `-1` for
+the default, `0` to `255` for the palette, or `0x1000000` plus a 24-bit RGB
+value, and the flags are bold `1`, inverse `2` and dim `4`. A `full` frame is
+the whole screen, and a row it leaves out is blank; any other frame carries only
+the rows that changed. The runner sends each screen whole every eight seconds
+anyway, and the server never interprets a terminal byte: a frame carries text,
+not escape sequences, and the server strips control characters from every run.
+
+The server keeps the last whole screen of each slot its runner reports, applies
+each diff to it, and broadcasts every frame it accepts to every room as a
+`screens` message (`ScreenFramesEvent`), keyed by the slot's occupant id,
+`agent:runner:<runnerId>:<slotId>`. A client joining is sent every screen
+whole, so every tab holds the same screens. A diff with no screen to apply to,
+or a size other than the screen's, and any frame for a slot the runner has not
+reported in a sync yet, is not kept or relayed, and the reply's `resend` names
+its slot so the runner sends that one whole. A batch from a runner whose sync
+the server does not hold, one posting before its first sync or one the floor
+refused, is refused whole with `409`, and the runner backs off and sends every
+screen whole once it gets through. A slot leaving the floor takes its screen
+with it.
+
+The route is refused as the sync route is: `405`, `401`, `413` over 64 KB,
+`429` past about eight batches a second, and `400` for a body that is not a
+batch of screens, has more frames than a runner has slots, or has a frame
+wider than 200 columns, taller than 60 rows, with more runs in a row than it
+has columns, or with a colour that is not one.
+
+Before a frame leaves the runner, every secret it holds is masked with `*`:
+`RUNNER_SECRET`, and the value of every variable in its environment whose name
+says it is a secret (`*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*_KEY`, `*API_KEY*`
+and the like), however the agent coloured or wrapped it.
+
 ### Running the runner
 
 `apps/runner` (`@sim/runner`) is that runner. Each of its slots runs one agent
@@ -253,7 +303,10 @@ command a mock slot reports `started`, works through a few scripted steps on
 its desk, and reports `failed`, or `pr-opened` with a pull request that does not
 exist when `RUNNER_MOCK_OUTCOME=pr-opened`, then goes back to idle. A `stop`
 command ends the work at once and reports it `failed` with the reason, and so
-does the task timeout. A runner that is killed leaves the floor after
+does the task timeout. The mock prints its steps in colour to its slot's
+screen, which the runner posts to the server (see [Screens](#screens)); a new
+run starts on a cleared screen, and an idle slot's says it is waiting for work.
+A runner that is killed leaves the floor after
 `LIVE_AGENTS_TIMEOUT_SECONDS` of silence. `pnpm --filter @sim/runner start` runs
 it without the file watcher.
 
@@ -495,7 +548,7 @@ Then confirm all twenty:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the runner link's syncs, commands and events, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, task worktrees, and its round trip with the runner link
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -579,7 +632,8 @@ fails, the manager answers by rule from live state and says so.
 against the report route's `Authorization` header in constant time and never
 leaves the server: clients see each agent's name, status and task and nothing
 about how they were reported. `RUNNER_SECRET` is treated the same way on the
-runner's sync route.
+runner's sync and screens routes, and the runner masks it out of every screen
+it sends.
 
 ### Order of operations
 
@@ -638,8 +692,9 @@ thing the page talks to is the WebSocket.
 
 - `GET /health` on the server returns `{"status":"ok"}`. This is what the
   platform probes, and with `POST /agents/report` and `POST /agents/assignments`
-  when `LIVE_AGENTS_SECRET` is set, and `POST /agents/runner/sync` when
-  `RUNNER_SECRET` is set, the only HTTP the server serves; everything else is 404.
+  when `LIVE_AGENTS_SECRET` is set, and `POST /agents/runner/sync` and
+  `POST /agents/runner/screens` when `RUNNER_SECRET` is set, the only HTTP the
+  server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
   [The two-tab check](#the-two-tab-check), and confirm the same twenty things.
   Doing it from two different networks is the real test, since that is the one
@@ -661,6 +716,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/projectBoard.ts the project board's GitHub snapshot, and which issues are open or gone
   src/liveAgents.ts   a live agent's report, its label, and the chairs it may take
   src/runner.ts       the runner link's wire contract: a sync, its slots and events, and the commands
+  src/screens.ts      the slots' terminal screens: a frame of styled runs, a runner's batch, and its parser
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
@@ -680,11 +736,11 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/agentDebug.ts the `/goto` debug command
   src/github/             the project board's feed: fetch, bucket, poll
   src/work/               issue work: the executor, its budget, mock and model providers
-  src/agents/             the live agents' feeds: the report and assignment routes, the registry, and the runner link
+  src/agents/             the live agents' feeds: the report and assignment routes, the registry, the runner link, and the slots' screens
   src/manager/            the AI manager: its view of the office, rule and model planners, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
-apps/runner/       @sim/runner   the agent runner: slots, agents, and the sync with the server
+apps/runner/       @sim/runner   the agent runner: slots, agents, their screens, and the sync with the server
   src/config.ts           its RUNNER_* variables, refused at boot when wrong
   src/syncLoop.ts         the sync about once a second: acks, events, backoff
   src/syncClient.ts       one sync over HTTP, and reading back its commands
@@ -692,6 +748,10 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, and the sync w
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
   src/agents/mock.ts      the mock agent: scripted progress and a commit, then failed or a fake pull request
+  src/terminal.ts         each slot's headless terminal, read off as screen frames
+  src/redact.ts           the runner's secrets, masked out of every frame
+  src/screenLoop.ts       the screens posted four times a second, fitted to the server's limit
+  src/screensClient.ts    one post of the screens over HTTP
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do about the project board's work, and why
   src/staffing.ts         the staff panel's payroll, desks, and why a hire was refused

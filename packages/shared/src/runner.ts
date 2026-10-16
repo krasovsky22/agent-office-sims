@@ -190,7 +190,8 @@ function asRecord(raw: unknown): Record<string, unknown> | undefined {
   return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
 }
 
-function isRunnerName(value: unknown): value is string {
+/** Whether a value is a runner's or a slot's id. */
+export function isRunnerName(value: unknown): value is string {
   return typeof value === "string" && RUNNER_NAME.test(value);
 }
 

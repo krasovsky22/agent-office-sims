@@ -1,6 +1,6 @@
 /**
  * What a slot needs from an agent, whatever runs it: start it on an issue,
- * hear what it does, and stop it.
+ * hear what it does, see what it prints, and stop it.
  *
  * A slot owns the bookkeeping (status, events, the task timeout), so an agent
  * only says what happened. Once it has said how the work ended, or been
@@ -27,6 +27,8 @@ export interface AgentReporter {
   started(): void;
   /** What it is doing now, e.g. `Bash: pnpm test`. */
   progress(activity: string): void;
+  /** What it printed to its terminal, escape sequences and all; the slot's screen shows it. */
+  output(data: string): void;
   /** It opened a pull request; the work is over. */
   prOpened(pr: RunnerPullRequest): void;
   /** It gave up or broke; the work is over. */

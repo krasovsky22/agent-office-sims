@@ -6,7 +6,9 @@
  * takes back the worktrees its last run left, makes its slots, and syncs with
  * the server until it is told to stop. The
  * server learns of it only through those syncs, so a runner that dies
- * without a word leaves the floor once the server's timeout passes.
+ * without a word leaves the floor once the server's timeout passes. Beside
+ * the syncs, it posts its slots' terminal screens a few times a second, with
+ * every secret it holds masked out of them.
  *
  * A misconfigured runner exits at once with the reason; see `./config.ts`.
  */
@@ -17,6 +19,9 @@ import { join } from "node:path";
 import { createMockAgent } from "./agents/mock.js";
 import type { Agent } from "./agents/types.js";
 import { type RunnerConfig, readConfig } from "./config.js";
+import { createRedactor, runnerSecrets } from "./redact.js";
+import { ScreenLoop } from "./screenLoop.js";
+import { createScreensClient } from "./screensClient.js";
 import { SlotWorktrees } from "./slotWorktrees.js";
 import { SlotPool } from "./slots.js";
 import { createSyncClient } from "./syncClient.js";
@@ -76,10 +81,18 @@ const loop = new SyncLoop({
   client: createSyncClient({ serverUrl: config.serverUrl, secret: config.secret }),
   log,
 });
+const screens = new ScreenLoop({
+  runnerId: config.runnerId,
+  screens: () => pool.screens(),
+  redactor: createRedactor(runnerSecrets(process.env, [config.secret])),
+  client: createScreensClient({ serverUrl: config.serverUrl, secret: config.secret }),
+  log,
+});
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     loop.stop();
+    screens.stop();
     pool.stopAll();
     // A worktree left half-removed would read as work to keep, so let removals finish.
     const grace = setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
@@ -97,3 +110,4 @@ log(
 log(`data in ${config.dataDir}; a task stops after ${config.taskTimeoutMs / 60_000} minutes`);
 await workspaces.reattach();
 loop.start();
+screens.start();

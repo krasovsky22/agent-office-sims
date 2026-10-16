@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockAgent } from "./agents/mock.js";
 import type { Agent, AgentTask } from "./agents/types.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
+import { createRedactor } from "./redact.js";
 import { type SlotWorkspaces, SlotPool, fitBytes } from "./slots.js";
 
 const REPO = "krasovsky22/agent-office-sims";
@@ -327,6 +328,83 @@ describe("SlotPool", () => {
     late?.();
     expect(slot(slots)?.status).toBe("idle");
     expect(slots.pendingEvents()).toHaveLength(1);
+  });
+});
+
+describe("SlotPool screens", () => {
+  // Real timers: xterm parses what it is fed on a timer of its own.
+  beforeEach(() => {
+    fixture = gitFixture();
+    asked = [];
+  });
+
+  afterEach(() => {
+    fixture.cleanup();
+  });
+
+  /** The text on a slot's screen, row by row, as its next whole frame carries it. */
+  async function screenText(slots: SlotPool, id = "slot-1"): Promise<string[]> {
+    const mirror = new Map(slots.screens()).get(id);
+    await mirror?.written();
+    mirror?.sendWhole();
+    const frame = mirror?.flush(0, createRedactor([]));
+    return Object.values(frame?.lines ?? {})
+      .map((runs) => runs.map((run) => run[0]).join(""))
+      .filter((text) => text !== "");
+  }
+
+  /** An agent whose run prints whatever the test hands `print`, until it is stopped. */
+  function printingAgent() {
+    const printer: { print?: (data: string) => void } = {};
+    const agent: Agent = {
+      label: "Echo",
+      start: (_task, reporter) => {
+        printer.print = (data) => reporter.output(data);
+        reporter.started();
+        return { stop: () => undefined };
+      },
+    };
+    return { agent, printer };
+  }
+
+  it("gives every slot a screen that says it is waiting for work", async () => {
+    const slots = pool();
+    expect(slots.screens().map(([id]) => id)).toEqual(["slot-1", "slot-2"]);
+    expect(await screenText(slots, "slot-2")).toEqual(["Mock 2 is waiting for work."]);
+  });
+
+  it("shows what a run prints on a cleared screen, and keeps it there once the run ends", async () => {
+    const { agent, printer } = printingAgent();
+    const slots = pool("failed", agent);
+    slots.handle(START);
+    await vi.waitFor(() => expect(printer.print).toBeDefined());
+    printer.print?.("\u001b[32mpnpm test\u001b[0m\r\npassed\r\n");
+    expect(await screenText(slots)).toEqual(["pnpm test", "passed"]);
+
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "" });
+    printer.print?.("after the end");
+    expect(await screenText(slots)).toEqual(["pnpm test", "passed"]);
+    expect(await screenText(slots, "slot-2")).toEqual(["Echo 2 is waiting for work."]);
+  });
+
+  it("prints the mock agent's script", async () => {
+    const slots = new SlotPool({
+      count: 1,
+      agent: createMockAgent({ outcome: "pr-opened", repo: REPO, stepMs: 1 }),
+      workspaces: workspaces(),
+      taskTimeoutMs: TIMEOUT_MS,
+    });
+    slots.handle(START);
+    await vi.waitFor(() => expect(slot(slots)?.status).toBe("idle"));
+    expect(await screenText(slots)).toEqual([
+      "mock agent on #39: Night shift",
+      "for Dana",
+      "● Reading issue #39",
+      "● Edit: .sims-mock/issue-39.md",
+      "● Bash: git commit",
+      "● Bash: pnpm test",
+      `✓ Opened https://github.com/${REPO}/pull/1000039`,
+    ]);
   });
 });
 

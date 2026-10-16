@@ -69,6 +69,11 @@
  * message to it through `managerHandlers.ts`, and sends each joining client the
  * conversation so far; the manager in `manager/officeManager.ts` answers on its
  * own loop, and the tick never waits on it.
+ *
+ * Nor are the runner slots' terminal screens, beyond passing them on: the
+ * store in `agents/screens.ts` hands the room each batch of frames it accepts,
+ * which goes straight out to every client, and the room sends each joining
+ * client every screen in full. The tick never sees a screen.
  */
 
 import { type Client, Room } from "@colyseus/core";
@@ -88,6 +93,7 @@ import {
   OfficeState,
   RECONNECT_GRACE_SECONDS,
   SERVER_MESSAGE,
+  type ScreenFramesEvent,
   TICK_INTERVAL_MS,
   type ThrottledEvent,
   employManager,
@@ -104,6 +110,7 @@ import {
 
 import { type LiveAgentSource, isLiveAgentSource } from "../agents/registry.js";
 import { type RunnerEventInbox, type RunnerEventSource, isRunnerEventSource } from "../agents/runnerLink.js";
+import { type ScreenSource, isScreenSource } from "../agents/screens.js";
 import type { ProjectBoardSource } from "../github/feed.js";
 import { AgentBrain, type AgentBrainHost } from "../sim/agentBrain.js";
 import { AgentMotion, type IntentReport } from "../sim/agentMotion.js";
@@ -192,6 +199,8 @@ export interface OfficeRoomOptions {
   readonly liveAssignments?: LiveAssignmentQueue;
   /** What the agent runners report happening; absent when no runner is configured. */
   readonly runnerEvents?: RunnerEventSource;
+  /** The runner slots' terminal screens; absent when no runner is configured. */
+  readonly screens?: ScreenSource;
 }
 
 /**
@@ -262,6 +271,8 @@ export class OfficeRoom extends Room<OfficeState> {
   private liveAgentsChanged = true;
   /** This room's share of the runners' events, drained by the tick. */
   private runnerEvents: RunnerEventInbox | undefined;
+  private screens: ScreenSource | undefined;
+  private stopRelayingScreens: (() => void) | undefined;
 
   /** The AI manager's mind; unset in a room given no advisor. */
   private manager: OfficeManager | undefined;
@@ -324,6 +335,14 @@ export class OfficeRoom extends Room<OfficeState> {
     const runnerEvents = roomOptions?.runnerEvents;
     if (isRunnerEventSource(runnerEvents)) {
       this.runnerEvents = runnerEvents.openEventInbox();
+    }
+    const screens = roomOptions?.screens;
+    if (isScreenSource(screens)) {
+      this.screens = screens;
+      // Called from the screens route as each batch is accepted, between ticks.
+      this.stopRelayingScreens = screens.onScreens((event) => {
+        this.broadcast(SERVER_MESSAGE.screens, event satisfies ScreenFramesEvent);
+      });
     }
 
     // `Date.now()` rather than `this.clock`, because a work timestamp is read
@@ -466,6 +485,11 @@ export class OfficeRoom extends Room<OfficeState> {
         entries: this.manager.history(),
       } satisfies ManagerHistoryEvent);
     }
+    // Whole, since the diffs broadcast before this client arrived are not repeated.
+    const screens = this.screens?.fullScreens();
+    if (screens !== undefined && screens.screens.length > 0) {
+      client.send(SERVER_MESSAGE.screens, screens satisfies ScreenFramesEvent);
+    }
   }
 
   public override onDispose(): void {
@@ -478,6 +502,7 @@ export class OfficeRoom extends Room<OfficeState> {
     this.stopReleasingWork?.();
     this.stopWatchingLiveAgents?.();
     this.runnerEvents?.close();
+    this.stopRelayingScreens?.();
   }
 
   /**

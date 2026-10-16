@@ -1,5 +1,6 @@
 /**
- * The `mock` agent: a script of progress on a timer, then an outcome.
+ * The `mock` agent: a script of progress on a timer, then an outcome, printed
+ * to its terminal in colour as a real agent's would be.
  *
  * It costs nothing and needs no credentials, so the runner, the sync loop and
  * the floor can all be developed and tested end to end without a real agent.
@@ -42,6 +43,13 @@ const FAKE_PR_OFFSET = 1_000_000;
 
 /** Where in its worktree the mock writes, apart from anything the repository has. */
 const MOCK_DIR = ".sims-mock";
+
+const BOLD = "\u001b[1m";
+const DIM = "\u001b[2m";
+const RED = "\u001b[31m";
+const GREEN = "\u001b[32m";
+const CYAN = "\u001b[36m";
+const RESET = "\u001b[0m";
 
 interface Step {
   readonly activity: string;
@@ -108,11 +116,14 @@ export function createMockAgent(options: MockAgentOptions): Agent {
         step += 1;
         if (current !== undefined) {
           reporter.progress(current.activity);
+          reporter.output(`${CYAN}●${RESET} ${current.activity}\r\n`);
           try {
             current.act?.();
           } catch (error) {
             timer = undefined;
-            reporter.failed(`${current.activity} failed: ${gitError(error)}`);
+            const message = `${current.activity} failed: ${gitError(error)}`;
+            reporter.output(`${RED}✗ ${message}${RESET}\r\n`);
+            reporter.failed(message);
             return;
           }
           timer = setTimeout(next, stepMs);
@@ -121,18 +132,19 @@ export function createMockAgent(options: MockAgentOptions): Agent {
         timer = undefined;
         if (options.outcome === "pr-opened") {
           const number = FAKE_PR_OFFSET + task.issueNumber;
-          reporter.prOpened({
-            number,
-            title: `[mock] ${task.title}`,
-            url: `https://github.com/${options.repo}/pull/${number}`,
-          });
+          const url = `https://github.com/${options.repo}/pull/${number}`;
+          reporter.output(`${GREEN}✓ Opened ${url}${RESET}\r\n`);
+          reporter.prOpened({ number, title: `[mock] ${task.title}`, url });
         } else {
-          reporter.failed("The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a pull request.");
+          const message = "The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a pull request.";
+          reporter.output(`${RED}✗ ${message}${RESET}\r\n`);
+          reporter.failed(message);
         }
       };
 
       timer = setTimeout(() => {
         reporter.started();
+        reporter.output(`${BOLD}mock agent${RESET} on #${task.issueNumber}: ${task.title}\r\n${DIM}for ${task.requestedBy}${RESET}\r\n\r\n`);
         next();
       }, stepMs);
 

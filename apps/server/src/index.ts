@@ -23,7 +23,8 @@
  * work for the live agents is made beside the registry it wraps, and its
  * collection route is attached with the report route. The runner link is made
  * here too, with its sync route only when `RUNNER_SECRET` is set, and the rooms
- * read its slots and the orchestrator's agents as one feed.
+ * read its slots and the orchestrator's agents as one feed. The slots' screen
+ * store and its route come with the link, since a screen belongs to a slot.
  */
 
 import { Server } from "@colyseus/core";
@@ -32,6 +33,7 @@ import {
   MAX_RUNNER_SLOTS,
   OFFICE_ROOM_NAME,
   RECONNECT_GRACE_SECONDS,
+  RUNNER_SCREENS_PATH,
   RUNNER_SYNC_PATH,
   TICK_RATE_HZ,
 } from "@sim/shared";
@@ -46,6 +48,8 @@ import { CombinedLiveAgentSource } from "./agents/combined.js";
 import { type LiveAgentSource, LiveAgentRegistry } from "./agents/registry.js";
 import { createRunnerEndpoint } from "./agents/runnerEndpoint.js";
 import { RunnerLink } from "./agents/runnerLink.js";
+import { ScreenStore } from "./agents/screens.js";
+import { createScreensEndpoint } from "./agents/screensEndpoint.js";
 import { readConfig } from "./config.js";
 import { createGithubLoader } from "./github/client.js";
 import { createConfiguredManager, describeManager } from "./manager/fromConfig.js";
@@ -101,8 +105,11 @@ const runnerLink =
         repository: projectBoard.repository,
         timeoutMs: liveAgents.timeoutMs,
       });
-if (runnerLink !== undefined && runner.secret !== undefined) {
+// The slots' terminal screens, kept while the link reports each slot.
+const screens = runnerLink === undefined ? undefined : new ScreenStore({ slots: runnerLink });
+if (runnerLink !== undefined && screens !== undefined && runner.secret !== undefined) {
   routes.set(RUNNER_SYNC_PATH, createRunnerEndpoint({ secret: runner.secret, link: runnerLink }));
+  routes.set(RUNNER_SCREENS_PATH, createScreensEndpoint({ secret: runner.secret, store: screens }));
 }
 
 const floorSources: LiveAgentSource[] = [];
@@ -138,6 +145,7 @@ server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   ...(floor === undefined ? {} : { liveAgents: floor }),
   ...(liveAssignments === undefined ? {} : { liveAssignments }),
   ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink }),
+  ...(screens === undefined ? {} : { screens }),
 } satisfies OfficeRoomOptions);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -146,6 +154,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     liveAgentRegistry?.stop();
     liveAssignments?.stop();
     runnerLink?.stop();
+    screens?.stop();
     floor?.stop();
     void server.gracefullyShutdown();
   });
@@ -178,6 +187,7 @@ console.log(
   runner.secret === undefined
     ? "runner link: off (RUNNER_SECRET is not set)"
     : `runner link: POST ${RUNNER_SYNC_PATH} for ${projectBoard.repository}, ` +
-        `up to ${MAX_RUNNER_SLOTS} slots, leaving after ${liveAgents.timeoutMs / 1000}s of silence`,
+        `up to ${MAX_RUNNER_SLOTS} slots, leaving after ${liveAgents.timeoutMs / 1000}s of silence; ` +
+        `screens on POST ${RUNNER_SCREENS_PATH}`,
 );
 /* eslint-enable no-console */

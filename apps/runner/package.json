@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@colyseus/schema": "3.0.76",
-    "@sim/shared": "workspace:*"
+    "@sim/shared": "workspace:*",
+    "@xterm/headless": "^6.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.19.1",
