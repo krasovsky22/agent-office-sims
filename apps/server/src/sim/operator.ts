@@ -8,12 +8,18 @@
  * The comparison takes the same time however much of an attempt is right.
  * Both sides are hashed first, so the two buffers compared are always the same
  * length and the length of the passphrase does not leak through an early
- * return either. Guessing is held back by the per-client allowance below.
+ * return either. Guessing is held back by the per-client allowance below, and by the office's
+ * shared allowance of wrong answers, which outlives any one client.
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import { OPERATOR_ATTEMPT_ALLOWANCE, OPERATOR_ATTEMPT_WINDOW_SECONDS } from "@sim/shared";
+import {
+  OPERATOR_ATTEMPT_ALLOWANCE,
+  OPERATOR_ATTEMPT_WINDOW_SECONDS,
+  OPERATOR_ROOM_FAILURE_ALLOWANCE,
+  OPERATOR_ROOM_FAILURE_WINDOW_SECONDS,
+} from "@sim/shared";
 
 import { type TokenBucket, createTokenBucket } from "./expression.js";
 
@@ -47,6 +53,19 @@ export function createOperatorAttempts(now: number): TokenBucket {
   return createTokenBucket(
     OPERATOR_ATTEMPT_ALLOWANCE,
     OPERATOR_ATTEMPT_ALLOWANCE / OPERATOR_ATTEMPT_WINDOW_SECONDS,
+    now,
+  );
+}
+
+/**
+ * The office's allowance of wrong answers, shared by every client in it:
+ * {@link OPERATOR_ROOM_FAILURE_ALLOWANCE}, refilling over
+ * {@link OPERATOR_ROOM_FAILURE_WINDOW_SECONDS}.
+ */
+export function createOperatorRoomFailures(now: number): TokenBucket {
+  return createTokenBucket(
+    OPERATOR_ROOM_FAILURE_ALLOWANCE,
+    OPERATOR_ROOM_FAILURE_ALLOWANCE / OPERATOR_ROOM_FAILURE_WINDOW_SECONDS,
     now,
   );
 }

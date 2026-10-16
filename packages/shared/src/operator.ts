@@ -26,12 +26,24 @@ export const OPERATOR_ATTEMPT_ALLOWANCE = 5;
 /** The window those attempts are spread over, in seconds: five every five minutes. */
 export const OPERATOR_ATTEMPT_WINDOW_SECONDS = 300;
 
+/**
+ * Wrong answers the whole office may give before verifying is closed to
+ * everyone. A client's own allowance goes when it leaves; this one does not,
+ * so leaving and rejoining does not start a guesser over.
+ */
+export const OPERATOR_ROOM_FAILURE_ALLOWANCE = 20;
+
+/** The window the office's wrong answers are spread over, in seconds. */
+export const OPERATOR_ROOM_FAILURE_WINDOW_SECONDS = 300;
+
 /** Why an attempt to verify as operator was turned down. Refusal changes nothing. */
 export const OPERATOR_REJECTION = {
   /** Not the passphrase. */
   wrong: "wrong",
   /** Too many attempts; the next one is refused unread until the allowance refills. */
   throttled: "throttled",
+  /** The office has given too many wrong answers; every attempt is refused unread until they refill. */
+  locked: "locked",
   /** This server has no operator passphrase, so there is nothing to verify. */
   unavailable: "unavailable",
 } as const;

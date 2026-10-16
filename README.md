@@ -174,6 +174,9 @@ one that retries a request tell what it has already seen. After collecting, the
 orchestrator's next report for that agent must already show it working on the
 item; any other report (idle, stopped, working on something else) or the agent
 leaving means the assignment counts as not taken, and the manager says so.
+Until then its nameplate and roster line say `next #39`; its own task still
+comes only from its reports. The manager says in the conversation when the
+orchestrator picks an assignment up, and when the agent starts on it or does not.
 
 #### The operator
 
@@ -191,7 +194,10 @@ right answer marks them operator, shown as an `Operator` badge in every tab's
 roster, and gives them the CEO role if someone else holds it; the change is
 announced in the chat log like a succession, and the previous CEO stays on as
 an executive. A wrong answer is refused, and each client gets five attempts,
-refilling over five minutes. The passphrase is compared in constant time and
+refilling over five minutes. Leaving and rejoining does not start a guesser
+over: the whole office also shares twenty wrong answers, refilling over five
+minutes, and while those are spent every attempt, right or wrong, is refused
+until they refill. The passphrase is compared in constant time and
 goes no further than the server process: it is not in the replicated state, in
 any message or in the logs. The operator mark lasts as long as the player's
 place in the office, through a reconnection inside the grace period but not a
@@ -201,9 +207,6 @@ A server with `RUNNER_SECRET` set and no `OPERATOR_PASSPHRASE` refuses to
 start, because a runner would otherwise take orders from whoever opens the page
 first. For local development, `REAL_AGENTS_TRUST_CEO=on` lets it start anyway
 and trusts the CEO as before; never set it on a deployment.
-Until then its nameplate and roster line say `next #39`; its own task still
-comes only from its reports. The manager says in the conversation when the
-orchestrator picks an assignment up, and when the agent starts on it or does not.
 
 ### The runner link
 
@@ -476,7 +479,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twenty:
+Then confirm all twenty-one:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -858,7 +861,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/manager/            the AI manager: its view of the office, rule and model planners, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/rooms/operatorHandlers.ts  verifying as operator, and the CEO role it takes
-  src/sim/operator.ts     the passphrase check, in constant time, and each client's attempts
+  src/sim/operator.ts     the passphrase check, in constant time, and the attempt allowances
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
 apps/runner/       @sim/runner   the agent runner: slots, agents, their screens, and the sync with the server
   src/config.ts           its RUNNER_* variables, refused at boot when wrong

@@ -52,6 +52,7 @@ export function operatorAccessFor(actor: OfficeActor, operatorRequired: boolean)
 const REJECTION_TEXT: Readonly<Record<OperatorRejection, string>> = {
   [OPERATOR_REJECTION.wrong]: "That is not the operator passphrase.",
   [OPERATOR_REJECTION.throttled]: "Too many tries at the operator passphrase — wait a few minutes.",
+  [OPERATOR_REJECTION.locked]: "Too many wrong operator passphrases in this office — wait a few minutes.",
   [OPERATOR_REJECTION.unavailable]: "This office has no operator passphrase to verify.",
 };
 

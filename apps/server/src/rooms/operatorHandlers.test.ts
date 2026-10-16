@@ -3,9 +3,10 @@
  *
  * The issue's acceptance, end to end: a player who proves the passphrase is
  * operator and CEO in every tab, and the change is announced; a wrong one is
- * refused and guessing runs out of attempts; the passphrase is in no state,
- * broadcast or log line; and a CEO who has not verified is refused, in the
- * conversation, when Firstmate would send work to a live agent.
+ * refused and guessing runs out of attempts, even across rejoins; the
+ * passphrase is in no state, broadcast or log line; and a CEO who has not
+ * verified is refused, in the conversation, when Firstmate would send work to
+ * a live agent.
  */
 
 import { Server } from "@colyseus/core";
@@ -21,6 +22,7 @@ import {
   OFFICE_ROOM_NAME,
   OPERATOR_ATTEMPT_ALLOWANCE,
   OPERATOR_REJECTION,
+  OPERATOR_ROOM_FAILURE_ALLOWANCE,
   type OfficeState,
   type OperatorRejectedEvent,
   PLAYER_ROLE,
@@ -199,6 +201,36 @@ describe("verifying as operator", () => {
     expect(dana.rejections).toEqual([]);
 
     await leave(milo, dana);
+  });
+
+  it("does not start a guesser over when they leave and rejoin", async () => {
+    const { dana, milo } = await openOffice();
+    await leave(milo);
+    let failures = 0;
+    while (failures < OPERATOR_ROOM_FAILURE_ALLOWANCE) {
+      const guesser = listen(await new Client(endpoint).joinById<OfficeState>(dana.room.roomId, { name: "Guesser" }));
+      const tries = Math.min(OPERATOR_ATTEMPT_ALLOWANCE, OPERATOR_ROOM_FAILURE_ALLOWANCE - failures);
+      for (let attempt = 0; attempt < tries; attempt += 1) {
+        verify(guesser, `${PASSPHRASE}?`);
+      }
+      await settled(() => guesser.rejections.length === tries);
+      expect(new Set(guesser.rejections.map((event) => event.rejection))).toEqual(new Set([OPERATOR_REJECTION.wrong]));
+      failures += tries;
+      await leave(guesser);
+    }
+
+    // A fresh session, with its own allowance untouched, is still refused unread.
+    const rejoined = listen(await new Client(endpoint).joinById<OfficeState>(dana.room.roomId, { name: "Guesser" }));
+    verify(rejoined, PASSPHRASE);
+    await settled(() => rejoined.rejections.length === 1);
+    expect(rejoined.rejections).toEqual([{ rejection: OPERATOR_REJECTION.locked }]);
+    verify(dana, PASSPHRASE);
+    await settled(() => dana.rejections.length === 1);
+    expect(dana.rejections).toEqual([{ rejection: OPERATOR_REJECTION.locked }]);
+    expect(seen(dana, rejoined.room.sessionId)).toEqual({ role: PLAYER_ROLE.exec, operator: false });
+    expect(seen(dana, dana.room.sessionId)).toEqual({ role: PLAYER_ROLE.ceo, operator: false });
+
+    await leave(rejoined, dana);
   });
 
   it("verifies a CEO without a change of CEO to announce", async () => {
