@@ -383,6 +383,9 @@ describe("SlotPool", () => {
     reporter?.progress(`Bash: curl -H 'Authorization: ${secret}'`);
     expect(slot(slots)?.activity).not.toContain(secret);
     expect(slot(slots)?.activity).toContain("Authorization: ***");
+    reporter?.progress(`Bash: ${"x".repeat(MAX_TITLE_LENGTH - 20)} ${secret}`);
+    expect(Buffer.byteLength(slot(slots)?.activity ?? "")).toBe(MAX_TITLE_LENGTH);
+    expect(slot(slots)?.activity).toMatch(/ \*+$/);
     reporter?.exited(`Claude exited with code 1: ${secret}`, false);
     const messages = slots.pendingEvents().map((event) => event.message);
     expect(messages.at(-1)).toBe(`Claude exited with code 1: ${"*".repeat(secret.length)}`);

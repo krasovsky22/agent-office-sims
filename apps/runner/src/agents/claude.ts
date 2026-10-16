@@ -16,9 +16,6 @@ import { join } from "node:path";
 import { HOOK_ENV, HOOK_PATH } from "./hookServer.js";
 import type { ProviderAdapter, RunHandle } from "./provider.js";
 
-/** Longest activity line taken from a hook; the slot cuts it again to the contract's budget. */
-const MAX_ACTIVITY = 80;
-
 /** The hook events the runner listens to. */
 const HOOK_EVENTS = [
   "SessionStart",
@@ -61,7 +58,7 @@ export const CLAUDE_ALLOWED_COMMANDS: readonly string[] = [
 /** First-run screens Claude shows before it can take a prompt. */
 const SETUP_PROMPT =
   /trust this folder|Do you trust the files|Allow external CLAUDE\.md|Select login method|Choose the text style|Press Enter to continue|Bypass Permissions mode/i;
-const NOT_LOGGED_IN = /Not logged in\s*·\s*Run \/login|Invalid API key|Please run \/login/i;
+const NOT_LOGGED_IN = /Not logged in\s*·\s*Run \/login|Please run \/login/i;
 
 /**
  * The end of the output read for a turn refused for want of a sign-in: the
@@ -143,10 +140,9 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-/** One line of at most {@link MAX_ACTIVITY} characters. */
+/** One line; the slot masks its secrets, then cuts it to the contract's budget. */
 function line(value: string): string {
-  const flat = value.replace(/\s+/g, " ").trim();
-  return flat.length > MAX_ACTIVITY ? `${flat.slice(0, MAX_ACTIVITY - 1)}…` : flat;
+  return value.replace(/\s+/g, " ").trim();
 }
 
 /** `Bash: pnpm test`, `Edit: src/index.ts`. */

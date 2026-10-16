@@ -265,12 +265,11 @@ describe("claudeHook", () => {
     expect(run.seen).toEqual(["working: tool", "turn-done"]);
   });
 
-  it("keeps an activity to one short line", () => {
+  it("keeps an activity to one line, whole, for the slot to mask and cut", () => {
     const run = recordingRun("working");
-    claudeHook(run, "PreToolUse", { tool_name: "Bash", tool_input: { command: `echo one\necho ${"x".repeat(200)}` } });
-    const [seen] = run.seen;
-    expect(seen).not.toContain("\n");
-    expect(seen?.length).toBeLessThanOrEqual("working: ".length + 80);
+    const long = "x".repeat(200);
+    claudeHook(run, "PreToolUse", { tool_name: "Bash", tool_input: { command: `echo one\necho ${long}` } });
+    expect(run.seen).toEqual([`working: Bash: echo one echo ${long}`]);
   });
 });
 
@@ -280,9 +279,14 @@ describe("claudeBlocked", () => {
   });
 
   it("once a turn has ended, takes a sign-in error only from the end of its output", () => {
-    const turn = `cat .env.example\nERROR: Invalid API key\n${"Here is what the file holds. ".repeat(60)}\n> `;
+    const turn = `cat claude.ts\nNot logged in · Please run /login\n${"Here is what the file holds. ".repeat(60)}\n> `;
     expect(claudeBlocked(turn, false)).toBeUndefined();
     expect(claudeBlocked(`${turn}\n⎿  API Error: 401 · Please run /login\n> `, false)).toMatch(/signed in/);
+  });
+
+  it("takes a reply that names an API key error for no sign-in screen", () => {
+    expect(claudeBlocked("⏺ I added handling for the 'Invalid API key' response.\n> ", false)).toBeUndefined();
+    expect(claudeBlocked("⎿  API Error: 401 Invalid API key · Please run /login\n> ", false)).toMatch(/signed in/);
   });
 
   it("spots the trust screen only before it has started", () => {
