@@ -84,7 +84,7 @@ describe("parseRunnerSync", () => {
   it("sanitises every string it keeps", () => {
     const parsed = parseRunnerSync({
       ...SYNC,
-      slots: [{ id: "slot-1", name: "Claude\n\u0000 1", status: "working", activity: "a\nb\u0007c".repeat(10) }],
+      slots: [{ id: "slot-1", name: "Claude\n\u0000 1", status: "working", activity: "a\nb\u0007c".repeat(5) }],
       events: [{ id: "event-1", kind: "failed", slotId: "slot-1", issueNumber: 39, message: "line one\nline two" }],
     });
     const slot = parsed?.slots[0];
@@ -119,6 +119,9 @@ describe("parseRunnerSync", () => {
     ["an activity longer than a title", { ...SYNC, slots: [{ id: "s", status: "working", activity: "a".repeat(91) }] }],
     ["a pull request title longer than a title", { ...SYNC, slots: [{ id: "s", status: "working", pr: { number: 1, title: "t".repeat(91), url: PULL } }] }],
     ["an event message longer than a work note", { ...SYNC, events: [{ ...SYNC.events[0], message: "m".repeat(281) }] }],
+    ["an event message within its length but past its bytes", { ...SYNC, events: [{ ...SYNC.events[0], message: "\u2014".repeat(94) }] }],
+    ["a slot name of control characters past its bytes", { ...SYNC, slots: [{ id: "s", name: "\u001b".repeat(4), status: "idle" }] }],
+    ["a pull request link within its length but past its bytes", { ...SYNC, slots: [{ id: "s", status: "working", pr: { number: 1, url: `${PULL}?q=${"\u00e9".repeat(150)}` } }] }],
     ["a slot name that is not a string", { ...SYNC, slots: [{ id: "s", name: ["Claude"], status: "idle" }] }],
   ])("refuses a sync with %s", (_label, raw) => {
     expect(parseRunnerSync(raw)).toBeUndefined();

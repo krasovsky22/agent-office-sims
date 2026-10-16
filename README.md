@@ -194,10 +194,12 @@ Each sync carries the runner's whole state. `slots` lists every slot, at most
 optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`).
 `events` lists what happened since the last answered sync, at most 8, each
 `started`, `pr-opened`, `failed` or `finished`, with an optional `pr` and
-`message`; `acked` holds at most 32 ids. A `name` is at most 18 characters, an
-`activity` or a `pr` title 90, a `message` 280 and a `pr` link 300; a sync with a
-longer one is refused rather than cut, which keeps every sync the server takes
-under 16 KB. A runner re-sends an event until a sync carrying it is answered, and
+`message`; `acked` holds at most 32 ids. Strings are measured in bytes: the
+UTF-8 of the string as `JSON.stringify` writes it, escapes included and quotes
+not. A `name` is at most 18 bytes, an `activity` or a `pr` title 90, a `message`
+280 and a `pr` link 300; a sync with a longer one is refused rather than cut,
+which keeps every sync the server takes under 16 KB whatever its characters,
+sent as `JSON.stringify` writes it. A runner re-sends an event until a sync carrying it is answered, and
 the server passes each event id on once. The shape is `RunnerSync` in
 `packages/shared/src/runner.ts`.
 

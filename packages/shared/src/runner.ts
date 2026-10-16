@@ -14,7 +14,7 @@
  */
 
 import { MAX_WORK_NOTE_LENGTH } from "./constants.js";
-import { parseTaskUrl } from "./liveAgents.js";
+import { MAX_TASK_URL_LENGTH, parseTaskUrl } from "./liveAgents.js";
 import {
   MAX_NAME_LENGTH,
   MAX_TITLE_LENGTH,
@@ -208,17 +208,32 @@ function isEventKind(value: unknown): value is RunnerEventKind {
 }
 
 /**
- * Reads an optional string, refusing one longer than it is kept at rather than
- * cutting it: the caps on every string and list are what bound a sync's size,
- * so a sync the parser takes always fits the route's body limit.
+ * The bytes a string takes in a JSON body as `JSON.stringify` writes it: its
+ * UTF-8, with JSON's escapes and without the quotes.
+ */
+function encodedBytes(value: string): number {
+  let bytes = 0;
+  for (const character of JSON.stringify(value).slice(1, -1)) {
+    const code = character.codePointAt(0) ?? 0;
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+/**
+ * Reads an optional string, refusing one past its budget rather than cutting
+ * it. The budget is in {@link encodedBytes}, not characters: the caps on every
+ * string and list are what bound a sync's size, and measuring in the body's
+ * own unit keeps a sync the parser takes inside the route's body limit
+ * whatever characters it holds.
  *
  * @returns the sanitised string, `""` when absent, or `undefined` when refused.
  */
-function parseText(raw: unknown, max: number, sanitize: (raw: string) => string): string | undefined {
+function parseText(raw: unknown, maxBytes: number, sanitize: (raw: string) => string): string | undefined {
   if (raw === undefined || raw === null) {
     return "";
   }
-  return typeof raw === "string" && raw.length <= max ? sanitize(raw) : undefined;
+  return typeof raw === "string" && encodedBytes(raw) <= maxBytes ? sanitize(raw) : undefined;
 }
 
 /**
@@ -253,7 +268,8 @@ function parsePullRequest(raw: unknown): RunnerPullRequest | undefined | null {
   if (candidate === undefined || !isIssueNumber(candidate["number"])) {
     return null;
   }
-  const url = parseTaskUrl(candidate["url"]);
+  const rawUrl = parseText(candidate["url"], MAX_TASK_URL_LENGTH, (text) => text);
+  const url = rawUrl === undefined ? undefined : parseTaskUrl(rawUrl);
   const title = parseText(candidate["title"], MAX_TITLE_LENGTH, sanitizeTitle);
   if (url === undefined || url === "" || title === undefined) {
     return null;
@@ -309,8 +325,8 @@ function parseEvent(raw: unknown): RunnerEvent | undefined {
 /**
  * Validates a raw sync body.
  *
- * Refuses the whole body for any malformed part, any list or string past its
- * cap, or a slot id reported twice; the runner sends its whole state again a second
+ * Refuses the whole body for any malformed part, any list past its cap, any
+ * string past its budget in bytes, or a slot id reported twice; the runner sends its whole state again a second
  * later, so nothing is lost by refusing and nothing half-read is kept.
  *
  * @returns the sync, or `undefined` if the payload is not one.

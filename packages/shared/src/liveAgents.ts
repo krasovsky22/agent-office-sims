@@ -60,7 +60,7 @@ export interface LiveAgentReport {
 const LIVE_AGENT_ID = /^[A-Za-z0-9._-]{1,48}$/;
 
 /** Longer than any issue or pull request URL, short enough to bound a report. */
-const MAX_TASK_URL_LENGTH = 300;
+export const MAX_TASK_URL_LENGTH = 300;
 
 const REPORT_STATUSES: ReadonlySet<string> = new Set(Object.values(LIVE_AGENT_REPORT_STATUS));
 

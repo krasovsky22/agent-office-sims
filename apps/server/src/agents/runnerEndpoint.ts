@@ -29,9 +29,10 @@ import type { RunnerLink } from "./runnerLink.js";
 export const RUNNER_SYNC_PATH = "/agents/runner/sync";
 
 /**
- * The parser refuses any list or string past its cap, so a sync it would take
- * written in plain ASCII, every list full and every string at its longest, is
- * about 12 KB and fits.
+ * The parser refuses any list past its cap and any string past its budget in
+ * UTF-8 bytes as `JSON.stringify` writes it, so a sync it would take, every
+ * list full and every string at its budget, is about 12 KB whatever characters
+ * it holds, and fits.
  */
 export const MAX_SYNC_BYTES = 16 * 1024;
 

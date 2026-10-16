@@ -20,6 +20,7 @@ import {
   MAX_RUNNER_ACKS,
   MAX_RUNNER_EVENTS,
   MAX_RUNNER_SLOTS,
+  MAX_TASK_URL_LENGTH,
   MAX_TITLE_LENGTH,
   MAX_WORK_NOTE_LENGTH,
   type OfficeState,
@@ -174,12 +175,26 @@ describe(`POST ${RUNNER_SYNC_PATH}`, () => {
     expect(link.current()).toEqual([]);
   });
 
-  it("takes the largest sync the contract allows", async () => {
+  it.each([
+    ["plain ASCII", "x"],
+    ["non-ASCII and escapes", "\u00e9\u2014\u{1F600}\u001b\"\\"],
+  ])("takes the largest sync the contract allows, in %s", async (_label, characters) => {
+    const cycle = Array.from(characters);
+    const fill = (budget: number, prefix = ""): string => {
+      let text = prefix;
+      for (let index = 0; ; index += 1) {
+        const next = `${text}${cycle[index % cycle.length]}`;
+        if (Buffer.byteLength(JSON.stringify(next)) - 2 > budget) {
+          return text;
+        }
+        text = next;
+      }
+    };
     const issueNumber = 0xffffffff;
     const pr = {
       number: issueNumber,
-      title: "t".repeat(MAX_TITLE_LENGTH),
-      url: `https://github.com/${REPO}/pull/${"9".repeat(300 - `https://github.com/${REPO}/pull/`.length)}`,
+      title: fill(MAX_TITLE_LENGTH),
+      url: fill(MAX_TASK_URL_LENGTH, `https://github.com/${REPO}/pull/1?q=`),
     };
     const body = JSON.stringify({
       runnerId: "r".repeat(32),
@@ -187,10 +202,10 @@ describe(`POST ${RUNNER_SYNC_PATH}`, () => {
       acked: Array.from({ length: MAX_RUNNER_ACKS }, (_, index) => `${index}`.padStart(64, "c")),
       slots: Array.from({ length: MAX_RUNNER_SLOTS }, (_, index) => ({
         id: `${index}`.padStart(32, "s"),
-        name: "n".repeat(MAX_NAME_LENGTH),
+        name: fill(MAX_NAME_LENGTH),
         status: "needs-input",
         issueNumber,
-        activity: "a".repeat(MAX_TITLE_LENGTH),
+        activity: fill(MAX_TITLE_LENGTH),
         pr,
       })),
       events: Array.from({ length: MAX_RUNNER_EVENTS }, (_, index) => ({
@@ -199,7 +214,7 @@ describe(`POST ${RUNNER_SYNC_PATH}`, () => {
         slotId: "s".repeat(32),
         issueNumber,
         pr,
-        message: "m".repeat(MAX_WORK_NOTE_LENGTH),
+        message: fill(MAX_WORK_NOTE_LENGTH),
       })),
     });
     expect(Buffer.byteLength(body)).toBeLessThanOrEqual(MAX_SYNC_BYTES);
