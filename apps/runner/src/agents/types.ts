@@ -21,18 +21,27 @@ export interface AgentTask {
   readonly workdir: string;
 }
 
-/** How an agent tells its slot what it is doing. */
+/**
+ * How an agent tells its slot what it is doing. The slot reports `started`
+ * once, on the first of these, whichever it is.
+ */
 export interface AgentReporter {
-  /** It is up and working on the task. */
+  /** It is up, and has not started on anything yet. */
   started(): void;
-  /** What it is doing now, e.g. `Bash: pnpm test`. */
+  /** It is working; what it is doing now, e.g. `Bash: pnpm test`. */
   progress(activity: string): void;
   /** What it printed to its terminal, escape sequences and all; the slot's screen shows it. */
   output(data: string): void;
+  /** It is waiting on a person: a permission, a question, a sign-in. */
+  needsInput(reason: string): void;
+  /** Its turn ended and it waits at its prompt, still holding the task. */
+  turnDone(): void;
   /** It opened a pull request; the work is over. */
   prOpened(pr: RunnerPullRequest): void;
   /** It gave up or broke; the work is over. */
   failed(message: string): void;
+  /** Its process ended on its own; the work is over, `clean` when it exited without an error. */
+  exited(message: string, clean: boolean): void;
 }
 
 /** One agent working one task. */

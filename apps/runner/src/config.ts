@@ -15,8 +15,8 @@ import { MAX_RUNNER_SLOTS } from "@sim/shared";
 
 import { MOCK_OUTCOMES, type MockOutcome } from "./agents/mock.js";
 
-/** The agents a slot can run. Real ones arrive with their own issues; `mock` needs no credentials. */
-export const RUNNER_AGENT_KINDS = ["mock"] as const;
+/** The agents a slot can run: `mock` needs no credentials and spends nothing; `claude` is Claude Code. */
+export const RUNNER_AGENT_KINDS = ["mock", "claude"] as const;
 
 export type RunnerAgentKind = (typeof RUNNER_AGENT_KINDS)[number];
 
@@ -35,6 +35,9 @@ const MIN_SECRET_LENGTH = 16;
 
 /** `owner/name`, as the sync contract accepts it. */
 const REPOSITORY_PATTERN = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
+
+/** A model name or alias as Claude Code takes it: `sonnet`, `claude-sonnet-4-5`, `opus[1m]`. */
+const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,63}$/;
 
 /** A runner id, as the sync contract accepts it. */
 const RUNNER_ID_LENGTH = 32;
@@ -57,6 +60,8 @@ export interface RunnerConfig {
   readonly agent: RunnerAgentKind;
   /** How the `mock` agent's work ends. */
   readonly mockOutcome: MockOutcome;
+  /** The model a real agent runs; its CLI's own default when `undefined`. */
+  readonly model: string | undefined;
   /** Slots, from 1 to `MAX_RUNNER_SLOTS`. */
   readonly maxAgents: number;
   /** Longest one task may run before its slot stops it. */
@@ -82,6 +87,8 @@ export interface RunnerConfig {
  * - `RUNNER_AGENT`: one of {@link RUNNER_AGENT_KINDS}, defaulting to `mock`.
  * - `RUNNER_MOCK_OUTCOME`: how a `mock` agent's work ends, `failed` (the
  *   default) or `pr-opened` with a fake pull request.
+ * - `RUNNER_MODEL`: the model a `claude` agent runs, its `--model`; unset,
+ *   Claude Code's default.
  * - `RUNNER_MAX_AGENTS`: slots, from 1 to `MAX_RUNNER_SLOTS`, defaulting to 2.
  * - `RUNNER_TASK_TIMEOUT_MINUTES`: whole minutes, at least 1, defaulting to 60.
  *
@@ -96,6 +103,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, host: string = 
     dataDir: readDataDir(env),
     agent: readAgent(env),
     mockOutcome: readMockOutcome(env),
+    model: readModel(env),
     maxAgents: readMaxAgents(env),
     taskTimeoutMs: readTaskTimeoutMinutes(env) * 60_000,
     runnerId: runnerIdFor(host),
@@ -184,6 +192,17 @@ function readMockOutcome(env: NodeJS.ProcessEnv): MockOutcome {
     throw new Error(`RUNNER_MOCK_OUTCOME must be one of ${MOCK_OUTCOMES.join(", ")}, got "${env["RUNNER_MOCK_OUTCOME"]}"`);
   }
   return outcome;
+}
+
+function readModel(env: NodeJS.ProcessEnv): string | undefined {
+  const raw = read(env, "RUNNER_MODEL");
+  if (raw === "") {
+    return undefined;
+  }
+  if (!MODEL_PATTERN.test(raw)) {
+    throw new Error(`RUNNER_MODEL must be a model name such as sonnet or claude-sonnet-4-5, got "${raw}"`);
+  }
+  return raw;
 }
 
 /**

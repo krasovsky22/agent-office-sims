@@ -1,11 +1,12 @@
 /**
- * Keeps the runner's own secrets off the agents' screens.
+ * Keeps the runner's own secrets off the agents' screens and status lines.
  *
  * Everything on a slot's screen goes to every client in the office, and an
  * agent can print anything it can read: `env`, a config file, a failing
  * command that echoes its token. So before a frame leaves the runner, every
  * secret value the runner holds is masked in the text of its runs, whatever
- * colours it was drawn in and however it wrapped.
+ * colours it was drawn in and however it wrapped; a slot's activity and its
+ * events' messages, which quote the agent, are masked the same way.
  *
  * The secrets are the runner's own: `RUNNER_SECRET`, and every variable in
  * its environment whose name says it holds a secret, since the runner's
@@ -43,6 +44,8 @@ export interface Redactor {
    * screen, so a secret cut by the top edge is still found; `""` when none.
    */
   redact(rows: readonly MutableRun[][], wrapped: readonly boolean[], above: string): void;
+  /** `text` with every secret in it masked: a status line or an event's message. */
+  redactText(text: string): string;
 }
 
 /** Every secret value the runner holds: the given ones, and the environment's. */
@@ -76,6 +79,13 @@ export function createRedactor(secrets: readonly string[]): Redactor {
         maskLine(list, rows.slice(start, end), start === 0 ? above : "");
         start = end;
       }
+    },
+    redactText(text) {
+      const run: MutableRun = [text, 0, 0, 0];
+      if (list.length > 0) {
+        maskLine(list, [[run]], "");
+      }
+      return run[0];
     },
   };
 }

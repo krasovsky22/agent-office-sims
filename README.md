@@ -282,14 +282,17 @@ has columns, or with a colour that is not one.
 Before a frame leaves the runner, every secret it holds is masked with `*`:
 `RUNNER_SECRET`, and the value of every variable in its environment whose name
 says it is a secret (`*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*_KEY`, `*API_KEY*`
-and the like), however the agent coloured or wrapped it.
+and the like), however the agent coloured or wrapped it. A slot's activity
+line and its events' messages, which can quote what the agent printed or ran,
+are masked the same way before they are synced.
 
 ### Running the runner
 
 `apps/runner` (`@sim/runner`) is that runner. Each of its slots runs one agent
-on one issue at a time; for now the only agent is `mock`, which needs no
+on one issue at a time. The default agent is `mock`, which needs no
 credentials and spends nothing, so the whole loop can be developed and tested
-without a real one. With `pnpm dev` running and `RUNNER_SECRET` set on the
+without a real one; `RUNNER_AGENT=claude` runs Claude Code instead (see
+[Claude Code in the runner](#claude-code-in-the-runner)). With `pnpm dev` running and `RUNNER_SECRET` set on the
 server, start it in a second terminal with the same secret:
 
 ```sh
@@ -344,8 +347,9 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_SERVER_URL` | `http://localhost:2567` | The server's origin; `https:` for any host but this machine, since every sync carries the secret. |
 | `RUNNER_REPO` | `krasovsky22/agent-office-sims` | `owner/name`; must be the server's `PROJECT_BOARD_REPO`. |
 | `RUNNER_DATA_DIR` | `~/.sim-runner` | An absolute path for the runner's own files, its clone and its tasks' worktrees, created private to its user. |
-| `RUNNER_AGENT` | `mock` | The agent each slot runs. |
+| `RUNNER_AGENT` | `mock` | The agent each slot runs: `mock` or `claude`. |
 | `RUNNER_MOCK_OUTCOME` | `failed` | How a mock agent's work ends: `failed` or `pr-opened`. |
+| `RUNNER_MODEL` | Claude Code's | The model a `claude` agent runs, passed as `--model`: `sonnet`, `claude-sonnet-4-5`. |
 | `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
 | `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes one task may run before its slot stops it. |
 
@@ -366,6 +370,73 @@ marking adapted files in `THIRD_PARTY_NOTICES.md`.
 Two query parameters are useful while developing. `?props=off` renders the
 grey-box office instead of the asset kit, and `?debug` puts the draw-call count
 and the number of placed props on the HUD.
+
+#### Claude Code in the runner
+
+With `RUNNER_AGENT=claude`, each slot is named `Claude 1`, `Claude 2` and so
+on, and a `start` runs [Claude Code](https://code.claude.com/) in a terminal
+(a PTY) of its own, in the task's worktree. The runner refuses to start if
+`claude` is not on its `PATH`. Claude gets one prompt, built from the issue's
+number and title alone: read the issue with `gh issue view`, implement and
+verify the change, and commit it on the task's branch, without pushing or
+opening a pull request. The CEO's note follows, quoted. Claude reads the issue
+itself, so none of its text passes through the runner.
+
+The runner knows what Claude is doing from Claude's own hooks. Each Claude is
+started with `--settings <RUNNER_DATA_DIR>/claude/settings.json`, whose hooks
+post every event to a server the runner listens with on `127.0.0.1` only. Each
+Claude process gets a random token of its own, checked in constant time, that
+works only while it runs, so nothing else on the machine can report for it.
+The events set the slot's status and activity:
+
+| Claude | Slot |
+| --- | --- |
+| `SessionStart` | `idle`: up, and not on anything yet |
+| `UserPromptSubmit`, `PreToolUse` | `working`, with the prompt or the tool call as its activity, e.g. `Bash: pnpm test` |
+| `PermissionRequest`, `Notification`, `AskUserQuestion` | `needs-input`, with the reason, e.g. `Wants permission: Bash: git push` |
+| `Stop` | `idle` with the activity `Turn done`, still holding the issue |
+| the process exits | `exited`, and the work is over: `finished` on exit code 0, `failed` with the last line it printed otherwise |
+
+Claude's OSC 9;4 progress reports, when it sends them, also catch a turn that
+ends without a hook. A slot reports `started` once, on the first of these. A
+Claude that sits on a first-run screen instead of starting (not signed in, the
+folder-trust question, a setup prompt) is reported as `needs-input` with the
+reason, as is one still silent 12 seconds after it was started.
+
+Nobody answers Claude's questions yet, so a slot waiting on a person waits
+until the task timeout or a `stop`. A `stop` or the timeout sends `SIGTERM` to
+Claude's whole process group, which it leads, and `SIGKILL` five seconds later
+to anything still there; what is left in the group when Claude exits is killed
+too.
+
+Claude runs unattended with `--permission-mode acceptEdits` and a short
+allowlist of commands, `CLAUDE_ALLOWED_COMMANDS` in
+`apps/runner/src/agents/claude.ts`: `gh issue view`, the `git` commands that
+look at and commit its own work, the project's `pnpm` checks, and `ls`. Pushing,
+pull requests and anything else stop at a permission prompt and show as
+`needs-input`. It starts with only part of the runner's environment: `PATH`,
+`HOME`, `USER`, the locale (`LANG`, `LANGUAGE`, `LC_*`), `GH_TOKEN`, and
+Claude's credential (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
+`CLAUDE_CONFIG_DIR`); never `RUNNER_SECRET` or anything else. `USER` is there
+because macOS keeps a `/login` sign-in in the keychain under the user's name.
+
+To set a host up for it, as the runner's own user:
+
+1. Install Claude Code and sign in once: run `claude`, then `/login`, or set
+   `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` in the runner's
+   environment.
+2. Start the runner with `RUNNER_AGENT=claude`, and `RUNNER_MODEL` if you
+   want a model other than Claude Code's default. It clones the repository
+   into `<RUNNER_DATA_DIR>/repo` as it boots.
+3. Trust that clone once: run `claude` in `<RUNNER_DATA_DIR>/repo` and choose
+   `Yes, I trust this folder`. Claude trusts every worktree of a repository it
+   trusts, so tasks then start without the question; until then each one
+   stops at it and its slot shows `needs-input`.
+
+Every task is a real Claude Code session that spends from that account, and
+runs commands on the host. That is why the runner belongs on a machine or VM of
+its own, as a dedicated unprivileged user, and never on the game server; the
+runner does not check this itself.
 
 ## The two-tab check
 
@@ -548,7 +619,7 @@ Then confirm all twenty:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, company metrics and clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve and clock, the project board's GitHub feed and filters, agent staffing, agent movement, agent work, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -749,9 +820,16 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
   src/agents/mock.ts      the mock agent: scripted progress and a commit, then failed or a fake pull request
   src/terminal.ts         each slot's headless terminal, read off as screen frames
-  src/redact.ts           the runner's secrets, masked out of every frame
+  src/redact.ts           the runner's secrets, masked out of every frame, activity line and event message
   src/screenLoop.ts       the screens posted four times a second, fitted to the server's limit
   src/screensClient.ts    one post of the screens over HTTP
+  src/agents/provider.ts  what the PTY agent needs from each agent CLI's adapter
+  src/agents/ptyAgent.ts  an agent CLI in a PTY: launch, hooks, progress and first-run screens, stop by process group
+  src/agents/claude.ts    Claude Code's adapter: its command line, hook settings and allowlist, what each hook means
+  src/agents/hookServer.ts  the loopback server agents' hooks post to, a token per process
+  src/agents/childEnv.ts  the allowlist of the runner's environment an agent starts with
+  src/agents/prompt.ts    the first prompt an agent gets for an issue
+  src/agents/screen.ts    OSC 9;4 progress and plain text, read off a terminal's output
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do about the project board's work, and why
   src/staffing.ts         the staff panel's payroll, desks, and why a hire was refused
