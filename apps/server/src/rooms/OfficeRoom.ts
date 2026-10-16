@@ -542,8 +542,8 @@ export class OfficeRoom extends Room<OfficeState> {
       work,
       advisor,
       // The orchestrator's agents only: the manager hands work out through its
-      // queue, which a runner's slot is not on. It watches the whole floor for
-      // news, so a slot that needs someone is announced all the same.
+      // queue, which a runner's slot is not on. It watches the whole floor only
+      // for one that needs someone, so a waiting slot is announced all the same.
       liveAgents: assignments,
       floor: this.liveAgents,
       assignments,

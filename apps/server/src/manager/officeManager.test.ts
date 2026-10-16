@@ -228,7 +228,7 @@ describe("OfficeManager", () => {
     });
   });
 
-  it("posts once when a runner's slot on the floor needs someone, though it hands that slot no work", async () => {
+  it("posts once when a runner's slot on the floor needs someone, and nothing else about that slot", async () => {
     const slot = (status: LiveAgentRecord["status"], activity: string): LiveAgentRecord => ({
       id: "runner:runner-1:slot-1",
       name: "Claude 1",
@@ -236,9 +236,13 @@ describe("OfficeManager", () => {
       activity,
       task: { title: "Night shift", url: "https://github.com/o/r/issues/39" },
     });
-    let records: readonly LiveAgentRecord[] = [slot("working", "Bash: pnpm install")];
+    let records: readonly LiveAgentRecord[] = [];
     const floor: LiveAgentSource = { current: () => records, subscribe: () => () => undefined };
     const { published } = setUp(rules(), 10, floor);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    records = [slot("idle", "")];
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    records = [slot("working", "Bash: pnpm install")];
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(published).toEqual([]);
 
@@ -249,6 +253,12 @@ describe("OfficeManager", () => {
       text: "Claude 1 needs you on #39: Permission: Bash pnpm test",
     });
     records = [slot("needs-input", "Permission: Edit src/index.ts")];
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    records = [slot("working", "Bash: pnpm test")];
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    records = [slot("idle", "")];
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    records = [];
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(published).toHaveLength(1);
   });

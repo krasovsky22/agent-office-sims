@@ -16,7 +16,7 @@
 import { LIVE_AGENT_STATUS, WORK_STATUS, type WorkStatus, isLiveAgentOnTask } from "@sim/shared";
 
 import { LIVE_ASSIGNMENT_STATUS, type LiveAssignment, type LiveAssignmentStatus } from "./liveAssignments.js";
-import type { LinkView, OfficeView } from "./officeView.js";
+import type { LinkView, LiveAgentView, OfficeView } from "./officeView.js";
 
 /** What the manager remembers between looks. */
 export interface Observation {
@@ -34,10 +34,13 @@ export interface Observation {
       readonly name: string;
       /** On a task, whether at it or waiting on a person. */
       readonly working: boolean;
-      readonly needsInput: boolean;
-      readonly activity: string;
       readonly task: LinkView | undefined;
     }
+  >;
+  /** Every agent on the floor waiting on a person, the runners' slots too. */
+  readonly waiting: ReadonlyMap<
+    string,
+    { readonly name: string; readonly activity: string; readonly task: LinkView | undefined }
   >;
   readonly assignments: ReadonlyMap<string, { readonly status: LiveAssignmentStatus; readonly label: string; readonly agent: string }>;
 }
@@ -55,8 +58,16 @@ function needsYouText(name: string, task: LinkView | undefined, reason: string):
   return `${name} needs you${on}${reason === "" ? "." : `: ${reason}`}`;
 }
 
-/** Takes one look. */
-export function observe(view: OfficeView, assignments: readonly LiveAssignment[]): Observation {
+/**
+ * Takes one look. `floor` is every live agent on the floor, which the manager
+ * watches only for one waiting on a person; the rest of its news is about
+ * `view`'s.
+ */
+export function observe(
+  view: OfficeView,
+  assignments: readonly LiveAssignment[],
+  floor: readonly LiveAgentView[] = view.liveAgents,
+): Observation {
   const liveNames = new Map(view.liveAgents.map((agent) => [agent.id, agent.name]));
   return {
     work: new Map(
@@ -72,14 +83,13 @@ export function observe(view: OfficeView, assignments: readonly LiveAssignment[]
     liveAgents: new Map(
       view.liveAgents.map((agent) => [
         agent.id,
-        {
-          name: agent.name,
-          working: isLiveAgentOnTask(agent.status),
-          needsInput: agent.status === LIVE_AGENT_STATUS.needsInput,
-          activity: agent.activity,
-          task: agent.task,
-        },
+        { name: agent.name, working: isLiveAgentOnTask(agent.status), task: agent.task },
       ]),
+    ),
+    waiting: new Map(
+      floor
+        .filter((agent) => agent.status === LIVE_AGENT_STATUS.needsInput)
+        .map((agent) => [agent.id, { name: agent.name, activity: agent.activity, task: agent.task }]),
     ),
     assignments: new Map(
       assignments.map((assignment) => [
@@ -114,14 +124,16 @@ export function describeChanges(before: Observation, after: Observation): string
     } else if (previous.working && !agent.working) {
       lines.push(`${agent.name} stopped working on ${linkText(previous.task)} and is free.`);
     }
-    // Once per episode: a look that still finds it waiting has nothing new to say.
-    if (agent.needsInput && previous?.needsInput !== true) {
-      lines.push(needsYouText(agent.name, agent.task, agent.activity));
-    }
   }
   for (const [id, agent] of before.liveAgents) {
     if (!after.liveAgents.has(id)) {
       lines.push(`${agent.name} left the office.`);
+    }
+  }
+  for (const [id, agent] of after.waiting) {
+    // Once per episode: a look that still finds it waiting has nothing new to say.
+    if (!before.waiting.has(id)) {
+      lines.push(needsYouText(agent.name, agent.task, agent.activity));
     }
   }
 

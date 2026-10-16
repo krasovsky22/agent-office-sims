@@ -141,6 +141,17 @@ function link(title: string, url: string): LinkView {
   return { title, url, reference: taskReference(url) };
 }
 
+export function readLiveAgents(records: readonly LiveAgentRecord[]): LiveAgentView[] {
+  return records.map((record) => ({
+    id: record.id,
+    name: record.name,
+    status: record.status,
+    task: record.task === undefined ? undefined : link(record.task.title, record.task.url),
+    activity: record.activity ?? "",
+    assigned: record.assignment === undefined ? undefined : link(record.assignment.title, record.assignment.url),
+  }));
+}
+
 export function readOfficeView(sources: OfficeViewSources): OfficeView {
   const { state } = sources;
   let ceo: string | undefined;
@@ -168,20 +179,9 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
       WORK_STATUSES.indexOf(a.status) - WORK_STATUSES.indexOf(b.status) || a.issueNumber - b.issueNumber,
   );
 
-  const liveAgents = (sources.liveAgents ?? []).map(
-    (record): LiveAgentView => ({
-      id: record.id,
-      name: record.name,
-      status: record.status,
-      task: record.task === undefined ? undefined : link(record.task.title, record.task.url),
-      activity: record.activity ?? "",
-      assigned: record.assignment === undefined ? undefined : link(record.assignment.title, record.assignment.url),
-    }),
-  );
-
   return {
     ceo,
-    liveAgents,
+    liveAgents: readLiveAgents(sources.liveAgents ?? []),
     issueAgents,
     work,
     project: sources.project === undefined ? undefined : readProject(sources.project, work),

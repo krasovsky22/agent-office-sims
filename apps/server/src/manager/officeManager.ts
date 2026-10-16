@@ -52,7 +52,7 @@ import { type AdviceResult, type ManagerAdvisor, type ManagerRequest } from "./a
 import { carryOut } from "./assign.js";
 import { ManagerConversation } from "./conversation.js";
 import type { LiveAssignmentQueue } from "./liveAssignments.js";
-import { type OfficeView, readOfficeView } from "./officeView.js";
+import { type OfficeView, readLiveAgents, readOfficeView } from "./officeView.js";
 import { ADVICE_FAILURE } from "./plannerError.js";
 import { planFromRules } from "./rulePlanner.js";
 import { type Observation, describeChanges, observe } from "./updates.js";
@@ -71,9 +71,9 @@ export interface ManagerHost {
   /** The live agents, with their assignments; absent with no orchestrator. */
   readonly liveAgents: LiveAgentSource | undefined;
   /**
-   * Every live agent on the floor, the runners' slots too: what the manager
-   * watches for news, such as one that needs someone. Only the news; it hands
-   * work out and answers about {@link liveAgents}. Defaults to those.
+   * Every live agent on the floor, the runners' slots too: the manager watches
+   * it only for one that needs someone; all its other news, its work and its
+   * answers are about {@link liveAgents}. Defaults to those.
    */
   readonly floor?: LiveAgentSource | undefined;
   /** Where GitHub work for live agents is queued; absent with no orchestrator. */
@@ -242,9 +242,11 @@ export class OfficeManager {
       return;
     }
     try {
+      const view = this.look();
       const look = observe(
-        this.look(this.host.floor ?? this.host.liveAgents),
+        view,
         this.host.assignments?.madeBy(this.host.origin) ?? [],
+        this.host.floor === undefined ? view.liveAgents : readLiveAgents(this.host.floor.current()),
       );
       const lines = this.lastLook === undefined ? [] : describeChanges(this.lastLook, look);
       this.lastLook = look;
@@ -256,11 +258,11 @@ export class OfficeManager {
     }
   }
 
-  private look(liveAgents: LiveAgentSource | undefined = this.host.liveAgents): OfficeView {
+  private look(): OfficeView {
     return readOfficeView({
       state: this.host.work.state,
       project: this.host.work.board(),
-      liveAgents: liveAgents?.current(),
+      liveAgents: this.host.liveAgents?.current(),
     });
   }
 

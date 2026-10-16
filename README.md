@@ -223,7 +223,8 @@ carrying it is answered, and the server passes each event id on once. The shape 
 
 Slots are live agents on the floor, beside the orchestrator's: a `starting`,
 `working` or `needs-input` slot with an issue sits at a desk working on it, and
-an `idle` or `exited` one wanders. Their ids are `runner:<runnerId>:<slotId>`,
+an `idle` or `exited` one wanders. The manager says nothing about a slot coming
+in, starting, stopping or leaving; it posts only when one needs you. Their ids are `runner:<runnerId>:<slotId>`,
 which no reported agent's id can be. A runner the server has not heard from for
 `LIVE_AGENTS_TIMEOUT_SECONDS` leaves with its slots. At most four slots are on
 the floor at once, across every runner, and that is also the most one runner
