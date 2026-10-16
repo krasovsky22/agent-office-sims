@@ -277,8 +277,8 @@ not escape sequences, and the server strips control characters from every run.
 The server keeps the last whole screen of each slot its runner reports, applies
 each diff to it, and broadcasts every frame it accepts to every room as a
 `screens` message (`ScreenFramesEvent`), keyed by the slot's occupant id,
-`agent:runner:<runnerId>:<slotId>`. A client joining is sent every screen
-whole, so every tab holds the same screens. A diff with no screen to apply to,
+`agent:runner:<runnerId>:<slotId>`. A client joining, or reconnecting after a
+drop, is sent every screen whole, so every tab holds the same screens. A diff with no screen to apply to,
 or a size other than the screen's, and any frame for a slot the runner has not
 reported in a sync yet, is not kept or relayed, and the reply's `resend` names
 its slot so the runner sends that one whole. A batch from a runner whose sync
