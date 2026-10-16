@@ -8,8 +8,9 @@
  * The comparison takes the same time however much of an attempt is right.
  * Both sides are hashed first, so the two buffers compared are always the same
  * length and the length of the passphrase does not leak through an early
- * return either. Guessing is held back by the per-client allowance below, and by the office's
- * shared allowance of wrong answers, which outlives any one client.
+ * return either. Guessing is held back by the per-client allowance below, and
+ * by the gate's own allowance of wrong answers: the server makes one gate, so
+ * every room, and every room after it, spends from that one allowance.
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -17,14 +18,16 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import {
   OPERATOR_ATTEMPT_ALLOWANCE,
   OPERATOR_ATTEMPT_WINDOW_SECONDS,
-  OPERATOR_ROOM_FAILURE_ALLOWANCE,
-  OPERATOR_ROOM_FAILURE_WINDOW_SECONDS,
+  OPERATOR_FAILURE_ALLOWANCE,
+  OPERATOR_FAILURE_WINDOW_SECONDS,
 } from "@sim/shared";
 
-import { type TokenBucket, createTokenBucket } from "./expression.js";
+import { type TokenBucket, createTokenBucket, hasToken, tryConsume } from "./expression.js";
 
 export interface OperatorGate {
-  /** Whether `attempt` is the passphrase. */
+  /** Whether the allowance of wrong answers is spent, so no attempt should be read. */
+  readonly locked: () => boolean;
+  /** Whether `attempt` is the passphrase; a wrong one spends from the allowance. */
   readonly verify: (attempt: string) => boolean;
 }
 
@@ -34,14 +37,31 @@ function digest(value: string): Buffer {
 
 export function createOperatorGate(passphrase: string): OperatorGate {
   const expected = digest(passphrase);
+  const failures = createTokenBucket(
+    OPERATOR_FAILURE_ALLOWANCE,
+    OPERATOR_FAILURE_ALLOWANCE / OPERATOR_FAILURE_WINDOW_SECONDS,
+    Date.now(),
+  );
   return {
-    verify: (attempt) => timingSafeEqual(digest(attempt), expected),
+    locked: () => !hasToken(failures, Date.now()),
+    verify: (attempt) => {
+      if (timingSafeEqual(digest(attempt), expected)) {
+        return true;
+      }
+      tryConsume(failures, Date.now());
+      return false;
+    },
   };
 }
 
 /** Narrows a room option, which Colyseus may have merged with a client's join options. */
 export function isOperatorGate(value: unknown): value is OperatorGate {
-  return typeof value === "object" && value !== null && typeof (value as OperatorGate).verify === "function";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as OperatorGate).verify === "function" &&
+    typeof (value as OperatorGate).locked === "function"
+  );
 }
 
 /**
@@ -57,15 +77,3 @@ export function createOperatorAttempts(now: number): TokenBucket {
   );
 }
 
-/**
- * The office's allowance of wrong answers, shared by every client in it:
- * {@link OPERATOR_ROOM_FAILURE_ALLOWANCE}, refilling over
- * {@link OPERATOR_ROOM_FAILURE_WINDOW_SECONDS}.
- */
-export function createOperatorRoomFailures(now: number): TokenBucket {
-  return createTokenBucket(
-    OPERATOR_ROOM_FAILURE_ALLOWANCE,
-    OPERATOR_ROOM_FAILURE_ALLOWANCE / OPERATOR_ROOM_FAILURE_WINDOW_SECONDS,
-    now,
-  );
-}

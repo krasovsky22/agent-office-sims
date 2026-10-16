@@ -9,8 +9,9 @@
  *
  * The allowance is spent before the gate is asked, on every attempt, right or
  * wrong, so it bounds guessing however the guesses fall. A client's allowance
- * goes when it leaves, so the room also keeps one allowance of wrong answers
- * for everyone; while that is spent, every attempt is refused unread. The attempt itself is
+ * goes when it leaves, so the gate, made once for the whole server, also
+ * keeps one allowance of wrong answers for everyone; while that is spent,
+ * every attempt is refused unread. The attempt itself is
  * never logged or repeated back: the office event names who tried and whether
  * it worked, nothing more.
  */
@@ -30,8 +31,8 @@ import {
 } from "@sim/shared";
 
 import { recordOfficeEvent } from "../sim/events.js";
-import { type TokenBucket, hasToken, tryConsume } from "../sim/expression.js";
-import { type OperatorGate, createOperatorAttempts, createOperatorRoomFailures } from "../sim/operator.js";
+import { type TokenBucket, tryConsume } from "../sim/expression.js";
+import { type OperatorGate, createOperatorAttempts } from "../sim/operator.js";
 import { takeCeoRole } from "../sim/roles.js";
 
 /** What the handler needs from the room, named so a test can supply it. */
@@ -58,7 +59,6 @@ export function registerOperatorHandlers(
   host: OperatorHandlerHost,
 ): OperatorHandlers {
   const attempts = new Map<string, TokenBucket>();
-  const failures = createOperatorRoomFailures(host.now());
 
   room.onMessage(CLIENT_MESSAGE.operatorVerify, (client, raw: unknown) => {
     const message = parseOperatorVerifyMessage(raw);
@@ -70,7 +70,7 @@ export function registerOperatorHandlers(
       refuse(client, OPERATOR_REJECTION.unavailable);
       return;
     }
-    if (!hasToken(failures, host.now())) {
+    if (host.gate.locked()) {
       refuse(client, OPERATOR_REJECTION.locked);
       return;
     }
@@ -84,7 +84,6 @@ export function registerOperatorHandlers(
       return;
     }
     if (!host.gate.verify(message.passphrase)) {
-      tryConsume(failures, host.now());
       recordOfficeEvent("operator-refused", { actor: sender.name });
       refuse(client, OPERATOR_REJECTION.wrong);
       return;

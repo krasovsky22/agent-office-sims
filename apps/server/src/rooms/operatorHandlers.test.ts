@@ -22,7 +22,7 @@ import {
   OFFICE_ROOM_NAME,
   OPERATOR_ATTEMPT_ALLOWANCE,
   OPERATOR_REJECTION,
-  OPERATOR_ROOM_FAILURE_ALLOWANCE,
+  OPERATOR_FAILURE_ALLOWANCE,
   type OfficeState,
   type OperatorRejectedEvent,
   PLAYER_ROLE,
@@ -44,6 +44,9 @@ const PASSPHRASE = "correct horse battery staple";
 
 /** An office with no passphrase, to show verification is not on offer there. */
 const UNGUARDED_ROOM = "office-unguarded";
+
+/** An office with a gate of its own, for spending the allowance of wrong answers. */
+const GUESSED_ROOM = "office-guessed";
 
 const BOARD: ProjectBoardSnapshot = {
   ...EMPTY_BOARD_LISTS,
@@ -77,6 +80,10 @@ beforeAll(async () => {
     operatorGate: createOperatorGate(PASSPHRASE),
   } satisfies Partial<OfficeRoomOptions>);
   server.define(UNGUARDED_ROOM, OfficeRoom, options);
+  server.define(GUESSED_ROOM, OfficeRoom, {
+    ...options,
+    operatorGate: createOperatorGate(PASSPHRASE),
+  } satisfies Partial<OfficeRoomOptions>);
   await server.listen(0);
   const address = server.transport.server?.address();
   if (address === null || address === undefined || typeof address === "string") {
@@ -203,34 +210,32 @@ describe("verifying as operator", () => {
     await leave(milo, dana);
   });
 
-  it("does not start a guesser over when they leave and rejoin", async () => {
-    const { dana, milo } = await openOffice();
-    await leave(milo);
+  it("does not start a guesser over when they leave and the office empties", async () => {
+    const roomIds = new Set<string>();
     let failures = 0;
-    while (failures < OPERATOR_ROOM_FAILURE_ALLOWANCE) {
-      const guesser = listen(await new Client(endpoint).joinById<OfficeState>(dana.room.roomId, { name: "Guesser" }));
-      const tries = Math.min(OPERATOR_ATTEMPT_ALLOWANCE, OPERATOR_ROOM_FAILURE_ALLOWANCE - failures);
+    while (failures < OPERATOR_FAILURE_ALLOWANCE) {
+      const guesser = listen(await new Client(endpoint).create<OfficeState>(GUESSED_ROOM, { name: "Guesser" }));
+      roomIds.add(guesser.room.roomId);
+      const tries = Math.min(OPERATOR_ATTEMPT_ALLOWANCE, OPERATOR_FAILURE_ALLOWANCE - failures);
       for (let attempt = 0; attempt < tries; attempt += 1) {
         verify(guesser, `${PASSPHRASE}?`);
       }
       await settled(() => guesser.rejections.length === tries);
       expect(new Set(guesser.rejections.map((event) => event.rejection))).toEqual(new Set([OPERATOR_REJECTION.wrong]));
       failures += tries;
+      // Alone, and leaving with consent: the office is gone with them.
       await leave(guesser);
     }
 
-    // A fresh session, with its own allowance untouched, is still refused unread.
-    const rejoined = listen(await new Client(endpoint).joinById<OfficeState>(dana.room.roomId, { name: "Guesser" }));
+    // A fresh office and a fresh session, and the right passphrase is still refused unread.
+    const rejoined = listen(await new Client(endpoint).create<OfficeState>(GUESSED_ROOM, { name: "Guesser" }));
+    expect(roomIds.has(rejoined.room.roomId)).toBe(false);
     verify(rejoined, PASSPHRASE);
     await settled(() => rejoined.rejections.length === 1);
     expect(rejoined.rejections).toEqual([{ rejection: OPERATOR_REJECTION.locked }]);
-    verify(dana, PASSPHRASE);
-    await settled(() => dana.rejections.length === 1);
-    expect(dana.rejections).toEqual([{ rejection: OPERATOR_REJECTION.locked }]);
-    expect(seen(dana, rejoined.room.sessionId)).toEqual({ role: PLAYER_ROLE.exec, operator: false });
-    expect(seen(dana, dana.room.sessionId)).toEqual({ role: PLAYER_ROLE.ceo, operator: false });
+    expect(seen(rejoined, rejoined.room.sessionId)).toEqual({ role: PLAYER_ROLE.ceo, operator: false });
 
-    await leave(rejoined, dana);
+    await leave(rejoined);
   });
 
   it("verifies a CEO without a change of CEO to announce", async () => {

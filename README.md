@@ -195,9 +195,9 @@ roster, and gives them the CEO role if someone else holds it; the change is
 announced in the chat log like a succession, and the previous CEO stays on as
 an executive. A wrong answer is refused, and each client gets five attempts,
 refilling over five minutes. Leaving and rejoining does not start a guesser
-over: the whole office also shares twenty wrong answers, refilling over five
-minutes, and while those are spent every attempt, right or wrong, is refused
-until they refill. The passphrase is compared in constant time and
+over: the whole server also shares twenty wrong answers across every room,
+refilling over five minutes, and while those are spent every attempt, right or
+wrong, is refused until they refill. The passphrase is compared in constant time and
 goes no further than the server process: it is not in the replicated state, in
 any message or in the logs. The operator mark lasts as long as the player's
 place in the office, through a reconnection inside the grace period but not a
