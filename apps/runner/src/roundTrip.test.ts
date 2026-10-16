@@ -24,7 +24,7 @@ import { createRunnerEndpoint } from "../../server/src/agents/runnerEndpoint.js"
 import { RunnerLink, type RunnerEventRecord } from "../../server/src/agents/runnerLink.js";
 import { ScreenStore } from "../../server/src/agents/screens.js";
 import { createScreensEndpoint } from "../../server/src/agents/screensEndpoint.js";
-import { createMockAgent } from "./agents/mock.js";
+import { MOCK_NEEDS_INPUT_STEPS, createMockAgent } from "./agents/mock.js";
 import type { Agent } from "./agents/types.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
 import { createRedactor } from "./redact.js";
@@ -246,6 +246,7 @@ describe("the mock runner's screens and the server's screen store", () => {
       "● Reading issue #39",
       "● Edit: .sims-mock/issue-39.md",
       "● Bash: git commit",
+      ...Array.from({ length: MOCK_NEEDS_INPUT_STEPS }, () => "? Permission: Bash pnpm test"),
       "● Bash: pnpm test",
       `✓ Opened https://github.com/${REPO}/pull/1000039`,
     ]);

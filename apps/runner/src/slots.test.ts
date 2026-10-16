@@ -504,6 +504,7 @@ describe("SlotPool screens", () => {
       "● Reading issue #39",
       "● Edit: .sims-mock/issue-39.md",
       "● Bash: git commit",
+      ...Array.from({ length: MOCK_NEEDS_INPUT_STEPS }, () => "? Permission: Bash pnpm test"),
       "● Bash: pnpm test",
       `✓ Opened https://github.com/${REPO}/pull/1000039`,
     ]);
