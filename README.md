@@ -132,8 +132,8 @@ stop, face each other and trade a few canned lines in speech bubbles. The
 roster lists them under **Live agents** with an `Agent` badge and a link to the
 issue or pull request.
 
-When the CEO tells the manager to put a live agent on an issue or pull request,
-the manager queues an assignment for the orchestrator, which collects it with
+When the CEO tells the manager to put one of these agents on an issue or pull
+request, the manager queues an assignment for the orchestrator, which collects it with
 the same secret:
 
 ```sh
@@ -893,11 +893,13 @@ Ten things are worth knowing before changing anything:
   never waits on a model. A planner, by rule or by model, only proposes: what
   it names is resolved against the live office afterwards, and only for a CEO
   who still holds the role, so the manager can never do what the CEO who asked
-  could not. Work for a live coding agent goes to the orchestrator's queue,
-  which wraps the live agents' registry as their `LiveAgentSource` so an
-  assignment shows on its agent until the agent's next report after collection
-  settles it, as started or not taken. The model call sits behind its own call
-  budget, timeout and retry in `server/manager/advisor.ts`.
+  could not. An issue for a live agent that can take issues goes through
+  `applyWorkCommand` with the CEO as the actor; other work for one of the
+  orchestrator's agents goes to its queue, which wraps the live agents'
+  registry as their `LiveAgentSource` so an assignment shows on its agent until
+  the agent's next report after collection settles it, as started or not taken.
+  The model call sits behind its own call budget, timeout and retry in
+  `server/manager/advisor.ts`.
 
 ## Assets
 
