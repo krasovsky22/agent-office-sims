@@ -81,6 +81,13 @@ link's `RUNNER_SECRET`, and the runner's own `RUNNER_*`) if you need
 to point the client somewhere else. A deployment
 has to set the first three — see [Deploying it](#deploying-it).
 
+To set them in development, copy `.env.example` to `.env` at the repository
+root. `pnpm dev` and `pnpm dev:runner` load that file into the server and the
+runner when it exists (Node's `--env-file-if-exists`), and a variable already
+set in the shell wins over the file. The client is Vite, which reads its own
+`.env` files from `apps/client`. The `start` scripts and the Docker image do
+not read `.env`.
+
 The server polls GitHub for the project board as soon as it starts, anonymously
 unless `PROJECT_BOARD_TOKEN` is set.
 
