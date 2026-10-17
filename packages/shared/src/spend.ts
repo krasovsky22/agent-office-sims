@@ -23,10 +23,12 @@ export interface RunnerSpendTotal {
   readonly spentUsd: number;
   /** The runners' daily budgets added up; `undefined` when any runner has none. */
   readonly budgetUsd: number | undefined;
+  /** Whether any runner has spent its own budget, and so refuses new starts. */
+  readonly budgetSpent: boolean;
 }
 
 /** No runner reporting. */
-export const NO_RUNNER_SPEND: RunnerSpendTotal = { runners: 0, spentUsd: 0, budgetUsd: undefined };
+export const NO_RUNNER_SPEND: RunnerSpendTotal = { runners: 0, spentUsd: 0, budgetUsd: undefined, budgetSpent: false };
 
 /** `$1.23`. */
 export function formatUsd(usd: number): string {

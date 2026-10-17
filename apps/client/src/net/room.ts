@@ -208,11 +208,12 @@ export interface RoomConnectionEvents {
 }
 
 /** The runners' books as the state replicates them, back as one total. */
-export function runnerSpendOf(state: Pick<OfficeState, "spendRunners" | "spentUsd" | "budgeted" | "budgetUsd">): RunnerSpendTotal {
+export function runnerSpendOf(state: Pick<OfficeState, "spendRunners" | "spentUsd" | "budgeted" | "budgetUsd" | "budgetSpent">): RunnerSpendTotal {
   return {
     runners: state.spendRunners,
     spentUsd: state.spentUsd,
     budgetUsd: state.budgeted ? state.budgetUsd : undefined,
+    budgetSpent: state.budgetSpent,
   };
 }
 
@@ -540,11 +541,11 @@ export class RoomConnection {
       this.events.onClockChanged?.(minuteOfDay);
     });
 
-    // Four fields, one total: whichever of them a patch carries, the HUD hears the whole of it.
+    // Five fields, one total: whichever of them a patch carries, the HUD hears the whole of it.
     const spendChanged = (): void => {
       this.events.onSpendChanged?.(runnerSpendOf(room.state));
     };
-    for (const field of ["spendRunners", "spentUsd", "budgeted", "budgetUsd"] as const) {
+    for (const field of ["spendRunners", "spentUsd", "budgeted", "budgetUsd", "budgetSpent"] as const) {
       $(room.state).listen(field, spendChanged);
     }
 

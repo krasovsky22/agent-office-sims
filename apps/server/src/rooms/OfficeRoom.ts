@@ -655,6 +655,9 @@ export class OfficeRoom extends Room<OfficeState> {
     if (state.budgetUsd !== budgetUsd) {
       state.budgetUsd = budgetUsd;
     }
+    if (state.budgetSpent !== total.budgetSpent) {
+      state.budgetSpent = total.budgetSpent;
+    }
   }
 
   /**

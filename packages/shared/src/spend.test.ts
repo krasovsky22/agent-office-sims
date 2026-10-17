@@ -34,7 +34,7 @@ describe("budgetRefusal", () => {
 
 describe("spendSummary", () => {
   it("says the spend against the budget, or that there is none", () => {
-    expect(spendSummary({ runners: 1, spentUsd: 1.5, budgetUsd: 5 })).toBe("$1.50 of $5.00 today");
-    expect(spendSummary({ runners: 2, spentUsd: 0.25, budgetUsd: undefined })).toBe("$0.25 today, no budget");
+    expect(spendSummary({ runners: 1, spentUsd: 1.5, budgetUsd: 5, budgetSpent: false })).toBe("$1.50 of $5.00 today");
+    expect(spendSummary({ runners: 2, spentUsd: 0.25, budgetUsd: undefined, budgetSpent: false })).toBe("$0.25 today, no budget");
   });
 });

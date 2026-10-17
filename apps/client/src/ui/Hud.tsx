@@ -29,7 +29,6 @@ import {
   type ProjectBoardSnapshot,
   type RunnerSpendTotal,
   type WorkData,
-  isBudgetSpent,
   isIssueAssignee,
   spendSummary,
 } from "@sim/shared";
@@ -490,10 +489,9 @@ function ManagerRow({ entry, unread }: { entry: RosterEntry; unread: number }) {
  * so it is shown plainly in every tab and nowhere in the game's own economy.
  */
 export function spendLine(spend: RunnerSpendTotal): { readonly text: string; readonly spent: boolean } {
-  const spent = isBudgetSpent(spend.spentUsd, spend.budgetUsd);
   return {
-    text: `Agents' spend: ${spendSummary(spend)}${spent ? " — budget spent, no new starts" : ""}`,
-    spent,
+    text: `Agents' spend: ${spendSummary(spend)}${spend.budgetSpent ? " — budget spent, no new starts" : ""}`,
+    spent: spend.budgetSpent,
   };
 }
 

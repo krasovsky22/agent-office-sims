@@ -92,11 +92,18 @@ describe("MANAGER_STATUS_APPEARANCE", () => {
 
 describe("spendLine", () => {
   it("shows the agents' spend against the budget, and warns once it is spent", () => {
-    expect(spendLine({ runners: 1, spentUsd: 1.25, budgetUsd: 5 })).toEqual({ text: "Agents' spend: $1.25 of $5.00 today", spent: false });
-    expect(spendLine({ runners: 1, spentUsd: 5.1, budgetUsd: 5 })).toEqual({
+    expect(spendLine({ runners: 1, spentUsd: 1.25, budgetUsd: 5, budgetSpent: false })).toEqual({ text: "Agents' spend: $1.25 of $5.00 today", spent: false });
+    expect(spendLine({ runners: 1, spentUsd: 5.1, budgetUsd: 5, budgetSpent: true })).toEqual({
       text: "Agents' spend: $5.10 of $5.00 today — budget spent, no new starts",
       spent: true,
     });
-    expect(spendLine({ runners: 2, spentUsd: 9, budgetUsd: undefined })).toEqual({ text: "Agents' spend: $9.00 today, no budget", spent: false });
+    expect(spendLine({ runners: 2, spentUsd: 9, budgetUsd: undefined, budgetSpent: false })).toEqual({ text: "Agents' spend: $9.00 today, no budget", spent: false });
+  });
+
+  it("warns when one runner's own budget is spent, even while the runners together have room", () => {
+    expect(spendLine({ runners: 2, spentUsd: 5, budgetUsd: 15, budgetSpent: true })).toEqual({
+      text: "Agents' spend: $5.00 of $15.00 today — budget spent, no new starts",
+      spent: true,
+    });
   });
 });

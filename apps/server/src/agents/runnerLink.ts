@@ -36,6 +36,7 @@ import {
   LIVE_AGENT_STATUS,
   type LiveAgentStatus,
   type LiveAgentTask,
+  isBudgetSpent,
   isLiveAgentOnTask,
   MAX_RUNNER_SLOTS,
   NO_RUNNER_SPEND,
@@ -427,11 +428,15 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
     }
   }
 
-  /** Adds up what the runners that meter said they spent, and their budgets while every one has one. */
+  /**
+   * Adds up what the runners that meter said they spent, and their budgets
+   * while every one has one, noting whether any of them has spent its own.
+   */
   private totalSpend(): void {
     let runners = 0;
     let spentUsd = 0;
     let budgetUsd: number | undefined = 0;
+    let budgetSpent = false;
     for (const { spend } of this.runners.values()) {
       if (spend === undefined) {
         continue;
@@ -439,8 +444,9 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
       runners += 1;
       spentUsd += spend.spentUsd;
       budgetUsd = budgetUsd === undefined || spend.budgetUsd === undefined ? undefined : budgetUsd + spend.budgetUsd;
+      budgetSpent ||= isBudgetSpent(spend.spentUsd, spend.budgetUsd);
     }
-    this.spendTotal = runners === 0 ? NO_RUNNER_SPEND : { runners, spentUsd, budgetUsd };
+    this.spendTotal = runners === 0 ? NO_RUNNER_SPEND : { runners, spentUsd, budgetUsd, budgetSpent };
   }
 
   private slotCount(): number {

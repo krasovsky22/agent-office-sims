@@ -438,6 +438,8 @@ export class OfficeState extends Schema {
   /** Whether every runner reporting has a budget; {@link budgetUsd} means nothing otherwise. */
   declare public budgeted: boolean;
   declare public budgetUsd: number;
+  /** Whether any runner reporting has spent its own budget and refuses new starts. */
+  declare public budgetSpent: boolean;
 
   public constructor() {
     super();
@@ -451,6 +453,7 @@ export class OfficeState extends Schema {
     this.spentUsd = 0;
     this.budgeted = false;
     this.budgetUsd = 0;
+    this.budgetSpent = false;
   }
 }
 
@@ -465,6 +468,7 @@ defineTypes(OfficeState, {
   spentUsd: "float64",
   budgeted: "boolean",
   budgetUsd: "float64",
+  budgetSpent: "boolean",
 });
 
 const TAU = Math.PI * 2;

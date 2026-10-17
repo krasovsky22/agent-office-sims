@@ -458,15 +458,15 @@ describe("the runners' books", () => {
     const milo = await joinOffice(dana, "Milo");
     expect(dana.room.state.spendRunners).toBe(0);
 
-    runnerSpend = { runners: 1, spentUsd: 1.25, budgetUsd: 5 };
+    runnerSpend = { runners: 1, spentUsd: 1.25, budgetUsd: 5, budgetSpent: false };
     for (const tab of [dana, milo]) {
       await settled(() => tab.room.state.spentUsd === 1.25);
       expect(tab.room.state).toMatchObject({ spendRunners: 1, budgeted: true, budgetUsd: 5 });
     }
 
-    runnerSpend = { runners: 2, spentUsd: 2, budgetUsd: undefined };
+    runnerSpend = { runners: 2, spentUsd: 5, budgetUsd: undefined, budgetSpent: true };
     await settled(() => milo.room.state.spendRunners === 2);
-    expect(milo.room.state.budgeted).toBe(false);
+    expect(milo.room.state).toMatchObject({ budgeted: false, budgetSpent: true });
     runnerSpend = NO_RUNNER_SPEND;
 
     await milo.room.leave();

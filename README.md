@@ -501,7 +501,8 @@ or the day turns over, take the work back and assign it again.
 
 The HUD shows the agents' spend today against the budget, under the live
 agents, in every tab, and warns once it is spent. With several runners it
-shows them together, and their budgets added up while every one has one. The
+shows them together, and their budgets added up while every one has one, and
+warns as soon as any one of them has spent its own budget. The
 mock agent spends pretend money, five cents a step, so a budget such as
 `RUNNER_DAILY_BUDGET_USD=0.15` runs out during its first task and refuses the
 next start without a real agent. None of this touches anything in the game.
