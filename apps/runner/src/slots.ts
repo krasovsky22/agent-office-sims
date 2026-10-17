@@ -334,7 +334,11 @@ export class SlotPool {
     run.agentRun.prompt(text);
   }
 
-  /** The agent opened its pull request: its work is handed in, and waits on review rather than the clock. */
+  /**
+   * The agent opened its pull request: its work is handed in, and waits on
+   * review rather than the clock. One read off the command that opened it has
+   * no title yet, and the card shows it, so it is said once GitHub gives it.
+   */
   private handIn(slot: Slot, run: ActiveRun, pr: RunnerPullRequest): void {
     if (!run.live || run.handedIn) {
       return;
@@ -343,6 +347,17 @@ export class SlotPool {
     run.missing = false;
     clearTimeout(run.timeout);
     run.timeout = undefined;
+    if (pr.title !== "") {
+      this.sayHandedIn(slot, run, pr);
+      return;
+    }
+    void this.github.pullRequestTitle(pr.number).then((title) => this.sayHandedIn(slot, run, { ...pr, title }));
+  }
+
+  private sayHandedIn(slot: Slot, run: ActiveRun, pr: RunnerPullRequest): void {
+    if (!run.live || !run.handedIn) {
+      return;
+    }
     const handed = { ...pr, title: fitBytes(this.redactor.redactText(pr.title), MAX_TITLE_LENGTH) };
     slot.pr = handed;
     this.emit(slot, RUNNER_EVENT_KIND.prOpened, run.issueNumber, handed, "");
@@ -439,12 +454,7 @@ export class SlotPool {
         }
       },
       prOpened: (pr) => {
-        if (pr.title !== "") {
-          this.handIn(slot, run, pr);
-          return;
-        }
-        // Read off the command that opened it, it has no title yet: the card says it, so ask GitHub.
-        void this.github.pullRequestTitle(pr.number).then((title) => this.handIn(slot, run, { ...pr, title }));
+        this.handIn(slot, run, pr);
       },
       failed: (message) => {
         if (run.live) {

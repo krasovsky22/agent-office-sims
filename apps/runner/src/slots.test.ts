@@ -423,6 +423,35 @@ describe("SlotPool", () => {
     });
   });
 
+  it("counts a reported pull request handed in while its title is being looked up", async () => {
+    let reporter: AgentReporter | undefined;
+    const agent: Agent = {
+      label: "Claude",
+      start: (_task, given) => {
+        reporter = given;
+        return { stop: () => undefined };
+      },
+    };
+    let giveTitle: (title: string) => void = () => undefined;
+    const pullRequest = vi.fn(async () => undefined);
+    const pullRequestTitle = vi.fn(() => new Promise<string>((resolve) => (giveTitle = resolve)));
+    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest, pullRequestTitle });
+    slots.handle(START);
+    await settle();
+    reporter?.progress("Bash: gh pr create");
+    reporter?.prOpened({ number: 96, title: "", url: `https://github.com/${REPO}/pull/96` });
+    reporter?.turnDone();
+    await settle();
+    expect(pullRequest).not.toHaveBeenCalled();
+    expect(slot(slots)).toMatchObject({ status: "idle", activity: TURN_DONE });
+    expect(slots.pendingEvents().filter((event) => event.kind === "pr-opened")).toHaveLength(0);
+
+    giveTitle("Night shift");
+    await settle();
+    expect(slot(slots)).toMatchObject({ status: "idle", pr: { number: 96, title: "Night shift" } });
+    expect(slots.pendingEvents().filter((event) => event.kind === "pr-opened").map((event) => event.pr?.title)).toEqual(["Night shift"]);
+  });
+
   it("honours stop: the script goes no further, and the work is reported failed with the reason", async () => {
     const slots = pool("pr-opened");
     slots.handle(START);
