@@ -354,6 +354,13 @@ twenty-odd rows, and is repainted only when a frame changes it, at most every
 taken down when the agent stands up or leaves, and nothing is drawn while no
 live agent sits, nor in the grey-box office, which has no monitors.
 
+From the camera that follows a player, a seated agent's monitor is hidden
+behind the agent's head and the player's own avatar, so a player who stands
+still behind a working agent's chair, at its `Watch the agent's terminal`
+prompt, has the camera lean in over the agent's shoulder to read its monitor
+square on, the agent hidden while the camera is where its head is; the first
+step, or the agent getting up, eases it back out. The eye is never inside or
+behind a wall, a chair backed onto one included.
 `E` behind a working agent's chair opens the same terminal in a panel, whole
 and at full size, painted by the same function onto a 2D canvas, so none of
 its text is in the page. The panel repaints whenever a frame changes the
@@ -819,9 +826,11 @@ Then confirm all twenty:
 16. **A working agent's terminal opens on `E`, in both tabs.** With the runner
     started as in [Running the runner](#running-the-runner), assign an
     `agent-ready` issue to `Mock 1` and, once it sits, walk Dana to just behind
-    its chair: the prompt reads `Watch the agent's terminal`. `E` opens the
-    panel with the mock's output, which moves on with each step, and its
-    issue link. Milo does the same and sees the same output. `Esc` closes
+    its chair: the prompt reads `Watch the agent's terminal`, and standing
+    still there the camera leans in over the agent's shoulder until its
+    monitor fills the view and its lines can be read; a step eases it back.
+    `E` opens the panel with the mock's output, which moves on with each step,
+    and its issue link. Milo does the same and sees the same output. `Esc` closes
     Dana's, `E` opens it again and `E` closes it; open it once more and walk a
     few steps away: it closes while Milo's stays open. When the agent hands in
     and gets up, Milo's closes too and the prompt behind the chair is

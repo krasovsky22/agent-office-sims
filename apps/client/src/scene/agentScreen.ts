@@ -322,6 +322,20 @@ export class AgentScreens {
     }
   }
 
+  /**
+   * The centre of the screen on the monitor in front of `seatId`, in the
+   * office's frame, or `undefined` for a seat with no monitor. Where a player
+   * reading that agent's terminal looks.
+   */
+  public screenCentre(seatId: string): THREE.Vector3 | undefined {
+    const monitor = monitorOfSeat(this.layout, seatId);
+    if (monitor === undefined) {
+      return undefined;
+    }
+    const placed = propMatrix(monitor, this.monitor.size, this.scratch).multiply(this.onFace);
+    return new THREE.Vector3().setFromMatrixPosition(placed);
+  }
+
   /** Takes down every screen {@link show} was not called for since the last sweep. */
   public sweep(): void {
     for (const [occupantId, screen] of this.screens) {
