@@ -385,7 +385,7 @@ are masked the same way before they are synced.
 
 `apps/runner` (`@sim/runner`) is that runner. Each of its slots runs one agent
 on one issue at a time. The default agent is `mock`, which needs no
-credentials and spends nothing, so the whole loop can be developed and tested
+credentials and spends no real money, so the whole loop can be developed and tested
 without a real one; `RUNNER_AGENT=claude` runs Claude Code instead, acting on
 GitHub only as [the runner's GitHub App](#the-runners-github-app), without which
 it refuses to start (see [Claude Code in the runner](#claude-code-in-the-runner)). With `pnpm dev` running and `RUNNER_SECRET` set on the
@@ -457,6 +457,7 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_MODEL` | Claude Code's | The model a `claude` agent runs, passed as `--model`: `sonnet`, `claude-sonnet-4-5`. |
 | `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
 | `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it. |
+| `RUNNER_DAILY_BUDGET_USD` | none | US dollars, `0` or more, the agents may spend in a day before the runner refuses new starts; see [The runner's budget](#the-runners-budget). Unset, spend is counted and nothing is refused. |
 | `REAL_AGENT_ISSUE_LABEL` | `agent-ready` | The label an issue must carry on GitHub before a real agent starts on it; the server's own setting, the same value on both. |
 | `RUNNER_GITHUB_APP_ID` | none; required for `claude` | The GitHub App the agents push and open pull requests as; see [The runner's GitHub App](#the-runners-github-app). All three or none; the mock needs none. |
 | `RUNNER_GITHUB_APP_INSTALLATION_ID` | none; required for `claude` | Its installation on the repository. |
@@ -479,6 +480,32 @@ marking adapted files in `THIRD_PARTY_NOTICES.md`.
 Two query parameters are useful while developing. `?props=off` renders the
 grey-box office instead of the asset kit, and `?debug` puts the draw-call count
 and the number of placed props on the HUD.
+
+#### The runner's budget
+
+Real agents cost real money, so the runner meters it and caps it on its own,
+whatever the game server says. Every Claude Code hook names its session's
+transcript, and the runner reads what each assistant message there used,
+subagents included, and prices it per model, snapping to Claude Code's own
+tally once a session ends. Each task's cost is logged as it ends, and what the
+agents have spent today goes to the server on every sync. A day is the
+runner's machine's local day, kept in memory only: a restarted runner starts
+the day at nothing.
+
+Once today's spend reaches `RUNNER_DAILY_BUDGET_USD`, the runner refuses every
+new start, reported to the server as a failed start that gives the budget and
+the spend; work already under way runs on. The refusal is noted on the work,
+in its agent's voice, and Firstmate explains it in its conversation. Nothing
+retries a refused start, so the work stays assigned: once the budget is raised
+or the day turns over, take the work back and assign it again.
+
+The HUD shows the agents' spend today against the budget, under the live
+agents, in every tab, and warns once it is spent. With several runners it
+shows them together, and their budgets added up while every one has one, and
+warns as soon as any one of them has spent its own budget. The
+mock agent spends pretend money, five cents a step, so a budget such as
+`RUNNER_DAILY_BUDGET_USD=0.15` runs out during its first task and refuses the
+next start without a real agent. None of this touches anything in the game.
 
 #### Claude Code in the runner
 
@@ -652,7 +679,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all nineteen:
+Then confirm all twenty:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -822,13 +849,24 @@ Then confirm all nineteen:
     again. Assign another labelled issue and, while the mock works it,
     `Unassign` it: the slot stops at once and goes idle, and the runner's log
     says its worktree is kept, with the uncommitted change or commit it holds.
-19. **`pnpm typecheck` passes** across the whole repository.
+19. **A spent runner budget refuses the next start, and Firstmate says so.**
+    Run the server as in step 18 and the runner with
+    `RUNNER_MOCK_OUTCOME=pr-opened` and `RUNNER_DAILY_BUDGET_USD=0.15`. With
+    the runner up, both tabs' rosters read `Agents' spend: $0.00 of $0.15 today`
+    under the live agents. Dana, verified, assigns a labelled issue to
+    `Mock 1`: the spend climbs five cents a step in both tabs, and once the
+    pull request is handed in it reads `$0.20 of $0.15 today — budget spent, no
+    new starts`, marked as a warning. She assigns another labelled issue to
+    `Mock 2`: it never starts, its card notes the runner's daily budget is
+    spent with the day's figures, Firstmate's conversation explains it and how
+    to try again, and the runner's log says the start was refused.
+20. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, the issue label check and pull requests, the GitHub App's tokens, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -974,7 +1012,7 @@ thing the page talks to is the WebSocket.
   `POST /agents/runner/screens` when `RUNNER_SECRET` is set, the only HTTP the
   server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same eighteen things.
+  [The two-tab check](#the-two-tab-check), and confirm the same twenty things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -993,6 +1031,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/liveAgents.ts   a live agent's report, its label, and the chairs it may take
   src/runner.ts       the runner link's wire contract: a sync, its slots and events, and the commands
   src/screens.ts      the slots' terminal screens: a frame of styled runs, a runner's batch, and its parser
+  src/spend.ts        the runners' real spend in dollars: the budget refusal and how spend is said
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/operator.ts     the operator passphrase's limits, and why an attempt was refused
   src/layout.ts       the office floor plan and its interactables, as data
@@ -1018,6 +1057,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/syncLoop.ts         the sync about once a second: acks, events, backoff
   src/syncClient.ts       one sync over HTTP, and reading back its commands
   src/slots.ts            the slot pool: commands to agent runs, runs to status and events
+  src/budget.ts           the day's spend, and the daily budget that refuses new starts
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
   src/agents/mock.ts      the mock agent: scripted progress, a commit and a wait on a person, then failed or a fake pull request it reworks on a prompt
@@ -1030,6 +1070,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/agents/provider.ts  what the PTY agent needs from each agent CLI's adapter
   src/agents/ptyAgent.ts  an agent CLI in a PTY: launch, hooks, progress and first-run screens, stop by process group
   src/agents/claude.ts    Claude Code's adapter: its command line, hook settings and allowlist, what each hook means
+  src/agents/usage.ts     a Claude Code session's cost, read off its transcript and priced per model
   src/agents/hookServer.ts  the loopback server agents' hooks post to, a token per process
   src/agents/childEnv.ts  the allowlist of the runner's environment an agent starts with
   src/agents/prompt.ts    the first prompt an agent gets for an issue

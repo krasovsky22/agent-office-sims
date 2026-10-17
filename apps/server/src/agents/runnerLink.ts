@@ -16,6 +16,9 @@
  * The ids are random, so a runner never mistakes a restarted server's command
  * for one it has already carried out.
  *
+ * Each sync also carries what the runner's agents have spent today against its
+ * budget; the rooms show every runner's together, through {@link RunnerSpendSource}.
+ *
  * Events travel the other way. A runner reports each one until a sync
  * carrying it is answered, so the same event can arrive twice; it is passed on
  * once, by id. Each room opens its own inbox and drains it on its tick, so a
@@ -33,8 +36,10 @@ import {
   LIVE_AGENT_STATUS,
   type LiveAgentStatus,
   type LiveAgentTask,
+  isBudgetSpent,
   isLiveAgentOnTask,
   MAX_RUNNER_SLOTS,
+  NO_RUNNER_SPEND,
   RUNNER_COMMAND_KIND,
   RUNNER_SLOT_STATUS,
   type RunnerCommand,
@@ -42,6 +47,8 @@ import {
   type RunnerEvent,
   type RunnerSlotReport,
   type RunnerSlotStatus,
+  type RunnerSpendReport,
+  type RunnerSpendTotal,
   type RunnerSync,
   toRunnerCommand,
 } from "@sim/shared";
@@ -84,6 +91,24 @@ export function isRunnerEventSource(value: unknown): value is RunnerEventSource 
     typeof value === "object" &&
     value !== null &&
     typeof (value as Partial<Record<keyof RunnerEventSource, unknown>>).openEventInbox === "function"
+  );
+}
+
+/** What every runner reports spending today, together. */
+export interface RunnerSpendSource {
+  /** Cheap: worked out as syncs arrive, so a room can read it every tick. */
+  spend(): RunnerSpendTotal;
+}
+
+/**
+ * Whether a room option is the spend source the server handed over, rather
+ * than whatever a client put in its join options under the same name.
+ */
+export function isRunnerSpendSource(value: unknown): value is RunnerSpendSource {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Partial<Record<keyof RunnerSpendSource, unknown>>).spend === "function"
   );
 }
 
@@ -167,6 +192,8 @@ interface Runner {
   /** The title of the issue each slot was last started on, by slot id. */
   readonly startedTitles: Map<string, { readonly issueNumber: number; readonly title: string }>;
   readonly seenEvents: Set<string>;
+  /** What its last sync said it spent; `undefined` from a runner that does not meter. */
+  spend: RunnerSpendReport | undefined;
 }
 
 interface Inbox {
@@ -194,7 +221,7 @@ function sameRecords(a: readonly LiveAgentRecord[], b: readonly LiveAgentRecord[
   });
 }
 
-export class RunnerLink implements LiveAgentSource, RunnerEventSource {
+export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpendSource {
   private readonly runners = new Map<string, Runner>();
   private readonly listeners = new Set<() => void>();
   private readonly inboxes = new Set<Inbox>();
@@ -202,6 +229,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
   private readonly commandId: () => string;
   private readonly repository: string;
   private snapshot: readonly LiveAgentRecord[] = [];
+  private spendTotal: RunnerSpendTotal = NO_RUNNER_SPEND;
   private timer: ReturnType<typeof setInterval> | undefined;
 
   public constructor(private readonly options: RunnerLinkOptions) {
@@ -219,6 +247,10 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  public spend(): RunnerSpendTotal {
+    return this.spendTotal;
   }
 
   /**
@@ -249,11 +281,14 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
         outbox: new Map(),
         startedTitles: new Map(),
         seenEvents: new Set(),
+        spend: undefined,
       };
       this.runners.set(sync.runnerId, runner);
     }
 
     runner.lastSeenAt = this.now();
+    runner.spend = sync.spend;
+    this.totalSpend();
     for (const id of sync.acked) {
       runner.outbox.delete(id);
     }
@@ -368,6 +403,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
         dropped ||= runner.records.length > 0;
       }
     }
+    this.totalSpend();
     if (dropped) {
       this.changed();
     }
@@ -390,6 +426,27 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
       clearInterval(this.timer);
       this.timer = undefined;
     }
+  }
+
+  /**
+   * Adds up what the runners that meter said they spent, and their budgets
+   * while every one has one, noting whether any of them has spent its own.
+   */
+  private totalSpend(): void {
+    let runners = 0;
+    let spentUsd = 0;
+    let budgetUsd: number | undefined = 0;
+    let budgetSpent = false;
+    for (const { spend } of this.runners.values()) {
+      if (spend === undefined) {
+        continue;
+      }
+      runners += 1;
+      spentUsd += spend.spentUsd;
+      budgetUsd = budgetUsd === undefined || spend.budgetUsd === undefined ? undefined : budgetUsd + spend.budgetUsd;
+      budgetSpent ||= isBudgetSpent(spend.spentUsd, spend.budgetUsd);
+    }
+    this.spendTotal = runners === 0 ? NO_RUNNER_SPEND : { runners, spentUsd, budgetUsd, budgetSpent };
   }
 
   private slotCount(): number {

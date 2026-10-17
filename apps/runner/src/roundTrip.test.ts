@@ -221,8 +221,10 @@ describe("the mock runner's screens and the server's screen store", () => {
   it("puts each slot's screen in the store, then the mock's work as diffs, the same for every room", async () => {
     const heard: ScreenFramesEvent[] = [];
     const stopHearing = store.onScreens((event) => heard.push(event));
-    const { loop, screens } = runner("pr-opened");
+    const { pool, loop, screens } = runner("pr-opened");
     await loop.syncOnce();
+    // Each idle screen whole before it is first posted, so a busy machine parsing it late is no diff.
+    await Promise.all(pool.screens().map(([, screen]) => screen.written()));
 
     await postUntil(screens, () => storedText("slot-2").length > 0);
     expect(storedText("slot-1")).toEqual(["Mock 1 is waiting for work."]);

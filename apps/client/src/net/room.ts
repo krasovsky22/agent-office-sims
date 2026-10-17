@@ -71,6 +71,7 @@ import {
   type ProjectBoardSnapshot,
   RECONNECT_GRACE_SECONDS,
   type ReportedAnimation,
+  type RunnerSpendTotal,
   SERVER_MESSAGE,
   type ScreenFramesEvent,
   type ThrottledEvent,
@@ -188,6 +189,8 @@ export interface RoomConnectionEvents {
   onProjectBoard?: (snapshot: ProjectBoardSnapshot) => void;
   /** The in-game clock moved on a minute, which is several times a second. */
   onClockChanged?: (minuteOfDay: number) => void;
+  /** What the runners' real agents have spent today, or their budgets, changed. */
+  onSpendChanged?: (spend: RunnerSpendTotal) => void;
   /** The office refused one of the local client's own work commands. */
   onWorkRejected?: (event: WorkRejectedEvent) => void;
   /** The CEO role passed to someone else: its holder left, or someone verified as operator. */
@@ -202,6 +205,16 @@ export interface RoomConnectionEvents {
   onManagerEntry?: (entry: ManagerEntry) => void;
   /** The manager did not take one of the local client's own messages. */
   onManagerRejected?: (event: ManagerRejectedEvent) => void;
+}
+
+/** The runners' books as the state replicates them, back as one total. */
+export function runnerSpendOf(state: Pick<OfficeState, "spendRunners" | "spentUsd" | "budgeted" | "budgetUsd" | "budgetSpent">): RunnerSpendTotal {
+  return {
+    runners: state.spendRunners,
+    spentUsd: state.spentUsd,
+    budgetUsd: state.budgeted ? state.budgetUsd : undefined,
+    budgetSpent: state.budgetSpent,
+  };
 }
 
 export class RoomConnection {
@@ -527,6 +540,14 @@ export class RoomConnection {
     $(room.state).listen("minuteOfDay", (minuteOfDay) => {
       this.events.onClockChanged?.(minuteOfDay);
     });
+
+    // Five fields, one total: whichever of them a patch carries, the HUD hears the whole of it.
+    const spendChanged = (): void => {
+      this.events.onSpendChanged?.(runnerSpendOf(room.state));
+    };
+    for (const field of ["spendRunners", "spentUsd", "budgeted", "budgetUsd", "budgetSpent"] as const) {
+      $(room.state).listen(field, spendChanged);
+    }
 
     // Fixed for the room's life, but it can be decoded after the occupants, so
     // the access it changes is worked out again when it arrives.

@@ -91,7 +91,8 @@ function setup(options: { operator?: boolean } = {}) {
     board: () => snapshot,
     observe: (change) => loop.work?.changed(change),
   };
-  const runnerWork = new RunnerWork({ host, runner: link });
+  const announced: string[] = [];
+  const runnerWork = new RunnerWork({ host, runner: link, announce: (text) => announced.push(text) });
   loop.work = runnerWork;
   const syncSlots = (holding: Partial<Record<"slot-1" | "slot-2", number>> = {}, events: RunnerEvent[] = [], acked: string[] = []) => {
     const body: RunnerSync = {
@@ -118,6 +119,7 @@ function setup(options: { operator?: boolean } = {}) {
     state,
     host,
     runnerWork,
+    announced,
     syncSlots,
     ceoDoes,
     setBoard: (next: ProjectBoardSnapshot) => {
@@ -320,6 +322,23 @@ describe("RunnerWork inward: the runner's events as the agent's moves", () => {
       { runnerId: "box", event: event("failed", 40, { slotId: "slot-2", message: "#40 is not labelled agent-ready on GitHub" }) },
     ]);
     expect(state.work.get(workKey(40))?.note).toBe("#40 is not labelled agent-ready on GitHub");
+  });
+
+  it("has Firstmate explain a start the runner refused because its budget is spent, and only that kind of failure", () => {
+    const { ceoDoes, state, runnerWork, announced } = setup();
+    ceoDoes(assign(39));
+    const reason =
+      "The runner's daily budget of $5.00 is spent ($5.10 today), so it starts no new work until midnight on its machine";
+    runnerWork.receive([{ runnerId: "box", event: event("failed", 39, { message: reason, refusal: "budget" }) }]);
+    expect(state.work.get(workKey(39))?.note).toBe(reason);
+    expect(announced).toEqual([
+      "Mock 1 couldn't start on #39 “Night shift”: the runner's daily budget of $5.00 is spent ($5.10 today), " +
+        "so it starts no new work until midnight on its machine. Nothing started, so nothing more was spent. " +
+        "To try again once the runner's RUNNER_DAILY_BUDGET_USD is raised or its day turns over, take the work back and assign it again.",
+    ]);
+
+    runnerWork.receive([{ runnerId: "box", event: event("failed", 39, { message: "Timed out after 60 minutes" }) }]);
+    expect(announced).toHaveLength(1);
   });
 
   it("changes nothing for an event about work the slot does not hold, or a slot not on the floor", () => {

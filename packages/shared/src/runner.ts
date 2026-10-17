@@ -25,6 +25,7 @@ import {
   sanitizeTitle,
   sanitizeWorkNote,
 } from "./messages.js";
+import { MAX_RUNNER_USD } from "./spend.js";
 
 /** The route a runner syncs through, on the game server. */
 export const RUNNER_SYNC_PATH = "/agents/runner/sync";
@@ -78,6 +79,16 @@ export const RUNNER_EVENT_KIND = {
 
 export type RunnerEventKind = (typeof RUNNER_EVENT_KIND)[keyof typeof RUNNER_EVENT_KIND];
 
+/**
+ * Why a runner turned a start down, when the office should know more than its
+ * message says: Firstmate explains a start refused for the runner's budget.
+ */
+export const RUNNER_REFUSAL = {
+  budget: "budget",
+} as const;
+
+export type RunnerRefusal = (typeof RUNNER_REFUSAL)[keyof typeof RUNNER_REFUSAL];
+
 /** What the server may ask of a slot. */
 export const RUNNER_COMMAND_KIND = {
   start: "start",
@@ -118,6 +129,15 @@ export interface RunnerEvent {
   readonly pr: RunnerPullRequest | undefined;
   /** Why it failed, say; `""` when there is nothing to add. */
   readonly message: string;
+  /** Set on a `failed` start the runner refused for a reason the office explains. */
+  readonly refusal?: RunnerRefusal | undefined;
+}
+
+/** What a runner's agents have spent today, in US dollars, against its daily budget. */
+export interface RunnerSpendReport {
+  readonly spentUsd: number;
+  /** `undefined` when the runner has none. */
+  readonly budgetUsd: number | undefined;
 }
 
 /**
@@ -135,6 +155,8 @@ export interface RunnerSync {
   readonly acked: readonly string[];
   readonly slots: readonly RunnerSlotReport[];
   readonly events: readonly RunnerEvent[];
+  /** `undefined` from a runner that does not meter its agents. */
+  readonly spend?: RunnerSpendReport | undefined;
 }
 
 /** Put an agent to work on an issue. */
@@ -218,6 +240,7 @@ const MAX_ISSUE_NUMBER = 0xffffffff;
 
 const SLOT_STATUSES: ReadonlySet<string> = new Set(Object.values(RUNNER_SLOT_STATUS));
 const EVENT_KINDS: ReadonlySet<string> = new Set(Object.values(RUNNER_EVENT_KIND));
+const REFUSALS: ReadonlySet<string> = new Set(Object.values(RUNNER_REFUSAL));
 
 function asRecord(raw: unknown): Record<string, unknown> | undefined {
   return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
@@ -242,6 +265,14 @@ function isSlotStatus(value: unknown): value is RunnerSlotStatus {
 
 function isEventKind(value: unknown): value is RunnerEventKind {
   return typeof value === "string" && EVENT_KINDS.has(value);
+}
+
+function isRefusal(value: unknown): value is RunnerRefusal {
+  return typeof value === "string" && REFUSALS.has(value);
+}
+
+function isUsd(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_RUNNER_USD;
 }
 
 /**
@@ -353,17 +384,35 @@ function parseEvent(raw: unknown): RunnerEvent | undefined {
   }
   const pr = parsePullRequest(candidate["pr"]);
   const message = parseText(candidate["message"], MAX_WORK_NOTE_LENGTH, sanitizeWorkNote);
-  if (pr === null || message === undefined) {
+  const refusal = candidate["refusal"] ?? undefined;
+  if (pr === null || message === undefined || (refusal !== undefined && !isRefusal(refusal))) {
     return undefined;
   }
-  return { id, kind, slotId, issueNumber, pr, message };
+  return { id, kind, slotId, issueNumber, pr, message, refusal: isRefusal(refusal) ? refusal : undefined };
+}
+
+/** `undefined` for an absent report, `null` for one that is present and unacceptable. */
+function parseSpend(raw: unknown): RunnerSpendReport | undefined | null {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  const candidate = asRecord(raw);
+  if (candidate === undefined || !isUsd(candidate["spentUsd"])) {
+    return null;
+  }
+  const budget = candidate["budgetUsd"];
+  if (budget !== undefined && budget !== null && !isUsd(budget)) {
+    return null;
+  }
+  return { spentUsd: candidate["spentUsd"], budgetUsd: isUsd(budget) ? budget : undefined };
 }
 
 /**
  * Validates a raw sync body.
  *
  * Refuses the whole body for any malformed part, any list past its cap, any
- * string past its budget in bytes, or a slot id reported twice; the runner sends its whole state again a second
+ * string past its budget in bytes, any amount of money that is negative or
+ * past {@link MAX_RUNNER_USD}, or a slot id reported twice; the runner sends its whole state again a second
  * later, so nothing is lost by refusing and nothing half-read is kept.
  *
  * @returns the sync, or `undefined` if the payload is not one.
@@ -380,13 +429,14 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
   const acked = parseList(candidate["acked"], MAX_RUNNER_ACKS, (item) => (isItemId(item) ? item : undefined));
   const slots = parseList(candidate["slots"], MAX_RUNNER_SLOTS, parseSlot);
   const events = parseList(candidate["events"], MAX_RUNNER_EVENTS, parseEvent);
-  if (acked === undefined || slots === undefined || events === undefined) {
+  const spend = parseSpend(candidate["spend"]);
+  if (acked === undefined || slots === undefined || events === undefined || spend === null) {
     return undefined;
   }
   if (new Set(slots.map((slot) => slot.id)).size !== slots.length) {
     return undefined;
   }
-  return { runnerId, repo, acked, slots, events };
+  return { runnerId, repo, acked, slots, events, spend };
 }
 
 /**

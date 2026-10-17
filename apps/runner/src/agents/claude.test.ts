@@ -164,13 +164,18 @@ const RECORDED_PERMISSION: readonly [string, unknown][] = [
   ["Notification", { ...SESSION, hook_event_name: "Notification", message: "Claude needs your permission", notification_type: "permission_prompt" }],
 ];
 
-/** A run that records each status it is moved to, with its activity, and each pull request it reports. */
-function recordingRun(status: RunStatus = "starting"): RunHandle & { readonly seen: string[] } {
+/** A run that records each status it is moved to, with its activity, each pull request it reports, and each transcript named. */
+function recordingRun(status: RunStatus = "starting"): RunHandle & { readonly seen: string[]; readonly transcripts: string[] } {
   const seen: string[] = [];
+  const transcripts: string[] = [];
   return {
     status,
     bootBlocked: false,
     seen,
+    transcripts,
+    transcript(path) {
+      transcripts.push(path);
+    },
     setStatus(next, activity = "") {
       this.status = next;
       seen.push(activity === "" ? next : `${next}: ${activity}`);
@@ -178,7 +183,7 @@ function recordingRun(status: RunStatus = "starting"): RunHandle & { readonly se
     pullRequest(pr) {
       seen.push(`pull request #${pr.number}: ${pr.url}`);
     },
-  } as RunHandle & { status: RunStatus; readonly seen: string[] };
+  } as RunHandle & { status: RunStatus; readonly seen: string[]; readonly transcripts: string[] };
 }
 
 function play(run: RunHandle, events: readonly [string, unknown][]): void {
@@ -285,6 +290,13 @@ describe("claudeHook", () => {
     claudeHook(run, "PostToolUse", ran("cat notes.md", `https://github.com/${repo}/pull/96`), repo);
     claudeHook(run, "PostToolUse", ran("gh pr create --fill", `https://github.com/${repo}/pull/97`));
     expect(run.seen).toEqual([`pull request #95: https://github.com/${repo}/pull/95`]);
+  });
+
+  it("follows the transcript any hook names, which its spend is read off", () => {
+    const run = recordingRun("working");
+    claudeHook(run, "PreToolUse", { transcript_path: "/home/me/.claude/projects/w/s.jsonl", tool_name: "Bash", tool_input: { command: "ls" } });
+    claudeHook(run, "Stop", { transcript_path: 7 });
+    expect(run.transcripts).toEqual(["/home/me/.claude/projects/w/s.jsonl"]);
   });
 
   it("keeps an activity to one line, whole, for the slot to mask and cut", () => {

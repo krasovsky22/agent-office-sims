@@ -19,6 +19,7 @@ const SYNC: RunnerSync = {
   acked: [],
   slots: [{ id: "slot-1", name: "Mock 1", status: "idle", issueNumber: undefined, activity: "", pr: undefined }],
   events: [],
+  spend: { spentUsd: 0.4, budgetUsd: undefined },
 };
 
 const START = {
@@ -67,6 +68,7 @@ describe("createSyncClient", () => {
       acked: [],
       slots: [{ id: "slot-1", name: "Mock 1", status: "idle", activity: "" }],
       events: [],
+      spend: { spentUsd: 0.4 },
     });
   });
 

@@ -18,6 +18,7 @@ import {
   readAgentIssueLabel,
   toRunnerCommand,
 } from "./runner.js";
+import { MAX_RUNNER_USD } from "./spend.js";
 
 const ISSUE = "https://github.com/krasovsky22/agent-office-sims/issues/39";
 const PULL = "https://github.com/krasovsky22/agent-office-sims/pull/41";
@@ -65,9 +66,22 @@ describe("parseRunnerSync", () => {
           issueNumber: 39,
           pr: { number: 41, title: "", url: PULL },
           message: "",
+          refusal: undefined,
         },
       ],
+      spend: undefined,
     });
+  });
+
+  it("reads the day's spend and a start refused for the budget", () => {
+    const parsed = parseRunnerSync({
+      ...SYNC,
+      events: [{ id: "event-2", kind: "failed", slotId: "slot-1", issueNumber: 40, message: "budget spent", refusal: "budget" }],
+      spend: { spentUsd: 5.25, budgetUsd: 5 },
+    });
+    expect(parsed?.events[0]?.refusal).toBe("budget");
+    expect(parsed?.spend).toEqual({ spentUsd: 5.25, budgetUsd: 5 });
+    expect(parseRunnerSync({ ...SYNC, spend: { spentUsd: 0.5 } })?.spend).toEqual({ spentUsd: 0.5, budgetUsd: undefined });
   });
 
   it("treats missing lists as empty, and names a slot by its id when it has no name", () => {
@@ -79,6 +93,7 @@ describe("parseRunnerSync", () => {
       acked: [],
       slots: [{ id: "slot-1", name: "slot-1", status: "needs-input", issueNumber: undefined, activity: "", pr: undefined }],
       events: [],
+      spend: undefined,
     });
   });
 
@@ -124,6 +139,13 @@ describe("parseRunnerSync", () => {
     ["a slot name of control characters past its bytes", { ...SYNC, slots: [{ id: "s", name: "\u001b".repeat(4), status: "idle" }] }],
     ["a pull request link within its length but past its bytes", { ...SYNC, slots: [{ id: "s", status: "working", pr: { number: 1, url: `${PULL}?q=${"\u00e9".repeat(150)}` } }] }],
     ["a slot name that is not a string", { ...SYNC, slots: [{ id: "s", name: ["Claude"], status: "idle" }] }],
+    ["an unknown refusal", { ...SYNC, events: [{ ...SYNC.events[0], refusal: "bored" }] }],
+    ["a spend that is not an object", { ...SYNC, spend: 5 }],
+    ["a spend with no amount", { ...SYNC, spend: { budgetUsd: 5 } }],
+    ["a negative spend", { ...SYNC, spend: { spentUsd: -1 } }],
+    ["a spend past the most a runner may report", { ...SYNC, spend: { spentUsd: MAX_RUNNER_USD + 1 } }],
+    ["a budget that is not a number", { ...SYNC, spend: { spentUsd: 1, budgetUsd: "5" } }],
+    ["a budget that is not finite", { ...SYNC, spend: { spentUsd: 1, budgetUsd: Number.POSITIVE_INFINITY } }],
   ])("refuses a sync with %s", (_label, raw) => {
     expect(parseRunnerSync(raw)).toBeUndefined();
   });

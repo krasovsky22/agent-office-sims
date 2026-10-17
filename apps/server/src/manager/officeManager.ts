@@ -168,6 +168,17 @@ export class OfficeManager {
     return undefined;
   }
 
+  /**
+   * Posts news the office cannot read off its state, such as a start the
+   * runner refused, to the conversation as an update. Synchronous, so the tick
+   * can call it; nothing after {@link stop}.
+   */
+  public report(text: string): void {
+    if (!this.stopped) {
+      this.say(MANAGER_ENTRY_KIND.update, MANAGER_NAME, text);
+    }
+  }
+
   private async run(): Promise<void> {
     while (!this.stopped) {
       const question = this.waiting.shift();

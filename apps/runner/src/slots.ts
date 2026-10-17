@@ -26,6 +26,11 @@
  * Each slot also has a terminal screen, `./terminal.ts`, which shows what its
  * agent prints. A new run starts on a cleared screen, and the last run's
  * screen stays up until then.
+ *
+ * What each task's agent spends is booked in the runner's ledger
+ * (`./budget.ts`), and a start that arrives once the day's budget is spent is
+ * refused, as a failed start that says why and is marked as the budget's, so
+ * the office can explain it.
  */
 
 import { randomUUID } from "node:crypto";
@@ -36,16 +41,21 @@ import {
   MAX_WORK_NOTE_LENGTH,
   RUNNER_COMMAND_KIND,
   RUNNER_EVENT_KIND,
+  RUNNER_REFUSAL,
   RUNNER_SLOT_STATUS,
   type RunnerCommand,
   type RunnerEvent,
   type RunnerEventKind,
   type RunnerPullRequest,
+  type RunnerRefusal,
   type RunnerSlotReport,
   type RunnerSlotStatus,
+  type RunnerSpendReport,
+  formatUsd,
 } from "@sim/shared";
 
 import type { Agent, AgentReporter, AgentRun } from "./agents/types.js";
+import { SpendLedger } from "./budget.js";
 import { NO_GITHUB, type TaskGithub } from "./github.js";
 import { type Redactor, createRedactor } from "./redact.js";
 import { ScreenMirror } from "./terminal.js";
@@ -82,6 +92,8 @@ export interface SlotPoolOptions {
   readonly github?: TaskGithub;
   /** Masks the runner's secrets in what its agents say; none by default. */
   readonly redactor?: Redactor;
+  /** What the agents spend is booked in, and what refuses a start once the day's budget is spent; no budget by default. */
+  readonly ledger?: SpendLedger;
   /** Event ids. Injected so a test can name the events it expects. */
   readonly eventId?: () => string;
   readonly log?: (line: string) => void;
@@ -116,6 +128,8 @@ interface ActiveRun {
   checking: boolean;
   /** A turn ended with nothing handed in and the slot said so; until it works again. */
   missing: boolean;
+  /** What its agent has said its work cost, in US dollars. */
+  spentUsd: number;
 }
 
 /** The bytes a string takes in a sync body, as the contract measures them. */
@@ -147,9 +161,11 @@ export class SlotPool {
   private readonly log: (line: string) => void;
   private readonly redactor: Redactor;
   private readonly github: TaskGithub;
+  private readonly ledger: SpendLedger;
 
   public constructor(private readonly options: SlotPoolOptions) {
     this.redactor = options.redactor ?? createRedactor([]);
+    this.ledger = options.ledger ?? new SpendLedger({ budgetUsd: undefined });
     this.github = options.github ?? NO_GITHUB;
     this.eventId = options.eventId ?? (() => `event-${randomUUID()}`);
     this.log = options.log ?? (() => undefined);
@@ -186,6 +202,11 @@ export class SlotPool {
       activity: slot.activity,
       pr: slot.pr,
     }));
+  }
+
+  /** Today's spend against the budget, as the sync reports it. */
+  public spend(): RunnerSpendReport {
+    return this.ledger.report();
   }
 
   /** The events not yet delivered, oldest first. */
@@ -250,6 +271,12 @@ export class SlotPool {
       this.emit(slot, RUNNER_EVENT_KIND.failed, task.issueNumber, undefined, `${slot.name} is busy with #${slot.run.issueNumber}`);
       return;
     }
+    const overBudget = this.ledger.refusal();
+    if (overBudget !== undefined) {
+      this.emit(slot, RUNNER_EVENT_KIND.failed, task.issueNumber, undefined, overBudget, RUNNER_REFUSAL.budget);
+      this.log(`start for ${slot.id} on #${task.issueNumber} refused: ${overBudget}`);
+      return;
+    }
     slot.status = RUNNER_SLOT_STATUS.starting;
     slot.screen.reset();
     slot.issueNumber = task.issueNumber;
@@ -266,6 +293,7 @@ export class SlotPool {
       handedIn: false,
       checking: false,
       missing: false,
+      spentUsd: 0,
     };
     slot.run = run;
     this.arm(slot, run);
@@ -467,6 +495,13 @@ export class SlotPool {
           this.end(slot, kind, message, undefined, RUNNER_SLOT_STATUS.exited);
         }
       },
+      // Booked whether or not the work is still live: a stopped agent's last turn is paid for too.
+      spent: (totalUsd) => {
+        if (Number.isFinite(totalUsd)) {
+          this.ledger.add(totalUsd - run.spentUsd);
+          run.spentUsd = totalUsd;
+        }
+      },
     };
     let agentRun: AgentRun;
     try {
@@ -514,7 +549,7 @@ export class SlotPool {
     slot.activity = "";
     slot.pr = undefined;
     this.emit(slot, kind, run.issueNumber, pr, message);
-    this.log(`${slot.id} ${kind} on #${run.issueNumber}${message === "" ? "" : `: ${message}`}`);
+    this.log(`${slot.id} ${kind} on #${run.issueNumber}${message === "" ? "" : `: ${message}`} (${formatUsd(run.spentUsd)} spent)`);
     void this.options.workspaces.close(slot.id, run.issueNumber);
   }
 
@@ -524,6 +559,7 @@ export class SlotPool {
     issueNumber: number,
     pr: RunnerPullRequest | undefined,
     message: string,
+    refusal?: RunnerRefusal,
   ): void {
     this.events.push({
       id: this.eventId(),
@@ -532,6 +568,7 @@ export class SlotPool {
       issueNumber,
       pr,
       message: fitBytes(this.redactor.redactText(message), MAX_WORK_NOTE_LENGTH),
+      refusal,
     });
     if (this.events.length > MAX_PENDING_EVENTS) {
       this.events.shift();

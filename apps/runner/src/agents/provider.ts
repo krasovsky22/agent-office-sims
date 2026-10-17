@@ -20,6 +20,8 @@ export interface RunHandle {
   setStatus(status: RunStatus, activity?: string): void;
   /** It opened a pull request, as one of its tool calls showed. */
   pullRequest(pr: { readonly number: number; readonly url: string }): void;
+  /** Its session's transcript, as a hook named it: what its spend is read off. */
+  transcript(path: string): void;
 }
 
 /** One run, for its adapter to turn into a command line. */

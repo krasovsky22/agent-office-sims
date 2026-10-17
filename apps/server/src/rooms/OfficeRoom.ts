@@ -44,7 +44,9 @@
  * `sim/liveAgents.ts`, which walks, seats and talks the bodies on the floor.
  * The work a runner's agents do goes through `agents/runnerWork.ts`, which
  * turns each change to the work into a command for the runner and each event
- * the runner reports into the agent's own move on the work.
+ * the runner reports into the agent's own move on the work. What the runners
+ * report spending today is copied into the state on the tick, for every
+ * client's HUD.
  *
  * Nor is how the AI manager thinks. The room seats it at its desk, hands every
  * message to it through `managerHandlers.ts`, and sends each joining client the
@@ -68,6 +70,7 @@ import {
   type EmoteEvent,
   HumanPlayer,
   type IssueWork,
+  type RunnerSpendTotal,
   MAX_CHAT_LENGTH,
   MAX_LABEL_LENGTH,
   type ManagerEntry,
@@ -94,7 +97,13 @@ import {
 } from "@sim/shared";
 
 import { type LiveAgentSource, isLiveAgentSource } from "../agents/registry.js";
-import { type RunnerEventInbox, type RunnerEventSource, isRunnerEventSource } from "../agents/runnerLink.js";
+import {
+  type RunnerEventInbox,
+  type RunnerEventSource,
+  type RunnerSpendSource,
+  isRunnerEventSource,
+  isRunnerSpendSource,
+} from "../agents/runnerLink.js";
 import { type RunnerCommands, RunnerWork, isRunnerCommands } from "../agents/runnerWork.js";
 import { type ScreenSource, isScreenSource } from "../agents/screens.js";
 import type { ProjectBoardSource } from "../github/feed.js";
@@ -166,6 +175,8 @@ export interface OfficeRoomOptions {
   readonly runnerEvents?: RunnerEventSource;
   /** Where commands for the runners' slots are queued; absent when no runner is configured. */
   readonly runnerCommands?: RunnerCommands;
+  /** What the runners' agents have spent today; absent when no runner is configured. */
+  readonly runnerSpend?: RunnerSpendSource;
   /**
    * The label an issue needs before it can go to a live coding agent.
    * Defaults to {@link DEFAULT_AGENT_ISSUE_LABEL}; never none, since Colyseus
@@ -244,6 +255,8 @@ export class OfficeRoom extends Room<OfficeState> {
   private runnerEvents: RunnerEventInbox | undefined;
   /** The runners' side of the work; unset in a room given no runner. */
   private runnerWork: RunnerWork | undefined;
+  /** Read every tick into the state's books; unset in a room given no runner. */
+  private runnerSpend: RunnerSpendSource | undefined;
   private screens: ScreenSource | undefined;
   private stopRelayingScreens: (() => void) | undefined;
 
@@ -310,6 +323,10 @@ export class OfficeRoom extends Room<OfficeState> {
     if (isRunnerEventSource(runnerEvents)) {
       this.runnerEvents = runnerEvents.openEventInbox();
     }
+    const runnerSpend = roomOptions?.runnerSpend;
+    if (isRunnerSpendSource(runnerSpend)) {
+      this.runnerSpend = runnerSpend;
+    }
     const screens = roomOptions?.screens;
     if (isScreenSource(screens)) {
       this.screens = screens;
@@ -331,7 +348,12 @@ export class OfficeRoom extends Room<OfficeState> {
     };
     const runnerCommands = roomOptions?.runnerCommands;
     if (isRunnerCommands(runnerCommands)) {
-      this.runnerWork = new RunnerWork({ host: workHost, runner: runnerCommands, log: recordOfficeEvent });
+      this.runnerWork = new RunnerWork({
+        host: workHost,
+        runner: runnerCommands,
+        log: recordOfficeEvent,
+        announce: (text) => this.manager?.report(text),
+      });
     }
     registerWorkHandlers(this, workHost);
     // Before the manager's desk opens, so it never hands out a live agent's
@@ -520,6 +542,9 @@ export class OfficeRoom extends Room<OfficeState> {
     if (this.state.tick % TICK_RATE_HZ === 0) {
       this.runnerWork?.reconcile();
     }
+    if (this.runnerSpend !== undefined) {
+      this.showRunnerSpend(this.runnerSpend.spend());
+    }
 
     for (const [sessionId, motion] of this.motions) {
       const occupant = this.state.occupants.get(sessionId);
@@ -608,6 +633,31 @@ export class OfficeRoom extends Room<OfficeState> {
       allow: (client) => this.spend(client, CLIENT_MESSAGE.managerSay),
     });
     this.manager.start();
+  }
+
+  /**
+   * Copies the runners' books into the state, field by field, so a tick on
+   * which nothing was spent sends nothing.
+   */
+  private showRunnerSpend(total: RunnerSpendTotal): void {
+    const { state } = this;
+    if (state.spendRunners !== total.runners) {
+      state.spendRunners = total.runners;
+    }
+    if (state.spentUsd !== total.spentUsd) {
+      state.spentUsd = total.spentUsd;
+    }
+    const budgeted = total.budgetUsd !== undefined;
+    if (state.budgeted !== budgeted) {
+      state.budgeted = budgeted;
+    }
+    const budgetUsd = total.budgetUsd ?? 0;
+    if (state.budgetUsd !== budgetUsd) {
+      state.budgetUsd = budgetUsd;
+    }
+    if (state.budgetSpent !== total.budgetSpent) {
+      state.budgetSpent = total.budgetSpent;
+    }
   }
 
   /**

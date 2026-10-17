@@ -9,7 +9,8 @@
  * committing, the project's checks, pushing its branch and opening its pull
  * request. Anything else stops at a permission prompt, which its slot reports
  * as needing a person. The pull request it opens is read off its `PostToolUse`
- * hook, by the `gh pr create` it ran.
+ * hook, by the `gh pr create` it ran, and what it spends off the transcript
+ * every hook names (`./usage.ts`).
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -191,6 +192,10 @@ function question(payload: Payload): string {
  */
 export function claudeHook(run: RunHandle, event: string, body: unknown, repo?: string): void {
   const payload = asPayload(body);
+  const transcript = text(payload["transcript_path"]);
+  if (transcript !== "") {
+    run.transcript(transcript);
+  }
   switch (event) {
     case "SessionStart":
       // It also fires mid-work, as a conversation is compacted: only a session that is just up is idle.
