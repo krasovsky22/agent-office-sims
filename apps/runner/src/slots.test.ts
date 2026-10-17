@@ -1,8 +1,9 @@
 /**
- * The slot pool with the `mock` agent: a start opens the task's workspace,
- * runs its script to `started` and an outcome there, closes the workspace and
- * leaves the slot idle again, a stop or the task timeout cuts it short, and
- * everything reported fits the contract's budgets.
+ * The slot pool with the `mock` agent: a start checks the issue, opens the
+ * task's workspace, runs its script to `started` and an outcome there: a
+ * failure closes the workspace and leaves the slot idle again, and a pull
+ * request keeps the task for rework until a stop. A stop or the task timeout
+ * cuts work short, and everything reported fits the contract's budgets.
  *
  * Fake timers drive the mock's script, so each step is a step of the clock.
  * The workspace is a plain git checkout the mock commits in; real worktrees
@@ -18,8 +19,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MOCK_NEEDS_INPUT_STEPS, createMockAgent } from "./agents/mock.js";
 import type { Agent, AgentReporter, AgentTask } from "./agents/types.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
+import type { HandInTask, TaskGithub } from "./github.js";
 import { createRedactor } from "./redact.js";
-import { type SlotWorkspaces, SlotPool, TURN_DONE, fitBytes } from "./slots.js";
+import { NO_PULL_REQUEST, type SlotWorkspaces, SlotPool, TURN_DONE, fitBytes } from "./slots.js";
 
 const REPO = "krasovsky22/agent-office-sims";
 const STEP_MS = 100;
@@ -58,7 +60,7 @@ function workspaces(fail?: string): SlotWorkspaces {
   };
 }
 
-function pool(outcome: "failed" | "pr-opened" = "failed", agent?: Agent, spaces = workspaces()) {
+function pool(outcome: "failed" | "pr-opened" = "failed", agent?: Agent, spaces = workspaces(), github?: TaskGithub) {
   let nextId = 1;
   return new SlotPool({
     count: 2,
@@ -66,6 +68,7 @@ function pool(outcome: "failed" | "pr-opened" = "failed", agent?: Agent, spaces 
     workspaces: spaces,
     taskTimeoutMs: TIMEOUT_MS,
     eventId: () => `event-${nextId++}`,
+    ...(github === undefined ? {} : { github }),
   });
 }
 
@@ -100,7 +103,7 @@ describe("SlotPool", () => {
   it("runs a start to started, through its script, to failed, and back to idle", async () => {
     const slots = pool();
     slots.handle(START);
-    expect(slot(slots)).toMatchObject({ status: "starting", issueNumber: 39, activity: "Making a worktree" });
+    expect(slot(slots)).toMatchObject({ status: "starting", issueNumber: 39, activity: "Checking #39 on GitHub" });
     expect(slot(slots, "slot-2")?.status).toBe("idle");
     await settle();
     expect(slot(slots)).toMatchObject({ status: "starting", activity: "Starting" });
@@ -210,28 +213,243 @@ describe("SlotPool", () => {
 
   it("starts no agent for work stopped while its workspace was opening", async () => {
     const start = vi.fn();
-    const slots = pool("failed", { label: "Spy", start });
+    let opened: ((workdir: string) => void) | undefined;
+    const slots = pool("failed", { label: "Spy", start }, {
+      open: (slotId, issueNumber) => {
+        asked.push(`open ${slotId} #${issueNumber}`);
+        return new Promise((resolve) => {
+          opened = resolve;
+        });
+      },
+      close: async (slotId, issueNumber) => {
+        asked.push(`close ${slotId} #${issueNumber}`);
+      },
+    });
     slots.handle(START);
+    await settle();
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "" });
+    opened?.(fixture.developer);
     await settle();
     expect(start).not.toHaveBeenCalled();
     expect(slots.pendingEvents().map((event) => event.message)).toEqual(["Stopped: the server asked"]);
     expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
   });
 
-  it("opens a fake pull request when the mock is configured to", async () => {
+  it("starts no agent, and opens no workspace, for work stopped while its issue was being checked", async () => {
+    const start = vi.fn();
+    const slots = pool("failed", { label: "Spy", start });
+    slots.handle(START);
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "" });
+    await settle();
+    expect(start).not.toHaveBeenCalled();
+    expect(asked).toEqual(["close slot-1 #39"]);
+  });
+
+  it("opens a fake pull request when the mock is configured to, and keeps the task for review", async () => {
     const slots = pool("pr-opened");
     slots.handle(START);
     await vi.advanceTimersByTimeAsync(SCRIPT_MS);
-    expect(slot(slots)?.status).toBe("idle");
+    const pr = { number: 1_000_039, title: "[mock] Night shift", url: `https://github.com/${REPO}/pull/1000039` };
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE, pr });
     expect(slots.pendingEvents()[1]).toEqual({
       id: "event-2",
       kind: "pr-opened",
       slotId: "slot-1",
       issueNumber: 39,
-      pr: { number: 1_000_039, title: "[mock] Night shift", url: `https://github.com/${REPO}/pull/1000039` },
+      pr,
       message: "",
     });
+    // Handed in, the work waits on review rather than the task timeout, its worktree kept.
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 2);
+    expect(slot(slots)?.issueNumber).toBe(39);
+    expect(slots.pendingEvents()).toHaveLength(2);
+    expect(asked).toEqual(["open slot-1 #39"]);
+  });
+
+  it("takes a rework prompt, hands the same pull request in again, and gives the task up when stopped", async () => {
+    const slots = pool("pr-opened");
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "prompt", text: "Rename the lift.", requestedBy: "Dana" });
+    expect(slot(slots)).toMatchObject({ status: "working", issueNumber: 39, activity: "Rename the lift.", pr: { number: 1_000_039 } });
+    await vi.advanceTimersByTimeAsync(STEP_MS * 6);
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE });
+    expect(slots.pendingEvents().map((event) => [event.kind, event.pr?.number])).toEqual([
+      ["started", undefined],
+      ["pr-opened", 1_000_039],
+      ["pr-opened", 1_000_039],
+    ]);
+    expect(fixture.git(fixture.developer, "log", "-1", "--format=%s")).toBe("mock: rework #39");
+
+    // A stop for an issue it has left behind is not for this work.
+    slots.handle({ id: "command-3", slotId: "slot-1", kind: "stop", reason: "", issueNumber: 40 });
+    expect(slot(slots)?.issueNumber).toBe(39);
+    slots.handle({ id: "command-4", slotId: "slot-1", kind: "stop", reason: "the work is done", issueNumber: 39 });
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined, pr: undefined });
+    expect(slots.pendingEvents().at(-1)).toMatchObject({ kind: "failed", message: "Stopped: the work is done" });
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
+  });
+
+  it("takes a start for the issue it already holds as a prompt with the start's note", async () => {
+    const slots = pool("pr-opened");
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
+    slots.handle({ ...START, id: "command-2", note: "Rename the lift." });
+    expect(slot(slots)).toMatchObject({ status: "working", activity: "Rename the lift." });
+    expect(asked).toEqual(["open slot-1 #39"]);
+  });
+
+  it("says again how far it got when started on the issue it holds, as after a server restart", async () => {
+    const slots = pool("pr-opened");
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
+    slots.delivered(new Set(slots.pendingEvents().map((event) => event.id)));
+    slots.handle({ ...START, id: "command-2" });
+    expect(slots.pendingEvents().map((event) => [event.kind, event.pr?.number])).toEqual([
+      ["started", undefined],
+      ["pr-opened", 1_000_039],
+    ]);
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE });
+  });
+
+  it("refuses an issue GitHub says may not be worked, before it opens a workspace", async () => {
+    const start = vi.fn();
+    const slots = pool("failed", { label: "Spy", start }, workspaces(), {
+      refusal: async () => "#39 is not labelled agent-ready on GitHub, so no agent may work it",
+      pullRequest: async () => undefined,
+      pullRequestTitle: async () => "",
+    });
+    slots.handle(START);
+    await settle();
+    expect(start).not.toHaveBeenCalled();
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined });
+    expect(slots.pendingEvents()).toEqual([
+      {
+        id: "event-1",
+        kind: "failed",
+        slotId: "slot-1",
+        issueNumber: 39,
+        pr: undefined,
+        message: "#39 is not labelled agent-ready on GitHub, so no agent may work it",
+      },
+    ]);
+    expect(asked).toEqual(["close slot-1 #39"]);
+  });
+
+  it("finds the pull request a turn ended without reporting, and hands it in", async () => {
+    let reporter: AgentReporter | undefined;
+    const pullRequest = vi.fn(async (task: HandInTask) => {
+      expect(task).toEqual({ issueNumber: 39, title: "Night shift", workdir: fixture.developer, requestedBy: "Dana", agentName: "Claude 1" });
+      return { number: 95, title: "Night shift", url: `https://github.com/${REPO}/pull/95` };
+    });
+    const agent: Agent = {
+      label: "Claude",
+      start: (_task, given) => {
+        reporter = given;
+        return { stop: () => undefined };
+      },
+    };
+    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest, pullRequestTitle: async () => "" });
+    slots.handle(START);
+    await settle();
+    reporter?.progress("Bash: git push");
+    reporter?.turnDone();
+    await settle();
+    expect(pullRequest).toHaveBeenCalledTimes(1);
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE, pr: { number: 95 } });
+    expect(slots.pendingEvents().map((event) => [event.kind, event.pr?.url])).toEqual([
+      ["started", undefined],
+      ["pr-opened", `https://github.com/${REPO}/pull/95`],
+    ]);
+    // Handed in: later turns look for nothing.
+    reporter?.turnDone();
+    await settle();
+    expect(pullRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands in a pull request its agent reports once, and says why when GitHub cannot be asked", async () => {
+    let reporter: AgentReporter | undefined;
+    const agent: Agent = {
+      label: "Claude",
+      start: (_task, given) => {
+        reporter = given;
+        return { stop: () => undefined };
+      },
+    };
+    const slots = pool("failed", agent, workspaces(), {
+      refusal: async () => undefined,
+      pullRequest: async () => {
+        throw new Error("gh: HTTP 401");
+      },
+      pullRequestTitle: async () => "",
+    });
+    slots.handle(START);
+    await settle();
+    reporter?.progress("Bash: pnpm test");
+    reporter?.turnDone();
+    await settle();
+    expect(slot(slots)).toMatchObject({ status: "needs-input", activity: `${NO_PULL_REQUEST} that the runner could find: gh: HTTP 401` });
+
+    reporter?.progress("Bash: gh pr create");
+    const pr = { number: 96, title: "", url: `https://github.com/${REPO}/pull/96` };
+    reporter?.prOpened(pr);
+    reporter?.prOpened(pr);
+    await settle();
+    expect(slots.pendingEvents().filter((event) => event.kind === "pr-opened")).toHaveLength(1);
+    expect(slot(slots)).toMatchObject({ status: "working", pr });
+  });
+
+  it("asks GitHub for the title of a pull request its agent reports without one", async () => {
+    let reporter: AgentReporter | undefined;
+    const agent: Agent = {
+      label: "Claude",
+      start: (_task, given) => {
+        reporter = given;
+        return { stop: () => undefined };
+      },
+    };
+    const pullRequestTitle = vi.fn(async () => "Night shift");
+    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest: async () => undefined, pullRequestTitle });
+    slots.handle(START);
+    await settle();
+    reporter?.progress("Bash: gh pr create");
+    reporter?.prOpened({ number: 96, title: "", url: `https://github.com/${REPO}/pull/96` });
+    await settle();
+    expect(pullRequestTitle).toHaveBeenCalledWith(96);
+    expect(slots.pendingEvents().find((event) => event.kind === "pr-opened")?.pr).toEqual({
+      number: 96,
+      title: "Night shift",
+      url: `https://github.com/${REPO}/pull/96`,
+    });
+  });
+
+  it("counts a reported pull request handed in while its title is being looked up", async () => {
+    let reporter: AgentReporter | undefined;
+    const agent: Agent = {
+      label: "Claude",
+      start: (_task, given) => {
+        reporter = given;
+        return { stop: () => undefined };
+      },
+    };
+    let giveTitle: (title: string) => void = () => undefined;
+    const pullRequest = vi.fn(async () => undefined);
+    const pullRequestTitle = vi.fn(() => new Promise<string>((resolve) => (giveTitle = resolve)));
+    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest, pullRequestTitle });
+    slots.handle(START);
+    await settle();
+    reporter?.progress("Bash: gh pr create");
+    reporter?.prOpened({ number: 96, title: "", url: `https://github.com/${REPO}/pull/96` });
+    reporter?.turnDone();
+    await settle();
+    expect(pullRequest).not.toHaveBeenCalled();
+    expect(slot(slots)).toMatchObject({ status: "idle", activity: TURN_DONE });
+    expect(slots.pendingEvents().filter((event) => event.kind === "pr-opened")).toHaveLength(0);
+
+    giveTitle("Night shift");
+    await settle();
+    expect(slot(slots)).toMatchObject({ status: "idle", pr: { number: 96, title: "Night shift" } });
+    expect(slots.pendingEvents().filter((event) => event.kind === "pr-opened").map((event) => event.pr?.title)).toEqual(["Night shift"]);
   });
 
   it("honours stop: the script goes no further, and the work is reported failed with the reason", async () => {
@@ -284,7 +502,7 @@ describe("SlotPool", () => {
     ]);
   });
 
-  it("ignores a command for a slot it does not have, and a prompt", () => {
+  it("ignores a command for a slot it does not have, and a prompt for a slot holding no task", () => {
     const slots = pool();
     slots.handle({ ...START, slotId: "slot-9" });
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "prompt", text: "hurry", requestedBy: "Dana" });
@@ -341,7 +559,12 @@ describe("SlotPool", () => {
     reporter?.needsInput("Wants permission: Bash: git push");
     expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: "Wants permission: Bash: git push" });
     reporter?.turnDone();
-    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE });
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: "Looking for its pull request" });
+    await settle();
+    // Nothing handed in, and none to be found: it needs a person, still holding its issue.
+    expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: NO_PULL_REQUEST });
+    reporter?.turnDone();
+    expect(slot(slots)).toMatchObject({ status: "needs-input", activity: NO_PULL_REQUEST });
     expect(asked).toEqual(["open slot-1 #39"]);
     reporter?.exited("Claude exited with code 0", true);
     expect(slot(slots)).toMatchObject({ status: "exited", issueNumber: undefined, activity: "" });

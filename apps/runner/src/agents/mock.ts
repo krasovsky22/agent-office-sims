@@ -8,7 +8,9 @@
  * agent does for a permission, so the office's needs-you beacon can be seen
  * without one. By default the work fails, which is what a real agent does most
  * often while this is being built; configured to, it opens a pull request that
- * does not exist instead.
+ * does not exist instead, and then waits at its prompt as a real agent does:
+ * sent back for rework, it reads the prompt, commits again, and hands the same
+ * pull request in again.
  *
  * It does one real thing, writing a file in its worktree and committing it, so
  * a task's worktree is exercised end to end too: stopped before it writes, its
@@ -17,7 +19,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { gitError } from "../worktrees.js";
@@ -63,6 +65,22 @@ interface Step {
   readonly needsInput?: boolean;
   /** What the step really does, if anything; throws to fail the work. */
   readonly act?: () => void;
+}
+
+/** What the mock does when sent back: reads why, and commits again. */
+function reworkScript(task: AgentTask, text: string): readonly Step[] {
+  const file = join(MOCK_DIR, `issue-${task.issueNumber}.md`);
+  return [
+    { activity: `Reading: ${text.split("\n")[0] ?? ""}` },
+    {
+      activity: `Edit: ${file}`,
+      act: () => {
+        appendFileSync(join(task.workdir, file), `\nReworked: ${text}\n`);
+      },
+    },
+    { activity: "Bash: git commit", act: () => commit(task.workdir, `mock: rework #${task.issueNumber}`) },
+    { activity: "Bash: git push" },
+  ];
 }
 
 /** What the mock does, one step at a time. */
@@ -119,9 +137,10 @@ export function createMockAgent(options: MockAgentOptions): Agent {
   return {
     label: "Mock",
     start(task: AgentTask, reporter: AgentReporter): AgentRun {
-      const steps = script(task);
+      let steps = script(task);
       let step = 0;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let stopped = false;
 
       const next = (): void => {
         const current = steps[step];
@@ -152,6 +171,7 @@ export function createMockAgent(options: MockAgentOptions): Agent {
           const url = `https://github.com/${options.repo}/pull/${number}`;
           reporter.output(`${GREEN}✓ Opened ${url}${RESET}\r\n`);
           reporter.prOpened({ number, title: `[mock] ${task.title}`, url });
+          reporter.turnDone();
         } else {
           const message = "The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a pull request.";
           reporter.output(`${RED}✗ ${message}${RESET}\r\n`);
@@ -167,10 +187,21 @@ export function createMockAgent(options: MockAgentOptions): Agent {
 
       return {
         stop() {
+          stopped = true;
           if (timer !== undefined) {
             clearTimeout(timer);
             timer = undefined;
           }
+        },
+        prompt(text) {
+          if (stopped) {
+            return;
+          }
+          clearTimeout(timer);
+          reporter.output(`\r\n${BOLD}>${RESET} ${text}\r\n`);
+          steps = reworkScript(task, text);
+          step = 0;
+          timer = setTimeout(next, stepMs);
         },
       };
     },

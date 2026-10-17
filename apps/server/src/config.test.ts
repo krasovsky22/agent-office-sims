@@ -214,12 +214,20 @@ describe("readLiveAgentsConfig", () => {
 
 describe("readRunnerConfig", () => {
   it("leaves the sync route off without a secret", () => {
-    expect(readRunnerConfig({})).toEqual({ secret: undefined });
+    expect(readRunnerConfig({})).toEqual({ secret: undefined, issueLabel: "agent-ready" });
     expect(readRunnerConfig({ RUNNER_SECRET: "  " }).secret).toBeUndefined();
   });
 
   it("reads a secret", () => {
-    expect(readRunnerConfig({ RUNNER_SECRET: " 0123456789abcdef " })).toEqual({ secret: "0123456789abcdef" });
+    expect(readRunnerConfig({ RUNNER_SECRET: " 0123456789abcdef " })).toEqual({
+      secret: "0123456789abcdef",
+      issueLabel: "agent-ready",
+    });
+  });
+
+  it("reads the label an issue needs before it goes to a runner's agent", () => {
+    expect(readRunnerConfig({ REAL_AGENT_ISSUE_LABEL: " ready for agents " }).issueLabel).toBe("ready for agents");
+    expect(() => readRunnerConfig({ REAL_AGENT_ISSUE_LABEL: "x".repeat(60) })).toThrow(/REAL_AGENT_ISSUE_LABEL/);
   });
 
   it("refuses a short secret without printing it", () => {

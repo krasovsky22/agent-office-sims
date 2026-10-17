@@ -17,7 +17,8 @@
  *   {@link WORK_ACTION_AUTHORITY} table: the CEO hands the work out and judges
  *   it, and the agent an issue was given to does the work on it.
  *   Beside it, {@link mayCommandRealAgents}, the stricter rule for work that
- *   reaches a real coding agent.
+ *   reaches a real coding agent, and {@link isAgentReady}, which issues one
+ *   may be given at all.
  * - {@link applyWorkCommand}, which validates a parsed command against the
  *   live office and the project board and mutates the work, or rejects it and
  *   leaves everything untouched.
@@ -41,7 +42,7 @@ import {
   sanitizeWorkNote,
 } from "./messages.js";
 import { isLiveAgentKey } from "./liveAgents.js";
-import { type ProjectBoardSnapshot, isIssueGone, openBoardIssue } from "./projectBoard.js";
+import { type BoardIssue, type ProjectBoardSnapshot, isIssueGone, openBoardIssue } from "./projectBoard.js";
 import {
   IssueWork,
   OCCUPANT_KIND,
@@ -65,7 +66,7 @@ import {
  * back for rework and have a stuck agent try again from the start. `done` is
  * terminal: reopening finished work is a product decision nobody has made.
  *
- * Leaving the board altogether is not an edge here. Work that has not started
+ * Leaving the board altogether is not an edge here. Work not yet handed in
  * is {@link WORK_ACTION.release}d instead, which removes it; see
  * {@link mayRelease}.
  */
@@ -106,14 +107,18 @@ export function workTransitions(
  * Whether this work can be released: taken off its agent, leaving the issue
  * free on the board.
  *
- * Only work nobody has started, so a release never discards progress, and a
- * review whose assignee has left, which can no longer go back to them; see
- * {@link workTransitions}. Work that has started is walked back a step at a
- * time first.
+ * Work not yet handed in, `assigned` or `in_progress`, and a review whose
+ * assignee has left, which can no longer go back to them; see
+ * {@link workTransitions}. Releasing work in progress stops its agent but
+ * discards nothing: a coding agent's progress is in its git worktree, which its
+ * runner keeps while anything in it would be lost, and picks up again if the
+ * issue comes back to the same slot. A review in hand is approved or sent back
+ * instead, since its pull request is up for a decision.
  */
 export function mayRelease(work: WorkData, isPresent: (occupantId: string) => boolean): boolean {
   return (
     work.status === WORK_STATUS.assigned ||
+    work.status === WORK_STATUS.in_progress ||
     (work.status === WORK_STATUS.review && !isPresent(work.assigneeId))
   );
 }
@@ -283,6 +288,45 @@ export function mayCommandRealAgents(actor: OfficeActor): boolean {
   return actor.isCeo && actor.isOperator;
 }
 
+/**
+ * Whether a command puts a real coding agent to work: handing it an issue,
+ * sending its review back for rework, or having it start again. Each one
+ * starts or prompts an agent on the runner, which spends money and runs code,
+ * so each takes {@link mayCommandRealAgents} where the office asks for it.
+ * Taking work back or approving it only stops an agent, and does not.
+ *
+ * Every issue assignee is a real coding agent, see {@link isIssueAssignee},
+ * so this reads the command and the work, never who the assignee is.
+ */
+export function commandsRealAgent(command: WorkCommand, work: WorkData | undefined): boolean {
+  switch (command.action) {
+    case WORK_ACTION.assign:
+      return true;
+    case WORK_ACTION.moveStatus:
+      return (
+        work !== undefined &&
+        ((work.status === WORK_STATUS.review && command.payload.status === WORK_STATUS.in_progress) ||
+          (work.status === WORK_STATUS.in_progress && command.payload.status === WORK_STATUS.assigned))
+      );
+    default:
+      return false;
+  }
+}
+
+/**
+ * Whether an issue may go to a live coding agent: it carries the office's
+ * eligibility label, which only a maintainer can put on it. GitHub's label
+ * names are not case-sensitive. An office that asks for no label (`""`) takes
+ * any issue.
+ */
+export function isAgentReady(issue: Pick<BoardIssue, "labels">, label: string): boolean {
+  if (label === "") {
+    return true;
+  }
+  const wanted = label.toLowerCase();
+  return issue.labels.some((candidate) => candidate.name.toLowerCase() === wanted);
+}
+
 /** A change the board panel may offer on work in hand, and the command that makes it. */
 export type WorkMove =
   | { readonly action: typeof WORK_ACTION.moveStatus; readonly to: WorkStatus }
@@ -339,6 +383,10 @@ export const WORK_REJECTION = {
   unknownAssignee: "unknown-assignee",
   /** A hand-in with no deliverable attached, or an attachment with no text. */
   missingArtifact: "missing-artifact",
+  /** It would put a real coding agent to work, and the CEO has not proved the operator passphrase. */
+  notOperator: "not-operator",
+  /** The issue does not carry the label that makes it a real coding agent's to take. */
+  notEligible: "not-eligible",
 } as const;
 
 export type WorkRejection = (typeof WORK_REJECTION)[keyof typeof WORK_REJECTION];
@@ -397,6 +445,17 @@ export interface WorkCommandContext {
   readonly now: number;
   /** Defaults to {@link mayActOnWork}. */
   readonly permit?: WorkPermission;
+  /**
+   * Whether putting a real coding agent to work takes a verified operator, the
+   * replicated `operatorRequired`; see {@link commandsRealAgent}. Absent, it
+   * does not.
+   */
+  readonly operatorRequired?: boolean;
+  /**
+   * The label an issue needs before it is given to an agent, the replicated
+   * `agentIssueLabel`; see {@link isAgentReady}. Absent or `""`, none.
+   */
+  readonly issueLabel?: string;
 }
 
 export type WorkCommandResult =
@@ -428,6 +487,9 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
     if (!permit({ actor: context.actor, action: WORK_ACTION.assign, ...(work === undefined ? {} : { work }) })) {
       return reject(WORK_REJECTION.forbidden);
     }
+    if (needsOperator(command, work, context)) {
+      return reject(WORK_REJECTION.notOperator);
+    }
     return assignWork(work, command.payload, context);
   }
 
@@ -436,6 +498,9 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
   }
   if (!permit({ actor: context.actor, action: command.action, work })) {
     return reject(WORK_REJECTION.forbidden);
+  }
+  if (needsOperator(command, work, context)) {
+    return reject(WORK_REJECTION.notOperator);
   }
 
   switch (command.action) {
@@ -454,6 +519,11 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
   }
 }
 
+/** Whether the CEO asking still has to prove the operator passphrase first. */
+function needsOperator(command: WorkCommand, work: WorkData | undefined, context: WorkCommandContext): boolean {
+  return context.operatorRequired === true && commandsRealAgent(command, work) && !mayCommandRealAgents(context.actor);
+}
+
 /**
  * Gives an issue to an agent, or hands its work to another.
  *
@@ -464,7 +534,9 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
  * back to `assigned` because it changed hands would lose the fact that work
  * had started.
  *
- * Only an {@link isIssueAssignee} does issues.
+ * Only an {@link isIssueAssignee} does issues, and only one the board shows
+ * open with the office's label, {@link isAgentReady}: giving work in hand to
+ * another agent puts that one to work too, so it is checked again.
  */
 function assignWork(
   work: IssueWork | undefined,
@@ -483,6 +555,13 @@ function assignWork(
   const assignee = context.occupants.get(payload.assigneeId);
   if (assignee === undefined || !isIssueAssignee(assignee)) {
     return reject(WORK_REJECTION.unknownAssignee);
+  }
+  const label = context.issueLabel ?? "";
+  if (label !== "" && work?.assigneeId !== payload.assigneeId) {
+    const listed = issue ?? openBoardIssue(context.board, payload.issueNumber);
+    if (listed === undefined || !isAgentReady(listed, label)) {
+      return reject(WORK_REJECTION.notEligible);
+    }
   }
 
   if (work !== undefined) {
@@ -537,12 +616,14 @@ function moveWorkStatus(
  *
  * Only from `assigned`: work already `in_progress` is being worked, by this
  * agent or one it was taken from, and claiming it again would change nothing.
+ * Starting clears the note, which said why it had stopped before.
  */
 function claimWork(work: IssueWork, context: WorkCommandContext): WorkCommandResult {
   if (work.status !== WORK_STATUS.assigned || !isLegalWorkTransition(work.status, WORK_STATUS.in_progress)) {
     return reject(WORK_REJECTION.illegalTransition);
   }
   work.status = WORK_STATUS.in_progress;
+  work.note = "";
   work.updatedAt = context.now;
   return { ok: true, work };
 }

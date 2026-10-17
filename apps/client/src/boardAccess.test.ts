@@ -55,6 +55,7 @@ describe("board panel offers", () => {
     expect(access.movesFor(inProgress, [DANA, ADA])).toEqual([
       { action: WORK_ACTION.moveStatus, to: WORK_STATUS.assigned },
       { action: WORK_ACTION.moveStatus, to: WORK_STATUS.review },
+      { action: WORK_ACTION.release },
     ]);
   });
 
@@ -92,5 +93,13 @@ describe("rejectionText", () => {
       expect(rejectionText(rejection)).not.toBe("");
     }
     expect(rejectionText(WORK_REJECTION.forbidden)).toContain("CEO");
+  });
+
+  it("names the label an issue refused for want of it needs, and asks the CEO to verify", () => {
+    expect(rejectionText(WORK_REJECTION.notEligible, "agent-ready")).toBe(
+      "That issue is not marked ready for the coding agents: a maintainer has to label it agent-ready first.",
+    );
+    expect(rejectionText(WORK_REJECTION.notEligible)).toBe("That issue is not marked ready for the coding agents.");
+    expect(rejectionText(WORK_REJECTION.notOperator)).toContain("operator passphrase");
   });
 });

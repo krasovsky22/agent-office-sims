@@ -4,7 +4,8 @@
  * is never configured past the server's own slot cap.
  */
 
-import { homedir } from "node:os";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { MAX_RUNNER_SLOTS } from "@sim/shared";
@@ -27,6 +28,19 @@ function refusal(env: NodeJS.ProcessEnv): string {
   throw new Error("expected the configuration to be refused");
 }
 
+const PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----\n";
+
+function withKey<T>(read: (keyFile: string) => T): T {
+  const dir = mkdtempSync(join(tmpdir(), "runner-app-"));
+  try {
+    const keyFile = join(dir, "app.pem");
+    writeFileSync(keyFile, PEM);
+    return read(keyFile);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe("readConfig", () => {
   it("needs only the secret, defaulting everything else for pnpm dev", () => {
     const read = config({});
@@ -40,19 +54,26 @@ describe("readConfig", () => {
     expect(read.maxAgents).toBe(2);
     expect(read.taskTimeoutMs).toBe(60 * 60_000);
     expect(read.runnerId).toBe("build-box");
+    expect(read.issueLabel).toBe("agent-ready");
+    expect(read.githubApp).toBeUndefined();
   });
 
   it("reads every variable", () => {
-    const read = config({
-      RUNNER_SERVER_URL: "https://office-server.example/",
-      RUNNER_REPO: "someone/something.else",
-      RUNNER_DATA_DIR: "/srv/runner",
-      RUNNER_AGENT: "Claude",
-      RUNNER_MOCK_OUTCOME: "pr-opened",
-      RUNNER_MODEL: "claude-sonnet-4-5",
-      RUNNER_MAX_AGENTS: "4",
-      RUNNER_TASK_TIMEOUT_MINUTES: "15",
-    });
+    const read = withKey((keyFile) =>
+      config({
+        RUNNER_SERVER_URL: "https://office-server.example/",
+        RUNNER_REPO: "someone/something.else",
+        RUNNER_DATA_DIR: "/srv/runner",
+        RUNNER_AGENT: "Claude",
+        RUNNER_MOCK_OUTCOME: "pr-opened",
+        RUNNER_MODEL: "claude-sonnet-4-5",
+        RUNNER_MAX_AGENTS: "4",
+        RUNNER_TASK_TIMEOUT_MINUTES: "15",
+        RUNNER_GITHUB_APP_ID: "123456",
+        RUNNER_GITHUB_APP_INSTALLATION_ID: "7890",
+        RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: keyFile,
+      }),
+    );
     expect(read.serverUrl.href).toBe("https://office-server.example/");
     expect(read.repo).toBe("someone/something.else");
     expect(read.dataDir).toBe("/srv/runner");
@@ -124,6 +145,45 @@ describe("readConfig", () => {
     for (const raw of ["0", "1.5", "-5", "soon"]) {
       expect(() => config({ RUNNER_TASK_TIMEOUT_MINUTES: raw })).toThrow(/RUNNER_TASK_TIMEOUT_MINUTES must be a whole number/);
     }
+  });
+});
+
+describe("readConfig's GitHub App", () => {
+  it("reads the App, its key from its file, and the issue label", () => {
+    const read = withKey((keyFile) =>
+      config({
+        RUNNER_GITHUB_APP_ID: "123456",
+        RUNNER_GITHUB_APP_INSTALLATION_ID: "7890",
+        RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: keyFile,
+        REAL_AGENT_ISSUE_LABEL: " ready-for-agents ",
+      }),
+    );
+    expect(read.githubApp).toEqual({ appId: "123456", installationId: "7890", privateKey: PEM });
+    expect(read.issueLabel).toBe("ready-for-agents");
+  });
+
+  it("is required for a claude agent, naming all three settings, and not for the mock", () => {
+    expect(() => config({ RUNNER_AGENT: "claude" })).toThrow(
+      /RUNNER_AGENT=claude .* needs RUNNER_GITHUB_APP_ID, RUNNER_GITHUB_APP_INSTALLATION_ID, RUNNER_GITHUB_APP_PRIVATE_KEY_FILE/,
+    );
+    expect(config({ RUNNER_AGENT: "mock" }).githubApp).toBeUndefined();
+  });
+
+  it("takes all three settings or none", () => {
+    expect(() => config({ RUNNER_GITHUB_APP_ID: "123456" })).toThrow(
+      /RUNNER_GITHUB_APP_INSTALLATION_ID, RUNNER_GITHUB_APP_PRIVATE_KEY_FILE not set/,
+    );
+  });
+
+  it("refuses ids that are not numbers, a relative key path, and a file that is no key", () => {
+    withKey((keyFile) => {
+      const app = { RUNNER_GITHUB_APP_ID: "123456", RUNNER_GITHUB_APP_INSTALLATION_ID: "7890", RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: keyFile };
+      expect(() => config({ ...app, RUNNER_GITHUB_APP_ID: "my-app" })).toThrow(/RUNNER_GITHUB_APP_ID must be the App's numeric id/);
+      expect(() => config({ ...app, RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: "app.pem" })).toThrow(/must be an absolute path/);
+      writeFileSync(keyFile, "not a key");
+      expect(() => config(app)).toThrow(/is not a PEM private key/);
+      expect(() => config({ ...app, RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: join(keyFile, "missing") })).toThrow(/could not be read/);
+    });
   });
 });
 

@@ -6,13 +6,16 @@
  *
  * Nobody watches it at a terminal, so it runs with `acceptEdits` and a short
  * allowlist of commands: editing files in its worktree, reading the issue,
- * committing, and the project's checks. Anything else stops at a permission
- * prompt, which its slot reports as needing a person.
+ * committing, the project's checks, pushing its branch and opening its pull
+ * request. Anything else stops at a permission prompt, which its slot reports
+ * as needing a person. The pull request it opens is read off its `PostToolUse`
+ * hook, by the `gh pr create` it ran.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { ownPr } from "../github.js";
 import { HOOK_ENV, HOOK_PATH } from "./hookServer.js";
 import type { ProviderAdapter, RunHandle } from "./provider.js";
 
@@ -33,8 +36,9 @@ const HOOK_TIMEOUT_SECONDS = 10;
 
 /**
  * Commands it may run without asking, on top of `acceptEdits`. Reading the
- * issue, looking at and committing its own work, and the checks this
- * repository runs; pushing and pull requests are not on it.
+ * issue, looking at and committing its own work, the checks this repository
+ * runs, pushing and opening its pull request. Merging is not on it, and the
+ * default branch's protection refuses a push there whatever it runs.
  */
 export const CLAUDE_ALLOWED_COMMANDS: readonly string[] = [
   "Bash(gh issue view:*)",
@@ -53,6 +57,10 @@ export const CLAUDE_ALLOWED_COMMANDS: readonly string[] = [
   "Bash(pnpm test:*)",
   "Bash(pnpm build:*)",
   "Bash(ls:*)",
+  "Bash(git push:*)",
+  "Bash(gh pr create:*)",
+  "Bash(gh pr view:*)",
+  "Bash(gh pr list:*)",
 ];
 
 /** First-run screens Claude shows before it can take a prompt. */
@@ -70,6 +78,8 @@ const TURN_END_TAIL = 1024;
 export interface ClaudeOptions {
   /** `--model`; Claude's own default when unset. */
   readonly model?: string;
+  /** `owner/name`: a pull request it opens anywhere else is not its task's. */
+  readonly repo?: string;
 }
 
 interface ClaudeSetup {
@@ -153,6 +163,16 @@ export function describeTool(payload: Payload): string {
   return line(detail === "" ? name : `${name}: ${detail}`);
 }
 
+/** What a Bash tool call printed, from its `PostToolUse` payload. */
+function bashOutput(payload: Payload): string {
+  const response = payload["tool_response"];
+  if (typeof response === "string") {
+    return response;
+  }
+  const result = asPayload(response);
+  return `${text(result["stdout"])}\n${text(result["stderr"])}`;
+}
+
 /** What an `AskUserQuestion` asks. */
 function question(payload: Payload): string {
   const [first] = Array.isArray(asPayload(payload["tool_input"])["questions"])
@@ -166,8 +186,10 @@ function question(payload: Payload): string {
  * One Claude Code hook event. A malformed payload still counts as the event.
  * The sign-in and trust screens are read off its screen, so only its session
  * starting or a prompt clears `bootBlocked` here.
+ *
+ * @param repo `owner/name`; with it, a `gh pr create` there is reported as its pull request.
  */
-export function claudeHook(run: RunHandle, event: string, body: unknown): void {
+export function claudeHook(run: RunHandle, event: string, body: unknown, repo?: string): void {
   const payload = asPayload(body);
   switch (event) {
     case "SessionStart":
@@ -190,6 +212,12 @@ export function claudeHook(run: RunHandle, event: string, body: unknown): void {
       return;
     case "PostToolUse":
     case "PostToolUseFailure":
+      if (event === "PostToolUse" && repo !== undefined && payload["tool_name"] === "Bash") {
+        const pr = ownPr(asPayload(payload["tool_input"])["command"], bashOutput(payload), repo);
+        if (pr !== undefined) {
+          run.pullRequest(pr);
+        }
+      }
       // A tool call that was waiting on a person has its answer, and it carries on.
       if (run.status === "needs-input" && !run.bootBlocked) {
         run.setStatus("working", describeTool(payload));
@@ -256,7 +284,7 @@ export function claudeAdapter(options: ClaudeOptions = {}): ProviderAdapter<Clau
     },
     // SessionStart fires as soon as Claude can take input: still silent, it is waiting on a person.
     bootHint: "Waiting on a setup screen (trust / login) on the runner's machine",
-    hook: { handle: claudeHook },
+    hook: { handle: (run, event, payload) => claudeHook(run, event, payload, options.repo) },
     // OSC 9;4 progress, which Claude Code emits: catches a turn cancelled with Esc, which fires no Stop hook.
     screen: { progress: true, blocked: claudeBlocked },
   };

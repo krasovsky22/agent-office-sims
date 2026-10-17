@@ -380,6 +380,11 @@ export class RoomConnection {
     return this.room?.state.operatorRequired === true;
   }
 
+  /** The label an issue needs before it can go to a live coding agent; `""` before the state arrives. */
+  public agentIssueLabel(): string {
+    return this.room?.state.agentIssueLabel ?? "";
+  }
+
   /** Tells the AI manager something. The conversation broadcast is the reply. */
   public sendManagerSay(text: string): void {
     this.room?.send(CLIENT_MESSAGE.managerSay, { text } satisfies ManagerSayMessage);

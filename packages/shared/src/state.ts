@@ -420,6 +420,13 @@ export class OfficeState extends Schema {
    * it means something; the passphrase itself is never part of the state.
    */
   declare public operatorRequired: boolean;
+  /**
+   * The GitHub label an issue needs before the CEO can hand it to a live
+   * coding agent, `agent-ready` unless the server says otherwise; `""` when
+   * the office asks for none. Replicated so the board can say why an issue
+   * would be refused.
+   */
+  declare public agentIssueLabel: string;
 
   public constructor() {
     super();
@@ -428,6 +435,7 @@ export class OfficeState extends Schema {
     this.minuteOfDay = STARTING_MINUTE_OF_DAY;
     this.tick = 0;
     this.operatorRequired = false;
+    this.agentIssueLabel = "";
   }
 }
 
@@ -437,6 +445,7 @@ defineTypes(OfficeState, {
   minuteOfDay: "uint16",
   tick: "uint32",
   operatorRequired: "boolean",
+  agentIssueLabel: "string",
 });
 
 const TAU = Math.PI * 2;

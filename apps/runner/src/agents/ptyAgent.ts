@@ -9,7 +9,8 @@
  * adapter (`./provider.ts`) says what each of those means.
  *
  * It runs as the leader of its own process group, so stopping it, whether
- * asked to or at the task timeout, ends what it started too.
+ * asked to or at the task timeout, ends what it started too. A prompt for it
+ * is typed into its terminal as a paste and submitted, as a person would.
  */
 
 import { accessSync, constants } from "node:fs";
@@ -31,6 +32,17 @@ const DEFAULT_STOP_GRACE_MS = 5000;
 /** How long an agent that says itself when it is up may stay silent before it is taken to be waiting on a person. */
 const DEFAULT_BOOT_HINT_MS = 12_000;
 
+/** Between pasting a prompt and pressing Enter, so the CLI has taken the paste in whole. */
+const SUBMIT_DELAY_MS = 120;
+
+/** What it needs to act on GitHub as the runner's App. */
+export interface AgentGithubEnv {
+  /** Set on top of its environment. */
+  readonly env: Readonly<Record<string, string>>;
+  /** Never passed: the variables that would carry another identity's token. */
+  readonly scrub: readonly string[];
+}
+
 export interface PtyAgentOptions<P> {
   readonly adapter: ProviderAdapter<P>;
   /** Where the adapter writes its settings: the runner's data dir. */
@@ -42,6 +54,8 @@ export interface PtyAgentOptions<P> {
   readonly env?: NodeJS.ProcessEnv;
   readonly stopGraceMs?: number;
   readonly bootHintMs?: number;
+  /** The runner's GitHub App, the agent's identity on GitHub. */
+  readonly github?: AgentGithubEnv;
 }
 
 /** The absolute path of `command` on `PATH`, or `undefined` when it is not there. */
@@ -101,6 +115,11 @@ function startRun<P>(
     set bootBlocked(value) {
       bootBlocked = value;
     },
+    pullRequest(pr) {
+      if (!ended) {
+        reporter.prOpened({ number: pr.number, title: "", url: pr.url });
+      }
+    },
     setStatus(next, activity = "") {
       if (ended) {
         return;
@@ -135,13 +154,15 @@ function startRun<P>(
     checkBlocked();
   });
   const plan = adapter.launch({ prompt: startPrompt(task), cwd: task.workdir, setup });
+  const scrub = [...(adapter.scrubEnv ?? []), ...(options.github?.scrub ?? [])];
   const env = childEnv(
     {
       ...(adapter.credentialEnv === undefined ? {} : { credentials: adapter.credentialEnv }),
-      ...(adapter.scrubEnv === undefined ? {} : { scrub: adapter.scrubEnv }),
+      ...(scrub.length === 0 ? {} : { scrub }),
       set: {
         TERM: "xterm-256color",
         COLORTERM: "truecolor",
+        ...options.github?.env,
         [HOOK_ENV.url]: options.hooks.url,
         [HOOK_ENV.run]: route.runId,
         [HOOK_ENV.token]: route.token,
@@ -209,6 +230,7 @@ function startRun<P>(
   bootHint?.unref();
 
   let killTimer: ReturnType<typeof setTimeout> | undefined;
+  let submitTimer: ReturnType<typeof setTimeout> | undefined;
   /** Signals its whole process group, which it leads, as a PTY's process does. Says whether any of it was there. */
   const signalGroup = (name: NodeJS.Signals): boolean => {
     try {
@@ -225,6 +247,7 @@ function startRun<P>(
     route.dispose();
     clearTimeout(bootHint);
     clearTimeout(killTimer);
+    clearTimeout(submitTimer);
     // Its work is over and its terminal gone: anything it left running in its group goes too.
     signalGroup("SIGKILL");
     if (ended) {
@@ -238,12 +261,27 @@ function startRun<P>(
   });
 
   return {
+    prompt(text) {
+      const clean = text.replace(/\r\n?/g, "\n").trim();
+      if (ended || clean === "") {
+        return;
+      }
+      // A bracketed paste keeps a prompt of many lines one message; Enter then submits it.
+      proc.write(`\u001b[200~${clean}\u001b[201~`);
+      clearTimeout(submitTimer);
+      submitTimer = setTimeout(() => {
+        if (!ended) {
+          proc.write("\r");
+        }
+      }, SUBMIT_DELAY_MS);
+    },
     stop() {
       if (ended) {
         return;
       }
       ended = true;
       clearTimeout(bootHint);
+      clearTimeout(submitTimer);
       route.dispose();
       if (!signalGroup("SIGTERM")) {
         // Not a group leader after all; its own pid is still its own until it exits.

@@ -34,7 +34,9 @@ import {
   type WorkCommandResult,
   actorOf,
   applyWorkCommand,
+  commandsRealAgent,
   describeWorkProblems,
+  isAgentReady,
   isIssueAssignee,
   mayActOnWork,
   mayAssignWork,
@@ -203,16 +205,19 @@ describe("moving and releasing work", () => {
     expect(work.note).toBe("");
   });
 
-  it("releases work nobody has started, and refuses to release work in hand", () => {
+  it("releases work not yet handed in, and refuses to release a review in hand", () => {
     const at = office();
     workAt(at, 1, WORK_STATUS.assigned);
     workAt(at, 2, WORK_STATUS.in_progress);
+    workAt(at, 3, WORK_STATUS.review);
     const release = (issueNumber: number): WorkCommand => ({ action: WORK_ACTION.release, payload: { issueNumber } });
     expect(run(at, release(1), EXEC_ID)).toEqual({ ok: false, rejection: WORK_REJECTION.forbidden });
     expect(run(at, release(1)).ok).toBe(true);
     expect(at.work.has(workKey(1))).toBe(false);
-    expect(run(at, release(2))).toEqual({ ok: false, rejection: WORK_REJECTION.illegalTransition });
-    expect(run(at, release(3))).toEqual({ ok: false, rejection: WORK_REJECTION.noWork });
+    expect(run(at, release(2)).ok).toBe(true);
+    expect(at.work.has(workKey(2))).toBe(false);
+    expect(run(at, release(3))).toEqual({ ok: false, rejection: WORK_REJECTION.illegalTransition });
+    expect(run(at, release(4))).toEqual({ ok: false, rejection: WORK_REJECTION.noWork });
   });
 
   it("releases a review whose agent has left instead of sending it back to them", () => {
@@ -244,6 +249,7 @@ describe("moving and releasing work", () => {
     expect(workMoves(work, actorOf(ceo), present)).toEqual([
       { action: WORK_ACTION.moveStatus, to: WORK_STATUS.assigned },
       { action: WORK_ACTION.moveStatus, to: WORK_STATUS.review },
+      { action: WORK_ACTION.release },
     ]);
     expect(mayAssignWork(actorOf(ceo))).toBe(true);
     expect(mayAssignWork(actorOf(exec))).toBe(false);
@@ -377,6 +383,17 @@ describe("a live agent", () => {
     expect(at.work.get(workKey(1))).toMatchObject({ status: WORK_STATUS.review, outputArtifact: "PR #40", note: "" });
     expect(run(at, move(1, WORK_STATUS.done), LIVE_ID)).toEqual({ ok: false, rejection: WORK_REJECTION.forbidden });
     expect(describeWorkProblems(at.work)).toEqual([]);
+  });
+
+  it("drops the note saying why it stopped once it claims the work again", () => {
+    const at = office();
+    liveAgent(at, LIVE_ID, true);
+    const fresh = workAt(at, 1, WORK_STATUS.assigned, LIVE_ID);
+    const stopped: WorkCommand = { action: WORK_ACTION.note, payload: { issueNumber: 1, text: "Stopped: the CEO asked for a fresh start" } };
+    expect(run(at, stopped, LIVE_ID).ok).toBe(true);
+    expect(fresh.note).toBe("Stopped: the CEO asked for a fresh start");
+    expect(run(at, claim, LIVE_ID).ok).toBe(true);
+    expect(fresh).toMatchObject({ status: WORK_STATUS.in_progress, note: "" });
   });
 
   it("that cannot take issues is neither given one nor allowed to act on one", () => {
@@ -521,5 +538,97 @@ describe("mayCommandRealAgents", () => {
     }
     expect(actorOf(ceo).isOperator).toBe(false);
     expect(mayAssignWork(actorOf(ceo))).toBe(true);
+  });
+});
+
+describe("work for a real coding agent", () => {
+  function gated(at: Office, command: WorkCommand, actorId = CEO_ID, issueLabel = "agent-ready"): WorkCommandResult {
+    const actor = at.occupants.get(actorId);
+    if (actor === undefined) {
+      throw new Error(`${actorId} is not in the office`);
+    }
+    return applyWorkCommand(command, {
+      work: at.work,
+      occupants: at.occupants,
+      board: at.board,
+      actor: actorOf(actor),
+      now: T0 + 1,
+      operatorRequired: true,
+      issueLabel,
+    });
+  }
+
+  function labelled(number: number, ...names: string[]): BoardIssue {
+    return { ...issue(number), labels: names.map((name) => ({ name, color: "" })) };
+  }
+
+  function verified(at: Office): void {
+    const ceo = at.occupants.get(CEO_ID);
+    if (!(ceo instanceof HumanPlayer)) {
+      throw new Error("missing fixture");
+    }
+    ceo.operator = true;
+  }
+
+  it("takes a verified operator to assign, and says so rather than forbidden", () => {
+    const at = office();
+    at.board = snapshot({ open: [labelled(1, "agent-ready")] });
+    expect(gated(at, assign(1, "agent-1"))).toEqual({ ok: false, rejection: WORK_REJECTION.notOperator });
+    // Someone who is not the CEO at all is still simply forbidden.
+    expect(gated(at, assign(1, "agent-1"), EXEC_ID)).toEqual({ ok: false, rejection: WORK_REJECTION.forbidden });
+    verified(at);
+    expect(gated(at, assign(1, "agent-1")).ok).toBe(true);
+  });
+
+  it("takes only an issue carrying the label, whatever its case, to hand out or hand on", () => {
+    const at = office();
+    verified(at);
+    at.board = snapshot({ open: [labelled(1, "client"), labelled(2, "Agent-Ready")], inProgress: [] });
+    expect(gated(at, assign(1, "agent-1"))).toEqual({ ok: false, rejection: WORK_REJECTION.notEligible });
+    expect(at.work.size).toBe(0);
+    expect(gated(at, assign(2, "agent-1")).ok).toBe(true);
+    // The label taken off since: it may not go to another agent.
+    at.board = snapshot({ open: [labelled(2)], inProgress: [] });
+    expect(gated(at, assign(2, "agent-2"))).toEqual({ ok: false, rejection: WORK_REJECTION.notEligible });
+    expect(at.work.get(workKey(2))?.assigneeId).toBe("agent-1");
+    // An office that asks for no label takes any open issue.
+    at.board = snapshot({ open: [labelled(1, "client")], inProgress: [] });
+    expect(gated(at, assign(1, "agent-1"), CEO_ID, "").ok).toBe(true);
+  });
+
+  it("takes a verified operator to send a review back or start work again, and not to approve or take it back", () => {
+    const at = office();
+    workAt(at, 1, WORK_STATUS.review);
+    workAt(at, 2, WORK_STATUS.in_progress);
+    workAt(at, 3, WORK_STATUS.review);
+    workAt(at, 4, WORK_STATUS.assigned);
+    expect(gated(at, move(1, WORK_STATUS.in_progress))).toEqual({ ok: false, rejection: WORK_REJECTION.notOperator });
+    expect(gated(at, move(2, WORK_STATUS.assigned))).toEqual({ ok: false, rejection: WORK_REJECTION.notOperator });
+    expect(gated(at, move(3, WORK_STATUS.done)).ok).toBe(true);
+    expect(gated(at, { action: WORK_ACTION.release, payload: { issueNumber: 4 } }).ok).toBe(true);
+    expect(gated(at, move(2, WORK_STATUS.review)).ok).toBe(true);
+    verified(at);
+    expect(gated(at, move(1, WORK_STATUS.in_progress)).ok).toBe(true);
+  });
+
+  it("names exactly the commands that put an agent to work", () => {
+    const at = office();
+    const review = workAt(at, 1, WORK_STATUS.review);
+    const inProgress = workAt(at, 2, WORK_STATUS.in_progress);
+    expect(commandsRealAgent(assign(9, "agent-1"), undefined)).toBe(true);
+    expect(commandsRealAgent(move(1, WORK_STATUS.in_progress), review)).toBe(true);
+    expect(commandsRealAgent(move(1, WORK_STATUS.done), review)).toBe(false);
+    expect(commandsRealAgent(move(2, WORK_STATUS.assigned), inProgress)).toBe(true);
+    expect(commandsRealAgent(move(2, WORK_STATUS.review), inProgress)).toBe(false);
+    expect(commandsRealAgent({ action: WORK_ACTION.release, payload: { issueNumber: 1 } }, review)).toBe(false);
+    expect(commandsRealAgent({ action: WORK_ACTION.claim, payload: { issueNumber: 2 } }, inProgress)).toBe(false);
+  });
+
+  it("asks nothing more where the office has no operator passphrase", () => {
+    const at = office();
+    at.board = snapshot({ open: [labelled(1, "agent-ready")] });
+    expect(run(at, assign(1, "agent-1")).ok).toBe(true);
+    expect(isAgentReady(labelled(5), "")).toBe(true);
+    expect(isAgentReady(labelled(5), "agent-ready")).toBe(false);
   });
 });

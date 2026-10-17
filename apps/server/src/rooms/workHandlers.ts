@@ -17,11 +17,18 @@
  * has to wait on a command. The project board is read as the feed last
  * published it, which is already in memory; nothing here waits on GitHub, and
  * nothing here writes to it.
+ *
+ * Every command that changes the work is passed on once it has, through the
+ * host's `observe`, which is how a change reaches the runner's agent doing
+ * the work (`../agents/runnerWork.ts`): the board, the AI manager and the
+ * runner's own events all apply their commands here, so none of them can
+ * change the work without it hearing.
  */
 
 import { type Client, type Room } from "@colyseus/core";
 import {
   CLIENT_MESSAGE,
+  type IssueWork,
   type OfficeActor,
   type OfficeState,
   type ProjectBoardSnapshot,
@@ -30,12 +37,24 @@ import {
   type WorkCommand,
   type WorkCommandResult,
   type WorkRejectedEvent,
+  type WorkStatus,
   actorOf,
   applyWorkCommand,
   parseWorkAssignMessage,
   parseWorkMoveMessage,
   parseWorkReleaseMessage,
+  workKey,
 } from "@sim/shared";
+
+/** One command that changed the work, as {@link applyAs} applied it. */
+export interface WorkChange {
+  readonly actor: OfficeActor;
+  readonly command: WorkCommand;
+  /** The work as it was; `undefined` when the command created it. */
+  readonly before: { readonly status: WorkStatus; readonly assigneeId: string } | undefined;
+  /** The work as it is now; for a release, the work that was removed. */
+  readonly work: IssueWork;
+}
 
 /** What the handlers need from the room, named so a test can supply it. */
 export interface WorkHost {
@@ -44,6 +63,8 @@ export interface WorkHost {
   readonly now: () => number;
   /** The project board as the feed last published it; `undefined` before its first poll. */
   readonly board: () => ProjectBoardSnapshot | undefined;
+  /** Hears each command that changed the work, after it has. */
+  readonly observe?: (change: WorkChange) => void;
 }
 
 /**
@@ -59,15 +80,27 @@ function actorFor(state: OfficeState, client: Client): OfficeActor | undefined {
   return occupant === undefined ? undefined : actorOf(occupant);
 }
 
-/** Applies a command as `actor`, against the office and the board as they are now. */
+/**
+ * Applies a command as `actor`, against the office and the board as they are
+ * now, under the office's own rule for real agents, and tells the host's
+ * observer what changed.
+ */
 export function applyAs(host: WorkHost, actor: OfficeActor, command: WorkCommand): WorkCommandResult {
-  return applyWorkCommand(command, {
+  const current = host.state.work.get(workKey(command.payload.issueNumber));
+  const before = current === undefined ? undefined : { status: current.status, assigneeId: current.assigneeId };
+  const result = applyWorkCommand(command, {
     work: host.state.work,
     occupants: host.state.occupants,
     board: host.board(),
     actor,
     now: host.now(),
+    operatorRequired: host.state.operatorRequired,
+    issueLabel: host.state.agentIssueLabel,
   });
+  if (result.ok) {
+    host.observe?.({ actor, command, before, work: result.work });
+  }
+  return result;
 }
 
 /**
