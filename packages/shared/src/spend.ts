@@ -52,7 +52,7 @@ export function budgetRefusal(spentUsd: number, budgetUsd: number | undefined): 
   );
 }
 
-/** The HUD's line: `$1.23 of $5.00 today`, or `$1.23 today` with no budget. */
+/** The HUD's line: `$1.23 of $5.00 today`, or `$1.23 today, no budget` without one. */
 export function spendSummary(total: RunnerSpendTotal): string {
   return total.budgetUsd === undefined
     ? `${formatUsd(total.spentUsd)} today, no budget`

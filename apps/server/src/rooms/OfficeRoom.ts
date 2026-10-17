@@ -636,11 +636,6 @@ export class OfficeRoom extends Room<OfficeState> {
   }
 
   /**
-   * Says that a live agent's review shipped, in the agent's own voice, through
-   * the chat everyone already reads: the work's move to `done` is state, and
-   * this is the why that state cannot carry.
-   */
-  /**
    * Copies the runners' books into the state, field by field, so a tick on
    * which nothing was spent sends nothing.
    */
@@ -662,6 +657,11 @@ export class OfficeRoom extends Room<OfficeState> {
     }
   }
 
+  /**
+   * Says that a live agent's review shipped, in the agent's own voice, through
+   * the chat everyone already reads: the work's move to `done` is state, and
+   * this is the why that state cannot carry.
+   */
   private announceShipped(work: IssueWork): void {
     recordOfficeEvent("work-shipped", { agent: work.assigneeId, issue: work.issueNumber });
     const text = `Shipped #${work.issueNumber}: ${work.title}`.slice(0, MAX_CHAT_LENGTH);
