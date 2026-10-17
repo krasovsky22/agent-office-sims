@@ -28,7 +28,9 @@
  * ({@link ANY_CODING_AGENT}), and the CEO's own words have to say so too, so a
  * model's plan cannot pick one the CEO never mentioned. "A coding agent" is
  * the first with no issue in hand, counting what this same plan has already
- * handed out, so "hand out the backlog to a coding agent" spreads it.
+ * handed out, so "hand out the backlog to a coding agent" spreads it. A
+ * runner's slot works one issue at a time, so a named coding agent with a
+ * different issue in hand, or one from this same plan, is refused.
  * "Someone" — an empty agent — never means a coding agent: it is one of the
  * orchestrator's agents that is idle with nothing handed to it yet.
  *
@@ -172,6 +174,10 @@ function assignIssue(
   const current = issue.work;
   if (current?.assigneeId === agent.id) {
     return `• ${label} is already ${agent.name}'s.`;
+  }
+  if (agent.issue !== undefined || (load.get(agent.id) ?? 0) > 0) {
+    const held = agent.issue === undefined ? "" : ` (#${agent.issue.issueNumber})`;
+    return `✗ ${label}: ${agent.name} already has an issue in hand${held}; a coding agent works one at a time.`;
   }
   const result = applyAs(context.work, actorOf(context.ceo), {
     action: WORK_ACTION.assign,

@@ -198,6 +198,26 @@ describe("carryOut: issues for the runners' coding agents", () => {
     expect(queue?.collect()).toEqual([]);
   });
 
+  it("refuses a named coding agent that already has a different issue in hand, and moves an issue to a free one", () => {
+    const { state, context } = office({ takers: ["Slot 1", "Slot 2"] });
+    const backlog = ["#10", "#11"].map((work) => ({ work, agent: "Slot 1" }));
+    expect(carryOut(backlog, context(undefined, "hand out the backlog to Slot 1"))).toEqual([
+      "✓ #10 “Fix the login redirect loop” → Slot 1.",
+      "✗ #11 “Write the onboarding email”: Slot 1 already has an issue in hand; a coding agent works one at a time.",
+    ]);
+    expect(carryOut([{ work: "#39", agent: "Slot 1" }], context(undefined, "have Slot 1 do #39"))).toEqual([
+      "✗ #39 “Night shift”: Slot 1 already has an issue in hand (#10); a coding agent works one at a time.",
+    ]);
+    expect(carryOut([{ work: "#10", agent: "Slot 1" }], context(undefined, "have Slot 1 do #10"))).toEqual([
+      "• #10 “Fix the login redirect loop” is already Slot 1's.",
+    ]);
+    expect(carryOut([{ work: "#10", agent: "Slot 2" }], context(undefined, "have Slot 2 do #10"))).toEqual([
+      "✓ #10 “Fix the login redirect loop” → Slot 2 (from Slot 1).",
+    ]);
+    expect(state.work.size).toBe(1);
+    expect(state.work.get(workKey(10))).toMatchObject({ assigneeId: "agent:runner/Slot 2" });
+  });
+
   it("never puts a coding agent to work for “someone”: the orchestrator's agent gets it, or it is refused", () => {
     const withOrchestrator = office({ takers: ["Slot 1"] });
     expect(carryOut([{ work: "#39", agent: "" }], withOrchestrator.context(undefined, "put someone on #39"))[0]).toContain(
