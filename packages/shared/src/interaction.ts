@@ -15,6 +15,11 @@
  * how long an interaction holds you, which animation it puts you in, and what
  * the prompt reads. Those are keyed off {@link InteractionKind} by record rather
  * than by `switch`, so adding a kind is a type error until every rule covers it.
+ *
+ * It also says when one is there at all. A workstation's screen is only worth
+ * walking up to while a live agent is working at it, so until then it is not
+ * offered: no prompt, nothing the server will grant, and the seat behind it is
+ * what `E` reaches for instead.
  */
 
 import { COFFEE_BREAK_MS } from "./constants.js";
@@ -26,6 +31,7 @@ import {
   type Vec2,
   interactables,
 } from "./layout.js";
+import { isLiveAgentKey } from "./liveAgents.js";
 import { ANIMATION_STATE, type AnimationState } from "./state.js";
 
 /**
@@ -34,13 +40,15 @@ import { ANIMATION_STATE, type AnimationState } from "./state.js";
  * A held anchor is an exclusive one: the occupant is standing or sitting in it,
  * so a second occupant cannot be. That is what stops two players sharing a
  * chair. A wall board is not held — it is a glance, not a station — and nor
- * is the manager's desk, where a conversation holds nobody in place.
+ * is the manager's desk, where a conversation holds nobody in place, or an
+ * agent's screen, which anyone may read over its shoulder.
  */
 const HOLDS_ANCHOR: Record<InteractionKind, boolean> = {
   [INTERACTION_KIND.seat]: true,
   [INTERACTION_KIND.coffee]: true,
   [INTERACTION_KIND.board]: false,
   [INTERACTION_KIND.manager]: false,
+  [INTERACTION_KIND.screen]: false,
 };
 
 /** How long a hold lasts on its own; `0` means until the occupant releases it. */
@@ -49,6 +57,7 @@ const HOLD_MS: Record<InteractionKind, number> = {
   [INTERACTION_KIND.coffee]: COFFEE_BREAK_MS,
   [INTERACTION_KIND.board]: 0,
   [INTERACTION_KIND.manager]: 0,
+  [INTERACTION_KIND.screen]: 0,
 };
 
 /**
@@ -63,6 +72,7 @@ const HELD_ANIMATION: Record<InteractionKind, AnimationState> = {
   [INTERACTION_KIND.coffee]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.board]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.manager]: ANIMATION_STATE.idle,
+  [INTERACTION_KIND.screen]: ANIMATION_STATE.idle,
 };
 
 /** What the proximity prompt reads. Names the action, not the object. */
@@ -71,6 +81,7 @@ const PROMPT: Record<InteractionKind, string> = {
   [INTERACTION_KIND.coffee]: "Pour a coffee",
   [INTERACTION_KIND.board]: "Read the project board",
   [INTERACTION_KIND.manager]: "Talk to the manager",
+  [INTERACTION_KIND.screen]: "Watch the agent's terminal",
 };
 
 export function holdsAnchor(spec: InteractableSpec): boolean {
@@ -113,6 +124,26 @@ export function interactableById(
 }
 
 /**
+ * Whether an interactable is there to be used right now.
+ *
+ * Everything is, except a workstation's screen, which is only while a live
+ * agent holds the seat it belongs to. A live agent sits only while it is on a
+ * task, so a seated one is a working one.
+ *
+ * @param holderOf as for {@link authorizeInteract}.
+ */
+export function isOffered(
+  spec: InteractableSpec,
+  holderOf: (interactableId: string) => string | undefined,
+): boolean {
+  if (spec.seatId === undefined) {
+    return true;
+  }
+  const holder = holderOf(spec.seatId);
+  return holder !== undefined && isLiveAgentKey(holder);
+}
+
+/**
  * Distance from a point to an interactable, measured to its anchor.
  *
  * The anchor rather than the object: it is the point the occupant ends up at,
@@ -124,20 +155,27 @@ export function distanceToInteractable(spec: InteractableSpec, point: Vec2): num
 }
 
 /**
- * The closest interactable within `range` of a point, or `undefined`.
+ * The closest interactable within `range` of a point that is
+ * {@link isOffered}, or `undefined`.
  *
  * Ties are broken by layout order, which is stable, so the prompt does not
  * flicker between two equidistant things.
+ *
+ * @param holderOf as for {@link authorizeInteract}.
  */
 export function nearestInteractable(
   layout: OfficeLayout,
   point: Vec2,
   range: number,
+  holderOf: (interactableId: string) => string | undefined,
 ): InteractableSpec | undefined {
   let nearest: InteractableSpec | undefined;
   let nearestDistance = Number.POSITIVE_INFINITY;
 
   for (const spec of interactables(layout)) {
+    if (!isOffered(spec, holderOf)) {
+      continue;
+    }
     const distance = distanceToInteractable(spec, point);
     if (distance <= range && distance < nearestDistance) {
       nearest = spec;
@@ -157,6 +195,8 @@ export const INTERACT_REFUSAL = {
   occupied: "occupied",
   /** The actor is already engaged and has to release first. */
   alreadyEngaged: "already-engaged",
+  /** Nothing is there to use yet: a screen with no live agent working at it. */
+  notOffered: "not-offered",
 } as const;
 
 export type InteractRefusal = (typeof INTERACT_REFUSAL)[keyof typeof INTERACT_REFUSAL];
@@ -212,6 +252,9 @@ export function authorizeInteract(
     if (holder !== undefined && holder !== actor.id) {
       return { allowed: false, refusal: INTERACT_REFUSAL.occupied };
     }
+  }
+  if (!isOffered(target, holderOf)) {
+    return { allowed: false, refusal: INTERACT_REFUSAL.notOffered };
   }
   return { allowed: true, target };
 }

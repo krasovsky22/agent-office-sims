@@ -94,6 +94,9 @@ const CLOSE_BOARD_LABEL = "Close the board";
 /** What it reads while the player is talking to the manager. */
 const CLOSE_CONVERSATION_LABEL = "Close the conversation";
 
+/** What it reads while the player is watching a live agent's terminal. */
+const CLOSE_TERMINAL_LABEL = "Close the terminal";
+
 /** The prompt shown while the player is sitting, so standing up is discoverable. */
 const STAND_UP_PROMPT: HudPrompt = { keys: "W A S D", label: "Stand up", blocked: false };
 
@@ -163,8 +166,26 @@ function captionOf(view: OccupantView): string {
 }
 
 /** Whether a panel takes the keyboard, and so is closed with `Esc` rather than `E`. */
-function closesWithEscape(interactableId: string): boolean {
+function takesKeyboard(interactableId: string): boolean {
   return interactableId === MANAGER_INTERACTABLE_ID;
+}
+
+/** Whether `Esc` closes a panel: one that takes the keyboard, and an agent's terminal. */
+function closesWithEscape(interactableId: string): boolean {
+  return (
+    takesKeyboard(interactableId) ||
+    interactableById(OFFICE_LAYOUT, interactableId)?.kind === INTERACTION_KIND.screen
+  );
+}
+
+/** What the prompt reads at the interactable whose panel is open. */
+function closeLabelFor(interactableId: string): string {
+  if (interactableId === MANAGER_INTERACTABLE_ID) {
+    return CLOSE_CONVERSATION_LABEL;
+  }
+  return interactableById(OFFICE_LAYOUT, interactableId)?.kind === INTERACTION_KIND.screen
+    ? CLOSE_TERMINAL_LABEL
+    : CLOSE_BOARD_LABEL;
 }
 
 function createCamera(canvas: HTMLCanvasElement, layout: OfficeLayout): THREE.PerspectiveCamera {
@@ -448,10 +469,13 @@ function start(): void {
     },
   });
 
-  // The wall board or manager's desk whose panel is open, or `""`.
-  // Local to this tab: reading a board or talking to the manager holds
-  // nothing, so there is nothing for the server to know.
+  // The wall board, manager's desk or agent's screen whose panel is open, or
+  // `""`. Local to this tab: reading a board, talking to the manager or
+  // watching an agent holds nothing, so there is nothing for the server to know.
   let readingBoard = "";
+
+  // Who holds what, as the last patch said, for the shared rules to read.
+  const holderOf = (interactableId: string) => room.holderOf(interactableId);
 
   createRoot(requireHudMount()).render(
     createElement(Hud, {
@@ -467,6 +491,12 @@ function start(): void {
         manager: {
           say: (text) => room.sendManagerSay(text),
           verify: (passphrase) => room.sendOperatorVerify(passphrase),
+          close: () => {
+            readingBoard = "";
+          },
+        },
+        terminal: {
+          screenOf: (agentId) => room.screenOf(agentId),
           close: () => {
             readingBoard = "";
           },
@@ -508,7 +538,9 @@ function start(): void {
       // Only a seat is worth a prompt: a coffee break ends on its own.
       prompt = held?.kind === INTERACTION_KIND.seat ? STAND_UP_PROMPT : undefined;
     } else {
-      target = nearestInteractable(OFFICE_LAYOUT, controller.pose, INTERACT_RANGE);
+      // A screen nobody is working at is not offered, so behind an empty chair
+      // this is the chair.
+      target = nearestInteractable(OFFICE_LAYOUT, controller.pose, INTERACT_RANGE, holderOf);
       if (target !== undefined) {
         const decision = authorizeInteract(
           OFFICE_LAYOUT,
@@ -520,15 +552,13 @@ function start(): void {
           },
           target.id,
           INTERACT_RANGE,
-          (interactableId) => room.holderOf(interactableId),
+          holderOf,
         );
         prompt = {
-          keys: target.id === readingBoard && closesWithEscape(readingBoard) ? "Esc" : "E",
+          keys: target.id === readingBoard && takesKeyboard(readingBoard) ? "Esc" : "E",
           label:
             target.id === readingBoard
-              ? readingBoard === MANAGER_INTERACTABLE_ID
-                ? CLOSE_CONVERSATION_LABEL
-                : CLOSE_BOARD_LABEL
+              ? closeLabelFor(readingBoard)
               : decision.allowed
                 ? promptFor(target)
                 : `${promptFor(target)} — taken`,
@@ -570,7 +600,8 @@ function start(): void {
     if (controller.takeReleaseRequest()) {
       room.sendRelease();
     }
-    // Stepping out of reach closes a close-up just as `E` does.
+    // Stepping out of reach closes a close-up just as `E` does, and so does an
+    // agent's screen stopping being offered when it stands up or leaves.
     if (target?.id !== readingBoard) {
       readingBoard = "";
     }
@@ -582,8 +613,12 @@ function start(): void {
         readingBoard = "";
       } else {
         // A wall board is read up close, and the manager's desk opens the
-        // conversation the same way.
-        if (target.kind === INTERACTION_KIND.board || target.kind === INTERACTION_KIND.manager) {
+        // conversation and an agent's screen its terminal the same way.
+        if (
+          target.kind === INTERACTION_KIND.board ||
+          target.kind === INTERACTION_KIND.manager ||
+          target.kind === INTERACTION_KIND.screen
+        ) {
           readingBoard = target.id;
         }
         room.sendInteract(target.id);
@@ -596,6 +631,13 @@ function start(): void {
     const managerOpen = readingBoard === MANAGER_INTERACTABLE_ID;
     if (managerOpen !== hud.managerOpen) {
       publishHud(managerOpen ? { managerOpen, managerUnread: 0 } : { managerOpen });
+    }
+    // The agent at the screen's seat: it stays the same while the panel is
+    // open, since the screen is only offered while that agent sits there.
+    const watchedSeat = interactableById(OFFICE_LAYOUT, readingBoard)?.seatId;
+    const terminalAgentId = watchedSeat === undefined ? undefined : room.holderOf(watchedSeat);
+    if (terminalAgentId !== hud.terminalAgentId) {
+      publishHud({ terminalAgentId });
     }
 
     room.sendPose(controller.pose, nowMs);

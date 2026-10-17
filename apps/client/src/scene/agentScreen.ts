@@ -249,8 +249,8 @@ const CANVAS_WIDTH = 1024;
 /** How far off the monitor's face the plane sits, so the two never fight for depth. */
 const FACE_LIFT = 0.004;
 
-/** Shown until an agent's first frame arrives. */
-const PLACEHOLDER = "connecting…";
+/** Shown until an agent's first frame arrives, on its desk and in its panel. */
+export const SCREEN_PLACEHOLDER = "connecting…";
 
 /** The version painted while a screen shows its placeholder. */
 const PLACEHOLDER_VERSION = -1;
@@ -317,7 +317,7 @@ export class AgentScreens {
     if (dueForRepaint(screen.paintedVersion, version, screen.paintedAtMs, nowMs, distance)) {
       screen.paintedVersion = version;
       screen.paintedAtMs = nowMs;
-      paintScreen(screen.ctx, CANVAS_WIDTH, this.canvasHeight, terminal, PLACEHOLDER, ZOOM_ROWS);
+      paintScreen(screen.ctx, CANVAS_WIDTH, this.canvasHeight, terminal, SCREEN_PLACEHOLDER, ZOOM_ROWS);
       screen.texture.needsUpdate = true;
     }
   }
@@ -340,7 +340,7 @@ export class AgentScreens {
     if (ctx === null) {
       throw new Error("a canvas without a 2D context cannot show a terminal");
     }
-    paintScreen(ctx, CANVAS_WIDTH, this.canvasHeight, undefined, PLACEHOLDER, ZOOM_ROWS);
+    paintScreen(ctx, CANVAS_WIDTH, this.canvasHeight, undefined, SCREEN_PLACEHOLDER, ZOOM_ROWS);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;

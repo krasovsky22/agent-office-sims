@@ -26,16 +26,22 @@ import {
   holdMsFor,
   holdsAnchor,
   interactableById,
+  isOffered,
   nearestInteractable,
   promptFor,
 } from "./interaction.js";
 import {
   INTERACTION_KIND,
   OFFICE_LAYOUT,
+  OPEN_FLOOR_ROOM_ID,
   describeLayoutProblems,
   interactables,
+  roomAt,
+  screenInteractableId,
+  seatInteractableId,
   workstations,
 } from "./layout.js";
+import { liveAgentKey } from "./liveAgents.js";
 import { OFFICE_PROPS } from "./props.js";
 import { ANIMATION_STATE } from "./state.js";
 
@@ -202,7 +208,7 @@ describe("what each interaction means", () => {
 describe("nearestInteractable", () => {
   it("finds the thing you are standing at", () => {
     const seat = specOf("seat-desk-north-3-1");
-    expect(nearestInteractable(OFFICE_LAYOUT, seat.anchor, INTERACT_RANGE)?.id).toBe(seat.id);
+    expect(nearestInteractable(OFFICE_LAYOUT, seat.anchor, INTERACT_RANGE, NOBODY)?.id).toBe(seat.id);
   });
 
   /**
@@ -222,6 +228,7 @@ describe("nearestInteractable", () => {
         OFFICE_LAYOUT,
         actorAt("seat-desk-ceo-1", INTERACT_RANGE - epsilon),
         INTERACT_RANGE,
+        NOBODY,
       )?.id,
     ).toBe("seat-desk-ceo-1");
     expect(
@@ -229,12 +236,13 @@ describe("nearestInteractable", () => {
         OFFICE_LAYOUT,
         actorAt("seat-desk-ceo-1", INTERACT_RANGE + epsilon),
         INTERACT_RANGE,
+        NOBODY,
       ),
     ).toBeUndefined();
   });
 
   it("finds nothing in the middle of the floor", () => {
-    expect(nearestInteractable(OFFICE_LAYOUT, { x: 0, z: 2 }, INTERACT_RANGE)).toBeUndefined();
+    expect(nearestInteractable(OFFICE_LAYOUT, { x: 0, z: 2 }, INTERACT_RANGE, NOBODY)).toBeUndefined();
   });
 
   it("prefers the closer of two interactables", () => {
@@ -246,7 +254,79 @@ describe("nearestInteractable", () => {
     };
     const range = Math.hypot(far.anchor.x - between.x, far.anchor.z - between.z);
     // Both are inside the range used here, so the choice is about distance.
-    expect(nearestInteractable(OFFICE_LAYOUT, between, range)?.id).toBe(near.id);
+    expect(nearestInteractable(OFFICE_LAYOUT, between, range, NOBODY)?.id).toBe(near.id);
+  });
+});
+
+describe("a workstation's screen", () => {
+  const SCREEN = "screen-desk-north-3-1";
+  const SEAT = "seat-desk-north-3-1";
+  /** A live agent sitting at {@link SEAT}. */
+  const AGENT_AT_SEAT = (id: string) => (id === SEAT ? liveAgentKey("runner-1") : undefined);
+  /** A player sitting there instead. */
+  const PLAYER_AT_SEAT = (id: string) => (id === SEAT ? "bob" : undefined);
+
+  it("is one per open-floor workstation, paired with its seat, and none anywhere else", () => {
+    const screens = interactables(OFFICE_LAYOUT).filter((spec) => spec.kind === INTERACTION_KIND.screen);
+    const expected = OFFICE_LAYOUT.desks.flatMap((desk) =>
+      workstations(desk).flatMap((workstation, index) =>
+        roomAt(OFFICE_LAYOUT, workstation.seat)?.id === OPEN_FLOOR_ROOM_ID
+          ? [{ id: screenInteractableId(desk.id, index + 1), seatId: seatInteractableId(desk.id, index + 1) }]
+          : [],
+      ),
+    );
+    expect(expected.length).toBeGreaterThan(0);
+    expect(screens.map(({ id, seatId }) => ({ id, seatId }))).toEqual(expected);
+    expect(screens.some((spec) => spec.seatId === "seat-desk-ceo-1")).toBe(false);
+  });
+
+  it("is read from where someone getting up from its seat is stood", () => {
+    const screen = specOf(SCREEN);
+    expect(screen.anchor.x).toBe(specOf(SEAT).exit?.x);
+    expect(screen.anchor.z).toBe(specOf(SEAT).exit?.z);
+  });
+
+  it("is offered only while a live agent holds its seat", () => {
+    const screen = specOf(SCREEN);
+    expect(isOffered(screen, NOBODY)).toBe(false);
+    expect(isOffered(screen, PLAYER_AT_SEAT)).toBe(false);
+    expect(isOffered(screen, AGENT_AT_SEAT)).toBe(true);
+    // Everything else is always there.
+    expect(isOffered(specOf(SEAT), NOBODY)).toBe(true);
+  });
+
+  it("leaves the seat as what is in reach behind an empty chair", () => {
+    const { anchor } = specOf(SCREEN);
+    expect(nearestInteractable(OFFICE_LAYOUT, anchor, INTERACT_RANGE, NOBODY)?.id).toBe(SEAT);
+    expect(nearestInteractable(OFFICE_LAYOUT, anchor, INTERACT_RANGE, PLAYER_AT_SEAT)?.id).toBe(SEAT);
+    expect(nearestInteractable(OFFICE_LAYOUT, anchor, INTERACT_RANGE, AGENT_AT_SEAT)?.id).toBe(SCREEN);
+  });
+
+  it("is granted, holding nobody, while the agent works and refused otherwise", () => {
+    const actor = actorAt(SCREEN, 0);
+    const granted = authorizeInteract(OFFICE_LAYOUT, actor, SCREEN, SERVER_RANGE, AGENT_AT_SEAT);
+    expect(granted.allowed).toBe(true);
+    expect(holdsAnchor(specOf(SCREEN))).toBe(false);
+    expect(promptFor(specOf(SCREEN))).toBe("Watch the agent's terminal");
+
+    expect(authorizeInteract(OFFICE_LAYOUT, actor, SCREEN, SERVER_RANGE, NOBODY)).toEqual({
+      allowed: false,
+      refusal: INTERACT_REFUSAL.notOffered,
+    });
+    expect(authorizeInteract(OFFICE_LAYOUT, actor, SCREEN, SERVER_RANGE, PLAYER_AT_SEAT)).toEqual({
+      allowed: false,
+      refusal: INTERACT_REFUSAL.notOffered,
+    });
+  });
+
+  it("tells a distant reader it is out of range whether or not anyone is working", () => {
+    const far = actorAt(SCREEN, SERVER_RANGE + 1);
+    for (const holderOf of [NOBODY, AGENT_AT_SEAT]) {
+      expect(authorizeInteract(OFFICE_LAYOUT, far, SCREEN, SERVER_RANGE, holderOf)).toEqual({
+        allowed: false,
+        refusal: INTERACT_REFUSAL.outOfRange,
+      });
+    }
   });
 });
 
