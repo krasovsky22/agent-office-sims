@@ -16,6 +16,7 @@ function work(overrides: Partial<WorkView> & Pick<WorkView, "issueNumber" | "tit
     assignee: "Ada Byrne",
     hasDeliverable: false,
     pullRequest: undefined,
+    simulatedPullRequest: false,
     note: undefined,
     ...overrides,
   };
@@ -360,6 +361,18 @@ describe("planFromRules: the runners' coding agents", () => {
     const project = { ...VIEW.project!, issues: VIEW.project!.issues.map((entry) => (entry.number === 39 ? { ...entry, work: handedIn } : entry)) };
     expect(ask("status of #39?", { ...reviewed, project }).reply).toBe(
       "#39 “Night shift” is open [client]. Claude 2 opened PR #48 for it (https://github.com/o/r/pull/48); it is waiting for your review.",
+    );
+    // The mock agent's simulated one has nothing on GitHub to name or link.
+    const simulated = claude2({}, { status: WORK_STATUS.review, hasDeliverable: true, simulatedPullRequest: true });
+    expect(ask("what is Claude 2 doing?", simulated).reply).toBe(
+      "Claude 2 (coding agent) handed in #39 “Night shift” as a simulated pull request, with nothing on GitHub; it is waiting for your review.",
+    );
+    const simulatedProject = {
+      ...VIEW.project!,
+      issues: VIEW.project!.issues.map((entry) => (entry.number === 39 ? { ...entry, work: simulated.issueAgents[1]?.issue } : entry)),
+    };
+    expect(ask("status of #39?", { ...simulated, project: simulatedProject }).reply).toBe(
+      "#39 “Night shift” is open [client]. Claude 2 handed it in as a simulated pull request, with nothing on GitHub; it is waiting for your review.",
     );
     expect(ask("what is Claude 2 doing?", claude2({}, { note: "Timed out after 30 minutes" })).reply).toBe(
       "Claude 2 (coding agent) has #39 “Night shift” in progress but isn't running. Its last word on it: Timed out after 30 minutes",

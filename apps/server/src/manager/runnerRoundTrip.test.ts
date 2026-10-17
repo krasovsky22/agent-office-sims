@@ -4,9 +4,11 @@
  * agent, so what the CEO reads in the conversation at each step is what the
  * office would say about a real agent's work.
  *
- * One slot's mock opens a (fake) pull request and the other's fails, so both
- * endings are heard. The runner's modules are imported from its source, as the
- * runner's own round trip imports the server's; nothing here reaches GitHub.
+ * Both slots' mocks stop to wait on the CEO, and wait until the office's
+ * prompt answers them; then one hands in a simulated pull request and the
+ * other fails, so both endings are heard. The runner's modules are imported
+ * from its source, as the runner's own round trip imports the server's;
+ * nothing here reaches GitHub.
  */
 
 import type { AddressInfo } from "node:net";
@@ -47,11 +49,8 @@ import { createRulePlanner } from "./fromConfig.js";
 
 const REPO = "acme/office";
 const SECRET = "a-runner-secret-long-enough";
-/**
- * Between one mock step and the next: the manager looks every two seconds,
- * and the mock waits on a person for three steps, which this outlasts.
- */
-const STEP_MS = 1000;
+/** Between one mock step and the next. */
+const STEP_MS = 500;
 /** Between one sync and the next, as fast as the runner route's rate limit refills. */
 const SYNC_GAP_MS = 100;
 
@@ -86,8 +85,8 @@ let syncs: Promise<void> | undefined;
 
 /** The mock opening a pull request for #39, and failing anything else. */
 function mockAgent(): Agent {
-  const opens = createMockAgent({ outcome: "pr-opened", repo: REPO, stepMs: STEP_MS });
-  const fails = createMockAgent({ outcome: "failed", repo: REPO, stepMs: STEP_MS });
+  const opens = createMockAgent({ outcome: "pr-opened", stepMs: STEP_MS });
+  const fails = createMockAgent({ outcome: "failed", stepMs: STEP_MS });
   return { label: opens.label, start: (task, reporter) => (task.issueNumber === 39 ? opens : fails).start(task, reporter) };
 }
 
@@ -200,9 +199,24 @@ describe("Firstmate and the mock runner's coding agents", () => {
     expect(await ask(dana, "assign the night shift ticket")).toBe("Here's how that went:\n✓ #39 “Night shift” → Mock 1.");
     expect(await ask(dana, "have Mock 2 do #41")).toBe("Here's how that went:\n✓ #41 “Draft the roadmap” → Mock 2.");
 
-    const opened = "Mock 1 opened PR #1000039 for #39 “Night shift” and handed it in for your review: https://github.com/acme/office/pull/1000039";
-    const failed = "Mock 2 couldn't work on #41 “Draft the roadmap”: The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a pull request.";
-    await settled(() => updatesAbout(dana, "Mock 1").includes(opened) && updatesAbout(dana, "Mock 2").includes(failed), 40_000);
+    // Both stop to wait on the CEO, and wait for as long as nobody answers.
+    const waiting = (name: string, number: number) => `${name} needs you on #${number}: Permission: Bash pnpm test`;
+    await settled(() => updatesAbout(dana, "Mock 1").includes(waiting("Mock 1", 39)) && updatesAbout(dana, "Mock 2").includes(waiting("Mock 2", 41)), 20_000);
+    // Twenty of its steps, long enough too for the CEO's message allowance to refill.
+    await new Promise((resolve) => setTimeout(resolve, STEP_MS * 20));
+    expect(await ask(dana, "what is Mock 1 doing?")).toBe(
+      "Mock 1 (coding agent) is waiting on you on #39 “Night shift” (Permission: Bash pnpm test).",
+    );
+    expect(serverRoom(dana).state.work.get("39")?.status).toBe("in_progress");
+
+    // The office's prompt is the answer that carries each one on.
+    for (const slotId of ["slot-1", "slot-2"]) {
+      link.enqueue("runner-1", { kind: "prompt", slotId, text: "Go ahead.", requestedBy: "Dana" });
+    }
+    const opened = "Mock 1 handed in #39 “Night shift” for your review as a simulated pull request: the mock agent opened nothing on GitHub.";
+    const failed =
+      "Mock 2 couldn't work on #41 “Draft the roadmap”: The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a simulated pull request.";
+    await settled(() => updatesAbout(dana, "Mock 1").includes(opened) && updatesAbout(dana, "Mock 2").includes(failed), 20_000);
     expect(updatesAbout(dana, "Mock 1")).toEqual([
       "Mock 1 started on #39 “Night shift”.",
       "Mock 1 needs you on #39: Permission: Bash pnpm test",
@@ -215,10 +229,13 @@ describe("Firstmate and the mock runner's coding agents", () => {
     ]);
 
     expect(await ask(dana, "what is Mock 1 doing?")).toBe(
-      "Mock 1 (coding agent) opened PR #1000039 for #39 “Night shift”; it is waiting for your review: https://github.com/acme/office/pull/1000039",
+      "Mock 1 (coding agent) handed in #39 “Night shift” as a simulated pull request, with nothing on GitHub; it is waiting for your review.",
     );
+    expect(serverRoom(dana).state.work.get("39")?.outputArtifact).toBe("Simulated pull request, nothing on GitHub: [mock] Night shift");
+    // Nowhere does the office name or link a pull request that does not exist.
+    expect(JSON.stringify(dana.entries)).not.toMatch(/1000039|\/pull\//);
     expect(await ask(dana, "what is Mock 2 doing?")).toBe(
-      "Mock 2 (coding agent) has #41 “Draft the roadmap” in progress but isn't running. Its last word on it: The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a pull request.",
+      "Mock 2 (coding agent) has #41 “Draft the roadmap” in progress but isn't running. Its last word on it: The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a simulated pull request.",
     );
     await room.leave();
   });

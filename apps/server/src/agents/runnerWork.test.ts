@@ -348,6 +348,18 @@ describe("RunnerWork inward: the runner's events as the agent's moves", () => {
     expect(state.work.get(workKey(39))?.status).toBe(WORK_STATUS.assigned);
   });
 
+  it("hands a simulated pull request in as one, with no number and no link", () => {
+    const { ceoDoes, state, runnerWork } = setup();
+    ceoDoes(assign(39));
+    runnerWork.receive([{ runnerId: "box", event: event("started", 39) }]);
+    runnerWork.receive([
+      { runnerId: "box", event: event("pr-opened", 39, { pr: { number: 1_000_039, title: "[mock] Night shift", url: "", simulated: true } }) },
+    ]);
+    const work = state.work.get(workKey(39));
+    expect(work?.status).toBe(WORK_STATUS.review);
+    expect(work?.outputArtifact).toBe("Simulated pull request, nothing on GitHub: [mock] Night shift");
+  });
+
   it("writes a pull request without a title as its number and link", () => {
     expect(pullRequestArtifact({ number: 7, title: "", url: `https://github.com/${REPO}/pull/7` })).toBe(
       `PR #7: https://github.com/${REPO}/pull/7`,

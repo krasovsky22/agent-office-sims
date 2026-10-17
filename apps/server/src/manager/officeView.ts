@@ -29,6 +29,7 @@ import {
   isCeo,
   isIssueAssignee,
   isLiveAgent,
+  isSimulatedPullRequestArtifact,
   taskReference,
 } from "@sim/shared";
 
@@ -87,6 +88,11 @@ export interface WorkView {
   readonly hasDeliverable: boolean;
   /** The pull request its agent opened for it, when the deliverable is one. */
   readonly pullRequest: LinkView | undefined;
+  /**
+   * The deliverable is the mock agent's simulated pull request: nothing was
+   * opened on GitHub, so there is no pull request to name or link.
+   */
+  readonly simulatedPullRequest: boolean;
   /** The latest word on it, which is where "Blocked: …" lands; `undefined` when there is none. */
   readonly note: string | undefined;
 }
@@ -180,6 +186,7 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
       assignee: state.occupants.get(entry.assigneeId)?.name,
       hasDeliverable: entry.outputArtifact !== "",
       pullRequest: pull === undefined ? undefined : link(pull.title, pull.url),
+      simulatedPullRequest: isSimulatedPullRequestArtifact(entry.outputArtifact),
       note: entry.note === "" ? undefined : entry.note,
     };
   });

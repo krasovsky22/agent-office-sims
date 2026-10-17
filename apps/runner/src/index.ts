@@ -103,8 +103,8 @@ async function githubEnv(app: GithubAppCredentials): Promise<NodeJS.ProcessEnv> 
 async function createAgent(runnerConfig: RunnerConfig): Promise<{ agent: Agent; github: TaskGithub }> {
   switch (runnerConfig.agent) {
     case "mock":
-      // It never touches GitHub: its pull request is a fake, and it spends nothing on an unlabelled issue.
-      return { agent: createMockAgent({ outcome: runnerConfig.mockOutcome, repo: runnerConfig.repo }), github: NO_GITHUB };
+      // It never touches GitHub: its pull request is simulated, and it spends nothing on an unlabelled issue.
+      return { agent: createMockAgent({ outcome: runnerConfig.mockOutcome }), github: NO_GITHUB };
     case "claude": {
       // readConfig refuses a claude agent without the App; this only narrows the type.
       const app = credentials;

@@ -43,11 +43,13 @@ import {
   RUNNER_REFUSAL,
   type RunnerCommand,
   type RunnerCommandDraft,
+  type RunnerPullRequest,
   WORK_ACTION,
   WORK_STATUS,
   actorOf,
   isLiveAgentKey,
   liveAgentKey,
+  simulatedPullRequestArtifact,
   workKey,
 } from "@sim/shared";
 
@@ -111,8 +113,15 @@ export function budgetRefusalText(agentName: string, issueNumber: number, title:
   );
 }
 
-/** The work's deliverable for a pull request, as the board card shows it. */
-export function pullRequestArtifact(pr: { readonly number: number; readonly title: string; readonly url: string }): string {
+/**
+ * The work's deliverable for a pull request, as the board card shows it. A
+ * simulated one says so, with neither its number nor any link, since nothing
+ * on GitHub answers to them.
+ */
+export function pullRequestArtifact(pr: RunnerPullRequest): string {
+  if (pr.simulated === true) {
+    return simulatedPullRequestArtifact(pr.title);
+  }
   return pr.title === "" ? `PR #${pr.number}: ${pr.url}` : `PR #${pr.number}: ${pr.title}, ${pr.url}`;
 }
 

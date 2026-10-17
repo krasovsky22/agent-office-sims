@@ -18,6 +18,10 @@
  * that ends with no pull request has the slot look for one itself, and say it
  * needs a person when there is none; see `./github.ts`.
  *
+ * The task timeout measures the agent's own work. It is held while the agent
+ * waits on a person, for as long as the wait lasts, and stops for good once
+ * the work is handed in: neither is the agent taking too long.
+ *
  * Everything an agent says is cut to the contract's byte budgets here, before
  * it is queued: the server refuses a whole sync for one string too long, and
  * one chatty agent must not stall every slot's report. It is masked first
@@ -124,8 +128,12 @@ interface ActiveRun {
   readonly issueNumber: number;
   readonly task: StartCommand;
   agentRun: AgentRun;
-  /** Runs while the agent works, and not while its handed-in work waits on review. */
+  /** Runs while the agent works, and not while it waits on a person or its handed-in work waits on review. */
   timeout: ReturnType<typeof setTimeout> | undefined;
+  /** When the running timeout fires, epoch ms. */
+  deadline: number;
+  /** What was left of the timeout when a wait on a person held it; `undefined` while it is not held. */
+  heldMs: number | undefined;
   /** Cleared the moment the work ends, so nothing the agent says afterwards lands. */
   live: boolean;
   /** Whether its `started` event has been queued. */
@@ -313,6 +321,8 @@ export class SlotPool {
       task,
       agentRun: { stop: () => undefined },
       timeout: undefined,
+      deadline: 0,
+      heldMs: undefined,
       live: true,
       started: false,
       workdir: undefined,
@@ -345,16 +355,36 @@ export class SlotPool {
     }
   }
 
-  /** (Re)starts the task timeout: it measures the agent's work, from a start or a prompt. */
-  private arm(slot: Slot, run: ActiveRun): void {
+  /**
+   * (Re)starts the task timeout: it measures the agent's work, from a start or
+   * a prompt, or carries on with `ms` of it left once a wait is over.
+   */
+  private arm(slot: Slot, run: ActiveRun, ms = this.options.taskTimeoutMs): void {
     clearTimeout(run.timeout);
+    run.heldMs = undefined;
+    run.deadline = Date.now() + ms;
     const minutes = Math.round(this.options.taskTimeoutMs / 60_000);
     run.timeout = setTimeout(() => {
       if (slot.run === run) {
         this.end(slot, RUNNER_EVENT_KIND.failed, `Timed out after ${minutes} ${minutes === 1 ? "minute" : "minutes"}`);
       }
-    }, this.options.taskTimeoutMs);
+    }, ms);
     run.timeout.unref();
+  }
+
+  /**
+   * Holds the task timeout while the agent waits on a person, and lets it run
+   * on, from where it was, once the agent is back at its own work. Handed-in
+   * work has no timeout to hold or let run.
+   */
+  private holdTimeout(slot: Slot, run: ActiveRun, waiting: boolean): void {
+    if (waiting && run.timeout !== undefined) {
+      clearTimeout(run.timeout);
+      run.timeout = undefined;
+      run.heldMs = Math.max(run.deadline - Date.now(), 0);
+    } else if (!waiting && run.heldMs !== undefined) {
+      this.arm(slot, run, run.heldMs);
+    }
   }
 
   /** Sets a live run's status, saying `started` first if nothing has yet. */
@@ -366,6 +396,7 @@ export class SlotPool {
       run.started = true;
       this.emit(slot, RUNNER_EVENT_KIND.started, run.issueNumber, undefined, "");
     }
+    this.holdTimeout(slot, run, status === RUNNER_SLOT_STATUS.needsInput);
     slot.status = status;
     slot.activity = fitBytes(this.redactor.redactText(activity), MAX_TITLE_LENGTH);
   }
@@ -443,7 +474,9 @@ export class SlotPool {
     run.missing = false;
     clearTimeout(run.timeout);
     run.timeout = undefined;
-    if (pr.title !== "") {
+    run.heldMs = undefined;
+    // A simulated one is on no page to look its title up on.
+    if (pr.title !== "" || pr.simulated === true) {
       this.sayHandedIn(slot, run, pr);
       return;
     }
@@ -457,7 +490,7 @@ export class SlotPool {
     const handed = { ...pr, title: fitBytes(this.redactor.redactText(pr.title), MAX_TITLE_LENGTH) };
     slot.pr = handed;
     this.emit(slot, RUNNER_EVENT_KIND.prOpened, run.issueNumber, handed, "");
-    this.log(`${slot.id} handed in #${run.issueNumber}: ${pr.url}`);
+    this.log(`${slot.id} handed in #${run.issueNumber}: ${pr.simulated === true ? "a simulated pull request; nothing was opened on GitHub" : pr.url}`);
   }
 
   /**

@@ -116,8 +116,30 @@ export interface RunnerPullRequest {
   readonly number: number;
   /** Sanitised to one line; `""` when the runner did not say. */
   readonly title: string;
-  /** Always `https:`. */
+  /** Always `https:`, except `""` for a simulated one, which has no page. */
   readonly url: string;
+  /**
+   * The mock agent's stand-in for one: nothing was opened on GitHub, so it is
+   * never linked, its number is never shown, and the office calls it a
+   * simulated pull request wherever it names it.
+   */
+  readonly simulated?: true;
+}
+
+/**
+ * What a simulated pull request reads as, wherever the office names it: the
+ * work's deliverable on the board, the manager's words and the runner's log.
+ */
+export const SIMULATED_PULL_REQUEST = "Simulated pull request, nothing on GitHub";
+
+/** A work's deliverable for a simulated pull request with this title. */
+export function simulatedPullRequestArtifact(title: string): string {
+  return title === "" ? SIMULATED_PULL_REQUEST : `${SIMULATED_PULL_REQUEST}: ${title}`;
+}
+
+/** Whether a work's deliverable is a simulated pull request, written by {@link simulatedPullRequestArtifact}. */
+export function isSimulatedPullRequestArtifact(artifact: string): boolean {
+  return artifact === SIMULATED_PULL_REQUEST || artifact.startsWith(`${SIMULATED_PULL_REQUEST}: `);
 }
 
 /** One slot, as the runner reports it on every sync. */
@@ -379,10 +401,18 @@ function parsePullRequest(raw: unknown): RunnerPullRequest | undefined | null {
   if (candidate === undefined || !isIssueNumber(candidate["number"])) {
     return null;
   }
+  const title = parseText(candidate["title"], MAX_TITLE_LENGTH, sanitizeTitle);
+  if (title === undefined) {
+    return null;
+  }
+  if (candidate["simulated"] === true) {
+    // Nothing on GitHub to link, so one that came with a link is not what it says.
+    const link = candidate["url"];
+    return link === undefined || link === null || link === "" ? { number: candidate["number"], title, url: "", simulated: true } : null;
+  }
   const rawUrl = parseText(candidate["url"], MAX_TASK_URL_LENGTH, (text) => text);
   const url = rawUrl === undefined ? undefined : parseTaskUrl(rawUrl);
-  const title = parseText(candidate["title"], MAX_TITLE_LENGTH, sanitizeTitle);
-  if (url === undefined || url === "" || title === undefined) {
+  if (url === undefined || url === "") {
     return null;
   }
   return { number: candidate["number"], title, url };

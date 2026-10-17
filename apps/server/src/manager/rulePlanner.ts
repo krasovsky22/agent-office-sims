@@ -469,6 +469,9 @@ function workText(work: WorkView | undefined): string {
     case WORK_STATUS.in_progress:
       return `${who} is working on it`;
     case WORK_STATUS.review:
+      if (work.simulatedPullRequest) {
+        return `${who} handed it in as a simulated pull request, with nothing on GitHub; it is waiting for your review`;
+      }
       return work.pullRequest === undefined
         ? `${who} handed in a deliverable; it is waiting for your review`
         : `${who} opened ${work.pullRequest.reference} for it (${work.pullRequest.url}); it is waiting for your review`;
@@ -541,6 +544,9 @@ function describeCodingAgent(agent: IssueAgentView): string {
   const note = work.note === undefined ? "" : ` Its last word on it: ${work.note}`;
   if (work.status === WORK_STATUS.review) {
     const pull = work.pullRequest;
+    if (work.simulatedPullRequest) {
+      return `${who} handed in ${issue} as a simulated pull request, with nothing on GitHub; it is waiting for your review.`;
+    }
     return pull === undefined
       ? `${who} handed in ${issue}; it is waiting for your review.`
       : `${who} opened ${pull.reference} for ${issue}; it is waiting for your review: ${pull.url}`;

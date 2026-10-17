@@ -10,10 +10,18 @@
  *
  * A deliverable is text an agent wrote, so a URL found in it is only linked
  * once it has passed the same `https:` check a task's URL does and names a
- * pull request on GitHub.
+ * pull request on GitHub. The mock agent's simulated pull request has nothing
+ * on GitHub to link, so the panel says it is one instead.
  */
 
-import { type ProjectBoardSnapshot, WORK_STATUS, type WorkData, parseTaskUrl, taskReference } from "@sim/shared";
+import {
+  type ProjectBoardSnapshot,
+  WORK_STATUS,
+  type WorkData,
+  isSimulatedPullRequestArtifact,
+  parseTaskUrl,
+  taskReference,
+} from "@sim/shared";
 
 import { boardIssue, githubItemUrl } from "./projectBoard.js";
 
@@ -26,6 +34,8 @@ export interface TerminalLink {
 export interface TerminalLinks {
   readonly issue: TerminalLink | undefined;
   readonly pullRequests: readonly TerminalLink[];
+  /** The agent handed its work in as a simulated pull request: shown as one, never linked. */
+  readonly simulatedPullRequest: boolean;
 }
 
 /** Anything that looks like a URL in free text; {@link parseTaskUrl} decides whether it is one. */
@@ -79,6 +89,7 @@ export function terminalLinks(
       ? mine.find((entry) => entry.status === WORK_STATUS.assigned || entry.status === WORK_STATUS.in_progress)
       : mine.find((entry) => entry.issueNumber === issueNumber);
 
+  const simulatedPullRequest = current !== undefined && isSimulatedPullRequestArtifact(current.outputArtifact);
   if (current !== undefined) {
     if (issue === undefined && snapshot !== undefined) {
       const href = githubItemUrl(snapshot.repository, "issues", current.issueNumber);
@@ -104,5 +115,5 @@ export function terminalLinks(
     }
   }
 
-  return { issue, pullRequests };
+  return { issue, pullRequests, simulatedPullRequest };
 }
