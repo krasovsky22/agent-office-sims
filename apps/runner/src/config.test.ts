@@ -53,6 +53,7 @@ describe("readConfig", () => {
     expect(read.model).toBeUndefined();
     expect(read.maxAgents).toBe(2);
     expect(read.taskTimeoutMs).toBe(60 * 60_000);
+    expect(read.dailyBudgetUsd).toBeUndefined();
     expect(read.runnerId).toBe("build-box");
     expect(read.issueLabel).toBe("agent-ready");
     expect(read.githubApp).toBeUndefined();
@@ -69,6 +70,7 @@ describe("readConfig", () => {
         RUNNER_MODEL: "claude-sonnet-4-5",
         RUNNER_MAX_AGENTS: "4",
         RUNNER_TASK_TIMEOUT_MINUTES: "15",
+        RUNNER_DAILY_BUDGET_USD: "12.50",
         RUNNER_GITHUB_APP_ID: "123456",
         RUNNER_GITHUB_APP_INSTALLATION_ID: "7890",
         RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: keyFile,
@@ -82,6 +84,7 @@ describe("readConfig", () => {
     expect(read.model).toBe("claude-sonnet-4-5");
     expect(read.maxAgents).toBe(4);
     expect(read.taskTimeoutMs).toBe(15 * 60_000);
+    expect(read.dailyBudgetUsd).toBe(12.5);
   });
 
   it("refuses to start without a secret, or with one too short to be the server's", () => {
@@ -139,6 +142,16 @@ describe("readConfig", () => {
     expect(config({ RUNNER_MODEL: "opus[1m]" }).model).toBe("opus[1m]");
     expect(() => config({ RUNNER_MODEL: "--dangerously-skip-permissions" })).toThrow(/RUNNER_MODEL must be a model name/);
     expect(() => config({ RUNNER_MODEL: "sonnet; rm -rf /" })).toThrow(/RUNNER_MODEL must be a model name/);
+  });
+
+  it("takes a daily budget of nothing, which refuses every start", () => {
+    expect(config({ RUNNER_DAILY_BUDGET_USD: "0" }).dailyBudgetUsd).toBe(0);
+  });
+
+  it("refuses a daily budget that is not a plain amount of dollars", () => {
+    for (const raw of ["-5", "$5", "five", "1e3", "5.", "Infinity", "2000000"]) {
+      expect(() => config({ RUNNER_DAILY_BUDGET_USD: raw })).toThrow(/RUNNER_DAILY_BUDGET_USD must be an amount of US dollars/);
+    }
   });
 
   it("refuses a task timeout that is not whole minutes", () => {

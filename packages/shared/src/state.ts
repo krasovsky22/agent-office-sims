@@ -427,6 +427,17 @@ export class OfficeState extends Schema {
    * would be refused.
    */
   declare public agentIssueLabel: string;
+  /**
+   * What the runners' real agents have spent today, in US dollars, all
+   * runners together, and against their daily budgets added up; see
+   * `./spend.ts`. Replicated so every tab shows the same books. With no runner
+   * reporting, {@link spendRunners} is `0` and the rest means nothing.
+   */
+  declare public spendRunners: number;
+  declare public spentUsd: number;
+  /** Whether every runner reporting has a budget; {@link budgetUsd} means nothing otherwise. */
+  declare public budgeted: boolean;
+  declare public budgetUsd: number;
 
   public constructor() {
     super();
@@ -436,6 +447,10 @@ export class OfficeState extends Schema {
     this.tick = 0;
     this.operatorRequired = false;
     this.agentIssueLabel = "";
+    this.spendRunners = 0;
+    this.spentUsd = 0;
+    this.budgeted = false;
+    this.budgetUsd = 0;
   }
 }
 
@@ -446,6 +461,10 @@ defineTypes(OfficeState, {
   tick: "uint32",
   operatorRequired: "boolean",
   agentIssueLabel: "string",
+  spendRunners: "uint8",
+  spentUsd: "float64",
+  budgeted: "boolean",
+  budgetUsd: "float64",
 });
 
 const TAU = Math.PI * 2;

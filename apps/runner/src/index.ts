@@ -15,17 +15,23 @@
  * (`./githubApp.ts`), and checks each issue's label and finds each task's
  * pull request with them (`./github.ts`).
  *
+ * What the agents spend is booked against `RUNNER_DAILY_BUDGET_USD`, which
+ * refuses new starts once it is spent (`./budget.ts`).
+ *
  * A misconfigured runner exits at once with the reason; see `./config.ts`.
  */
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { formatUsd } from "@sim/shared";
+
 import { claudeAdapter } from "./agents/claude.js";
 import { HookServer } from "./agents/hookServer.js";
 import { createMockAgent } from "./agents/mock.js";
 import { createPtyAgent } from "./agents/ptyAgent.js";
 import type { Agent } from "./agents/types.js";
+import { SpendLedger } from "./budget.js";
 import { type RunnerConfig, readConfig } from "./config.js";
 import { NO_GITHUB, type TaskGithub, createTaskGithub } from "./github.js";
 import { GITHUB_TOKEN_ENV, GithubAppCredentials } from "./githubApp.js";
@@ -135,6 +141,7 @@ const pool = new SlotPool({
   taskTimeoutMs: config.taskTimeoutMs,
   github,
   redactor,
+  ledger: new SpendLedger({ budgetUsd: config.dailyBudgetUsd }),
   log,
 });
 const loop = new SyncLoop({
@@ -172,6 +179,11 @@ log(
     `for ${config.repo}, syncing with ${config.serverUrl.origin}`,
 );
 log(`data in ${config.dataDir}; a task stops after ${config.taskTimeoutMs / 60_000} minutes`);
+log(
+  config.dailyBudgetUsd === undefined
+    ? "no daily budget (RUNNER_DAILY_BUDGET_USD is not set): spend is counted, and nothing is refused"
+    : `new starts are refused once the agents have spent ${formatUsd(config.dailyBudgetUsd)} today`,
+);
 if (config.agent !== "mock") {
   log(`issues need the "${config.issueLabel}" label; agents push and open pull requests as GitHub App ${config.githubApp?.appId ?? ""}`);
 }

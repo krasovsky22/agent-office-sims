@@ -10,7 +10,7 @@ import type { RunnerSync } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import { isLiveAgentSource } from "./registry.js";
-import { RunnerLink, isRunnerEventSource, runnerSlotAgentId } from "./runnerLink.js";
+import { RunnerLink, isRunnerEventSource, isRunnerSpendSource, runnerSlotAgentId } from "./runnerLink.js";
 
 const TIMEOUT_MS = 30_000;
 const REPO = "krasovsky22/agent-office-sims";
@@ -234,6 +234,34 @@ describe("RunnerLink commands", () => {
     link.sweep();
     expect(link.pending("runner-1")).toEqual([]);
     expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [] });
+  });
+});
+
+describe("RunnerLink spend", () => {
+  it("shows nothing until a runner says what it spent", () => {
+    const { link } = setup();
+    link.sync(sync());
+    expect(link.spend()).toEqual({ runners: 0, spentUsd: 0, budgetUsd: undefined });
+    expect(isRunnerSpendSource(link)).toBe(true);
+    expect(isRunnerSpendSource({ spend: "lots" })).toBe(false);
+  });
+
+  it("adds up every runner's spend, and their budgets while every one has one", () => {
+    const { link } = setup();
+    link.sync(sync({ spend: { spentUsd: 1.5, budgetUsd: 5 } }));
+    expect(link.spend()).toEqual({ runners: 1, spentUsd: 1.5, budgetUsd: 5 });
+    link.sync(sync({ runnerId: "runner-2", slots: [], spend: { spentUsd: 0.5, budgetUsd: 2 } }));
+    expect(link.spend()).toEqual({ runners: 2, spentUsd: 2, budgetUsd: 7 });
+    link.sync(sync({ runnerId: "runner-2", slots: [], spend: { spentUsd: 0.75, budgetUsd: undefined } }));
+    expect(link.spend()).toEqual({ runners: 2, spentUsd: 2.25, budgetUsd: undefined });
+  });
+
+  it("drops a runner's spend with the runner once it goes silent", () => {
+    const { clock, link } = setup();
+    link.sync(sync({ spend: { spentUsd: 1.5, budgetUsd: 5 } }));
+    clock.now += TIMEOUT_MS + 1;
+    link.sweep();
+    expect(link.spend().runners).toBe(0);
   });
 });
 

@@ -8,6 +8,10 @@
  * a first-run or sign-in screen it can sit on before any hook runs. Its
  * adapter (`./provider.ts`) says what each of those means.
  *
+ * What it spends is read off the transcript its hooks name (`./usage.ts`), a
+ * moment after each hook and once more as it exits, and said as its run's
+ * running total.
+ *
  * It runs as the leader of its own process group, so stopping it, whether
  * asked to or at the task timeout, ends what it started too. A prompt for it
  * is typed into its terminal as a paste and submitted, as a person would.
@@ -25,6 +29,7 @@ import { startPrompt } from "./prompt.js";
 import type { ProviderAdapter, RunHandle, RunStatus } from "./provider.js";
 import { ScreenReader } from "./screen.js";
 import type { Agent, AgentReporter, AgentRun, AgentTask } from "./types.js";
+import { TranscriptMeter } from "./usage.js";
 
 /** How long a stopped agent has to exit before its process group is killed outright. */
 const DEFAULT_STOP_GRACE_MS = 5000;
@@ -34,6 +39,9 @@ const DEFAULT_BOOT_HINT_MS = 12_000;
 
 /** Between pasting a prompt and pressing Enter, so the CLI has taken the paste in whole. */
 const SUBMIT_DELAY_MS = 120;
+
+/** After a hook, before its transcript is read: a burst of hooks is one read, of what they all logged. */
+const DEFAULT_SPEND_SCAN_MS = 1000;
 
 /** What it needs to act on GitHub as the runner's App. */
 export interface AgentGithubEnv {
@@ -54,6 +62,7 @@ export interface PtyAgentOptions<P> {
   readonly env?: NodeJS.ProcessEnv;
   readonly stopGraceMs?: number;
   readonly bootHintMs?: number;
+  readonly spendScanMs?: number;
   /** The runner's GitHub App, the agent's identity on GitHub. */
   readonly github?: AgentGithubEnv;
 }
@@ -102,8 +111,25 @@ function startRun<P>(
   const screen = new ScreenReader();
   let status: RunStatus = "starting";
   let bootBlocked = false;
-  /** Its work is over: it exited, or was stopped. Nothing it says from then on is reported. */
+  /** Its work is over: it exited, or was stopped. Nothing it says from then on is reported but what it spent. */
   let ended = false;
+  const meter = new TranscriptMeter();
+  let spentUsd = 0;
+  let spendTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Reads what its session has spent, and says so when that changed. */
+  const meterSpend = (): void => {
+    clearTimeout(spendTimer);
+    spendTimer = undefined;
+    if (!meter.scan()) {
+      return;
+    }
+    const total = meter.usage().costUsd;
+    if (total !== spentUsd) {
+      spentUsd = total;
+      reporter.spent(total);
+    }
+  };
 
   const run: RunHandle = {
     get status() {
@@ -119,6 +145,9 @@ function startRun<P>(
       if (!ended) {
         reporter.prOpened({ number: pr.number, title: "", url: pr.url });
       }
+    },
+    transcript(path) {
+      meter.follow(path);
     },
     setStatus(next, activity = "") {
       if (ended) {
@@ -152,6 +181,10 @@ function startRun<P>(
     }
     adapter.hook.handle(run, event, payload);
     checkBlocked();
+    if (spendTimer === undefined) {
+      spendTimer = setTimeout(meterSpend, options.spendScanMs ?? DEFAULT_SPEND_SCAN_MS);
+      spendTimer.unref();
+    }
   });
   const plan = adapter.launch({ prompt: startPrompt(task), cwd: task.workdir, setup });
   const scrub = [...(adapter.scrubEnv ?? []), ...(options.github?.scrub ?? [])];
@@ -250,6 +283,8 @@ function startRun<P>(
     clearTimeout(submitTimer);
     // Its work is over and its terminal gone: anything it left running in its group goes too.
     signalGroup("SIGKILL");
+    // Whatever its last turn logged is paid for, however its work ended.
+    meterSpend();
     if (ended) {
       return;
     }

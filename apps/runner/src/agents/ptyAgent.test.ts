@@ -108,6 +108,7 @@ function recorder(): AgentReporter & { readonly seen: string[]; readonly printed
     prOpened: (pr) => record(`pr-opened: ${pr.url}`),
     failed: (message) => record(`failed: ${message}`),
     exited: (message, clean) => record(`exited${clean ? "" : " (error)"}: ${message}`),
+    spent: (totalUsd) => record(`spent: $${totalUsd.toFixed(2)}`),
   };
 }
 
@@ -212,6 +213,21 @@ exit 0`,
     agentFor(command, { repo: "o/r" }).start(task(), reporter);
     await reporter.waitFor(/^exited/);
     expect(reporter.seen).toEqual(["started", "pr-opened: https://github.com/o/r/pull/7", "turn done", "exited: Claude exited with code 0"]);
+  });
+
+  it("meters what its session spent off the transcript its hooks name, before saying it exited", async () => {
+    const command = fakeClaude(
+      "spend.sh",
+      `t="$PWD/session.jsonl"
+printf '%s\\n' '{"type":"assistant","timestamp":"2026-10-16T10:00:00Z","message":{"id":"m1","model":"claude-sonnet-4-5","usage":{"input_tokens":1000000,"output_tokens":0}}}' > "$t"
+hook SessionStart '{"source":"startup"}'
+hook Stop "{\\"transcript_path\\":\\"$t\\"}"
+exit 0`,
+    );
+    const reporter = recorder();
+    agentFor(command).start(task(), reporter);
+    await reporter.waitFor(/^exited/);
+    expect(reporter.seen).toEqual(["started", "turn done", "spent: $3.00", "exited: Claude exited with code 0"]);
   });
 
   it("types a prompt into its terminal as one paste, and submits it", async () => {

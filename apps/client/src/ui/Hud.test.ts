@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
 
-import { type RosterEntry, assignableAgents, groupRoster } from "./Hud.js";
+import { type RosterEntry, assignableAgents, groupRoster, spendLine } from "./Hud.js";
 
 function person(id: string, isCeo = false): RosterEntry {
   return {
@@ -87,5 +87,16 @@ describe("MANAGER_STATUS_APPEARANCE", () => {
     const appearances = Object.values(MANAGER_STATUS).map((status) => MANAGER_STATUS_APPEARANCE[status]);
     expect(appearances.every((appearance) => appearance.label !== "")).toBe(true);
     expect(new Set(appearances.map((appearance) => appearance.colour)).size).toBe(appearances.length);
+  });
+});
+
+describe("spendLine", () => {
+  it("shows the agents' spend against the budget, and warns once it is spent", () => {
+    expect(spendLine({ runners: 1, spentUsd: 1.25, budgetUsd: 5 })).toEqual({ text: "Agents' spend: $1.25 of $5.00 today", spent: false });
+    expect(spendLine({ runners: 1, spentUsd: 5.1, budgetUsd: 5 })).toEqual({
+      text: "Agents' spend: $5.10 of $5.00 today — budget spent, no new starts",
+      spent: true,
+    });
+    expect(spendLine({ runners: 2, spentUsd: 9, budgetUsd: undefined })).toEqual({ text: "Agents' spend: $9.00 today, no budget", spent: false });
   });
 });

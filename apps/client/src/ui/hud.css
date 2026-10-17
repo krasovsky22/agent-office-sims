@@ -207,6 +207,21 @@
   background: rgba(243, 207, 106, 0.06);
 }
 
+/* Real money, so it reads as a plain fact under the agents, and as a warning once the budget is spent. */
+.hud__spend {
+  margin: 8px 0 0;
+  color: #cfd3da;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud__spend--spent {
+  padding: 6px 8px;
+  border-left: 2px solid rgba(240, 138, 122, 0.6);
+  background: rgba(240, 138, 122, 0.08);
+  color: #f3b3a8;
+}
+
 .hud__status--failed {
   color: #f08a7a;
 }

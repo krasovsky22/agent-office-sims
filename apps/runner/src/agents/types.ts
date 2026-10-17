@@ -2,8 +2,8 @@
  * What a slot needs from an agent, whatever runs it: start it on an issue,
  * hear what it does, see what it prints, and stop it.
  *
- * A slot owns the bookkeeping (status, events, the task timeout), so an agent
- * only says what happened. Once it has said how the work ended, or been
+ * A slot owns the bookkeeping (status, events, the task timeout, the runner's
+ * spend), so an agent only says what happened. Once it has said how the work ended, or been
  * stopped, the slot stops listening. A pull request is not an end: the agent
  * keeps its task, waiting at its prompt, until the server stops it or sends
  * its work back with a prompt.
@@ -44,6 +44,12 @@ export interface AgentReporter {
   failed(message: string): void;
   /** Its process ended on its own; the work is over, `clean` when it exited without an error. */
   exited(message: string, clean: boolean): void;
+  /**
+   * What its work has cost so far, in US dollars, all of it rather than since
+   * last said. Heard even once the work is over, since a stopped agent's last
+   * turn is still paid for.
+   */
+  spent(totalUsd: number): void;
 }
 
 /** One agent working one task. */

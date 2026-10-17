@@ -50,6 +50,7 @@ function setup(replies: (SyncReply | Error)[], events: RunnerEvent[] = []) {
       handle: (command) => {
         handled.push(command.id);
       },
+      spend: () => ({ spentUsd: 1.25, budgetUsd: 5 }),
     },
     client: async (sync) => {
       sent.push(sync);
@@ -67,10 +68,12 @@ function setup(replies: (SyncReply | Error)[], events: RunnerEvent[] = []) {
 }
 
 describe("SyncLoop", () => {
-  it("reports the runner, its repository and its slots on every sync", async () => {
+  it("reports the runner, its repository, its slots and the day's spend on every sync", async () => {
     const { loop, sent } = setup([]);
     expect(await loop.syncOnce()).toBe(true);
-    expect(sent).toEqual([{ runnerId: "runner-1", repo: REPO, acked: [], slots: SLOTS, events: [] }]);
+    expect(sent).toEqual([
+      { runnerId: "runner-1", repo: REPO, acked: [], slots: SLOTS, events: [], spend: { spentUsd: 1.25, budgetUsd: 5 } },
+    ]);
   });
 
   it("carries out a command once, and acks it until a sync carrying the ack is answered", async () => {

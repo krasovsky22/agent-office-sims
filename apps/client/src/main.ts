@@ -450,6 +450,10 @@ function start(): void {
       publishHud({ work });
     },
 
+    onSpendChanged: (runnerSpend) => {
+      publishHud({ runnerSpend });
+    },
+
     // Handed over whole on every join, a reconnection included, so it replaces
     // what this tab had rather than adding to it.
     onManagerHistory: (entries) => {

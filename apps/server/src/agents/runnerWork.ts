@@ -25,7 +25,10 @@
  * rules decide it exactly as they decide anyone's: `started` claims the
  * issue, `pr-opened` attaches the pull request and hands it in for review,
  * and `failed` says why on the work. An event about work the slot no longer
- * holds is refused by those rules and changes nothing.
+ * holds is refused by those rules and changes nothing. A start the runner
+ * refused because its daily budget is spent is also explained to the office,
+ * in Firstmate's voice, since nothing on the board says why the work never
+ * began.
  *
  * Nothing here writes to GitHub: the runner's agent opens the pull request,
  * and the server only hears that it did.
@@ -37,6 +40,7 @@ import {
   type OfficeActor,
   RUNNER_COMMAND_KIND,
   RUNNER_EVENT_KIND,
+  RUNNER_REFUSAL,
   type RunnerCommand,
   type RunnerCommandDraft,
   WORK_ACTION,
@@ -87,6 +91,23 @@ export function reworkPrompt(issueNumber: number): string {
   ].join(" ");
 }
 
+/**
+ * What Firstmate says when a runner refused to start an agent because its
+ * daily budget is spent: who could not start on what, the runner's own reason
+ * with its numbers, and how to start it once the budget allows. Nothing
+ * retries a refused start by itself, so the work stays assigned until the CEO
+ * gives it out again.
+ */
+export function budgetRefusalText(agentName: string, issueNumber: number, title: string, reason: string): string {
+  const issue = title === "" ? `#${issueNumber}` : `#${issueNumber} “${title}”`;
+  const why = reason === "" ? "the runner's daily budget is spent" : reason.charAt(0).toLowerCase() + reason.slice(1);
+  return (
+    `${agentName} couldn't start on ${issue}: ${why.replace(/\.$/, "")}. ` +
+    "Nothing started, so nothing more was spent. To try again once the runner's RUNNER_DAILY_BUDGET_USD is raised " +
+    "or its day turns over, take the work back and assign it again."
+  );
+}
+
 /** The work's deliverable for a pull request, as the board card shows it. */
 export function pullRequestArtifact(pr: { readonly number: number; readonly title: string; readonly url: string }): string {
   return pr.title === "" ? `PR #${pr.number}: ${pr.url}` : `PR #${pr.number}: ${pr.title}, ${pr.url}`;
@@ -115,6 +136,8 @@ export interface RunnerWorkOptions {
   readonly runner: RunnerCommands;
   /** Where a command the runner was given, or could not be, is written down. */
   readonly log?: (name: string, detail: Record<string, string | number>) => void;
+  /** Says something to the office as Firstmate; nobody hears it by default. */
+  readonly announce?: (text: string) => void;
 }
 
 export class RunnerWork {
@@ -225,6 +248,10 @@ export class RunnerWork {
             action: WORK_ACTION.note,
             payload: { issueNumber, text: event.message === "" ? "The agent stopped working on it." : event.message },
           });
+          if (event.refusal === RUNNER_REFUSAL.budget) {
+            const title = this.options.host.state.work.get(workKey(issueNumber))?.title ?? "";
+            this.options.announce?.(budgetRefusalText(occupant.name, issueNumber, title, event.message));
+          }
           break;
         case RUNNER_EVENT_KIND.finished:
           break;

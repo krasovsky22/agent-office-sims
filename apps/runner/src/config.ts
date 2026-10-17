@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { isAbsolute, join } from "node:path";
 
-import { MAX_RUNNER_SLOTS, readAgentIssueLabel } from "@sim/shared";
+import { MAX_RUNNER_SLOTS, MAX_RUNNER_USD, readAgentIssueLabel } from "@sim/shared";
 
 import { MOCK_OUTCOMES, type MockOutcome } from "./agents/mock.js";
 import type { GithubAppConfig } from "./githubApp.js";
@@ -69,6 +69,11 @@ export interface RunnerConfig {
   /** Longest one task may run before its slot stops it. */
   readonly taskTimeoutMs: number;
   /**
+   * US dollars the agents may spend in a day before new starts are refused;
+   * `undefined` for no budget.
+   */
+  readonly dailyBudgetUsd: number | undefined;
+  /**
    * Who this runner is to the server. Stable across restarts, so a restarted
    * runner replaces its own slots rather than adding a second set beside the
    * ones still waiting out the timeout.
@@ -101,6 +106,8 @@ export interface RunnerConfig {
  *   Claude Code's default.
  * - `RUNNER_MAX_AGENTS`: slots, from 1 to `MAX_RUNNER_SLOTS`, defaulting to 2.
  * - `RUNNER_TASK_TIMEOUT_MINUTES`: whole minutes, at least 1, defaulting to 60.
+ * - `RUNNER_DAILY_BUDGET_USD`: US dollars, `0` or more, the agents may spend
+ *   in a day before the runner refuses new starts; unset, no budget.
  * - `REAL_AGENT_ISSUE_LABEL`: the label an issue needs, as the server reads it,
  *   defaulting to `agent-ready`.
  * - `RUNNER_GITHUB_APP_ID`, `RUNNER_GITHUB_APP_INSTALLATION_ID` and
@@ -122,6 +129,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, host: string = 
     model: readModel(env),
     maxAgents: readMaxAgents(env),
     taskTimeoutMs: readTaskTimeoutMinutes(env) * 60_000,
+    dailyBudgetUsd: readDailyBudget(env),
     runnerId: runnerIdFor(host),
     issueLabel: readAgentIssueLabel(env["REAL_AGENT_ISSUE_LABEL"]),
     githubApp: readGithubApp(env, agent),
@@ -298,6 +306,21 @@ function readTaskTimeoutMinutes(env: NodeJS.ProcessEnv): number {
     throw new Error(`RUNNER_TASK_TIMEOUT_MINUTES must be a whole number of minutes, at least 1, got "${raw}"`);
   }
   return minutes;
+}
+
+/** A plain amount of dollars, `5` or `12.50`: no sign, exponent or thousands separator. */
+const DOLLARS = /^\d+(?:\.\d+)?$/;
+
+function readDailyBudget(env: NodeJS.ProcessEnv): number | undefined {
+  const raw = read(env, "RUNNER_DAILY_BUDGET_USD");
+  if (raw === "") {
+    return undefined;
+  }
+  const usd = Number(raw);
+  if (!DOLLARS.test(raw) || !Number.isFinite(usd) || usd > MAX_RUNNER_USD) {
+    throw new Error(`RUNNER_DAILY_BUDGET_USD must be an amount of US dollars from 0 to ${MAX_RUNNER_USD}, such as 5 or 12.50; got "${raw}"`);
+  }
+  return usd;
 }
 
 /** The machine's name, narrowed to what a runner id may hold. */

@@ -22,10 +22,12 @@ import {
   CLIENT_MESSAGE,
   EMPTY_BOARD_LISTS,
   IssueWork,
+  NO_RUNNER_SPEND,
   OFFICE_ROOM_NAME,
   type OfficeState,
   PLAYER_ROLE,
   type ProjectBoardSnapshot,
+  type RunnerSpendTotal,
   SERVER_MESSAGE,
   WORK_ACTION,
   WORK_REJECTION,
@@ -85,6 +87,12 @@ class FakeBoard implements ProjectBoardSource {
 
 const officeBoard = new FakeBoard();
 
+/** The room the runners' books are shown in. */
+const BOOKS_ROOM_NAME = "office-books";
+
+/** What the runners say they spent, set by hand as their syncs would. */
+let runnerSpend: RunnerSpendTotal = NO_RUNNER_SPEND;
+
 let server: Server;
 let endpoint: string;
 
@@ -93,6 +101,11 @@ beforeAll(async () => {
   server.define(OFFICE_ROOM_NAME, OfficeRoom, {
     reconnectGraceSeconds: GRACE_SECONDS,
     projectBoard: officeBoard,
+  } satisfies Partial<OfficeRoomOptions>);
+  server.define(BOOKS_ROOM_NAME, OfficeRoom, {
+    reconnectGraceSeconds: GRACE_SECONDS,
+    projectBoard: officeBoard,
+    runnerSpend: { spend: () => runnerSpend },
   } satisfies Partial<OfficeRoomOptions>);
   await server.listen(0);
   const address = server.transport.server?.address();
@@ -435,6 +448,28 @@ describe("the project board's work", () => {
     expect(room.state.work.has(workKey(3))).toBe(false);
     officeBoard.publish(snapshotOf(OPEN_ISSUES));
 
+    await dana.room.leave();
+  });
+});
+
+describe("the runners' books", () => {
+  it("shows what the runners spent today against their budgets in every tab", async () => {
+    const dana = await openOffice("Dana", BOOKS_ROOM_NAME);
+    const milo = await joinOffice(dana, "Milo");
+    expect(dana.room.state.spendRunners).toBe(0);
+
+    runnerSpend = { runners: 1, spentUsd: 1.25, budgetUsd: 5 };
+    for (const tab of [dana, milo]) {
+      await settled(() => tab.room.state.spentUsd === 1.25);
+      expect(tab.room.state).toMatchObject({ spendRunners: 1, budgeted: true, budgetUsd: 5 });
+    }
+
+    runnerSpend = { runners: 2, spentUsd: 2, budgetUsd: undefined };
+    await settled(() => milo.room.state.spendRunners === 2);
+    expect(milo.room.state.budgeted).toBe(false);
+    runnerSpend = NO_RUNNER_SPEND;
+
+    await milo.room.leave();
     await dana.room.leave();
   });
 });

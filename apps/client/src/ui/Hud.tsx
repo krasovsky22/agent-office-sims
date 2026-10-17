@@ -27,8 +27,11 @@ import {
   OCCUPANT_KIND,
   type OccupantKind,
   type ProjectBoardSnapshot,
+  type RunnerSpendTotal,
   type WorkData,
+  isBudgetSpent,
   isIssueAssignee,
+  spendSummary,
 } from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
@@ -171,6 +174,8 @@ export interface HudSnapshot {
   readonly operatorAccess?: OperatorAccess | undefined;
   /** The live agent whose terminal the local player opened with `E` behind its chair, or `undefined`. */
   readonly terminalAgentId?: string | undefined;
+  /** What the runners' real agents have spent today; absent, or no runners, until a runner reports. */
+  readonly runnerSpend?: RunnerSpendTotal | undefined;
 }
 
 export interface HudActions {
@@ -480,6 +485,28 @@ function ManagerRow({ entry, unread }: { entry: RosterEntry; unread: number }) {
 }
 
 /**
+ * The runners' books, under the live agents: today's spend against the
+ * budget, and once that is spent, that no new work will start. Real money,
+ * so it is shown plainly in every tab and nowhere in the game's own economy.
+ */
+export function spendLine(spend: RunnerSpendTotal): { readonly text: string; readonly spent: boolean } {
+  const spent = isBudgetSpent(spend.spentUsd, spend.budgetUsd);
+  return {
+    text: `Agents' spend: ${spendSummary(spend)}${spent ? " — budget spent, no new starts" : ""}`,
+    spent,
+  };
+}
+
+function SpendLine({ spend }: { spend: RunnerSpendTotal }) {
+  const { text, spent } = spendLine(spend);
+  return (
+    <p className={spent ? "hud__spend hud__spend--spent" : "hud__spend"} role="status">
+      {text}
+    </p>
+  );
+}
+
+/**
  * Who is in the office: people first, then the manager and the live coding
  * agents under headings of their own, so the roster answers "who is a person
  * here?" as plainly as the floor does.
@@ -488,10 +515,12 @@ function Roster({
   roster,
   boardAccess,
   managerUnread,
+  runnerSpend,
 }: {
   roster: readonly RosterEntry[];
   boardAccess: BoardAccess | undefined;
   managerUnread: number;
+  runnerSpend: RunnerSpendTotal | undefined;
 }) {
   const { people, liveAgents, managers } = groupRoster(roster);
   return (
@@ -526,6 +555,7 @@ function Roster({
           </ul>
         </>
       )}
+      {runnerSpend === undefined || runnerSpend.runners === 0 ? null : <SpendLine spend={runnerSpend} />}
       {boardAccess === undefined ? null : (
         <p
           className={boardAccess.readOnly ? "hud__role hud__role--readonly" : "hud__role"}
@@ -558,6 +588,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     managerAccess,
     operatorAccess,
     terminalAgentId,
+    runnerSpend,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
@@ -570,7 +601,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       </div>
 
       <div className="hud__column">
-        <Roster roster={roster} boardAccess={boardAccess} managerUnread={managerUnread} />
+        <Roster roster={roster} boardAccess={boardAccess} managerUnread={managerUnread} runnerSpend={runnerSpend} />
 
         <div className="hud__panel">
           <h2 className="hud__title">Status</h2>

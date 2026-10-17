@@ -1,6 +1,6 @@
 /**
  * The runner's heartbeat: a sync about once a second, carrying the slots, the
- * commands taken and the events not yet delivered, and carrying out whatever
+ * commands taken, the events not yet delivered and the day's spend, and carrying out whatever
  * commands come back.
  *
  * A command must neither be lost nor carried out twice, since starting an
@@ -31,7 +31,7 @@ const REMEMBERED_COMMAND_IDS = 512;
 export interface SyncLoopOptions {
   readonly runnerId: string;
   readonly repo: string;
-  readonly pool: Pick<SlotPool, "report" | "pendingEvents" | "delivered" | "handle">;
+  readonly pool: Pick<SlotPool, "report" | "pendingEvents" | "delivered" | "handle" | "spend">;
   readonly client: SyncClient;
   readonly intervalMs?: number;
   readonly maxBackoffMs?: number;
@@ -83,6 +83,7 @@ export class SyncLoop {
       acked,
       slots: pool.report(),
       events,
+      spend: pool.spend(),
     };
 
     let reply;

@@ -288,6 +288,20 @@ describe("OfficeManager", () => {
     expect(published).toHaveLength(1);
   });
 
+  it("posts news it is told as an update, and nothing once stopped", () => {
+    const { office, published } = setUp(rules());
+    office.report("Mock 1 couldn't start on #39: the runner's daily budget of $5.00 is spent.");
+    expect(published).toEqual([
+      expect.objectContaining({
+        kind: MANAGER_ENTRY_KIND.update,
+        text: "Mock 1 couldn't start on #39: the runner's daily budget of $5.00 is spent.",
+      }),
+    ]);
+    office.stop();
+    office.report("too late");
+    expect(published).toHaveLength(1);
+  });
+
   it("aborts the call in flight when stopped, and writes nothing after", async () => {
     const held = heldPlanner();
     const { dana, office, published } = setUp(createManagerAdvisor({ planner: held.planner, mode: "model" }));
