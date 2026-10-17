@@ -411,6 +411,11 @@ export class PlayerController {
     return this.focusBlend;
   }
 
+  /** The view {@link leanedIn} measures, which may still be one the camera is easing out of. */
+  public get leaningInto(): CameraFocus | undefined {
+    return this.leaning;
+  }
+
   /**
    * The view the camera leans into once the player has stood still for a
    * moment, such as {@link shoulderView} at a working agent's screen, or

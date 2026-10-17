@@ -655,7 +655,7 @@ function start(): void {
     // its shoulder, to read its monitor; `E` still opens the whole terminal.
     const shoulder = target?.kind === INTERACTION_KIND.screen ? shoulderViewOf(target) : undefined;
     controller.setFocus(shoulder);
-    if (shoulder !== undefined) {
+    if (shoulder !== undefined && controller.leaningInto === shoulder) {
       leanSeat = target?.seatId;
     }
     const hide = controller.leanedIn > LEAN_HIDES_AGENT_AT && leanSeat !== undefined ? room.holderOf(leanSeat) : undefined;

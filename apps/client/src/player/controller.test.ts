@@ -263,4 +263,22 @@ describe("PlayerController leaning in over a working agent's shoulder", () => {
     frames(0.4, null);
     expect(controller.leanedIn).toBe(0);
   });
+
+  it("stays in the view it leaned into while easing out toward another screen's", () => {
+    const [, second] = workstations();
+    if (second === undefined) {
+      throw new Error("the layout has fewer than two workstations");
+    }
+    const other = shoulderView(second.seat.anchor, second.centre);
+    frames(1.5);
+    expect(controller.leaningInto).toBe(view);
+
+    frames(0.3, other);
+    expect(controller.leanedIn).toBeGreaterThan(0);
+    expect(controller.leaningInto).toBe(view);
+
+    frames(1.5, other);
+    expect(controller.leaningInto).toBe(other);
+    expect(controller.leanedIn).toBe(1);
+  });
 });
