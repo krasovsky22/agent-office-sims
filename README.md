@@ -327,7 +327,11 @@ types only while its agent waits at its prompt and reports in `prompts`;
 the office's own rework prompt is given whatever the agent is doing), each with
 an `id` and a `slotId`. A command comes back in every reply until a sync lists its id in
 `acked`, and never after, so a lost reply loses nothing and a runner tells a
-repeat by its id. Ids are random, so a restarted server never reuses one.
+repeat by its id. The one exception is a CEO's prompt the runner has not
+answered within 30 seconds: the server withdraws it if it is not yet acked,
+tells the CEO it went unanswered, and it never comes back, so a prompt the CEO
+was told is lost is not typed later. Ids are random, so a restarted server
+never reuses one.
 
 The route is refused as the report route is: `405` for anything but `POST`,
 `401` without the secret, `413` over 16 KB, `429` past about ten syncs a
@@ -908,7 +912,7 @@ Then confirm all twenty-one:
     checks the gate, the refusals and the two tabs against a live room, and
     `apps/runner/src/agents/ptyAgent.test.ts` that no control character
     reaches the agent's terminal.
-20. **`pnpm typecheck` passes** across the whole repository.
+21. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
