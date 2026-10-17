@@ -9,15 +9,19 @@
  * issues. What it understands is the handful of things a CEO asks a manager
  * most:
  *
- * - **"Put Ada on #12"**, "put someone on #39", "hand out the backlog": an
- *   instruction in one of a few exact shapes becomes a plan to assign —
- *   carried out afterwards through the work's rules, like a model's plan. One
- *   that starts like an instruction and is not exactly one of them is not
- *   guessed at: nothing is done, and the CEO is asked to rephrase.
+ * - **"Put Claude 1 on #12"**, "have Claude 1 do #39", "put a coding agent on
+ *   #39", "put someone on #39", "hand out the backlog": an instruction in one
+ *   of a few exact shapes becomes a plan to assign — carried out afterwards
+ *   through the work's rules, like a model's plan. One that starts like an
+ *   instruction and is not exactly one of them is not guessed at: nothing is
+ *   done, and the CEO is asked to rephrase. "Someone" never means one of the
+ *   runners' coding agents, which spend real money; only a name or "a coding
+ *   agent" does (`./assign.ts`).
  * - **"What's the status of #12?"**: any issue or pull request it can find in
  *   the message is described — its column, labels and pull requests, and
  *   which agent is on it and how far they have got.
- * - **"What is Ada doing?"**: a named agent is described.
+ * - **"What is Claude 1 doing?"**: a named agent is described — for a coding
+ *   agent, what it is doing right now, its issue and the pull request it opened.
  * - **"What's open?"**, "which PRs are open?", "what is everyone working on?":
  *   a summary of the project board, its pull requests, or the agents.
  *
@@ -25,9 +29,9 @@
  * answer comes from the {@link OfficeView} it is handed.
  */
 
-import { WORK_STATUS, type WorkStatus } from "@sim/shared";
+import { LIVE_AGENT_STATUS, WORK_STATUS, type WorkStatus } from "@sim/shared";
 
-import type { ManagerPlan, ManagerRequest } from "./advisor.js";
+import { ANY_CODING_AGENT, type ManagerPlan, type ManagerRequest } from "./advisor.js";
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, WorkView } from "./officeView.js";
 import { type WorkRef, findAgents, findUnknownWork, findWork, resolveAgent } from "./resolve.js";
 
@@ -55,6 +59,8 @@ const TAKE_VERBS: readonly string[] = ["take", "pick up", "do", "handle", "work 
 /** VERB the backlog [to AGENT]: "hand out the backlog". */
 const BACKLOG_VERBS: readonly string[] = ["hand out", "give out", "assign", "distribute"];
 const ANYONE = /^(someone|anyone|whoever)$/;
+/** One of the runners' coding agents, whichever is free: the only way to ask for one without a name. */
+const ANY_CODER = /^a coding agent$/;
 /** The one clause an AGENT may carry: "someone who's free". */
 const AGENT_CLAUSES: readonly string[] = ["who's free", "who is free", "who's idle", "who is idle"];
 /** What may sit between work references in the WORK slot. */
@@ -62,7 +68,7 @@ const WORK_CONNECTORS: ReadonlySet<string> = new Set(["the", "and", ",", "#"]);
 const NUMBER = /^#?\d+$/;
 
 export const REPHRASE_TEXT =
-  "I couldn't tell exactly what to hand out, so I haven't changed anything. Say it like “assign #12 to Ada” or “put someone on #39”.";
+  "I couldn't tell exactly what to hand out, so I haven't changed anything. Say it like “assign #12 to Claude 1” or “put a coding agent on #39”.";
 
 /** "who should I give #39 to?" asks for advice rather than an assignment. */
 const ASKING_ADVICE = /\b(should i|who should|who would|who could|who can)\b/i;
@@ -85,8 +91,9 @@ export const HELP_TEXT = [
   "- “What's open?” or “Which PRs are open?”",
   "- “What's the status of #12?”",
   "- “What is everyone working on?”",
-  "- “Put Ada on #12” or “Put someone on #39”",
-  "- “Hand out the backlog”",
+  "- “What is Claude 1 doing?”",
+  "- “Put a coding agent on #39” or “Have Claude 1 do #39”",
+  "- “Put someone on #39” or “Hand out the backlog”, for the orchestrator's agents",
 ].join("\n");
 
 /** One planner attempt: never throws, never waits. */
@@ -112,7 +119,7 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     }
     return {
       reply: "Handing out the open issues nobody is on:",
-      assignments: backlog.map((issue) => ({ work: `#${issue.number}`, agent: instruction.agent?.id ?? "" })),
+      assignments: backlog.map((issue) => ({ work: `#${issue.number}`, agent: assigneeName(instruction.agent) })),
     };
   }
   if (instruction?.kind === "work") {
@@ -123,7 +130,7 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     return {
       reply: "Here's how that went:",
       assignments: instruction.pairs.flatMap((entry) =>
-        entry.slot.work.map((ref) => ({ work: workId(ref), agent: entry.agent?.id ?? "" })),
+        entry.slot.work.map((ref) => ({ work: workId(ref), agent: assigneeName(entry.agent) })),
       ),
     };
   }
@@ -165,8 +172,17 @@ function backlogOf(view: OfficeView): IssueView[] {
   return (view.project?.issues ?? []).filter((issue) => issue.column === "open" && issue.work === undefined);
 }
 
-/** `undefined` for "someone": whoever is free, chosen against the live office. */
-type Assignee = IssueAgentView | LiveAgentView | undefined;
+/**
+ * `undefined` for "someone": whoever of the orchestrator's agents is free,
+ * chosen against the live office; {@link ANY_CODING_AGENT} for whichever
+ * coding agent is.
+ */
+type Assignee = IssueAgentView | LiveAgentView | typeof ANY_CODING_AGENT | undefined;
+
+/** How a plan names an assignee. */
+function assigneeName(agent: Assignee): string {
+  return agent === undefined ? "" : agent === ANY_CODING_AGENT ? ANY_CODING_AGENT : agent.id;
+}
 
 /** Work read from a WORK slot: what it names, and what it names that is not on the board. */
 interface WorkSlot {
@@ -202,8 +218,8 @@ function startsWith(words: readonly string[], phrase: string): boolean {
 
 /**
  * The AGENT slot, when these words are exactly one: an agent's name, first
- * name or id, or someone/anyone/whoever, with at most one "who's free"-style
- * clause. `null` when they are not.
+ * name or id, someone/anyone/whoever, or "a coding agent", with at most one
+ * "who's free"-style clause. `null` when they are not.
  */
 function readAgent(words: readonly string[], view: OfficeView): { readonly agent: Assignee } | null {
   for (const clause of ["", ...AGENT_CLAUSES]) {
@@ -215,6 +231,9 @@ function readAgent(words: readonly string[], view: OfficeView): { readonly agent
     const name = words.slice(0, words.length - clauseWords.length).join(" ");
     if (ANYONE.test(name)) {
       return { agent: undefined };
+    }
+    if (ANY_CODER.test(name)) {
+      return { agent: ANY_CODING_AGENT };
     }
     if (clause !== "" || name === "" || NOT_AN_AGENT.test(name)) {
       continue;
@@ -406,7 +425,9 @@ function workText(work: WorkView | undefined): string {
     case WORK_STATUS.in_progress:
       return `${who} is working on it`;
     case WORK_STATUS.review:
-      return `${who} handed in a deliverable; it is waiting for your review`;
+      return work.pullRequest === undefined
+        ? `${who} handed in a deliverable; it is waiting for your review`
+        : `${who} opened ${work.pullRequest.reference} for it (${work.pullRequest.url}); it is waiting for your review`;
     case WORK_STATUS.done:
       return `${who} finished it, and you approved the work`;
   }
@@ -459,36 +480,43 @@ function pullLine(pull: PullRequestView): string {
 
 type FloorAgent = IssueAgentView | LiveAgentView;
 
-function isIssueAgent(agent: FloorAgent): agent is IssueAgentView {
-  return !("status" in agent);
-}
-
-/** The issue an agent that takes issues has in hand, the one it is working first. */
-function workInHand(agent: IssueAgentView, view: OfficeView): WorkView | undefined {
-  const mine = view.work.filter((work) => work.assigneeId === agent.id);
-  return (
-    mine.find((work) => work.status === WORK_STATUS.in_progress) ??
-    mine.find((work) => work.status === WORK_STATUS.assigned)
-  );
-}
-
 function describeAgent(agent: FloorAgent, view: OfficeView): string {
-  return isIssueAgent(agent) ? describeIssueAgent(agent, view) : describeLiveAgent(agent);
+  const coder = view.issueAgents.find((candidate) => candidate === agent);
+  return coder === undefined ? describeLiveAgent(agent as LiveAgentView) : describeCodingAgent(coder);
 }
 
-function describeIssueAgent(agent: IssueAgentView, view: OfficeView): string {
-  const work = workInHand(agent, view);
-  const issue = work === undefined ? "" : `#${work.issueNumber} “${work.title}”`;
-  if (work?.status === WORK_STATUS.assigned) {
-    return `${agent.name} (live coding agent) has ${issue} and hasn't started yet.`;
+/** A runner's coding agent: what it is doing about the issue it has, and the pull request it opened. */
+function describeCodingAgent(agent: IssueAgentView): string {
+  const work = agent.issue;
+  const activity = agent.activity === "" ? "" : ` (${agent.activity})`;
+  const who = `${agent.name} (coding agent)`;
+  if (work === undefined) {
+    return `${who} is idle.`;
   }
-  return `${agent.name} (live coding agent) is ${work === undefined ? "idle" : `working on ${issue}`}.`;
+  const issue = `#${work.issueNumber} “${work.title}”`;
+  const note = work.note === undefined ? "" : ` Its last word on it: ${work.note}`;
+  if (work.status === WORK_STATUS.review) {
+    const pull = work.pullRequest;
+    return pull === undefined
+      ? `${who} handed in ${issue}; it is waiting for your review.`
+      : `${who} opened ${pull.reference} for ${issue}; it is waiting for your review: ${pull.url}`;
+  }
+  switch (agent.status) {
+    case LIVE_AGENT_STATUS.needsInput:
+      return `${who} is waiting on you on ${issue}${activity}.`;
+    case LIVE_AGENT_STATUS.working:
+      return `${who} is ${work.status === WORK_STATUS.assigned ? "starting on" : "working on"} ${issue}${activity}.`;
+    default:
+      return work.status === WORK_STATUS.assigned
+        ? `${who} has ${issue} and hasn't started yet.${note}`
+        : `${who} has ${issue} in progress but isn't running.${note}`;
+  }
 }
 
-/** The agents free for something new, those that take issues first. */
+/** The agents free for something new, the coding agents first. */
 function freeAgents(view: OfficeView): string[] {
   return [
-    ...view.issueAgents.filter((agent) => workInHand(agent, view) === undefined),
+    ...view.issueAgents.filter((agent) => agent.issue === undefined),
     ...view.liveAgents.filter((agent) => agent.status === "idle" && agent.assigned === undefined),
   ].map((agent) => agent.name);
 }

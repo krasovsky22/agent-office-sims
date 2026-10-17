@@ -82,7 +82,13 @@ function heldPlanner() {
   return { planner, waiting };
 }
 
-function setUp(advisor: ManagerAdvisor, updateIntervalMs = 60_000, floor?: LiveAgentSource) {
+function setUp(
+  advisor: ManagerAdvisor,
+  updateIntervalMs = 60_000,
+  floor?: LiveAgentSource,
+  /** What the office already holds when the manager arrives. */
+  arrival?: (state: OfficeState) => void,
+) {
   const state = new OfficeState();
   const dana = player("session-dana", "Dana", true);
   const milo = player("session-milo", "Milo", false);
@@ -102,6 +108,8 @@ function setUp(advisor: ManagerAdvisor, updateIntervalMs = 60_000, floor?: LiveA
   const registry = new LiveAgentRegistry({ timeoutMs: 60_000, maxAgents: 4 });
   registry.report({ id: crewmate.id, name: crewmate.name, status: LIVE_AGENT_REPORT_STATUS.idle, task: undefined });
   const queue = new LiveAssignmentQueue({ agents: registry });
+
+  arrival?.(state);
 
   const published: ManagerEntry[] = [];
   const managerOfRoom = new OfficeManager({
@@ -210,13 +218,12 @@ describe("OfficeManager", () => {
   });
 
   it("posts an update when work is handed in, but not about what it found on arrival", async () => {
-    const { state, published } = setUp(rules(), 10);
     const entry = new IssueWork();
     entry.issueNumber = 10;
     entry.title = "Fix the login redirect loop";
     entry.status = WORK_STATUS.in_progress;
     entry.assigneeId = "crew-1";
-    state.work.set(workKey(10), entry);
+    const { published } = setUp(rules(), 10, undefined, (state) => state.work.set(workKey(10), entry));
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(published).toEqual([]);
 

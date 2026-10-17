@@ -35,12 +35,16 @@ task, and gets up to wander and chat with the other idle agents while it has
 none. And someone is in charge of all of them: Firstmate, the AI manager, a
 crimson body at its own desk in the lobby. The CEO walks up and talks to it —
 "what's open?", "what's the status of #12?", "which PRs are open?", "what is
-everyone working on?", "put someone on #39" — and it answers from the office's
-live state and the project board the server already polls, with labels, linked
-pull requests and who is on each issue, and queues issues and pull requests for
-a live coding agent, which their orchestrator collects. It posts updates of its
-own to the same conversation when work is handed in or a live agent starts or
-stops. Everyone can read the conversation; only the CEO can instruct it.
+Claude 1 doing?", "put a coding agent on #39", "have Claude 1 do #39" — and it
+answers from the office's live state and the project board the server already
+polls, with labels, linked pull requests and who is on each issue. It gives an
+issue to one of the runner's coding agents only when the CEO names one or asks
+for "a coding agent", since each one spends real money; "put someone on #39"
+queues it for one of an orchestrator's live agents instead, which their
+orchestrator collects. It posts updates of its own to the same conversation
+when a coding agent starts on its issue, waits on a person, opens its pull
+request (with the link) or cannot carry on (with the runner's reason), and when
+one of the orchestrator's agents starts or stops. Everyone can read the conversation; only the CEO can instruct it.
 
 ## Running it
 
@@ -747,13 +751,20 @@ Then confirm all nineteen:
     open pull requests, all from the board the server already polls. Ask
     `which PRs are open?` for the pull requests with their authors and checks,
     and `what's the status of #N?` for one issue, naming any number on the
-    board. Then `put someone on #N`, with an open issue labelled `agent-ready`
-    that nobody has: with the runner running, as in [Running the runner](#running-the-runner), it goes
-    to a mock slot and both tabs' boards show the issue assigned to it; with no
-    runner and no orchestrator the reply says none is connected; with
-    `LIVE_AGENTS_SECRET` set, no runner, and an idle agent reported, as in
-    [Live coding agents](#live-coding-agents), it is queued for that agent and
-    the next `POST /agents/assignments` collects it. Milo's roster line for the
+    board. Then `put a coding agent on #N`, with an open issue labelled
+    `agent-ready` that nobody has: with the runner running, as in
+    [Running the runner](#running-the-runner), it goes to a mock slot and both
+    tabs' boards show the issue assigned to it, and Firstmate posts
+    `Mock 1 started on #N`, `Mock 1 needs you on #N: Permission: Bash pnpm test`,
+    then `Mock 1 couldn't work on #N` with the mock's reason, or with
+    `RUNNER_MOCK_OUTCOME=pr-opened`, `Mock 1 opened PR #<1000000 + N> for #N` with its
+    link; `what is Mock 1 doing?` says the same. `have Mock 2 do #N` names the
+    slot instead; an issue without the label is refused with that reason. With
+    only the runner, `put someone on #N` is refused and says to ask for a coding
+    agent; with no runner and no orchestrator the reply says none is
+    connected; with `LIVE_AGENTS_SECRET` set, no runner, and an idle agent
+    reported, as in [Live coding agents](#live-coding-agents), it is queued for
+    that agent and the next `POST /agents/assignments` collects it. Milo's roster line for the
     manager counts the new lines; his panel at the desk shows the same
     conversation, no message box, and says only Dana can instruct it — a
     `manager:say` he sends down the socket is refused with that reason.
@@ -817,7 +828,7 @@ Then confirm all nineteen:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, the issue label check and pull requests, the GitHub App's tokens, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, the issue label check and pull requests, the GitHub App's tokens, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -1138,8 +1149,10 @@ Ten things are worth knowing before changing anything:
   never waits on a model. A planner, by rule or by model, only proposes: what
   it names is resolved against the live office afterwards, and only for a CEO
   who still holds the role, so the manager can never do what the CEO who asked
-  could not. An issue for a live agent that can take issues goes through
-  `applyWorkCommand` with the CEO as the actor; other work for one of the
+  could not. An issue for one of the runner's coding agents goes through
+  `applyWorkCommand` with the CEO as the actor, and only when the CEO's own
+  words name that agent or ask for "a coding agent", so a model's plan cannot
+  spend on one unasked; other work for one of the
   orchestrator's agents goes to its queue, which wraps the live agents'
   registry as their `LiveAgentSource` so an assignment shows on its agent until
   the agent's next report after collection settles it, as started or not taken.

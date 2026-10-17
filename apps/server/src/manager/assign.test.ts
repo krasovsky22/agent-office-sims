@@ -1,6 +1,6 @@
 /**
  * Carrying out a plan's assignments against a real office and project board:
- * through the work rules for a live agent that can take issues, onto the
+ * through the work rules for a coding agent the CEO asked for, onto the
  * orchestrator's queue for one of its agents, and a reason for every one that
  * is refused.
  */
@@ -21,6 +21,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { LiveAgentRegistry } from "../agents/registry.js";
+import { ANY_CODING_AGENT } from "./advisor.js";
 import { type AssignContext, MAX_ASSIGNMENTS_PER_PLAN, carryOut } from "./assign.js";
 import { LiveAssignmentQueue } from "./liveAssignments.js";
 import { readOfficeView } from "./officeView.js";
@@ -74,13 +75,13 @@ function office(options: { readonly orchestrator?: boolean; readonly takers?: re
   registry.report({ id: "crew-1", name: "Crewmate", status: LIVE_AGENT_REPORT_STATUS.idle, task: undefined });
   const queue = options.orchestrator === false ? undefined : new LiveAssignmentQueue({ agents: registry });
 
-  const context = (actor = ceo): AssignContext => ({
+  const context = (actor = ceo, note = "do it"): AssignContext => ({
     work: { state, now: () => 100, board: () => SNAPSHOT },
     ceo: actor,
     view: readOfficeView({ state, project: SNAPSHOT, liveAgents: queue?.current() }),
     queue,
     origin: "room-a",
-    note: "do it",
+    note,
   });
   return { state, ceo, queue, context };
 }
@@ -163,31 +164,104 @@ describe("carryOut: an office with an operator passphrase", () => {
   });
 });
 
-describe("carryOut: issues for live agents that can take them", () => {
-  it("gives an issue to the named agent through the work rules, as the CEO", () => {
+describe("carryOut: issues for the runners' coding agents", () => {
+  it("gives an issue to the agent the CEO named, through the work rules, as the CEO", () => {
     const { state, queue, context } = office({ takers: ["Slot 1"] });
-    expect(carryOut([{ work: "#39", agent: "Slot 1" }], context())).toEqual(["✓ #39 “Night shift” → Slot 1."]);
+    expect(carryOut([{ work: "#39", agent: "Slot 1" }], context(undefined, "put Slot 1 on #39"))).toEqual([
+      "✓ #39 “Night shift” → Slot 1.",
+    ]);
     expect(state.work.get(workKey(39))).toMatchObject({
       status: WORK_STATUS.assigned,
       assigneeId: "agent:runner/Slot 1",
       assignedAt: 100,
     });
     expect(queue?.collect()).toEqual([]);
-    expect(carryOut([{ work: "#39", agent: "Slot 1" }], context())).toEqual(["• #39 “Night shift” is already Slot 1's."]);
+    expect(carryOut([{ work: "#39", agent: "Slot 1" }], context(undefined, "have slot 1 do #39"))).toEqual([
+      "• #39 “Night shift” is already Slot 1's.",
+    ]);
   });
 
-  it("spreads issues for 'someone' across the agents that take them, before the orchestrator's", () => {
+  it("spreads issues for “a coding agent” across the free ones, one issue each", () => {
     const { state, queue, context } = office({ takers: ["Slot 1", "Slot 2"] });
-    expect(carryOut([{ work: "#10", agent: "" }, { work: "#11", agent: "" }, { work: "#15", agent: "" }], context())).toEqual([
+    const asked = context(undefined, "hand out the backlog to a coding agent");
+    const plan = ["#10", "#11", "#15"].map((work) => ({ work, agent: ANY_CODING_AGENT }));
+    expect(carryOut(plan, asked)).toEqual([
       "✓ #10 “Fix the login redirect loop” → Slot 1.",
       "✓ #11 “Write the onboarding email” → Slot 2.",
-      "✓ #15 “Draft the Q3 roadmap” → Slot 1.",
+      "✗ #15 “Draft the Q3 roadmap”: every coding agent already has an issue in hand.",
     ]);
-    expect(carryOut([{ work: "#10", agent: "" }], context())).toEqual([
+    // The one that already has it keeps it.
+    expect(carryOut([{ work: "#10", agent: ANY_CODING_AGENT }], context(undefined, "put a coding agent on #10"))).toEqual([
+      "• #10 “Fix the login redirect loop” is already Slot 1's.",
+    ]);
+    expect(state.work.size).toBe(2);
+    expect(queue?.collect()).toEqual([]);
+  });
+
+  it("refuses a named coding agent that already has a different issue in hand, and moves an issue to a free one", () => {
+    const { state, context } = office({ takers: ["Slot 1", "Slot 2"] });
+    const backlog = ["#10", "#11"].map((work) => ({ work, agent: "Slot 1" }));
+    expect(carryOut(backlog, context(undefined, "hand out the backlog to Slot 1"))).toEqual([
+      "✓ #10 “Fix the login redirect loop” → Slot 1.",
+      "✗ #11 “Write the onboarding email”: Slot 1 already has an issue in hand; a coding agent works one at a time.",
+    ]);
+    expect(carryOut([{ work: "#39", agent: "Slot 1" }], context(undefined, "have Slot 1 do #39"))).toEqual([
+      "✗ #39 “Night shift”: Slot 1 already has an issue in hand (#10); a coding agent works one at a time.",
+    ]);
+    expect(carryOut([{ work: "#10", agent: "Slot 1" }], context(undefined, "have Slot 1 do #10"))).toEqual([
+      "• #10 “Fix the login redirect loop” is already Slot 1's.",
+    ]);
+    expect(carryOut([{ work: "#10", agent: "Slot 2" }], context(undefined, "have Slot 2 do #10"))).toEqual([
       "✓ #10 “Fix the login redirect loop” → Slot 2 (from Slot 1).",
     ]);
-    expect(state.work.size).toBe(3);
-    expect(queue?.collect()).toEqual([]);
+    expect(state.work.size).toBe(1);
+    expect(state.work.get(workKey(10))).toMatchObject({ assigneeId: "agent:runner/Slot 2" });
+  });
+
+  it("never puts a coding agent to work for “someone”: the orchestrator's agent gets it, or it is refused", () => {
+    const withOrchestrator = office({ takers: ["Slot 1"] });
+    expect(carryOut([{ work: "#39", agent: "" }], withOrchestrator.context(undefined, "put someone on #39"))[0]).toContain(
+      "→ Crewmate; queued",
+    );
+    expect(withOrchestrator.state.work.size).toBe(0);
+
+    const runnerOnly = office({ takers: ["Slot 1"], orchestrator: false });
+    expect(carryOut([{ work: "#39", agent: "" }], runnerOnly.context(undefined, "put someone on #39"))).toEqual([
+      "✗ #39 “Night shift”: a coding agent spends real money, so I only put one to work when you name it or ask for “a coding agent”. Say “put a coding agent on #39”.",
+    ]);
+    expect(runnerOnly.state.work.size).toBe(0);
+  });
+
+  it("refuses a coding agent the CEO's words did not ask for, however a plan names it", () => {
+    const { state, context } = office({ takers: ["Slot 1"] });
+    const someone = context(undefined, "put someone on #39");
+    expect(carryOut([{ work: "#39", agent: "Slot 1" }, { work: "#10", agent: ANY_CODING_AGENT }], someone)).toEqual([
+      "✗ #39 “Night shift”: a coding agent spends real money, so I only put one to work when you name it or ask for “a coding agent”.",
+      "✗ #10 “Fix the login redirect loop”: a coding agent spends real money, so I only put one to work when you name it or ask for “a coding agent”.",
+    ]);
+    expect(state.work.size).toBe(0);
+  });
+
+  it("says so when there is no coding agent to give one to", () => {
+    const { context } = office();
+    expect(carryOut([{ work: "#39", agent: ANY_CODING_AGENT }], context(undefined, "put a coding agent on #39"))).toEqual([
+      "✗ #39 “Night shift”: there are no coding agents on the floor.",
+    ]);
+  });
+
+  it("passes on the work rules' refusals: the operator, and the eligibility label", () => {
+    const { state, ceo, context } = office({ takers: ["Slot 1"] });
+    const asked = context(undefined, "put a coding agent on #39");
+    state.operatorRequired = true;
+    expect(carryOut([{ work: "#39", agent: ANY_CODING_AGENT }], asked)).toEqual([
+      "✗ #39 “Night shift”: only a verified operator can send work to live coding agents; verify with the operator passphrase first.",
+    ]);
+    ceo.operator = true;
+    state.agentIssueLabel = "agent-ready";
+    expect(carryOut([{ work: "#39", agent: ANY_CODING_AGENT }], context(undefined, "put a coding agent on #39"))).toEqual([
+      "✗ #39 “Night shift”: it does not carry the label that marks it ready for the coding agents.",
+    ]);
+    expect(state.work.size).toBe(0);
   });
 
   it("still queues an issue for an orchestrator's agent the CEO names", () => {
@@ -196,14 +270,23 @@ describe("carryOut: issues for live agents that can take them", () => {
     expect(state.work.size).toBe(0);
   });
 
-  it("refuses a pull request for an agent that takes issues, and an assignment by anyone but the CEO", () => {
+  it("refuses a pull request for a coding agent, and an assignment by anyone but the CEO", () => {
     const { state, context } = office({ takers: ["Slot 1"] });
-    expect(carryOut([{ work: "PR #46", agent: "Slot 1" }], context())).toEqual([
+    expect(
+      carryOut(
+        [
+          { work: "PR #46", agent: "Slot 1" },
+          { work: "PR #46", agent: ANY_CODING_AGENT },
+        ],
+        context(undefined, "give PR #46 to Slot 1 or a coding agent"),
+      ),
+    ).toEqual([
       "✗ PR #46 “Show live agents”: pull requests go to the orchestrator's agents, and Slot 1 is not one of them.",
+      "✗ PR #46 “Show live agents”: pull requests go to the orchestrator's agents, and the coding agents are not among them.",
     ]);
     const exec = player("session-milo", "Milo", PLAYER_ROLE.exec);
     state.occupants.set(exec.id, exec);
-    expect(carryOut([{ work: "#39", agent: "Slot 1" }], context(exec))).toEqual([
+    expect(carryOut([{ work: "#39", agent: "Slot 1" }], context(exec, "put Slot 1 on #39"))).toEqual([
       "✗ #39 “Night shift”: only the CEO can hand out work.",
     ]);
     expect(state.work.size).toBe(0);

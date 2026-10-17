@@ -1,7 +1,17 @@
 /**
- * What the AI manager says without being asked: work handed in, a live agent
- * starting, stopping or waiting on a person, an assignment picked up by the
- * orchestrator or not taken by its agent.
+ * What the AI manager says without being asked: a coding agent starting on
+ * its issue, opening its pull request, or failing; a live agent starting,
+ * stopping or waiting on a person; an assignment picked up by the orchestrator
+ * or not taken by its agent.
+ *
+ * A coding agent's news is read off its work, which the runner's events move
+ * (`../agents/runnerWork.ts`): `started` claims it, `pr-opened` hands it in
+ * with the pull request as its deliverable, and `failed` writes the runner's
+ * reason as the agent's note. Every refusal the runner makes after the
+ * assignment — the eligibility label re-checked on GitHub, a slot already
+ * busy, a spent budget — arrives as such a reason and is passed on as
+ * written; the refusals the office makes itself, the operator's and the
+ * label's, are in the reply to the assignment instead (`./assign.ts`).
  *
  * The manager looks at the office on its own timer and compares what it sees
  * with what it saw last time; this module is that comparison, as two pure
@@ -26,7 +36,10 @@ export interface Observation {
     {
       readonly label: string;
       readonly status: WorkStatus;
+      readonly assigneeId: string;
       readonly assignee: string | undefined;
+      readonly pullRequest: LinkView | undefined;
+      readonly note: string | undefined;
     }
   >;
   readonly liveAgents: ReadonlyMap<
@@ -77,7 +90,10 @@ export function observe(
         {
           label: `#${work.issueNumber} “${work.title}”`,
           status: work.status,
+          assigneeId: work.assigneeId,
           assignee: work.assignee,
+          pullRequest: work.pullRequest,
+          note: work.note,
         },
       ]),
     ),
@@ -110,9 +126,24 @@ export function describeChanges(before: Observation, after: Observation): string
   const lines: string[] = [];
 
   for (const [number, work] of after.work) {
+    // Work is new between two looks only when it was just handed out, which
+    // makes it assigned all the same: a runner can start it within one look.
     const previous = before.work.get(number);
-    if (previous?.status === WORK_STATUS.in_progress && work.status === WORK_STATUS.review) {
-      lines.push(`${work.assignee ?? "Its assignee"} handed in ${work.label} for your review.`);
+    const was = previous?.status ?? WORK_STATUS.assigned;
+    const who = work.assignee ?? "Its assignee";
+    if (was === WORK_STATUS.assigned && work.status === WORK_STATUS.in_progress) {
+      lines.push(`${who} started on ${work.label}.`);
+    }
+    if ((was === WORK_STATUS.assigned || was === WORK_STATUS.in_progress) && work.status === WORK_STATUS.review) {
+      lines.push(
+        work.pullRequest === undefined
+          ? `${who} handed in ${work.label} for your review.`
+          : `${who} opened ${work.pullRequest.reference} for ${work.label} and handed it in for your review: ${work.pullRequest.url}`,
+      );
+    }
+    const noted = previous?.assigneeId === work.assigneeId ? previous.note : undefined;
+    if (work.note !== undefined && work.note !== noted) {
+      lines.push(`${who} couldn't work on ${work.label}: ${work.note}`);
     }
   }
 
