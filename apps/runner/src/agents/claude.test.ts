@@ -164,7 +164,7 @@ const RECORDED_PERMISSION: readonly [string, unknown][] = [
   ["Notification", { ...SESSION, hook_event_name: "Notification", message: "Claude needs your permission", notification_type: "permission_prompt" }],
 ];
 
-/** A run that records each status it is moved to, with its activity. */
+/** A run that records each status it is moved to, with its activity, and each pull request it reports. */
 function recordingRun(status: RunStatus = "starting"): RunHandle & { readonly seen: string[] } {
   const seen: string[] = [];
   return {
@@ -174,6 +174,9 @@ function recordingRun(status: RunStatus = "starting"): RunHandle & { readonly se
     setStatus(next, activity = "") {
       this.status = next;
       seen.push(activity === "" ? next : `${next}: ${activity}`);
+    },
+    pullRequest(pr) {
+      seen.push(`pull request #${pr.number}: ${pr.url}`);
     },
   } as RunHandle & { status: RunStatus; readonly seen: string[] };
 }
@@ -220,7 +223,9 @@ describe("claudeAdapter", () => {
     expect(command).toContain(join(dir, "claude", "hook.cjs"));
     expect(command).toContain(" Stop ");
     expect(written.permissions.allow).toEqual([...CLAUDE_ALLOWED_COMMANDS]);
-    expect(written.permissions.allow.some((rule) => /push|pr create|merge/.test(rule))).toBe(false);
+    // It pushes its branch and opens its pull request; merging is a person's.
+    expect(written.permissions.allow).toEqual(expect.arrayContaining(["Bash(git push:*)", "Bash(gh pr create:*)"]));
+    expect(written.permissions.allow.some((rule) => /merge/.test(rule))).toBe(false);
   });
 });
 
@@ -263,6 +268,23 @@ describe("claudeHook", () => {
     claudeHook(run, "PreToolUse", "not an object");
     claudeHook(run, "Stop", null);
     expect(run.seen).toEqual(["working: tool", "turn-done"]);
+  });
+
+  it("reports the pull request a `gh pr create` printed, on its repository only", () => {
+    const repo = "krasovsky22/agent-office-sims";
+    const ran = (command: string, stdout: string) => ({
+      ...SESSION,
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command, description: "Open a pull request" },
+      tool_response: { stdout, stderr: "", interrupted: false, isImage: false },
+    });
+    const run = recordingRun("working");
+    claudeHook(run, "PostToolUse", ran("gh pr create --title Lift --body 'Closes #39'", `https://github.com/${repo}/pull/95\n`), repo);
+    claudeHook(run, "PostToolUse", ran("gh pr create --fill", "https://github.com/someone/else/pull/3"), repo);
+    claudeHook(run, "PostToolUse", ran("cat notes.md", `https://github.com/${repo}/pull/96`), repo);
+    claudeHook(run, "PostToolUse", ran("gh pr create --fill", `https://github.com/${repo}/pull/97`));
+    expect(run.seen).toEqual([`pull request #95: https://github.com/${repo}/pull/95`]);
   });
 
   it("keeps an activity to one line, whole, for the slot to mask and cut", () => {

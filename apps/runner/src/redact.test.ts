@@ -86,6 +86,16 @@ describe("createRedactor", () => {
   });
 });
 
+describe("createRedactor's add", () => {
+  it("masks a secret added after it was made, and counts it in the longest", () => {
+    const redactor = createRedactor(["short-secret"]);
+    redactor.add("ghs_a_token_minted_later");
+    redactor.add("tiny");
+    expect(redactor.redactText("ghs_a_token_minted_later and tiny")).toBe(`${"*".repeat(24)} and tiny`);
+    expect(redactor.longest).toBe(24);
+  });
+});
+
 describe("runnerSecrets", () => {
   it("takes the runner's own secret and every variable named as a secret", () => {
     const env = {

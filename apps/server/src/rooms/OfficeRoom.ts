@@ -42,6 +42,9 @@
  * definition time. The room only marks itself dirty when the source changes;
  * the tick reads the source's finished list and hands it to the crew in
  * `sim/liveAgents.ts`, which walks, seats and talks the bodies on the floor.
+ * The work a runner's agents do goes through `agents/runnerWork.ts`, which
+ * turns each change to the work into a command for the runner and each event
+ * the runner reports into the agent's own move on the work.
  *
  * Nor is how the AI manager thinks. The room seats it at its desk, hands every
  * message to it through `managerHandlers.ts`, and sends each joining client the
@@ -61,10 +64,12 @@ import {
   type CeoChangedEvent,
   type ChatEvent,
   CLIENT_MESSAGE,
+  DEFAULT_AGENT_ISSUE_LABEL,
   type EmoteEvent,
   HumanPlayer,
   type IssueWork,
   MAX_CHAT_LENGTH,
+  MAX_LABEL_LENGTH,
   type ManagerEntry,
   type ManagerHistoryEvent,
   OCCUPANT_KIND,
@@ -74,6 +79,7 @@ import {
   SERVER_MESSAGE,
   type ScreenFramesEvent,
   TICK_INTERVAL_MS,
+  TICK_RATE_HZ,
   type ThrottledEvent,
   employManager,
   isCeo,
@@ -89,6 +95,7 @@ import {
 
 import { type LiveAgentSource, isLiveAgentSource } from "../agents/registry.js";
 import { type RunnerEventInbox, type RunnerEventSource, isRunnerEventSource } from "../agents/runnerLink.js";
+import { type RunnerCommands, RunnerWork, isRunnerCommands } from "../agents/runnerWork.js";
 import { type ScreenSource, isScreenSource } from "../agents/screens.js";
 import type { ProjectBoardSource } from "../github/feed.js";
 import { type SimClock, createSimClock, stepClock } from "../sim/clock.js";
@@ -157,6 +164,14 @@ export interface OfficeRoomOptions {
   readonly liveAssignments?: LiveAssignmentQueue;
   /** What the agent runners report happening; absent when no runner is configured. */
   readonly runnerEvents?: RunnerEventSource;
+  /** Where commands for the runners' slots are queued; absent when no runner is configured. */
+  readonly runnerCommands?: RunnerCommands;
+  /**
+   * The label an issue needs before it can go to a live coding agent.
+   * Defaults to {@link DEFAULT_AGENT_ISSUE_LABEL}; never none, since Colyseus
+   * merges a client's join options into these.
+   */
+  readonly agentIssueLabel?: string;
   /** The runner slots' terminal screens; absent when no runner is configured. */
   readonly screens?: ScreenSource;
   /**
@@ -164,6 +179,14 @@ export interface OfficeRoomOptions {
    * leaves commands to the real agents with the CEO alone.
    */
   readonly operatorGate?: OperatorGate;
+}
+
+/** Reads the eligibility label off the room's options, bounded for the same reason as the grace period. */
+function issueLabelOf(options: Partial<OfficeRoomOptions> | undefined): string {
+  const label = options?.agentIssueLabel;
+  return typeof label === "string" && label.trim() !== "" && label.length <= MAX_LABEL_LENGTH
+    ? label
+    : DEFAULT_AGENT_ISSUE_LABEL;
 }
 
 /**
@@ -219,6 +242,8 @@ export class OfficeRoom extends Room<OfficeState> {
   private liveAgentsChanged = true;
   /** This room's share of the runners' events, drained by the tick. */
   private runnerEvents: RunnerEventInbox | undefined;
+  /** The runners' side of the work; unset in a room given no runner. */
+  private runnerWork: RunnerWork | undefined;
   private screens: ScreenSource | undefined;
   private stopRelayingScreens: (() => void) | undefined;
 
@@ -242,6 +267,7 @@ export class OfficeRoom extends Room<OfficeState> {
 
     const roomOptions = options as Partial<OfficeRoomOptions> | undefined;
     this.reconnectGraceSeconds = graceSecondsOf(roomOptions);
+    this.state.agentIssueLabel = issueLabelOf(roomOptions);
 
     const source = roomOptions?.projectBoard;
     if (isProjectBoardSource(source)) {
@@ -252,8 +278,12 @@ export class OfficeRoom extends Room<OfficeState> {
       // the closure shipped.
       this.stopReleasingWork = source.subscribe((snapshot) => {
         const shipped: IssueWork[] = [];
-        releaseGoneWork(this.state.work, snapshot, shipped);
+        const released = releaseGoneWork(this.state.work, snapshot, shipped);
+        for (const work of released) {
+          this.runnerWork?.ended(work, `#${work.issueNumber} was closed on GitHub`);
+        }
         for (const work of shipped) {
+          this.runnerWork?.ended(work, "the work shipped");
           this.announceShipped(work);
         }
       });
@@ -295,7 +325,14 @@ export class OfficeRoom extends Room<OfficeState> {
       state: this.state,
       now: () => Date.now(),
       board: () => this.projectBoard?.current(),
+      observe: (change) => {
+        this.runnerWork?.changed(change);
+      },
     };
+    const runnerCommands = roomOptions?.runnerCommands;
+    if (isRunnerCommands(runnerCommands)) {
+      this.runnerWork = new RunnerWork({ host: workHost, runner: runnerCommands, log: recordOfficeEvent });
+    }
     registerWorkHandlers(this, workHost);
     // Before the manager's desk opens, so it never hands out a live agent's
     // work under the wrong rule.
@@ -472,9 +509,17 @@ export class OfficeRoom extends Room<OfficeState> {
     }
     this.crew.step(now, Math.min(Math.max(deltaMs, 0), MAX_AGENT_STEP_MS) / 1000);
     // Drained every tick so a room's inbox never holds more than a tick's
-    // worth. Turning these into work on the board is #74's; until then the
-    // floor shows a runner's progress through its slots alone.
-    this.runnerEvents?.drain();
+    // worth, after the crew has seated any slot the same sync brought, so
+    // each event finds the agent it is about.
+    const events = this.runnerEvents?.drain();
+    if (events !== undefined && events.length > 0) {
+      this.runnerWork?.receive(events);
+    }
+    // Once a second: a slot still holding work this room has no record of,
+    // as after the room was closed and opened again, is stopped.
+    if (this.state.tick % TICK_RATE_HZ === 0) {
+      this.runnerWork?.reconcile();
+    }
 
     for (const [sessionId, motion] of this.motions) {
       const occupant = this.state.occupants.get(sessionId);

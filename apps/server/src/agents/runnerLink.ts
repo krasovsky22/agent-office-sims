@@ -126,6 +126,29 @@ export function runnerSlotAgentId(runnerId: string, slotId: string): string {
   return `${SLOT_ID_PREFIX}${runnerId}:${slotId}`;
 }
 
+/** A runner's slot, as the commands for it are addressed. */
+export interface RunnerSlotRef {
+  readonly runnerId: string;
+  readonly slotId: string;
+}
+
+/**
+ * The runner and slot a live agent's id names, or `undefined` for an agent
+ * that is not a runner's slot. Neither id can hold a colon, so the first one
+ * after the prefix splits them.
+ */
+export function runnerSlotOf(agentId: string): RunnerSlotRef | undefined {
+  if (!agentId.startsWith(SLOT_ID_PREFIX)) {
+    return undefined;
+  }
+  const rest = agentId.slice(SLOT_ID_PREFIX.length);
+  const colon = rest.indexOf(":");
+  if (colon <= 0 || colon === rest.length - 1) {
+    return undefined;
+  }
+  return { runnerId: rest.slice(0, colon), slotId: rest.slice(colon + 1) };
+}
+
 /** What a slot's status shows as on the floor. */
 const FLOOR_STATUS: Readonly<Record<RunnerSlotStatus, LiveAgentStatus>> = {
   [RUNNER_SLOT_STATUS.idle]: LIVE_AGENT_STATUS.idle,
@@ -287,6 +310,29 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
     return this.runners.get(runnerId)?.slots.some((slot) => slot.id === slotId) ?? false;
   }
 
+  /** Every slot holding an issue at its runner's last sync. */
+  public heldIssues(): Array<RunnerSlotRef & { readonly issueNumber: number }> {
+    const held: Array<RunnerSlotRef & { readonly issueNumber: number }> = [];
+    for (const [runnerId, runner] of this.runners) {
+      for (const slot of runner.slots) {
+        if (slot.issueNumber !== undefined) {
+          held.push({ runnerId, slotId: slot.id, issueNumber: slot.issueNumber });
+        }
+      }
+    }
+    return held;
+  }
+
+  /** The issue a slot was holding at the runner's last sync, if any. */
+  public slotIssue(runnerId: string, slotId: string): number | undefined {
+    return this.runners.get(runnerId)?.slots.find((slot) => slot.id === slotId)?.issueNumber;
+  }
+
+  /** An issue's link on the project board's repository. */
+  public issueUrl(issueNumber: number): string {
+    return `https://github.com/${this.options.repository}/issues/${issueNumber}`;
+  }
+
   /** The commands waiting for a runner, oldest first. */
   public pending(runnerId: string): readonly RunnerCommand[] {
     return [...(this.runners.get(runnerId)?.outbox.values() ?? [])];
@@ -400,7 +446,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource {
     }
     const started = runner.startedTitles.get(slot.id);
     const title = started?.issueNumber === slot.issueNumber ? started.title : `Issue #${slot.issueNumber}`;
-    return { title, url: `https://github.com/${this.options.repository}/issues/${slot.issueNumber}` };
+    return { title, url: this.issueUrl(slot.issueNumber) };
   }
 
   private changed(): void {

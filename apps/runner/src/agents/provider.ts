@@ -18,6 +18,8 @@ export interface RunHandle {
   bootBlocked: boolean;
   /** Moves it on; `activity` is what it is doing when `working`, and why it waits when `needs-input`. */
   setStatus(status: RunStatus, activity?: string): void;
+  /** It opened a pull request, as one of its tool calls showed. */
+  pullRequest(pr: { readonly number: number; readonly url: string }): void;
 }
 
 /** One run, for its adapter to turn into a command line. */

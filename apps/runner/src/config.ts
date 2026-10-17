@@ -8,12 +8,14 @@
  * full office, not a typo.
  */
 
+import { readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { isAbsolute, join } from "node:path";
 
-import { MAX_RUNNER_SLOTS } from "@sim/shared";
+import { MAX_RUNNER_SLOTS, readAgentIssueLabel } from "@sim/shared";
 
 import { MOCK_OUTCOMES, type MockOutcome } from "./agents/mock.js";
+import type { GithubAppConfig } from "./githubApp.js";
 
 /** The agents a slot can run: `mock` needs no credentials and spends nothing; `claude` is Claude Code. */
 export const RUNNER_AGENT_KINDS = ["mock", "claude"] as const;
@@ -72,6 +74,13 @@ export interface RunnerConfig {
    * ones still waiting out the timeout.
    */
   readonly runnerId: string;
+  /** The label an issue must carry on GitHub before an agent starts on it. */
+  readonly issueLabel: string;
+  /**
+   * The GitHub App the agents push and open pull requests as; `undefined`
+   * leaves them the machine's own GitHub login.
+   */
+  readonly githubApp: GithubAppConfig | undefined;
 }
 
 /**
@@ -91,6 +100,10 @@ export interface RunnerConfig {
  *   Claude Code's default.
  * - `RUNNER_MAX_AGENTS`: slots, from 1 to `MAX_RUNNER_SLOTS`, defaulting to 2.
  * - `RUNNER_TASK_TIMEOUT_MINUTES`: whole minutes, at least 1, defaulting to 60.
+ * - `REAL_AGENT_ISSUE_LABEL`: the label an issue needs, as the server reads it,
+ *   defaulting to `agent-ready`.
+ * - `RUNNER_GITHUB_APP_ID`, `RUNNER_GITHUB_APP_INSTALLATION_ID` and
+ *   `RUNNER_GITHUB_APP_PRIVATE_KEY_FILE`: the GitHub App, all three or none.
  *
  * @throws an `Error` naming the variable for anything else. The secret itself
  * stays out of every message.
@@ -107,7 +120,49 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, host: string = 
     maxAgents: readMaxAgents(env),
     taskTimeoutMs: readTaskTimeoutMinutes(env) * 60_000,
     runnerId: runnerIdFor(host),
+    issueLabel: readAgentIssueLabel(env["REAL_AGENT_ISSUE_LABEL"]),
+    githubApp: readGithubApp(env),
   };
+}
+
+const GITHUB_APP_VARIABLES = ["RUNNER_GITHUB_APP_ID", "RUNNER_GITHUB_APP_INSTALLATION_ID", "RUNNER_GITHUB_APP_PRIVATE_KEY_FILE"] as const;
+
+/**
+ * The GitHub App, read whole or not at all: two of its three settings is a
+ * runner that would push as the wrong identity, so it refuses to start.
+ * The key is read here, so a missing or unreadable file is said at boot.
+ */
+function readGithubApp(env: NodeJS.ProcessEnv): GithubAppConfig | undefined {
+  const [appId, installationId, keyFile] = GITHUB_APP_VARIABLES.map((name) => read(env, name));
+  const set = GITHUB_APP_VARIABLES.filter((name) => read(env, name) !== "");
+  if (set.length === 0) {
+    return undefined;
+  }
+  if (set.length !== GITHUB_APP_VARIABLES.length || appId === undefined || installationId === undefined || keyFile === undefined) {
+    const missing = GITHUB_APP_VARIABLES.filter((name) => read(env, name) === "");
+    throw new Error(`the GitHub App takes all of ${GITHUB_APP_VARIABLES.join(", ")}; ${missing.join(", ")} not set`);
+  }
+  for (const [name, value] of [
+    ["RUNNER_GITHUB_APP_ID", appId],
+    ["RUNNER_GITHUB_APP_INSTALLATION_ID", installationId],
+  ] as const) {
+    if (!/^[1-9][0-9]{0,19}$/.test(value)) {
+      throw new Error(`${name} must be the App's numeric id from GitHub, got "${value}"`);
+    }
+  }
+  if (!isAbsolute(keyFile)) {
+    throw new Error(`RUNNER_GITHUB_APP_PRIVATE_KEY_FILE must be an absolute path, got "${keyFile}"`);
+  }
+  let privateKey: string;
+  try {
+    privateKey = readFileSync(keyFile, "utf8");
+  } catch (error) {
+    throw new Error(`RUNNER_GITHUB_APP_PRIVATE_KEY_FILE could not be read: ${(error as Error).message}`);
+  }
+  if (!/-----BEGIN (?:RSA )?PRIVATE KEY-----/.test(privateKey)) {
+    throw new Error("RUNNER_GITHUB_APP_PRIVATE_KEY_FILE is not a PEM private key; download one from the App's settings");
+  }
+  return { appId, installationId, privateKey };
 }
 
 function read(env: NodeJS.ProcessEnv, name: string): string {

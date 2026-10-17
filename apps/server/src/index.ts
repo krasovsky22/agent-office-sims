@@ -142,7 +142,8 @@ server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   manager: createConfiguredManager(manager),
   ...(floor === undefined ? {} : { liveAgents: floor }),
   ...(liveAssignments === undefined ? {} : { liveAssignments }),
-  ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink }),
+  ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink, runnerCommands: runnerLink }),
+  agentIssueLabel: runner.issueLabel,
   ...(screens === undefined ? {} : { screens }),
   ...(operatorGate === undefined ? {} : { operatorGate }),
 } satisfies OfficeRoomOptions);
@@ -182,7 +183,7 @@ console.log(
     ? "runner link: off (RUNNER_SECRET is not set)"
     : `runner link: POST ${RUNNER_SYNC_PATH} for ${projectBoard.repository}, ` +
         `up to ${MAX_RUNNER_SLOTS} slots, leaving after ${liveAgents.timeoutMs / 1000}s of silence; ` +
-        `screens on POST ${RUNNER_SCREENS_PATH}`,
+        `screens on POST ${RUNNER_SCREENS_PATH}; issues need the "${runner.issueLabel}" label`,
 );
 console.log(
   operator.passphrase !== undefined

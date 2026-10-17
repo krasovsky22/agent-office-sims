@@ -4,7 +4,8 @@
  * is never configured past the server's own slot cap.
  */
 
-import { homedir } from "node:os";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { MAX_RUNNER_SLOTS } from "@sim/shared";
@@ -40,6 +41,8 @@ describe("readConfig", () => {
     expect(read.maxAgents).toBe(2);
     expect(read.taskTimeoutMs).toBe(60 * 60_000);
     expect(read.runnerId).toBe("build-box");
+    expect(read.issueLabel).toBe("agent-ready");
+    expect(read.githubApp).toBeUndefined();
   });
 
   it("reads every variable", () => {
@@ -124,6 +127,51 @@ describe("readConfig", () => {
     for (const raw of ["0", "1.5", "-5", "soon"]) {
       expect(() => config({ RUNNER_TASK_TIMEOUT_MINUTES: raw })).toThrow(/RUNNER_TASK_TIMEOUT_MINUTES must be a whole number/);
     }
+  });
+});
+
+describe("readConfig's GitHub App", () => {
+  const PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----\n";
+
+  function withKey<T>(read: (keyFile: string) => T): T {
+    const dir = mkdtempSync(join(tmpdir(), "runner-app-"));
+    try {
+      const keyFile = join(dir, "app.pem");
+      writeFileSync(keyFile, PEM);
+      return read(keyFile);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("reads the App, its key from its file, and the issue label", () => {
+    const read = withKey((keyFile) =>
+      config({
+        RUNNER_GITHUB_APP_ID: "123456",
+        RUNNER_GITHUB_APP_INSTALLATION_ID: "7890",
+        RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: keyFile,
+        REAL_AGENT_ISSUE_LABEL: " ready-for-agents ",
+      }),
+    );
+    expect(read.githubApp).toEqual({ appId: "123456", installationId: "7890", privateKey: PEM });
+    expect(read.issueLabel).toBe("ready-for-agents");
+  });
+
+  it("takes all three settings or none", () => {
+    expect(() => config({ RUNNER_GITHUB_APP_ID: "123456" })).toThrow(
+      /RUNNER_GITHUB_APP_INSTALLATION_ID, RUNNER_GITHUB_APP_PRIVATE_KEY_FILE not set/,
+    );
+  });
+
+  it("refuses ids that are not numbers, a relative key path, and a file that is no key", () => {
+    withKey((keyFile) => {
+      const app = { RUNNER_GITHUB_APP_ID: "123456", RUNNER_GITHUB_APP_INSTALLATION_ID: "7890", RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: keyFile };
+      expect(() => config({ ...app, RUNNER_GITHUB_APP_ID: "my-app" })).toThrow(/RUNNER_GITHUB_APP_ID must be the App's numeric id/);
+      expect(() => config({ ...app, RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: "app.pem" })).toThrow(/must be an absolute path/);
+      writeFileSync(keyFile, "not a key");
+      expect(() => config(app)).toThrow(/is not a PEM private key/);
+      expect(() => config({ ...app, RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: join(keyFile, "missing") })).toThrow(/could not be read/);
+    });
   });
 });
 

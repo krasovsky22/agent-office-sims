@@ -4,8 +4,9 @@
  *
  * It is built from the issue's number and title alone: the agent reads the
  * issue itself with the GitHub CLI, so nothing of the issue's body passes
- * through the runner. The CEO's note goes last, quoted, as context rather than
- * as instructions in the runner's own voice.
+ * through the runner. It ends with the pull request that hands the work in,
+ * which closes the issue once a person merges it. The CEO's note goes last,
+ * quoted, as context rather than as instructions in the runner's own voice.
  */
 
 import type { AgentTask } from "./types.js";
@@ -18,7 +19,9 @@ export function startPrompt(task: Pick<AgentTask, "issueNumber" | "title" | "not
     // Without a terminal, `--comments` prints the comments alone, so the issue itself is read separately.
     `Read it first with \`gh issue view ${issueNumber}\`, and its discussion with \`gh issue view ${issueNumber} --comments\`. Implement the change, verify it, then commit it.`,
     "",
-    "You're in your own git worktree, on a fresh branch made for this task. Commit there; don't push it or open a pull request.",
+    "You're in your own git worktree, on a branch made for this task. Commit there, and push only this branch.",
+    "",
+    `When the work is done and committed, push the branch with \`git push -u origin HEAD\` and open a pull request with \`gh pr create\` whose body includes \`Closes #${issueNumber}\`. Never merge it: a person reviews and merges it.`,
   ];
   const note = task.note.trim();
   if (note !== "") {

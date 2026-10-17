@@ -46,6 +46,8 @@ export interface Redactor {
   redact(rows: readonly MutableRun[][], wrapped: readonly boolean[], above: string): void;
   /** `text` with every secret in it masked: a status line or an event's message. */
   redactText(text: string): string;
+  /** Masks one more secret from now on: a token the runner minted after it started. */
+  add(secret: string): void;
 }
 
 /** Every secret value the runner holds: the given ones, and the environment's. */
@@ -65,7 +67,15 @@ export function createRedactor(secrets: readonly string[]): Redactor {
     .filter((secret) => secret.length >= MIN_SECRET_LENGTH)
     .sort((a, b) => b.length - a.length);
   return {
-    longest: list[0]?.length ?? 0,
+    get longest() {
+      return list[0]?.length ?? 0;
+    },
+    add(secret) {
+      if (secret.length >= MIN_SECRET_LENGTH && !list.includes(secret)) {
+        list.push(secret);
+        list.sort((a, b) => b.length - a.length);
+      }
+    },
     redact(rows, wrapped, above) {
       if (list.length === 0) {
         return;

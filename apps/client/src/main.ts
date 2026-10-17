@@ -380,7 +380,7 @@ function start(): void {
     },
 
     onWorkRejected: (event) => {
-      showNotice(rejectionText(event.rejection));
+      showNotice(rejectionText(event.rejection, room.agentIssueLabel()));
     },
 
     // Announced in the chat log, where everyone in the office is already

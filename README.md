@@ -24,7 +24,11 @@ labels (`wave-1`, `client`…), polled by the server and shown to everyone the
 same. Its open issues are the work the office does, and what an agent is doing
 about each issue — who has it, in progress, handed in for review, done — is
 replicated state with its rules enforced on the server, shown on the board's
-cards. Nothing is ever written back to GitHub. The coding agents building this
+cards. The game server never writes to GitHub. The work does: an issue a
+maintainer has labelled `agent-ready`, handed by the CEO to one of the runner's
+coding agents, is worked in a git worktree of its own and handed in as a pull
+request that closes it, which the runner opens as a GitHub App, and which only
+a person can merge. The coding agents building this
 repository can be on the floor too: an orchestrator or a runner reports each one
 to the server, and it walks in, sits at a free desk and types while it has a
 task, and gets up to wander and chat with the other idle agents while it has
@@ -89,7 +93,9 @@ the detail beside the columns, with the issue's description, the agent's note
 and its deliverable. For the CEO the detail also offers the moves the server
 will accept: `Assign…` on an open issue nobody has picks a live agent that can
 take issues, and work in hand can be approved, sent back for rework, started
-again or unassigned.
+again or unassigned. Each of those reaches a real coding agent, so the server
+also asks for the eligibility label and, where it has a passphrase, a verified
+operator; see [From assignment to pull request](#from-assignment-to-pull-request).
 Everyone else sees the same detail with no controls.
 
 `1` to `5` fire the five emotes, which are also buttons in the chat panel.
@@ -165,8 +171,12 @@ for the project board, but work for a live agent becomes code run and pushed
 on a real machine, so a server can ask for more. Set `OPERATOR_PASSPHRASE`
 (16 to 256 characters) and only a CEO who has proved it can have the manager
 send work to an orchestrator's live agent; anyone else is refused in the
-conversation, with the reason, and nothing is queued. An issue given through
-the work rules to a live agent that can take issues still takes only the CEO.
+conversation, with the reason, and nothing is queued. The same goes for the
+runner's slots, through the work rules: assigning an issue to one, handing it
+on to another, sending its review back for rework or starting it again is
+refused with `not-operator`, from the board or the manager alike, until the
+CEO has proved the passphrase. Approving work or taking it back only stops an
+agent, and takes only the CEO.
 
 Any player proves it from the manager's panel (`E` at the manager's desk),
 which shows a passphrase field whenever verifying would change something. A
@@ -235,10 +245,51 @@ A slot can take issues: the CEO's `Assign…` picker on the project board lists
 it, and the manager gives it issues when asked, both through the office's work
 rules (`isIssueAssignee` in `packages/shared/src/work.ts`).
 
+#### From assignment to pull request
+
+The office's work on an issue and the slot doing it are kept in step by
+`apps/server/src/agents/runnerWork.ts`, which hears every command that changes
+the work, whoever gave it, the board or the manager:
+
+| The work | The slot is sent |
+| --- | --- |
+| assigned to it | `start` |
+| handed on to another slot | `stop` to the one that had it, `start` to the new one |
+| sent back from `review` to `in_progress` | a rework `prompt` (read the review, change, commit, push the same branch), or a `start` with the same words if the slot no longer holds the issue |
+| moved back from `in_progress` to `assigned` | `stop`, then `start`: a fresh start |
+| unassigned, approved as `done`, or finished by GitHub closing the issue | `stop` |
+| none in the office, while the slot still holds the issue (the room was closed and opened again, say) | `stop`, checked once a second |
+
+A slot given a `start` for the issue it already holds says again how far it
+got, `started` and its `pr-opened`, so work the office lost track of catches
+up.
+
+The runner's events come back as the slot's own moves, through the same rules
+and as that live agent, so one about work it no longer holds changes nothing:
+
+| Event | The work |
+| --- | --- |
+| `started` | claimed: `assigned` to `in_progress` |
+| `pr-opened` | the pull request attached as its deliverable, `PR #N: title, url`, and handed in for `review` |
+| `failed` | its note says why, e.g. `#39 is not labelled agent-ready on GitHub, so no agent may work it` |
+
+Only an issue carrying the maintainer's eligibility label goes to a slot:
+`REAL_AGENT_ISSUE_LABEL` on the server, `agent-ready` by default, compared
+without regard to case. An issue without it is refused with `not-eligible`,
+and the board says which label it needs; the label is replicated as
+`agentIssueLabel`. The runner checks it again on GitHub before an agent
+starts, so neither side takes the other's word for it. When a person merges
+the pull request, the issue closes, and the board's next poll moves the work
+from `review` to `done`, the agent says `Shipped #39: <title>` in the chat, and
+its slot is stopped. The game server
+writes nothing to GitHub at any point; the runner pushes and opens the pull
+request, and nothing in the office merges.
+
 The reply carries every command queued for that runner that it has not acked
 yet: `start` (`issueNumber`, `title`, `url`, `note`, `requestedBy`), `stop`
-(`reason`) or `prompt` (`text`, `requestedBy`), each with an `id` and a
-`slotId`. A command comes back in every reply until a sync lists its id in
+(`reason`, and the `issueNumber` it is for, so a stop that arrives after the
+slot moved on ends nothing else) or `prompt` (`text`, `requestedBy`), each with
+an `id` and a `slotId`. A command comes back in every reply until a sync lists its id in
 `acked`, and never after, so a lost reply loses nothing and a runner tells a
 repeat by its id. Ids are random, so a restarted server never reuses one.
 
@@ -329,10 +380,14 @@ about once a second, backing off up to 30 seconds while the server is
 unreachable or refusing it, and logs each new reason once. On a `start`
 command a mock slot reports `started`, works through a few scripted steps on
 its desk, stopping partway for a few of them as `needs-input` on
-`Permission: Bash pnpm test` so its beacon lights, and reports `failed`, or `pr-opened` with a pull request that does not
-exist when `RUNNER_MOCK_OUTCOME=pr-opened`, then goes back to idle. A `stop`
-command ends the work at once and reports it `failed` with the reason, and so
-does the task timeout. The mock prints its steps in colour to its slot's
+`Permission: Bash pnpm test` so its beacon lights, and reports `failed`, then
+goes back to idle. With `RUNNER_MOCK_OUTCOME=pr-opened` it reports `pr-opened`
+instead, with a pull request that does not exist (number `1000000 + n`), and
+keeps the issue, waiting at its prompt as a real agent does: a rework `prompt`
+has it commit again and hand the same pull request in again. A `stop` command
+ends the work at once and reports it `failed` with the reason, and so does the
+task timeout, which counts only while an agent works: once its pull request is
+handed in, the work waits on review for as long as it takes. The mock prints its steps in colour to its slot's
 screen, which the runner posts to the server (see [Screens](#screens)); a new
 run starts on a cleared screen, and an idle slot's says it is waiting for work.
 A runner that is killed leaves the floor after
@@ -344,13 +399,15 @@ Each task works in a git worktree of its own. At boot the runner clones
 the [GitHub CLI](https://cli.github.com/) on its `PATH`. A `start` fetches
 origin's default branch, at most once every 15 seconds, and cuts the task a
 worktree at `<RUNNER_DATA_DIR>/worktrees/issue-<n>-<slot>` on the branch
-`sims/issue-<n>-<slot>`; the agent works there. When the work ends, by
-`stop`, the timeout or the agent finishing, the worktree and its branch are
-removed if nothing in them would be lost. A worktree with uncommitted changes
+`sims/issue-<n>-<slot>`; the agent works there. A slot holds its issue until
+the server stops it, after the work is done and merged, taken back or handed
+on, or until the timeout or the agent exiting. Then the worktree and its branch
+are removed if nothing in them would be lost: a merged pull request's branch
+is on origin, so its worktree goes. A worktree with uncommitted changes
 or commits no remote has is kept, the log says why, and the same issue on the
 same slot picks it up again. The mock agent writes `.sims-mock/issue-<n>.md`
-and commits it, and nothing pushes yet, so a mock task that gets that far
-leaves its worktree kept. Which slot holds which worktree is kept in
+and commits it, and never pushes, so a mock task that gets that far leaves its
+worktree kept. Which slot holds which worktree is kept in
 `<RUNNER_DATA_DIR>/worktrees.json`. A restarted runner finds the worktrees its
 last run left mid-task and settles them the same way, and logs anything else in
 its worktrees folder as a stray that it leaves alone. To discard a kept
@@ -377,7 +434,11 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_MOCK_OUTCOME` | `failed` | How a mock agent's work ends: `failed` or `pr-opened`. |
 | `RUNNER_MODEL` | Claude Code's | The model a `claude` agent runs, passed as `--model`: `sonnet`, `claude-sonnet-4-5`. |
 | `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
-| `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes one task may run before its slot stops it. |
+| `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it. |
+| `REAL_AGENT_ISSUE_LABEL` | `agent-ready` | The label an issue must carry on GitHub before a real agent starts on it; the server's own setting, the same value on both. |
+| `RUNNER_GITHUB_APP_ID` | none | The GitHub App the agents push and open pull requests as; see [The runner's GitHub App](#the-runners-github-app). All three or none. |
+| `RUNNER_GITHUB_APP_INSTALLATION_ID` | none | Its installation on the repository. |
+| `RUNNER_GITHUB_APP_PRIVATE_KEY_FILE` | none | An absolute path to its private key, a `.pem` file readable only by the runner's user. |
 
 A value it cannot use stops it at boot with the reason, including more slots
 than the server will take. Its id on the floor is the machine's host name, so
@@ -402,11 +463,28 @@ and the number of placed props on the HUD.
 With `RUNNER_AGENT=claude`, each slot is named `Claude 1`, `Claude 2` and so
 on, and a `start` runs [Claude Code](https://code.claude.com/) in a terminal
 (a PTY) of its own, in the task's worktree. The runner refuses to start if
-`claude` is not on its `PATH`. Claude gets one prompt, built from the issue's
-number and title alone: read the issue with `gh issue view`, implement and
-verify the change, and commit it on the task's branch, without pushing or
-opening a pull request. The CEO's note follows, quoted. Claude reads the issue
-itself, so none of its text passes through the runner.
+`claude` is not on its `PATH`. Before it starts, the runner reads the issue
+with `gh issue view` and refuses one that is closed or does not carry
+`REAL_AGENT_ISSUE_LABEL`, reporting `failed` with the reason. Claude gets one
+prompt, built from the issue's number and title alone: read the issue with
+`gh issue view`, implement and verify the change, commit it on the task's
+branch, push the branch with `git push -u origin HEAD`, and open a pull
+request with `gh pr create` whose body says `Closes #<n>`, never merging it.
+The CEO's note follows, quoted. Claude reads the issue itself, so none of its
+text passes through the runner.
+
+The runner reads the pull request off Claude's `PostToolUse` hook, from the
+URL a `gh pr create` it ran printed, on `RUNNER_REPO` only, and reports
+`pr-opened` at once. When a turn ends with nothing handed in, the slot looks
+for itself: the open pull request for the task's branch
+(`gh pr list --head <branch>`), or, for a branch Claude pushed without opening
+one, a pull request the runner opens with `gh pr create`, titled after the
+issue, its body `Closes #<n>` and a line saying which agent worked it for whom.
+A turn that ends with neither shows as `needs-input`,
+`Finished without a pull request`. Claude stays on the issue at its prompt
+after handing it in; a rework prompt from the server is pasted into its
+terminal and submitted, and its next pull request, or the same one updated,
+is handed in again.
 
 The runner knows what Claude is doing from Claude's own hooks. Each Claude is
 started with `--settings <RUNNER_DATA_DIR>/claude/settings.json`, whose hooks
@@ -438,13 +516,18 @@ too.
 Claude runs unattended with `--permission-mode acceptEdits` and a short
 allowlist of commands, `CLAUDE_ALLOWED_COMMANDS` in
 `apps/runner/src/agents/claude.ts`: `gh issue view`, the `git` commands that
-look at and commit its own work, the project's `pnpm` checks, and `ls`. Pushing,
-pull requests and anything else stop at a permission prompt and show as
-`needs-input`. It starts with only part of the runner's environment: `PATH`,
-`HOME`, `USER`, the locale (`LANG`, `LANGUAGE`, `LC_*`), `GH_TOKEN`, and
-Claude's credential (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
-`CLAUDE_CONFIG_DIR`); never `RUNNER_SECRET` or anything else. `USER` is there
-because macOS keeps a `/login` sign-in in the keychain under the user's name.
+look at and commit its own work, the project's `pnpm` checks, `ls`, and
+`git push`, `gh pr create`, `gh pr view` and `gh pr list` to hand its work in.
+Merging and anything else stop at a permission prompt and show as
+`needs-input`; a push to the default branch is refused by its branch
+protection, which [the App's setup](#the-runners-github-app) asks for. It
+starts with only part of the runner's environment: `PATH`, `HOME`, `USER`, the
+locale (`LANG`, `LANGUAGE`, `LC_*`), `GH_TOKEN`, and Claude's credential
+(`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`); never
+`RUNNER_SECRET` or anything else. `USER` is there because macOS keeps a
+`/login` sign-in in the keychain under the user's name. With a GitHub App
+configured, `GH_TOKEN` and `GITHUB_TOKEN` are never passed, and Claude gets the
+App's identity instead, below.
 
 To set a host up for it, as the runner's own user:
 
@@ -464,6 +547,76 @@ runs commands on the host. That is why the runner belongs on a machine or VM of
 its own, as a dedicated unprivileged user, and never on the game server; the
 runner does not check this itself.
 
+#### The runner's GitHub App
+
+The agents push and open pull requests as a GitHub App installed on this one
+repository, rather than as a person: it can do only what its installation
+allows, on that repository alone, and each token it hands out lasts an hour.
+Without one the runner logs that agents act as the machine's own `gh` login,
+which is fine for trying it out on your own fork and nothing more. To set one
+up, as the repository's owner:
+
+1. **Create the App.** On GitHub, open Settings → Developer settings → GitHub
+   Apps → New GitHub App (for an organisation's repository, the organisation's
+   Settings → Developer settings). Give it a name, any homepage URL (this
+   repository's will do), and untick **Webhook → Active**: the runner asks
+   GitHub, it is never called.
+2. **Give it these repository permissions and no others:** **Contents: Read
+   and write** (to push its branches), **Pull requests: Read and write** (to
+   open them), **Issues: Read-only** (to read the issue and its labels), and
+   Metadata: Read-only, which GitHub adds itself. Under **Where can this GitHub
+   App be installed?** choose **Only on this account**, and create it.
+3. **Note its App ID** at the top of the App's General page, and under
+   **Private keys** choose **Generate a private key**. GitHub downloads a
+   `.pem` file once; copy it to the runner's machine, readable only by the
+   runner's user (`chmod 600`), and keep it out of the repository.
+4. **Install it on this repository only.** On the App's page choose **Install
+   App**, pick the account, then **Only select repositories** and choose this
+   one. The installation's page URL ends in its **installation ID**:
+   `https://github.com/settings/installations/<installation id>`, or under the
+   organisation's settings for an organisation.
+5. **Give the runner all three**, in its environment or its `.env`:
+
+   ```sh
+   RUNNER_GITHUB_APP_ID=<the App ID>
+   RUNNER_GITHUB_APP_INSTALLATION_ID=<the installation ID>
+   RUNNER_GITHUB_APP_PRIVATE_KEY_FILE=/home/sim-runner/agent-office-sims-app.pem
+   ```
+
+   The runner refuses to start with only some of them, with an unreadable key,
+   or when GitHub will not mint a token with them, and says which.
+6. **Protect `main` so agents can open pull requests but never merge them.** In
+   the repository's Settings → Branches (or Rules → Rulesets), add a rule for
+   `main` that requires a pull request before merging with at least one
+   approving review, blocks force pushes and deletions, and gives the App no
+   bypass. An agent can then push only its own branch, and its pull request
+   waits for a person's review and merge.
+7. **Label the issues agents may work** with `agent-ready` (or the
+   `REAL_AGENT_ISSUE_LABEL` you chose on both the server and the runner). Only
+   people with triage access can label an issue, and the App can only read
+   them.
+
+How the tokens are minted: the runner signs a JWT with the private key (RS256,
+issued for nine minutes, its issuer the App ID), and trades it at
+`POST https://api.github.com/app/installations/<installation id>/access_tokens`
+for an installation token scoped to `RUNNER_REPO` alone, valid for an hour. It
+keeps the current token in a GitHub CLI config dir of its own,
+`<RUNNER_DATA_DIR>/gh/hosts.yml`, private to its user, and mints a new one
+whenever less than twenty minutes are left, checking every five. Claude runs
+with `GH_CONFIG_DIR` pointing there and with git's credential helper set to
+`gh auth git-credential` for `github.com` alone, the user's own helpers
+cleared, so `gh` and `git push` read the newest token on every call and a run
+that outlasts one token carries on with the next. The runner's own `gh` calls,
+the label check and the pull request lookup, use the same token. Every token is
+masked out of the slots' screens as it is minted. Cloning and fetching still
+use the machine's own access, as above.
+
+To try the whole loop with Claude, label a test issue `agent-ready`, start the
+runner with `RUNNER_AGENT=claude` and the App configured, verify as operator,
+and assign the issue to a `Claude` slot from the board: the card goes to
+`in_progress`, then to `review` with the pull request on it, and merging that
+pull request on GitHub closes the issue and marks the work `done`.
+
 ## The two-tab check
 
 This is what "it works" means for this milestone. With `pnpm dev` running, open
@@ -473,7 +626,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all seventeen:
+Then confirm all eighteen:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -542,8 +695,9 @@ Then confirm all seventeen:
     do that." `apps/server/src/rooms/OfficeRoom.test.ts` checks exactly that
     against a live room. With the runner running, as in
     [Running the runner](#running-the-runner), Dana's `Assign…` on an open
-    issue lists `Mock 1` and `Mock 2`; giving it to one shows it assigned in
-    both tabs, and `Unassign` frees it again. With no runner the picker says
+    issue lists `Mock 1` and `Mock 2`; giving one an issue labelled
+    `agent-ready` shows it assigned in both tabs, and `Unassign` frees it
+    again. With no runner the picker says
     no agent in the office can take an issue right now.
 13. **Live agents are the same in both tabs.** Start the server with
     `LIVE_AGENTS_SECRET` set and report one agent `working` and two `idle`, as
@@ -571,8 +725,8 @@ Then confirm all seventeen:
     open pull requests, all from the board the server already polls. Ask
     `which PRs are open?` for the pull requests with their authors and checks,
     and `what's the status of #N?` for one issue, naming any number on the
-    board. Then `put someone on #N`, with an open issue nobody has: with the
-    runner running, as in [Running the runner](#running-the-runner), it goes
+    board. Then `put someone on #N`, with an open issue labelled `agent-ready`
+    that nobody has: with the runner running, as in [Running the runner](#running-the-runner), it goes
     to a mock slot and both tabs' boards show the issue assigned to it; with no
     runner and no orchestrator the reply says none is connected; with
     `LIVE_AGENTS_SECRET` set, no runner, and an idle agent reported, as in
@@ -607,13 +761,31 @@ Then confirm all seventeen:
     other monitor stays as it was. Sync again with `slot-1` `idle`: it stands
     up, its monitor goes back to the kit screen, and the draw-call count is
     the one noted before it sat.
-17. **`pnpm typecheck` passes** across the whole repository.
+17. **An assigned issue goes all the way to review and done.** Run the server
+    with `RUNNER_SECRET` and `OPERATOR_PASSPHRASE`, and the runner with
+    `RUNNER_MOCK_OUTCOME=pr-opened`, as in
+    [Running the runner](#running-the-runner); have an open issue labelled
+    `agent-ready` and one without. Dana, not yet verified, assigns the labelled
+    issue to `Mock 1`: her tab says it takes a verified operator, and nothing
+    changes. She verifies in the manager's panel and assigns the unlabelled
+    issue: refused, saying it needs the `agent-ready` label. She assigns the
+    labelled one: within a couple of seconds both tabs show it `In progress`,
+    `Mock 1` sits and works it on its monitor, lights its `Needs you` beacon
+    for a few steps, and then the card is `In review` with
+    `PR #1000<n>: [mock] <title>, <link>` as its deliverable, in both tabs.
+    `Send back` puts it `In progress` again and the mock works a rework turn
+    and hands it in again. Close the issue on GitHub: within one poll both
+    tabs show it `Done`, `Mock 1` says `Shipped #<n>` in the chat and is idle
+    again. Assign another labelled issue and, while the mock works it,
+    `Unassign` it: the slot stops at once and goes idle, and the runner's log
+    says its worktree is kept, with the uncommitted change or commit it holds.
+18. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the AI manager's answers, assignments, updates and orchestrator queue, the runner's configuration, sync client and loop, slots and mock agent, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the AI manager's answers, assignments, updates and orchestrator queue, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, the issue label check and pull requests, the GitHub App's tokens, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -656,6 +828,7 @@ public.
 | `RUNNER_SECRET` | server | runtime | No. The shared secret an agent runner syncs with, at least 16 characters; without it the runner link is off. With it, the server needs `OPERATOR_PASSPHRASE` to start. |
 | `OPERATOR_PASSPHRASE` | server | runtime | Yes, with `RUNNER_SECRET`. The passphrase a player proves to command the live coding agents, 16 to 256 characters; see [The operator](#the-operator). A secret. |
 | `REAL_AGENTS_TRUST_CEO` | server | runtime | No, and leave it off. `on` lets a server with `RUNNER_SECRET` and no passphrase start, trusting the CEO; for local development only. Defaults to `off`. |
+| `REAL_AGENT_ISSUE_LABEL` | server | runtime | No. The label an issue needs before the CEO can hand it to a runner's agent, the same as the runner's. Defaults to `agent-ready`. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
 static file cannot be reconfigured afterwards. Changing it means rebuilding and
@@ -758,7 +931,7 @@ thing the page talks to is the WebSocket.
   `POST /agents/runner/screens` when `RUNNER_SECRET` is set, the only HTTP the
   server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same seventeen things.
+  [The two-tab check](#the-two-tab-check), and confirm the same eighteen things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -791,7 +964,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/clock.ts        the in-game clock, stepped by the simulation tick
   src/sim/roles.ts        who holds the CEO role, and who inherits it
   src/github/             the project board's feed: fetch, bucket, poll
-  src/agents/             the live agents' feeds: the report and assignment routes, the registry, the runner link, and the slots' screens
+  src/agents/             the live agents' feeds: the report and assignment routes, the registry, the runner link, the slots' screens, and the loop between the work and the runner's slots
   src/manager/            the AI manager: its view of the office, rule and model planners, call budget, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/rooms/operatorHandlers.ts  verifying as operator, and the CEO role it takes
@@ -804,7 +977,9 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/slots.ts            the slot pool: commands to agent runs, runs to status and events
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
-  src/agents/mock.ts      the mock agent: scripted progress, a commit and a wait on a person, then failed or a fake pull request
+  src/agents/mock.ts      the mock agent: scripted progress, a commit and a wait on a person, then failed or a fake pull request it reworks on a prompt
+  src/github.ts           the issue's label check, and finding or opening a task's pull request
+  src/githubApp.ts        the runner's GitHub App: minting installation tokens and keeping them fresh for gh and git
   src/terminal.ts         each slot's headless terminal, read off as screen frames
   src/redact.ts           the runner's secrets, masked out of every frame, activity line and event message
   src/screenLoop.ts       the screens posted four times a second, fitted to the server's limit
@@ -918,7 +1093,10 @@ Ten things are worth knowing before changing anything:
   with recent pushes, say — can stand in for the orchestrator without the
   world side changing; the runner link's slots are one, combined with the
   orchestrator's agents into the single source a room reads. A runner's events
-  land in one inbox per room, drained by its tick.
+  land in one inbox per room, drained by its tick into the slot's own moves on
+  the work, and every change to the work reaches the slot as a command
+  (`server/agents/runnerWork.ts`). The game server never writes to GitHub; the
+  runner pushes and opens pull requests, and nothing merges them but a person.
 - **The manager decides; the rules and the orchestrator act.** A message to
   the manager is taken synchronously — checked against `mayInstructManager`,
   the CEO-only gate in `shared/manager.ts`, recorded and queued — and answered

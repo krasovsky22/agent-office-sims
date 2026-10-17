@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { claudeAdapter } from "./claude.js";
 import { HookServer } from "./hookServer.js";
-import { createPtyAgent, findOnPath } from "./ptyAgent.js";
+import { type AgentGithubEnv, createPtyAgent, findOnPath } from "./ptyAgent.js";
 import type { Agent, AgentReporter, AgentRun, AgentTask } from "./types.js";
 
 let root: string;
@@ -58,10 +58,14 @@ ${body}
   return path;
 }
 
-function agentFor(command: string, extra: { bootHintMs?: number; stopGraceMs?: number } = {}): Agent {
+function agentFor(
+  command: string,
+  extra: { bootHintMs?: number; stopGraceMs?: number; github?: AgentGithubEnv; repo?: string } = {},
+): Agent {
   const dataDir = join(root, "data");
   mkdirSync(dataDir, { recursive: true });
-  return createPtyAgent({ adapter: claudeAdapter(), dataDir, hooks, command, ...extra });
+  const { repo, ...options } = extra;
+  return createPtyAgent({ adapter: claudeAdapter(repo === undefined ? {} : { repo }), dataDir, hooks, command, ...options });
 }
 
 let tasks = 0;
@@ -178,6 +182,55 @@ exit 0`,
       .map((line) => line.split("=")[0]);
     expect(names).not.toContain("RUNNER_SECRET_FOR_TEST");
     expect(names).toEqual(expect.arrayContaining(["PATH", "HOME", "TERM", "SIMS_HOOK_URL", "SIMS_HOOK_RUN", "SIMS_HOOK_TOKEN"]));
+  });
+
+  it("acts as the runner's GitHub App when given one: its environment set, any other token never passed", async () => {
+    const command = fakeClaude("app-env.sh", "env > env.txt\nexit 0");
+    const work = task();
+    const reporter = recorder();
+    process.env["GH_TOKEN"] = "ghp_the_operators_own_token";
+    try {
+      agentFor(command, { github: { env: { GH_CONFIG_DIR: "/runner/gh" }, scrub: ["GH_TOKEN"] } }).start(work, reporter);
+      await reporter.waitFor(/^exited/);
+    } finally {
+      delete process.env["GH_TOKEN"];
+    }
+    const lines = readFileSync(join(work.workdir, "env.txt"), "utf8").split("\n");
+    expect(lines).toContain("GH_CONFIG_DIR=/runner/gh");
+    expect(lines.some((line) => line.startsWith("GH_TOKEN="))).toBe(false);
+  });
+
+  it("reports the pull request its `gh pr create` printed, and keeps going", async () => {
+    const command = fakeClaude(
+      "pr.sh",
+      `hook SessionStart '{"source":"startup"}'
+hook PostToolUse '{"tool_name":"Bash","tool_input":{"command":"gh pr create --fill"},"tool_response":{"stdout":"https://github.com/o/r/pull/7","stderr":""}}'
+hook Stop '{}'
+exit 0`,
+    );
+    const reporter = recorder();
+    agentFor(command, { repo: "o/r" }).start(task(), reporter);
+    await reporter.waitFor(/^exited/);
+    expect(reporter.seen).toEqual(["started", "pr-opened: https://github.com/o/r/pull/7", "turn done", "exited: Claude exited with code 0"]);
+  });
+
+  it("types a prompt into its terminal as one paste, and submits it", async () => {
+    const command = fakeClaude(
+      "prompt.sh",
+      `stty -echo
+hook SessionStart '{"source":"startup"}'
+IFS= read -r line
+printf '%s' "$line" > typed.txt
+exit 0`,
+    );
+    const work = task();
+    const reporter = recorder();
+    const run = agentFor(command).start(work, reporter);
+    await reporter.waitFor(/^started/);
+    run.prompt?.("  Rework it.  ");
+    await reporter.waitFor(/^exited/);
+    // Pasted whole, then Enter, which is what ends the line it read.
+    expect(readFileSync(join(work.workdir, "typed.txt"), "utf8")).toBe("\u001b[200~Rework it.\u001b[201~");
   });
 
   it("follows OSC 9;4 progress: busy is working, idle again is turn done", async () => {

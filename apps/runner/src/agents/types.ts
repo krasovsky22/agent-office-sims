@@ -4,7 +4,9 @@
  *
  * A slot owns the bookkeeping (status, events, the task timeout), so an agent
  * only says what happened. Once it has said how the work ended, or been
- * stopped, the slot stops listening.
+ * stopped, the slot stops listening. A pull request is not an end: the agent
+ * keeps its task, waiting at its prompt, until the server stops it or sends
+ * its work back with a prompt.
  */
 
 import type { RunnerPullRequest } from "@sim/shared";
@@ -36,7 +38,7 @@ export interface AgentReporter {
   needsInput(reason: string): void;
   /** Its turn ended and it waits at its prompt, still holding the task. */
   turnDone(): void;
-  /** It opened a pull request; the work is over. */
+  /** It opened a pull request, handing its work in; it keeps the task for any rework. */
   prOpened(pr: RunnerPullRequest): void;
   /** It gave up or broke; the work is over. */
   failed(message: string): void;
@@ -48,6 +50,8 @@ export interface AgentReporter {
 export interface AgentRun {
   /** Ends the work now. The agent reports nothing more; the slot says why it stopped. */
   stop(): void;
+  /** Says something to it at its prompt, starting another turn; left out by an agent that takes no prompts. */
+  prompt?(text: string): void;
 }
 
 export interface Agent {

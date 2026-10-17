@@ -1,0 +1,303 @@
+/**
+ * The loop between the office's work on an issue and the runner's agent doing
+ * it: what the CEO does to the work becomes a command for the agent's slot,
+ * and what the slot reports becomes the agent's own moves on the work.
+ *
+ * Outward, from {@link RunnerWork.changed}, which hears every command that
+ * changed the work (`../rooms/workHandlers.ts`), whoever gave it: the board,
+ * or the AI manager acting for the CEO.
+ *
+ * - New work, or work handed to another slot, starts that slot on the issue;
+ *   the slot that had it is stopped.
+ * - A review sent back is a rework prompt to the slot still holding the
+ *   issue, or a start with the same words when it no longer is.
+ * - Work sent back to `assigned` starts again from the top: stop, then start.
+ * - Work taken back, approved, or finished by GitHub closing the issue stops
+ *   the slot, which settles its worktree.
+ * - A slot holding an issue on which the office has no unfinished work of its
+ *   own, as after the room was closed and opened again, is stopped too, by
+ *   {@link RunnerWork.reconcile}: the office's work is the record of what each
+ *   agent should be doing, and an agent nobody can see the work of could never
+ *   be taken off it. What it had is kept in its worktree, as for any stop.
+ *
+ * Inward, from {@link RunnerWork.receive}, each event the runner reports is
+ * applied through the same `applyAs` as the slot's live agent, so the work's
+ * rules decide it exactly as they decide anyone's: `started` claims the
+ * issue, `pr-opened` attaches the pull request and hands it in for review,
+ * and `failed` says why on the work. An event about work the slot no longer
+ * holds is refused by those rules and changes nothing.
+ *
+ * Nothing here writes to GitHub: the runner's agent opens the pull request,
+ * and the server only hears that it did.
+ */
+
+import {
+  type IssueWork,
+  OCCUPANT_KIND,
+  type OfficeActor,
+  RUNNER_COMMAND_KIND,
+  RUNNER_EVENT_KIND,
+  type RunnerCommand,
+  type RunnerCommandDraft,
+  WORK_ACTION,
+  WORK_STATUS,
+  actorOf,
+  isLiveAgentKey,
+  liveAgentKey,
+  workKey,
+} from "@sim/shared";
+
+import { type WorkChange, type WorkHost, applyAs } from "../rooms/workHandlers.js";
+import { type RunnerEventRecord, type RunnerSlotRef, runnerSlotAgentId, runnerSlotOf } from "./runnerLink.js";
+
+/** What the loop needs of the runner link. */
+export interface RunnerCommands {
+  /** Queues a command for a slot; `undefined` when the runner cannot be given it. */
+  enqueue(runnerId: string, draft: RunnerCommandDraft): RunnerCommand | undefined;
+  /** The issue a slot was holding at its runner's last sync. */
+  slotIssue(runnerId: string, slotId: string): number | undefined;
+  /** Every slot holding an issue at its runner's last sync. */
+  heldIssues(): ReadonlyArray<RunnerSlotRef & { readonly issueNumber: number }>;
+  /** An issue's link on the project board's repository. */
+  issueUrl(issueNumber: number): string;
+}
+
+/**
+ * Whether a room option is the command channel the server handed over, rather
+ * than whatever a client put in its join options under the same name.
+ */
+export function isRunnerCommands(value: unknown): value is RunnerCommands {
+  const candidate = value as Partial<Record<keyof RunnerCommands, unknown>> | null;
+  return (
+    typeof value === "object" &&
+    candidate !== null &&
+    typeof candidate.enqueue === "function" &&
+    typeof candidate.slotIssue === "function" &&
+    typeof candidate.heldIssues === "function" &&
+    typeof candidate.issueUrl === "function"
+  );
+}
+
+/** The words a slot is sent back to work with. */
+export function reworkPrompt(issueNumber: number): string {
+  return [
+    `The CEO sent your pull request for issue #${issueNumber} back for more work.`,
+    "Read what reviewers said on it with `gh pr view --comments`, make the changes, verify and commit them,",
+    "then push the same branch so the pull request updates. Don't open a second pull request.",
+  ].join(" ");
+}
+
+/** The work's deliverable for a pull request, as the board card shows it. */
+export function pullRequestArtifact(pr: { readonly number: number; readonly title: string; readonly url: string }): string {
+  return pr.title === "" ? `PR #${pr.number}: ${pr.url}` : `PR #${pr.number}: ${pr.title}, ${pr.url}`;
+}
+
+const LIVE_AGENT_PREFIX = liveAgentKey("");
+
+/** The slot an occupant key names, for a runner's live agent. */
+function slotOf(occupantId: string): RunnerSlotRef | undefined {
+  return isLiveAgentKey(occupantId) ? runnerSlotOf(occupantId.slice(LIVE_AGENT_PREFIX.length)) : undefined;
+}
+
+export interface RunnerWorkOptions {
+  readonly host: WorkHost;
+  readonly runner: RunnerCommands;
+  /** Where a command the runner was given, or could not be, is written down. */
+  readonly log?: (name: string, detail: Record<string, string | number>) => void;
+}
+
+export class RunnerWork {
+  private readonly log: NonNullable<RunnerWorkOptions["log"]>;
+  /** Slots already told to stop holding an issue the office has no work of theirs on, as `runner:slot#issue`. */
+  private readonly orphans = new Set<string>();
+
+  public constructor(private readonly options: RunnerWorkOptions) {
+    this.log = options.log ?? (() => undefined);
+  }
+
+  /** A command changed the work: tells the slots it concerns. Agents' own moves concern none. */
+  public changed(change: WorkChange): void {
+    if (change.actor.kind === OCCUPANT_KIND.liveAgent) {
+      return;
+    }
+    const { before, work, command, actor } = change;
+    switch (command.action) {
+      case WORK_ACTION.assign:
+        if (before === undefined) {
+          this.start(work, actor, "");
+        } else if (before.assigneeId !== work.assigneeId) {
+          this.stop(before.assigneeId, work.issueNumber, `#${work.issueNumber} went to ${this.nameOf(work.assigneeId)}`);
+          this.start(work, actor, "");
+        }
+        return;
+      case WORK_ACTION.release:
+        this.stop(work.assigneeId, work.issueNumber, "the CEO took the work back");
+        return;
+      case WORK_ACTION.moveStatus:
+        if (before === undefined || before.status === work.status) {
+          return;
+        }
+        if (work.status === WORK_STATUS.done) {
+          this.stop(work.assigneeId, work.issueNumber, "the work is done");
+        } else if (before.status === WORK_STATUS.review && work.status === WORK_STATUS.in_progress) {
+          this.rework(work, actor);
+        } else if (before.status === WORK_STATUS.in_progress && work.status === WORK_STATUS.assigned) {
+          this.stop(work.assigneeId, work.issueNumber, "the CEO asked for a fresh start");
+          this.start(work, actor, "");
+        }
+        return;
+      default:
+        return;
+    }
+  }
+
+  /**
+   * Stops every slot holding an issue whose unfinished work, here, is not its
+   * own, once for each slot and issue. Synchronous and small, so the room can
+   * run it on its tick.
+   */
+  public reconcile(): void {
+    const held = this.options.runner.heldIssues();
+    const current = new Set<string>();
+    for (const { runnerId, slotId, issueNumber } of held) {
+      const key = `${runnerId}:${slotId}#${issueNumber}`;
+      current.add(key);
+      const agentId = liveAgentKey(runnerSlotAgentId(runnerId, slotId));
+      const work = this.options.host.state.work.get(workKey(issueNumber));
+      if ((work !== undefined && work.assigneeId === agentId && work.status !== WORK_STATUS.done) || this.orphans.has(key)) {
+        continue;
+      }
+      this.orphans.add(key);
+      this.stop(agentId, issueNumber, "the office has no work for it on this issue");
+    }
+    for (const key of this.orphans) {
+      if (!current.has(key)) {
+        this.orphans.delete(key);
+      }
+    }
+  }
+
+  /** GitHub closed the issue: the work was released, or shipped as done. Either way its slot is finished with it. */
+  public ended(work: IssueWork, reason: string): void {
+    this.stop(work.assigneeId, work.issueNumber, reason);
+  }
+
+  /** Applies what the runners reported, each event as its slot's live agent. */
+  public receive(records: readonly RunnerEventRecord[]): void {
+    for (const { runnerId, event } of records) {
+      const occupant = this.options.host.state.occupants.get(liveAgentKey(runnerSlotAgentId(runnerId, event.slotId)));
+      if (occupant === undefined) {
+        continue;
+      }
+      const agent = actorOf(occupant);
+      const issueNumber = event.issueNumber;
+      switch (event.kind) {
+        case RUNNER_EVENT_KIND.started:
+          applyAs(this.options.host, agent, { action: WORK_ACTION.claim, payload: { issueNumber } });
+          break;
+        case RUNNER_EVENT_KIND.prOpened: {
+          if (event.pr === undefined) {
+            break;
+          }
+          const artifact = pullRequestArtifact(event.pr);
+          const attached = applyAs(this.options.host, agent, {
+            action: WORK_ACTION.attachOutput,
+            payload: { issueNumber, artifact },
+          });
+          if (attached.ok) {
+            applyAs(this.options.host, agent, { action: WORK_ACTION.handIn, payload: { issueNumber } });
+          }
+          break;
+        }
+        case RUNNER_EVENT_KIND.failed:
+          applyAs(this.options.host, agent, {
+            action: WORK_ACTION.note,
+            payload: { issueNumber, text: event.message === "" ? "The agent stopped working on it." : event.message },
+          });
+          break;
+        case RUNNER_EVENT_KIND.finished:
+          break;
+      }
+    }
+  }
+
+  /** Sends the review back to the slot holding it, or starts it on it again with the same words when it is not. */
+  private rework(work: IssueWork, actor: OfficeActor): void {
+    const slot = slotOf(work.assigneeId);
+    if (slot === undefined) {
+      return;
+    }
+    const text = reworkPrompt(work.issueNumber);
+    if (this.options.runner.slotIssue(slot.runnerId, slot.slotId) !== work.issueNumber) {
+      this.start(work, actor, text);
+      return;
+    }
+    this.send(work, slot, { kind: RUNNER_COMMAND_KIND.prompt, slotId: slot.slotId, text, requestedBy: this.nameOf(actor.id) });
+  }
+
+  private start(work: IssueWork, actor: OfficeActor, note: string): void {
+    const slot = slotOf(work.assigneeId);
+    if (slot === undefined) {
+      return;
+    }
+    this.send(work, slot, {
+      kind: RUNNER_COMMAND_KIND.start,
+      slotId: slot.slotId,
+      issueNumber: work.issueNumber,
+      title: work.title === "" ? `Issue #${work.issueNumber}` : work.title,
+      url: this.options.runner.issueUrl(work.issueNumber),
+      note,
+      requestedBy: this.nameOf(actor.id),
+    });
+  }
+
+  /**
+   * Stops a slot's work on one issue. Sent whether or not the slot reported
+   * holding it, since a start still on its way would otherwise begin after
+   * the work was taken back; naming the issue keeps it from ending any other.
+   */
+  private stop(assigneeId: string, issueNumber: number, reason: string): void {
+    const slot = slotOf(assigneeId);
+    if (slot === undefined) {
+      return;
+    }
+    const command = this.options.runner.enqueue(slot.runnerId, {
+      kind: RUNNER_COMMAND_KIND.stop,
+      slotId: slot.slotId,
+      reason,
+      issueNumber,
+    });
+    this.log(command === undefined ? "runner-command-refused" : "runner-command", {
+      kind: RUNNER_COMMAND_KIND.stop,
+      slot: runnerSlotAgentId(slot.runnerId, slot.slotId),
+      issue: issueNumber,
+    });
+  }
+
+  /**
+   * Queues a start or a prompt, and when the runner cannot take it, says so
+   * on the work in the agent's own voice, since the agent is who cannot start.
+   */
+  private send(work: IssueWork, slot: RunnerSlotRef, draft: RunnerCommandDraft): void {
+    const command = this.options.runner.enqueue(slot.runnerId, draft);
+    this.log(command === undefined ? "runner-command-refused" : "runner-command", {
+      kind: draft.kind,
+      slot: runnerSlotAgentId(slot.runnerId, slot.slotId),
+      issue: work.issueNumber,
+    });
+    if (command !== undefined) {
+      return;
+    }
+    const occupant = this.options.host.state.occupants.get(work.assigneeId);
+    if (occupant !== undefined) {
+      applyAs(this.options.host, actorOf(occupant), {
+        action: WORK_ACTION.note,
+        payload: { issueNumber: work.issueNumber, text: "My runner could not take this; it may be offline. Try again shortly." },
+      });
+    }
+  }
+
+  private nameOf(occupantId: string): string {
+    return this.options.host.state.occupants.get(occupantId)?.name ?? "the CEO";
+  }
+}

@@ -15,6 +15,7 @@
 
 import { MAX_WORK_NOTE_LENGTH } from "./constants.js";
 import { MAX_TASK_URL_LENGTH, parseTaskUrl } from "./liveAgents.js";
+import { MAX_LABEL_LENGTH } from "./projectBoard.js";
 import {
   MAX_NAME_LENGTH,
   MAX_TITLE_LENGTH,
@@ -27,6 +28,33 @@ import {
 
 /** The route a runner syncs through, on the game server. */
 export const RUNNER_SYNC_PATH = "/agents/runner/sync";
+
+/**
+ * The label a maintainer puts on an issue to make it a real coding agent's to
+ * take, when `REAL_AGENT_ISSUE_LABEL` names no other. The server checks it
+ * before it hands an issue out, and the runner checks it again on GitHub
+ * before its agent starts, so neither has to trust the other about it.
+ */
+export const DEFAULT_AGENT_ISSUE_LABEL = "agent-ready";
+
+/**
+ * Reads `REAL_AGENT_ISSUE_LABEL` as the server and the runner both do: the
+ * label trimmed, or {@link DEFAULT_AGENT_ISSUE_LABEL} when unset.
+ *
+ * @throws for a name GitHub would not give a label: longer than
+ * {@link MAX_LABEL_LENGTH}, or holding a control character.
+ */
+export function readAgentIssueLabel(raw: string | undefined): string {
+  const label = raw?.trim() ?? "";
+  if (label === "") {
+    return DEFAULT_AGENT_ISSUE_LABEL;
+  }
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what is refused
+  if (label.length > MAX_LABEL_LENGTH || /[\u0000-\u001f\u007f]/.test(label)) {
+    throw new Error(`REAL_AGENT_ISSUE_LABEL must be a GitHub label name of at most ${MAX_LABEL_LENGTH} characters, got "${label}"`);
+  }
+  return label;
+}
 
 /** What one of a runner's slots is doing. */
 export const RUNNER_SLOT_STATUS = {
@@ -123,12 +151,17 @@ export interface RunnerStartCommand {
   readonly requestedBy: string;
 }
 
-/** Stop whatever the slot is doing. */
+/**
+ * Stop whatever the slot is doing, or, naming an issue, only its work on that
+ * one: a stop that arrives after the slot has moved on to another issue must
+ * not end that work too.
+ */
 export interface RunnerStopCommand {
   readonly id: string;
   readonly slotId: string;
   readonly kind: typeof RUNNER_COMMAND_KIND.stop;
   readonly reason: string;
+  readonly issueNumber?: number;
 }
 
 /** Say something to the slot's agent. */
@@ -385,8 +418,13 @@ export function toRunnerCommand(id: string, draft: RunnerCommandDraft): RunnerCo
         requestedBy: sanitizeName(draft.requestedBy),
       };
     }
-    case RUNNER_COMMAND_KIND.stop:
-      return { id, slotId: draft.slotId, kind: draft.kind, reason: sanitizeWorkNote(draft.reason) };
+    case RUNNER_COMMAND_KIND.stop: {
+      const stop = { id, slotId: draft.slotId, kind: draft.kind, reason: sanitizeWorkNote(draft.reason) };
+      if (draft.issueNumber === undefined) {
+        return stop;
+      }
+      return isIssueNumber(draft.issueNumber) ? { ...stop, issueNumber: draft.issueNumber } : undefined;
+    }
     case RUNNER_COMMAND_KIND.prompt: {
       const text = sanitizeBody(draft.text, MAX_RUNNER_PROMPT_LENGTH);
       if (text === "") {

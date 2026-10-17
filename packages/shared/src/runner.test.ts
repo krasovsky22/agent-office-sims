@@ -15,6 +15,7 @@ import {
   MAX_RUNNER_PROMPT_LENGTH,
   MAX_RUNNER_SLOTS,
   parseRunnerSync,
+  readAgentIssueLabel,
   toRunnerCommand,
 } from "./runner.js";
 
@@ -159,6 +160,14 @@ describe("toRunnerCommand", () => {
       kind: "stop",
       reason: "released",
     });
+    // Naming an issue, it stops only the slot's work on that one.
+    expect(toRunnerCommand("command-4", { kind: "stop", slotId: "slot-1", reason: "done", issueNumber: 39 })).toEqual({
+      id: "command-4",
+      slotId: "slot-1",
+      kind: "stop",
+      reason: "done",
+      issueNumber: 39,
+    });
     const prompt = toRunnerCommand("command-3", {
       kind: "prompt",
       slotId: "slot-1",
@@ -175,7 +184,21 @@ describe("toRunnerCommand", () => {
     ["no title", { kind: "start", slotId: "s", issueNumber: 1, title: " ", url: ISSUE, note: "", requestedBy: "" }],
     ["no issue number", { kind: "start", slotId: "s", issueNumber: 0, title: "t", url: ISSUE, note: "", requestedBy: "" }],
     ["an empty prompt", { kind: "prompt", slotId: "s", text: "\n\n", requestedBy: "" }],
+    ["a stop for no issue", { kind: "stop", slotId: "s", reason: "", issueNumber: -1 }],
   ] as const)("refuses a command with %s", (_label, draft) => {
     expect(toRunnerCommand("command-1", draft)).toBeUndefined();
+  });
+});
+
+describe("readAgentIssueLabel", () => {
+  it("defaults to agent-ready, and keeps a label trimmed", () => {
+    expect(readAgentIssueLabel(undefined)).toBe("agent-ready");
+    expect(readAgentIssueLabel("  ")).toBe("agent-ready");
+    expect(readAgentIssueLabel(" ready for agents ")).toBe("ready for agents");
+  });
+
+  it("refuses a name GitHub would not give a label", () => {
+    expect(() => readAgentIssueLabel("x".repeat(51))).toThrow(/REAL_AGENT_ISSUE_LABEL/);
+    expect(() => readAgentIssueLabel("agent\nready")).toThrow(/REAL_AGENT_ISSUE_LABEL/);
   });
 });
