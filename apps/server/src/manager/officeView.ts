@@ -4,10 +4,11 @@
  * Both ways the manager answers — by rule (`./rulePlanner.ts`) and through a
  * model (`./modelPlanner.ts`) — read the same view, so a mock answer and a
  * model's answer are about the same office. It covers what the CEO asks about:
- * the live coding agents and their tasks, the agents on the floor that can be
- * given an issue, and this repository's issues and
- * pull requests from the project board's feed, each issue with whatever the
- * office is doing about it.
+ * the orchestrator's live coding agents and their tasks, the runners' coding
+ * agents on the floor that can be given an issue, each with what it is doing,
+ * the issue it has and the pull request it opened, and this repository's
+ * issues and pull requests from the project board's feed, each issue with
+ * whatever the office is doing about it.
  *
  * Built synchronously, in one pass over the room's state, between ticks. It
  * holds no schema objects: the model is handed it as JSON, and nothing the
@@ -21,15 +22,18 @@ import {
   type LiveAgentStatus,
   type OfficeState,
   type ProjectBoardSnapshot,
+  WORK_STATUS,
   WORK_STATUSES,
   type WorkStatus,
   actorOf,
   isCeo,
   isIssueAssignee,
+  isLiveAgent,
   taskReference,
 } from "@sim/shared";
 
 import type { LiveAgentRecord } from "../agents/registry.js";
+import { pullRequestOfArtifact } from "../agents/runnerWork.js";
 
 /** A link with the short handle a person would say: `#33`, `PR #40`, or `""`. */
 export interface LinkView {
@@ -53,12 +57,22 @@ export interface LiveAgentView {
 
 /**
  * A live agent on the floor that issue work can be given to directly, through
- * the office's work rules; see `isIssueAssignee`.
+ * the office's work rules; see `isIssueAssignee`. These are the runners'
+ * coding agents: giving one an issue starts it, which spends real money.
  */
 export interface IssueAgentView {
   /** Its occupant key, which is what its work names as the assignee. */
   readonly id: string;
   readonly name: string;
+  readonly status: LiveAgentStatus;
+  /** What it is doing right now, or what it waits on while it needs input; `""` when unknown. */
+  readonly activity: string;
+  /**
+   * The issue it has in hand: the one it is working, else one handed to it
+   * that it has not started, else one it handed in for review, whose pull
+   * request it keeps until the CEO judges it. `undefined` when it has none.
+   */
+  readonly issue: WorkView | undefined;
 }
 
 /** What an agent is doing about one issue. */
@@ -71,6 +85,8 @@ export interface WorkView {
   /** The assignee's name; `undefined` when they are no longer in the office. */
   readonly assignee: string | undefined;
   readonly hasDeliverable: boolean;
+  /** The pull request its agent opened for it, when the deliverable is one. */
+  readonly pullRequest: LinkView | undefined;
   /** The latest word on it, which is where "Blocked: …" lands; `undefined` when there is none. */
   readonly note: string | undefined;
 }
@@ -154,30 +170,40 @@ export function readLiveAgents(records: readonly LiveAgentRecord[]): LiveAgentVi
 
 export function readOfficeView(sources: OfficeViewSources): OfficeView {
   const { state } = sources;
+  const work: WorkView[] = [...state.work.values()].map((entry) => {
+    const pull = pullRequestOfArtifact(entry.outputArtifact);
+    return {
+      issueNumber: entry.issueNumber,
+      title: entry.title,
+      status: entry.status,
+      assigneeId: entry.assigneeId,
+      assignee: state.occupants.get(entry.assigneeId)?.name,
+      hasDeliverable: entry.outputArtifact !== "",
+      pullRequest: pull === undefined ? undefined : link(pull.title, pull.url),
+      note: entry.note === "" ? undefined : entry.note,
+    };
+  });
+  work.sort(
+    (a, b) =>
+      WORK_STATUSES.indexOf(a.status) - WORK_STATUSES.indexOf(b.status) || a.issueNumber - b.issueNumber,
+  );
+
   let ceo: string | undefined;
   const issueAgents: IssueAgentView[] = [];
   for (const occupant of state.occupants.values()) {
     if (isCeo(occupant)) {
       ceo = occupant.name;
     }
-    if (isIssueAssignee(actorOf(occupant))) {
-      issueAgents.push({ id: occupant.id, name: occupant.name });
+    if (isLiveAgent(occupant) && isIssueAssignee(actorOf(occupant))) {
+      issueAgents.push({
+        id: occupant.id,
+        name: occupant.name,
+        status: occupant.status,
+        activity: occupant.activity,
+        issue: issueInHand(occupant.id, work),
+      });
     }
   }
-
-  const work: WorkView[] = [...state.work.values()].map((entry) => ({
-    issueNumber: entry.issueNumber,
-    title: entry.title,
-    status: entry.status,
-    assigneeId: entry.assigneeId,
-    assignee: state.occupants.get(entry.assigneeId)?.name,
-    hasDeliverable: entry.outputArtifact !== "",
-    note: entry.note === "" ? undefined : entry.note,
-  }));
-  work.sort(
-    (a, b) =>
-      WORK_STATUSES.indexOf(a.status) - WORK_STATUSES.indexOf(b.status) || a.issueNumber - b.issueNumber,
-  );
 
   return {
     ceo,
@@ -187,6 +213,16 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
     project: sources.project === undefined ? undefined : readProject(sources.project, work),
     orchestrator: sources.liveAgents !== undefined,
   };
+}
+
+/** The issue an agent is busiest with, by {@link IssueAgentView.issue}'s order. */
+function issueInHand(agentId: string, work: readonly WorkView[]): WorkView | undefined {
+  const mine = work.filter((entry) => entry.assigneeId === agentId);
+  return (
+    mine.find((entry) => entry.status === WORK_STATUS.in_progress) ??
+    mine.find((entry) => entry.status === WORK_STATUS.assigned) ??
+    mine.find((entry) => entry.status === WORK_STATUS.review)
+  );
 }
 
 function readProject(snapshot: ProjectBoardSnapshot, work: readonly WorkView[]): ProjectView {

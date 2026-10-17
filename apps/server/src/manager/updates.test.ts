@@ -1,6 +1,7 @@
 /**
- * What counts as news to the manager between two looks at the office: work
- * handed in, the live agents, and the orchestrator.
+ * What counts as news to the manager between two looks at the office: a
+ * coding agent's work started, handed in or failed, the live agents, and the
+ * orchestrator.
  */
 
 import { WORK_STATUS, type WorkStatus } from "@sim/shared";
@@ -16,7 +17,7 @@ function view(liveAgents: readonly LiveAgentView[], work: readonly WorkView[] = 
   return { ceo: "Dana", liveAgents, issueAgents: [], work, project: undefined, orchestrator: true };
 }
 
-function work(status: WorkStatus): WorkView {
+function work(status: WorkStatus, extra: Partial<WorkView> = {}): WorkView {
   return {
     issueNumber: 39,
     title: "Night shift",
@@ -24,9 +25,13 @@ function work(status: WorkStatus): WorkView {
     assigneeId: "crew-1",
     assignee: "Crewmate",
     hasDeliverable: status === WORK_STATUS.review,
+    pullRequest: undefined,
     note: undefined,
+    ...extra,
   };
 }
+
+const PR_48 = { title: "Night shift", url: "https://github.com/o/r/pull/48", reference: "PR #48" };
 
 function crewmate(
   status: LiveAgentView["status"],
@@ -55,6 +60,48 @@ describe("describeChanges", () => {
     const handedIn = observe(view([], [work(WORK_STATUS.review)]), []);
     expect(describeChanges(started, handedIn)).toEqual(["Crewmate handed in #39 “Night shift” for your review."]);
     expect(describeChanges(handedIn, handedIn)).toEqual([]);
+  });
+
+  it("says when a coding agent starts on its issue, and links the pull request it hands in", () => {
+    const assigned = observe(view([], [work(WORK_STATUS.assigned)]), []);
+    const started = observe(view([], [work(WORK_STATUS.in_progress)]), []);
+    const opened = observe(view([], [work(WORK_STATUS.review, { pullRequest: PR_48 })]), []);
+    expect(describeChanges(assigned, started)).toEqual(["Crewmate started on #39 “Night shift”."]);
+    expect(describeChanges(started, opened)).toEqual([
+      "Crewmate opened PR #48 for #39 “Night shift” and handed it in for your review: https://github.com/o/r/pull/48",
+    ]);
+    // Both between two looks: the pull request is the news.
+    expect(describeChanges(assigned, opened)).toEqual([
+      "Crewmate opened PR #48 for #39 “Night shift” and handed it in for your review: https://github.com/o/r/pull/48",
+    ]);
+    // Handed out and started between two looks is still a start.
+    expect(describeChanges(observe(view([]), []), started)).toEqual(["Crewmate started on #39 “Night shift”."]);
+  });
+
+  it("passes on, once, why a coding agent could not work its issue, a budget refusal included", () => {
+    const started = observe(view([], [work(WORK_STATUS.in_progress)]), []);
+    const failed = observe(view([], [work(WORK_STATUS.in_progress, { note: "Timed out after 30 minutes" })]), []);
+    expect(describeChanges(started, failed)).toEqual(["Crewmate couldn't work on #39 “Night shift”: Timed out after 30 minutes"]);
+    expect(describeChanges(failed, failed)).toEqual([]);
+
+    const assigned = observe(view([], [work(WORK_STATUS.assigned)]), []);
+    for (const reason of [
+      "#39 is not labelled agent-ready on GitHub, so no agent may work it",
+      "The runner's daily budget of $5.00 is spent",
+    ]) {
+      const refused = observe(view([], [work(WORK_STATUS.assigned, { note: reason })]), []);
+      expect(describeChanges(assigned, refused)).toEqual([`Crewmate couldn't work on #39 “Night shift”: ${reason}`]);
+    }
+  });
+
+  it("does not repeat a failure for another agent's old note, but does for its own new one", () => {
+    const failed = observe(view([], [work(WORK_STATUS.assigned, { note: "Mock 1 is busy with #12" })]), []);
+    const handedOn = observe(
+      view([], [work(WORK_STATUS.assigned, { assigneeId: "crew-2", assignee: "Deckhand", note: "Mock 1 is busy with #12" })]),
+      [],
+    );
+    expect(describeChanges(failed, handedOn)).toEqual(["Deckhand couldn't work on #39 “Night shift”: Mock 1 is busy with #12"]);
+    expect(describeChanges(handedOn, handedOn)).toEqual([]);
   });
 
   it("says when a live agent comes in, starts, stops, and leaves", () => {

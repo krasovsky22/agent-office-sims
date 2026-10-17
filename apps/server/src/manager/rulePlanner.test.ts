@@ -3,15 +3,22 @@
  * built from the office and the project board it is shown and nothing else.
  */
 
-import { CHECK_STATUS, WORK_STATUS } from "@sim/shared";
+import { CHECK_STATUS, LIVE_AGENT_STATUS, WORK_STATUS } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import type { ManagerRequest } from "./advisor.js";
-import type { IssueColumn, IssueView, OfficeView, WorkView } from "./officeView.js";
+import type { IssueAgentView, IssueColumn, IssueView, OfficeView, WorkView } from "./officeView.js";
 import { HELP_TEXT, REPHRASE_TEXT, planFromRules } from "./rulePlanner.js";
 
 function work(overrides: Partial<WorkView> & Pick<WorkView, "issueNumber" | "title" | "status">): WorkView {
-  return { assigneeId: "agent-1", assignee: "Ada Byrne", hasDeliverable: false, note: undefined, ...overrides };
+  return {
+    assigneeId: "agent-1",
+    assignee: "Ada Byrne",
+    hasDeliverable: false,
+    pullRequest: undefined,
+    note: undefined,
+    ...overrides,
+  };
 }
 
 const WORK: readonly WorkView[] = [
@@ -292,36 +299,70 @@ describe("planFromRules: assignments", () => {
   });
 });
 
-describe("planFromRules: live agents that take issues", () => {
+/** A runner's coding agent, idle with no issue unless told otherwise. */
+function coder(id: string, name: string, extra: Partial<IssueAgentView> = {}): IssueAgentView {
+  return { id, name, status: LIVE_AGENT_STATUS.idle, activity: "", issue: undefined, ...extra };
+}
+
+describe("planFromRules: the runners' coding agents", () => {
+  const ADA = coder("agent-1", "Ada Byrne", { status: LIVE_AGENT_STATUS.working, issue: WORK[0] });
   const RUNNER_VIEW: OfficeView = {
     ...VIEW,
     liveAgents: [],
-    issueAgents: [
-      { id: "agent-1", name: "Ada Byrne" },
-      { id: "agent:runner/2", name: "Claude 2" },
-    ],
+    issueAgents: [ADA, coder("agent:runner/2", "Claude 2")],
     orchestrator: false,
   };
+  /** The office with Claude 2 doing something about #39. */
+  function claude2(extra: Partial<IssueAgentView>, on: Partial<WorkView> = {}): OfficeView {
+    const night = work({
+      issueNumber: 39,
+      title: "Night shift",
+      status: WORK_STATUS.in_progress,
+      assigneeId: "agent:runner/2",
+      assignee: "Claude 2",
+      ...on,
+    });
+    return { ...RUNNER_VIEW, issueAgents: [ADA, coder("agent:runner/2", "Claude 2", { issue: night, ...extra })] };
+  }
 
   it("reports on them from their work when no orchestrator is connected", () => {
     expect(ask("who's free?", RUNNER_VIEW).reply).toBe(
       [
         "Live coding agents:",
-        "- Ada Byrne (live coding agent) is working on #11 “Write the onboarding email”.",
-        "- Claude 2 (live coding agent) is idle.",
+        "- Ada Byrne (coding agent) is working on #11 “Write the onboarding email”.",
+        "- Claude 2 (coding agent) is idle.",
         "Free for something new: Claude 2.",
       ].join("\n"),
     );
-    expect(ask("what is Claude 2 doing?", RUNNER_VIEW).reply).toBe("Claude 2 (live coding agent) is idle.");
+    expect(ask("what is Claude 2 doing?", RUNNER_VIEW).reply).toBe("Claude 2 (coding agent) is idle.");
   });
 
-  it("says when one has an issue it has not started", () => {
-    const assigned = {
-      ...RUNNER_VIEW,
-      work: [work({ issueNumber: 39, title: "Night shift", status: WORK_STATUS.assigned, assigneeId: "agent:runner/2" })],
-    };
-    expect(ask("what is Claude 2 doing?", assigned).reply).toBe(
-      "Claude 2 (live coding agent) has #39 “Night shift” and hasn't started yet.",
+  it("says what one is doing right now, what it waits on, and the pull request it opened", () => {
+    expect(ask("what is Claude 2 doing?", claude2({}, { status: WORK_STATUS.assigned })).reply).toBe(
+      "Claude 2 (coding agent) has #39 “Night shift” and hasn't started yet.",
+    );
+    expect(
+      ask("what is Claude 2 doing?", claude2({ status: LIVE_AGENT_STATUS.working, activity: "Checking #39 on GitHub" }, { status: WORK_STATUS.assigned }))
+        .reply,
+    ).toBe("Claude 2 (coding agent) is starting on #39 “Night shift” (Checking #39 on GitHub).");
+    expect(ask("what is Claude 2 doing?", claude2({ status: LIVE_AGENT_STATUS.working, activity: "Bash: pnpm test" })).reply).toBe(
+      "Claude 2 (coding agent) is working on #39 “Night shift” (Bash: pnpm test).",
+    );
+    expect(ask("what is claude 2 doing?", claude2({ status: LIVE_AGENT_STATUS.needsInput, activity: "Permission: Bash" })).reply).toBe(
+      "Claude 2 (coding agent) is waiting on you on #39 “Night shift” (Permission: Bash).",
+    );
+    const pull = { title: "Night shift", url: "https://github.com/o/r/pull/48", reference: "PR #48" };
+    expect(ask("what is Claude 2 doing?", claude2({}, { status: WORK_STATUS.review, hasDeliverable: true, pullRequest: pull })).reply).toBe(
+      "Claude 2 (coding agent) opened PR #48 for #39 “Night shift”; it is waiting for your review: https://github.com/o/r/pull/48",
+    );
+    const reviewed = claude2({}, { status: WORK_STATUS.review, hasDeliverable: true, pullRequest: pull });
+    const handedIn = reviewed.issueAgents[1]?.issue;
+    const project = { ...VIEW.project!, issues: VIEW.project!.issues.map((entry) => (entry.number === 39 ? { ...entry, work: handedIn } : entry)) };
+    expect(ask("status of #39?", { ...reviewed, project }).reply).toBe(
+      "#39 “Night shift” is open [client]. Claude 2 opened PR #48 for it (https://github.com/o/r/pull/48); it is waiting for your review.",
+    );
+    expect(ask("what is Claude 2 doing?", claude2({}, { note: "Timed out after 30 minutes" })).reply).toBe(
+      "Claude 2 (coding agent) has #39 “Night shift” in progress but isn't running. Its last word on it: Timed out after 30 minutes",
     );
   });
 
@@ -329,14 +370,40 @@ describe("planFromRules: live agents that take issues", () => {
     expect(ask("who should I give #39 to?", RUNNER_VIEW).reply).toContain("Claude 2 is free.");
   });
 
+  it.each<[string, { work: string; agent: string }[]]>([
+    ["put a coding agent on #39", [{ work: "issue #39", agent: "a coding agent" }]],
+    ["Put any coding agent who's free on #39", [{ work: "issue #39", agent: "a coding agent" }]],
+    ["have a coding agent take #39", [{ work: "issue #39", agent: "a coding agent" }]],
+    ["have Claude 2 do #39", [{ work: "issue #39", agent: "agent:runner/2" }]],
+    ["Put Claude 2 on #39", [{ work: "issue #39", agent: "agent:runner/2" }]],
+    ["put someone on #39", [{ work: "issue #39", agent: "" }]],
+    [
+      "hand out the backlog to a coding agent",
+      [
+        { work: "#10", agent: "a coding agent" },
+        { work: "#15", agent: "a coding agent" },
+        { work: "#39", agent: "a coding agent" },
+      ],
+    ],
+  ])("plans %s", (message, assignments) => {
+    expect(ask(message, RUNNER_VIEW).assignments).toEqual(assignments);
+  });
+
+  it("does not hand the backlog to the coding agents unless asked to, with no orchestrator to take it", () => {
+    const plan = ask("hand out the backlog", RUNNER_VIEW);
+    expect(plan.assignments).toEqual([]);
+    expect(plan.reply).toContain("say “hand out the backlog to a coding agent”");
+  });
+
   describe("when two slots share a first name", () => {
     const SLOTS_VIEW: OfficeView = {
       ...RUNNER_VIEW,
       issueAgents: [
-        { id: "agent:runner/1", name: "Claude 1" },
-        { id: "agent:runner/2", name: "Claude 2" },
+        coder("agent:runner/1", "Claude 1", {
+          issue: work({ issueNumber: 12, title: "Busy", status: WORK_STATUS.assigned, assigneeId: "agent:runner/1" }),
+        }),
+        coder("agent:runner/2", "Claude 2"),
       ],
-      work: [work({ issueNumber: 12, title: "Busy", status: WORK_STATUS.assigned, assigneeId: "agent:runner/1" })],
     };
 
     it("suggests the free slot by its full name", () => {
@@ -344,7 +411,7 @@ describe("planFromRules: live agents that take issues", () => {
     });
 
     it("describes only the slot asked about", () => {
-      expect(ask("what is Claude 2 doing?", SLOTS_VIEW).reply).toBe("Claude 2 (live coding agent) is idle.");
+      expect(ask("what is Claude 2 doing?", SLOTS_VIEW).reply).toBe("Claude 2 (coding agent) is idle.");
     });
 
     it("does not resolve the shared first name to either slot", () => {

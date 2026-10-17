@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import { type ManagerPlan, type ManagerRequest, createManagerAdvisor } from "./advisor.js";
 import { CallBudget } from "./budget.js";
-import { type SendMessage, createModelPlanner, readReply, userPrompt } from "./modelPlanner.js";
+import { type SendMessage, createModelPlanner, readReply, systemPrompt, userPrompt } from "./modelPlanner.js";
 import type { OfficeView } from "./officeView.js";
 import { ADVICE_FAILURE, PlannerError } from "./plannerError.js";
 
@@ -72,6 +72,20 @@ describe("the request", () => {
     expect(prompt).toContain("what is Ada doing?");
     expect(prompt).toContain("Ada handed in #12.");
     expect(JSON.stringify(params)).not.toContain("test-key");
+  });
+
+  it("tells the model a coding agent is only put to work when the CEO names one or asks for one", async () => {
+    const sent: Parameters<SendMessage>[0][] = [];
+    const send: SendMessage = async (params) => {
+      sent.push(params);
+      return reply(JSON.stringify({ reply: "Putting a coding agent on #39.", assignments: [{ work: "#39", agent: "a coding agent" }] }));
+    };
+    const planner = createModelPlanner({ apiKey: "test-key", model: "claude-opus-5-5", send });
+
+    expect((await planner(REQUEST, SIGNAL)).assignments).toEqual([{ work: "#39", agent: "a coding agent" }]);
+    expect(systemPrompt()).toContain('asks for a coding agent without naming one (put "a coding agent")');
+    expect(systemPrompt()).toContain("Never pick one of them for someone, anyone or nobody in particular");
+    expect(JSON.stringify(sent[0]?.output_config)).toContain('\\"a coding agent\\" for whichever of issueAgents is free');
   });
 
   it("frames what people typed as data, inside its own tags", () => {

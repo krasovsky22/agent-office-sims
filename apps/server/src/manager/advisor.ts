@@ -26,11 +26,17 @@ import { ADVICE_FAILURE, type AdviceFailureReason, PlannerError } from "./planne
 import type { OfficeView } from "./officeView.js";
 
 /**
+ * What a plan names as the agent when the CEO asked for "a coding agent"
+ * without naming one: whichever of the runners' coding agents is free.
+ */
+export const ANY_CODING_AGENT = "a coding agent";
+
+/**
  * One piece of work the manager wants handed out.
  *
  * Both fields are as the planner wrote them — `#39` or `PR #40`, an agent's
- * id or name, or `""` for whoever is free — and are resolved against the live
- * office when the plan is carried out, not trusted.
+ * id or name, {@link ANY_CODING_AGENT}, or `""` for whoever is free — and are
+ * resolved against the live office when the plan is carried out, not trusted.
  */
 export interface PlannedAssignment {
   readonly work: string;
