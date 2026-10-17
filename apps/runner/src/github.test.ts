@@ -127,3 +127,17 @@ describe("pullRequest", () => {
     ).rejects.toThrow(/HTTP 502/);
   });
 });
+
+describe("pullRequestTitle", () => {
+  it("reads the title of a pull request as the runner's identity", async () => {
+    const { github: gh, calls } = github({ "gh pr view 96": JSON.stringify({ title: "Night shift" }) });
+    expect(await gh.pullRequestTitle(96)).toBe("Night shift");
+    expect(calls[0]?.args).toEqual(["pr", "view", "96", "--repo", REPO, "--json", "title"]);
+    expect(calls[0]?.env).toEqual(ENV);
+  });
+
+  it("is empty when GitHub cannot say", async () => {
+    expect(await github({ "gh pr view": new Error("HTTP 502") }).github.pullRequestTitle(96)).toBe("");
+    expect(await github({ "gh pr view": "<html>" }).github.pullRequestTitle(96)).toBe("");
+  });
+});

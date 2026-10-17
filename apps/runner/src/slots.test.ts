@@ -317,6 +317,7 @@ describe("SlotPool", () => {
     const slots = pool("failed", { label: "Spy", start }, workspaces(), {
       refusal: async () => "#39 is not labelled agent-ready on GitHub, so no agent may work it",
       pullRequest: async () => undefined,
+      pullRequestTitle: async () => "",
     });
     slots.handle(START);
     await settle();
@@ -348,7 +349,7 @@ describe("SlotPool", () => {
         return { stop: () => undefined };
       },
     };
-    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest });
+    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest, pullRequestTitle: async () => "" });
     slots.handle(START);
     await settle();
     reporter?.progress("Bash: git push");
@@ -380,6 +381,7 @@ describe("SlotPool", () => {
       pullRequest: async () => {
         throw new Error("gh: HTTP 401");
       },
+      pullRequestTitle: async () => "",
     });
     slots.handle(START);
     await settle();
@@ -392,8 +394,33 @@ describe("SlotPool", () => {
     const pr = { number: 96, title: "", url: `https://github.com/${REPO}/pull/96` };
     reporter?.prOpened(pr);
     reporter?.prOpened(pr);
+    await settle();
     expect(slots.pendingEvents().filter((event) => event.kind === "pr-opened")).toHaveLength(1);
     expect(slot(slots)).toMatchObject({ status: "working", pr });
+  });
+
+  it("asks GitHub for the title of a pull request its agent reports without one", async () => {
+    let reporter: AgentReporter | undefined;
+    const agent: Agent = {
+      label: "Claude",
+      start: (_task, given) => {
+        reporter = given;
+        return { stop: () => undefined };
+      },
+    };
+    const pullRequestTitle = vi.fn(async () => "Night shift");
+    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest: async () => undefined, pullRequestTitle });
+    slots.handle(START);
+    await settle();
+    reporter?.progress("Bash: gh pr create");
+    reporter?.prOpened({ number: 96, title: "", url: `https://github.com/${REPO}/pull/96` });
+    await settle();
+    expect(pullRequestTitle).toHaveBeenCalledWith(96);
+    expect(slots.pendingEvents().find((event) => event.kind === "pr-opened")?.pr).toEqual({
+      number: 96,
+      title: "Night shift",
+      url: `https://github.com/${REPO}/pull/96`,
+    });
   });
 
   it("honours stop: the script goes no further, and the work is reported failed with the reason", async () => {

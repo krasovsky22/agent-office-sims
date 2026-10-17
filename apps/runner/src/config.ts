@@ -77,8 +77,9 @@ export interface RunnerConfig {
   /** The label an issue must carry on GitHub before an agent starts on it. */
   readonly issueLabel: string;
   /**
-   * The GitHub App the agents push and open pull requests as; `undefined`
-   * leaves them the machine's own GitHub login.
+   * The GitHub App the agents push and open pull requests as: the only
+   * identity a real agent has on GitHub, so always set for one. The `mock`
+   * never touches GitHub and needs none.
    */
   readonly githubApp: GithubAppConfig | undefined;
 }
@@ -103,25 +104,27 @@ export interface RunnerConfig {
  * - `REAL_AGENT_ISSUE_LABEL`: the label an issue needs, as the server reads it,
  *   defaulting to `agent-ready`.
  * - `RUNNER_GITHUB_APP_ID`, `RUNNER_GITHUB_APP_INSTALLATION_ID` and
- *   `RUNNER_GITHUB_APP_PRIVATE_KEY_FILE`: the GitHub App, all three or none.
+ *   `RUNNER_GITHUB_APP_PRIVATE_KEY_FILE`: the GitHub App, all three or none;
+ *   required for a `claude` agent.
  *
  * @throws an `Error` naming the variable for anything else. The secret itself
  * stays out of every message.
  */
 export function readConfig(env: NodeJS.ProcessEnv = process.env, host: string = hostname()): RunnerConfig {
+  const agent = readAgent(env);
   return {
     serverUrl: readServerUrl(env),
     secret: readSecret(env),
     repo: readRepository(env),
     dataDir: readDataDir(env),
-    agent: readAgent(env),
+    agent,
     mockOutcome: readMockOutcome(env),
     model: readModel(env),
     maxAgents: readMaxAgents(env),
     taskTimeoutMs: readTaskTimeoutMinutes(env) * 60_000,
     runnerId: runnerIdFor(host),
     issueLabel: readAgentIssueLabel(env["REAL_AGENT_ISSUE_LABEL"]),
-    githubApp: readGithubApp(env),
+    githubApp: readGithubApp(env, agent),
   };
 }
 
@@ -129,14 +132,20 @@ const GITHUB_APP_VARIABLES = ["RUNNER_GITHUB_APP_ID", "RUNNER_GITHUB_APP_INSTALL
 
 /**
  * The GitHub App, read whole or not at all: two of its three settings is a
- * runner that would push as the wrong identity, so it refuses to start.
+ * runner that would push as the wrong identity, so it refuses to start, and
+ * so does a real agent without it, which would have no identity of its own.
  * The key is read here, so a missing or unreadable file is said at boot.
  */
-function readGithubApp(env: NodeJS.ProcessEnv): GithubAppConfig | undefined {
+function readGithubApp(env: NodeJS.ProcessEnv, agent: RunnerAgentKind): GithubAppConfig | undefined {
   const [appId, installationId, keyFile] = GITHUB_APP_VARIABLES.map((name) => read(env, name));
   const set = GITHUB_APP_VARIABLES.filter((name) => read(env, name) !== "");
   if (set.length === 0) {
-    return undefined;
+    if (agent === "mock") {
+      return undefined;
+    }
+    throw new Error(
+      `RUNNER_AGENT=${agent} pushes and opens pull requests as the runner's GitHub App, so it needs ${GITHUB_APP_VARIABLES.join(", ")}; see the README's "The runner's GitHub App"`,
+    );
   }
   if (set.length !== GITHUB_APP_VARIABLES.length || appId === undefined || installationId === undefined || keyFile === undefined) {
     const missing = GITHUB_APP_VARIABLES.filter((name) => read(env, name) === "");

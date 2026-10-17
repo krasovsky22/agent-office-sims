@@ -15,8 +15,7 @@
  * it closes the issue. Never a merge: that is a person's, on GitHub.
  *
  * Every call goes through `gh` and `git` with the environment the runner's
- * GitHub identity gives (`./githubApp.ts`), or the machine's own login when no
- * App is configured.
+ * GitHub App gives (`./githubApp.ts`).
  */
 
 import { execFile } from "node:child_process";
@@ -88,6 +87,8 @@ export interface TaskGithub {
    * Rejects with why when GitHub could not be asked.
    */
   pullRequest(task: HandInTask): Promise<RunnerPullRequest | undefined>;
+  /** The title of pull request `number`, for one read off the command that opened it; `""` when GitHub could not say. Never rejects. */
+  pullRequestTitle(number: number): Promise<string>;
 }
 
 export interface TaskGithubOptions {
@@ -180,6 +181,15 @@ export function createTaskGithub(options: TaskGithubOptions): TaskGithub {
       }
       return { number, title, url };
     },
+
+    async pullRequestTitle(number) {
+      try {
+        const { title } = JSON.parse(await gh(["pr", "view", String(number), "--repo", repo, "--json", "title"])) as { title?: unknown };
+        return typeof title === "string" ? title : "";
+      } catch {
+        return "";
+      }
+    },
   };
 }
 
@@ -187,4 +197,5 @@ export function createTaskGithub(options: TaskGithubOptions): TaskGithub {
 export const NO_GITHUB: TaskGithub = {
   refusal: () => Promise.resolve(undefined),
   pullRequest: () => Promise.resolve(undefined),
+  pullRequestTitle: () => Promise.resolve(""),
 };

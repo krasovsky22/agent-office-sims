@@ -35,7 +35,7 @@ const DEFAULT_BOOT_HINT_MS = 12_000;
 /** Between pasting a prompt and pressing Enter, so the CLI has taken the paste in whole. */
 const SUBMIT_DELAY_MS = 120;
 
-/** What it needs to act on GitHub as the runner's App rather than as the machine's user. */
+/** What it needs to act on GitHub as the runner's App. */
 export interface AgentGithubEnv {
   /** Set on top of its environment. */
   readonly env: Readonly<Record<string, string>>;
@@ -54,7 +54,7 @@ export interface PtyAgentOptions<P> {
   readonly env?: NodeJS.ProcessEnv;
   readonly stopGraceMs?: number;
   readonly bootHintMs?: number;
-  /** The runner's GitHub App; without it, the agent uses the machine's own GitHub login. */
+  /** The runner's GitHub App, the agent's identity on GitHub. */
   readonly github?: AgentGithubEnv;
 }
 

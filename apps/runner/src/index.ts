@@ -10,10 +10,10 @@
  * the syncs, it posts its slots' terminal screens a few times a second, with
  * every secret it holds masked out of them.
  *
- * A real agent works as the runner's GitHub App when one is configured: the
- * runner mints its tokens and keeps them fresh (`./githubApp.ts`), and checks
- * each issue's label and finds each task's pull request with them
- * (`./github.ts`). Without one, it uses the machine's own GitHub login.
+ * A real agent works as the runner's GitHub App, which its configuration
+ * requires: the runner mints its tokens and keeps them fresh
+ * (`./githubApp.ts`), and checks each issue's label and finds each task's
+ * pull request with them (`./github.ts`).
  *
  * A misconfigured runner exits at once with the reason; see `./config.ts`.
  */
@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { claudeAdapter } from "./agents/claude.js";
 import { HookServer } from "./agents/hookServer.js";
 import { createMockAgent } from "./agents/mock.js";
-import { type AgentGithubEnv, createPtyAgent } from "./agents/ptyAgent.js";
+import { createPtyAgent } from "./agents/ptyAgent.js";
 import type { Agent } from "./agents/types.js";
 import { type RunnerConfig, readConfig } from "./config.js";
 import { NO_GITHUB, type TaskGithub, createTaskGithub } from "./github.js";
@@ -84,17 +84,14 @@ const credentials =
         log,
       });
 
-/** The environment for the runner's own `gh` and `git` calls: as the App, with a fresh token, when there is one. */
-async function githubEnv(): Promise<NodeJS.ProcessEnv> {
+/** The environment for the runner's own `gh` and `git` calls: as the App, with a fresh token. */
+async function githubEnv(app: GithubAppCredentials): Promise<NodeJS.ProcessEnv> {
   const base: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" };
-  if (credentials === undefined) {
-    return base;
-  }
-  await credentials.fresh();
+  await app.fresh();
   for (const name of GITHUB_TOKEN_ENV) {
     delete base[name];
   }
-  return { ...base, ...credentials.env() };
+  return { ...base, ...app.env() };
 }
 
 async function createAgent(runnerConfig: RunnerConfig): Promise<{ agent: Agent; github: TaskGithub }> {
@@ -103,15 +100,18 @@ async function createAgent(runnerConfig: RunnerConfig): Promise<{ agent: Agent; 
       // It never touches GitHub: its pull request is a fake, and it spends nothing on an unlabelled issue.
       return { agent: createMockAgent({ outcome: runnerConfig.mockOutcome, repo: runnerConfig.repo }), github: NO_GITHUB };
     case "claude": {
-      const agentGithub: AgentGithubEnv | undefined =
-        credentials === undefined ? undefined : { env: credentials.env(), scrub: GITHUB_TOKEN_ENV };
+      // readConfig refuses a claude agent without the App; this only narrows the type.
+      const app = credentials;
+      if (app === undefined) {
+        throw new Error("a claude agent needs the runner's GitHub App");
+      }
       const agent = createPtyAgent({
         adapter: claudeAdapter({ repo: runnerConfig.repo, ...(runnerConfig.model === undefined ? {} : { model: runnerConfig.model }) }),
         dataDir: runnerConfig.dataDir,
         hooks: await HookServer.start(),
-        ...(agentGithub === undefined ? {} : { github: agentGithub }),
+        github: { env: app.env(), scrub: GITHUB_TOKEN_ENV },
       });
-      return { agent, github: createTaskGithub({ repo: runnerConfig.repo, label: runnerConfig.issueLabel, env: githubEnv }) };
+      return { agent, github: createTaskGithub({ repo: runnerConfig.repo, label: runnerConfig.issueLabel, env: () => githubEnv(app) }) };
     }
   }
 }
@@ -173,11 +173,7 @@ log(
 );
 log(`data in ${config.dataDir}; a task stops after ${config.taskTimeoutMs / 60_000} minutes`);
 if (config.agent !== "mock") {
-  log(
-    credentials === undefined
-      ? `issues need the "${config.issueLabel}" label; no GitHub App is configured, so agents push and open pull requests as this machine's own gh login`
-      : `issues need the "${config.issueLabel}" label; agents push and open pull requests as GitHub App ${config.githubApp?.appId ?? ""}`,
-  );
+  log(`issues need the "${config.issueLabel}" label; agents push and open pull requests as GitHub App ${config.githubApp?.appId ?? ""}`);
 }
 credentials?.start();
 await workspaces.reattach();

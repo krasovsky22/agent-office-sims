@@ -385,6 +385,17 @@ describe("a live agent", () => {
     expect(describeWorkProblems(at.work)).toEqual([]);
   });
 
+  it("drops the note saying why it stopped once it claims the work again", () => {
+    const at = office();
+    liveAgent(at, LIVE_ID, true);
+    const fresh = workAt(at, 1, WORK_STATUS.assigned, LIVE_ID);
+    const stopped: WorkCommand = { action: WORK_ACTION.note, payload: { issueNumber: 1, text: "Stopped: the CEO asked for a fresh start" } };
+    expect(run(at, stopped, LIVE_ID).ok).toBe(true);
+    expect(fresh.note).toBe("Stopped: the CEO asked for a fresh start");
+    expect(run(at, claim, LIVE_ID).ok).toBe(true);
+    expect(fresh).toMatchObject({ status: WORK_STATUS.in_progress, note: "" });
+  });
+
   it("that cannot take issues is neither given one nor allowed to act on one", () => {
     const at = office();
     liveAgent(at, LIVE_ID, false);

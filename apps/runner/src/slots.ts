@@ -439,7 +439,12 @@ export class SlotPool {
         }
       },
       prOpened: (pr) => {
-        this.handIn(slot, run, pr);
+        if (pr.title !== "") {
+          this.handIn(slot, run, pr);
+          return;
+        }
+        // Read off the command that opened it, it has no title yet: the card says it, so ask GitHub.
+        void this.github.pullRequestTitle(pr.number).then((title) => this.handIn(slot, run, { ...pr, title }));
       },
       failed: (message) => {
         if (run.live) {

@@ -28,6 +28,19 @@ function refusal(env: NodeJS.ProcessEnv): string {
   throw new Error("expected the configuration to be refused");
 }
 
+const PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----\n";
+
+function withKey<T>(read: (keyFile: string) => T): T {
+  const dir = mkdtempSync(join(tmpdir(), "runner-app-"));
+  try {
+    const keyFile = join(dir, "app.pem");
+    writeFileSync(keyFile, PEM);
+    return read(keyFile);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe("readConfig", () => {
   it("needs only the secret, defaulting everything else for pnpm dev", () => {
     const read = config({});
@@ -46,16 +59,21 @@ describe("readConfig", () => {
   });
 
   it("reads every variable", () => {
-    const read = config({
-      RUNNER_SERVER_URL: "https://office-server.example/",
-      RUNNER_REPO: "someone/something.else",
-      RUNNER_DATA_DIR: "/srv/runner",
-      RUNNER_AGENT: "Claude",
-      RUNNER_MOCK_OUTCOME: "pr-opened",
-      RUNNER_MODEL: "claude-sonnet-4-5",
-      RUNNER_MAX_AGENTS: "4",
-      RUNNER_TASK_TIMEOUT_MINUTES: "15",
-    });
+    const read = withKey((keyFile) =>
+      config({
+        RUNNER_SERVER_URL: "https://office-server.example/",
+        RUNNER_REPO: "someone/something.else",
+        RUNNER_DATA_DIR: "/srv/runner",
+        RUNNER_AGENT: "Claude",
+        RUNNER_MOCK_OUTCOME: "pr-opened",
+        RUNNER_MODEL: "claude-sonnet-4-5",
+        RUNNER_MAX_AGENTS: "4",
+        RUNNER_TASK_TIMEOUT_MINUTES: "15",
+        RUNNER_GITHUB_APP_ID: "123456",
+        RUNNER_GITHUB_APP_INSTALLATION_ID: "7890",
+        RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: keyFile,
+      }),
+    );
     expect(read.serverUrl.href).toBe("https://office-server.example/");
     expect(read.repo).toBe("someone/something.else");
     expect(read.dataDir).toBe("/srv/runner");
@@ -131,19 +149,6 @@ describe("readConfig", () => {
 });
 
 describe("readConfig's GitHub App", () => {
-  const PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----\n";
-
-  function withKey<T>(read: (keyFile: string) => T): T {
-    const dir = mkdtempSync(join(tmpdir(), "runner-app-"));
-    try {
-      const keyFile = join(dir, "app.pem");
-      writeFileSync(keyFile, PEM);
-      return read(keyFile);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
-
   it("reads the App, its key from its file, and the issue label", () => {
     const read = withKey((keyFile) =>
       config({
@@ -155,6 +160,13 @@ describe("readConfig's GitHub App", () => {
     );
     expect(read.githubApp).toEqual({ appId: "123456", installationId: "7890", privateKey: PEM });
     expect(read.issueLabel).toBe("ready-for-agents");
+  });
+
+  it("is required for a claude agent, naming all three settings, and not for the mock", () => {
+    expect(() => config({ RUNNER_AGENT: "claude" })).toThrow(
+      /RUNNER_AGENT=claude .* needs RUNNER_GITHUB_APP_ID, RUNNER_GITHUB_APP_INSTALLATION_ID, RUNNER_GITHUB_APP_PRIVATE_KEY_FILE/,
+    );
+    expect(config({ RUNNER_AGENT: "mock" }).githubApp).toBeUndefined();
   });
 
   it("takes all three settings or none", () => {

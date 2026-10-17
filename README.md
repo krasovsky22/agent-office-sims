@@ -365,8 +365,9 @@ are masked the same way before they are synced.
 `apps/runner` (`@sim/runner`) is that runner. Each of its slots runs one agent
 on one issue at a time. The default agent is `mock`, which needs no
 credentials and spends nothing, so the whole loop can be developed and tested
-without a real one; `RUNNER_AGENT=claude` runs Claude Code instead (see
-[Claude Code in the runner](#claude-code-in-the-runner)). With `pnpm dev` running and `RUNNER_SECRET` set on the
+without a real one; `RUNNER_AGENT=claude` runs Claude Code instead, acting on
+GitHub only as [the runner's GitHub App](#the-runners-github-app), without which
+it refuses to start (see [Claude Code in the runner](#claude-code-in-the-runner)). With `pnpm dev` running and `RUNNER_SECRET` set on the
 server, along with `OPERATOR_PASSPHRASE` or, on your own machine,
 `REAL_AGENTS_TRUST_CEO=on` (see [The operator](#the-operator)), start it in a
 second terminal with the same secret:
@@ -436,9 +437,9 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
 | `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it. |
 | `REAL_AGENT_ISSUE_LABEL` | `agent-ready` | The label an issue must carry on GitHub before a real agent starts on it; the server's own setting, the same value on both. |
-| `RUNNER_GITHUB_APP_ID` | none | The GitHub App the agents push and open pull requests as; see [The runner's GitHub App](#the-runners-github-app). All three or none. |
-| `RUNNER_GITHUB_APP_INSTALLATION_ID` | none | Its installation on the repository. |
-| `RUNNER_GITHUB_APP_PRIVATE_KEY_FILE` | none | An absolute path to its private key, a `.pem` file readable only by the runner's user. |
+| `RUNNER_GITHUB_APP_ID` | none; required for `claude` | The GitHub App the agents push and open pull requests as; see [The runner's GitHub App](#the-runners-github-app). All three or none; the mock needs none. |
+| `RUNNER_GITHUB_APP_INSTALLATION_ID` | none; required for `claude` | Its installation on the repository. |
+| `RUNNER_GITHUB_APP_PRIVATE_KEY_FILE` | none; required for `claude` | An absolute path to its private key, a `.pem` file readable only by the runner's user. |
 
 A value it cannot use stops it at boot with the reason, including more slots
 than the server will take. Its id on the floor is the machine's host name, so
@@ -525,19 +526,20 @@ starts with only part of the runner's environment: `PATH`, `HOME`, `USER`, the
 locale (`LANG`, `LANGUAGE`, `LC_*`), `GH_TOKEN`, and Claude's credential
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`); never
 `RUNNER_SECRET` or anything else. `USER` is there because macOS keeps a
-`/login` sign-in in the keychain under the user's name. With a GitHub App
-configured, `GH_TOKEN` and `GITHUB_TOKEN` are never passed, and Claude gets the
-App's identity instead, below.
+`/login` sign-in in the keychain under the user's name. `GH_TOKEN` and
+`GITHUB_TOKEN` are never passed: Claude gets the App's identity instead, below.
 
 To set a host up for it, as the runner's own user:
 
 1. Install Claude Code and sign in once: run `claude`, then `/login`, or set
    `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` in the runner's
    environment.
-2. Start the runner with `RUNNER_AGENT=claude`, and `RUNNER_MODEL` if you
+2. Set up [the runner's GitHub App](#the-runners-github-app). Without it a
+   `claude` runner refuses to start, naming the three variables it needs.
+3. Start the runner with `RUNNER_AGENT=claude`, and `RUNNER_MODEL` if you
    want a model other than Claude Code's default. It clones the repository
    into `<RUNNER_DATA_DIR>/repo` as it boots.
-3. Trust that clone once: run `claude` in `<RUNNER_DATA_DIR>/repo` and choose
+4. Trust that clone once: run `claude` in `<RUNNER_DATA_DIR>/repo` and choose
    `Yes, I trust this folder`. Claude trusts every worktree of a repository it
    trusts, so tasks then start without the question; until then each one
    stops at it and its slot shows `needs-input`.
@@ -552,9 +554,10 @@ runner does not check this itself.
 The agents push and open pull requests as a GitHub App installed on this one
 repository, rather than as a person: it can do only what its installation
 allows, on that repository alone, and each token it hands out lasts an hour.
-Without one the runner logs that agents act as the machine's own `gh` login,
-which is fine for trying it out on your own fork and nothing more. To set one
-up, as the repository's owner:
+It is the only identity a real agent has on GitHub: a runner with
+`RUNNER_AGENT=claude` and no App refuses to start, and never falls back to the
+machine's own `gh` login. The mock agent never touches GitHub and needs none.
+To set one up, as the repository's owner:
 
 1. **Create the App.** On GitHub, open Settings → Developer settings → GitHub
    Apps → New GitHub App (for an organisation's repository, the organisation's
@@ -583,8 +586,9 @@ up, as the repository's owner:
    RUNNER_GITHUB_APP_PRIVATE_KEY_FILE=/home/sim-runner/agent-office-sims-app.pem
    ```
 
-   The runner refuses to start with only some of them, with an unreadable key,
-   or when GitHub will not mint a token with them, and says which.
+   The runner refuses to start without them for a `claude` agent, with only
+   some of them, with an unreadable key, or when GitHub will not mint a token
+   with them, and says which.
 6. **Protect `main` so agents can open pull requests but never merge them.** In
    the repository's Settings → Branches (or Rules → Rulesets), add a rule for
    `main` that requires a pull request before merging with at least one

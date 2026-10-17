@@ -616,12 +616,14 @@ function moveWorkStatus(
  *
  * Only from `assigned`: work already `in_progress` is being worked, by this
  * agent or one it was taken from, and claiming it again would change nothing.
+ * Starting clears the note, which said why it had stopped before.
  */
 function claimWork(work: IssueWork, context: WorkCommandContext): WorkCommandResult {
   if (work.status !== WORK_STATUS.assigned || !isLegalWorkTransition(work.status, WORK_STATUS.in_progress)) {
     return reject(WORK_REJECTION.illegalTransition);
   }
   work.status = WORK_STATUS.in_progress;
+  work.note = "";
   work.updatedAt = context.now;
   return { ok: true, work };
 }
