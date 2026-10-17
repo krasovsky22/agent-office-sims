@@ -100,8 +100,7 @@ sends, `Shift+Enter` starts a new line, and `Esc` hands the keys back to the
 office. A prompt is at most 2,000 characters of printable text and newlines;
 the server strips every other character, and the runner strips them again
 before it pastes the prompt into the agent's terminal and presses Enter, so no
-keystroke of the CEO's reaches it raw. It takes the CEO, and, where the server
-has an operator passphrase, a verified one (see [The operator](#the-operator));
+keystroke of the CEO's reaches it raw. It takes the CEO;
 everyone else's panel says who can, and the server refuses their prompts with
 that reason. A prompt is typed only while the agent waits at its prompt, its
 turn done; one sent while it is busy, or waiting on a permission, is refused
@@ -124,8 +123,8 @@ and its deliverable. For the CEO the detail also offers the moves the server
 will accept: `Assign…` on an open issue nobody has picks a live agent that can
 take issues, and work in hand can be approved, sent back for rework, started
 again or unassigned. Each of those reaches a real coding agent, so the server
-also asks for the eligibility label and, where it has a passphrase, a verified
-operator; see [From assignment to pull request](#from-assignment-to-pull-request).
+also asks for the eligibility label; see
+[From assignment to pull request](#from-assignment-to-pull-request).
 Everyone else sees the same detail with no controls.
 
 `1` to `5` fire the five emotes, which are also buttons in the chat panel.
@@ -193,40 +192,6 @@ leaving means the assignment counts as not taken, and the manager says so.
 Until then its nameplate and roster line say `next #39`; its own task still
 comes only from its reports. The manager says in the conversation when the
 orchestrator picks an assignment up, and when the agent starts on it or does not.
-
-#### The operator
-
-Nothing authenticates a player: the CEO is whoever joined first. That is fine
-for the project board, but work for a live agent becomes code run and pushed
-on a real machine, so a server can ask for more. Set `OPERATOR_PASSPHRASE`
-(16 to 256 characters) and only a CEO who has proved it can have the manager
-send work to an orchestrator's live agent; anyone else is refused in the
-conversation, with the reason, and nothing is queued. The same goes for the
-runner's slots, through the work rules: assigning an issue to one, handing it
-on to another, sending its review back for rework or starting it again is
-refused with `not-operator`, from the board or the manager alike, until the
-CEO has proved the passphrase. Approving work or taking it back only stops an
-agent, and takes only the CEO.
-
-Any player proves it from the manager's panel (`E` at the manager's desk),
-which shows a passphrase field whenever verifying would change something. A
-right answer marks them operator, shown as an `Operator` badge in every tab's
-roster, and gives them the CEO role if someone else holds it; the change is
-announced in the chat log like a succession, and the previous CEO stays on as
-an executive. A wrong answer is refused, and each client gets five attempts,
-refilling over five minutes. Leaving and rejoining does not start a guesser
-over: the whole server also shares twenty wrong answers across every room,
-refilling over five minutes, and while those are spent every attempt, right or
-wrong, is refused until they refill. The passphrase is compared in constant time and
-goes no further than the server process: it is not in the replicated state, in
-any message or in the logs. The operator mark lasts as long as the player's
-place in the office, through a reconnection inside the grace period but not a
-restart.
-
-A server with `RUNNER_SECRET` set and no `OPERATOR_PASSPHRASE` refuses to
-start, because a runner would otherwise take orders from whoever opens the page
-first. For local development, `REAL_AGENTS_TRUST_CEO=on` lets it start anyway
-and trusts the CEO as before; never set it on a deployment.
 
 ### The runner link
 
@@ -417,9 +382,7 @@ credentials and spends no real money, so the whole loop can be developed and tes
 without a real one; `RUNNER_AGENT=claude` runs Claude Code instead, acting on
 GitHub only as [the runner's GitHub App](#the-runners-github-app), without which
 it refuses to start (see [Claude Code in the runner](#claude-code-in-the-runner)). With `pnpm dev` running and `RUNNER_SECRET` set on the
-server, along with `OPERATOR_PASSPHRASE` or, on your own machine,
-`REAL_AGENTS_TRUST_CEO=on` (see [The operator](#the-operator)), start it in a
-second terminal with the same secret:
+server, start it in a second terminal with the same secret:
 
 ```sh
 RUNNER_SECRET=<the server's RUNNER_SECRET> pnpm dev:runner
@@ -700,7 +663,7 @@ masked out of the slots' screens as it is minted. Cloning and fetching still
 use the machine's own access, as above.
 
 To try the whole loop with Claude, label a test issue `agent-ready`, start the
-runner with `RUNNER_AGENT=claude` and the App configured, verify as operator,
+runner with `RUNNER_AGENT=claude` and the App configured,
 and assign the issue to a `Claude` slot from the board: the card goes to
 `in_progress`, then to `review` with the pull request on it, and merging that
 pull request on GitHub closes the issue and marks the work `done`.
@@ -714,7 +677,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twenty-one:
+Then confirm all twenty:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -832,20 +795,7 @@ Then confirm all twenty-one:
     `manager:say` he sends down the socket is refused with that reason.
     `apps/server/src/rooms/managerHandlers.test.ts` checks all of it against a
     live room, including that the room keeps ticking while the manager thinks.
-15. **The operator commands the live agents.** Restart the server with
-    `OPERATOR_PASSPHRASE` set (16 characters or more) and `LIVE_AGENTS_SECRET`,
-    report one idle live agent as in step 13, and open both tabs. Dana's manager
-    panel says sending work to the live coding agents takes a verified operator
-    and offers a passphrase field; `put <agent> on #N` is answered with that
-    reason and nothing is queued. In Milo's panel, a wrong passphrase is
-    refused with a notice; after five attempts even the right one is refused
-    as too many tries. In a fresh pair of tabs, Milo enters the right one:
-    both rosters show him as `CEO` and `Operator`, Dana as an executive, both
-    chat logs say Milo verified as operator and is now the CEO, and his
-    `put <agent> on #N` is queued. `apps/server/src/rooms/operatorHandlers.test.ts`
-    checks all of it against a live room, including that the passphrase is in
-    no state, message or log line.
-16. **A live agent's monitor shows its terminal, in both tabs.** With the
+15. **A live agent's monitor shows its terminal, in both tabs.** With the
     server's `RUNNER_SECRET` set and no runner started, note the draw-call
     count with `?debug`, then seat `Mock 1` through the
     [runner link](#the-runner-link): send the sync `curl` there with the
@@ -856,7 +806,7 @@ Then confirm all twenty-one:
     other monitor stays as it was. Sync again with `slot-1` `idle`: it stands
     up, its monitor goes back to the kit screen, and the draw-call count is
     the one noted before it sat.
-17. **A working agent's terminal opens on `E`, in both tabs.** With the runner
+16. **A working agent's terminal opens on `E`, in both tabs.** With the runner
     started as in [Running the runner](#running-the-runner), assign an
     `agent-ready` issue to `Mock 1` and, once it sits, walk Dana to just behind
     its chair: the prompt reads `Watch the agent's terminal`. `E` opens the
@@ -866,15 +816,13 @@ Then confirm all twenty-one:
     few steps away: it closes while Milo's stays open. When the agent hands in
     and gets up, Milo's closes too and the prompt behind the chair is
     `Sit down` again. After `Send back` the panel also links the pull request.
-18. **An assigned issue goes all the way to review and done.** Run the server
-    with `RUNNER_SECRET` and `OPERATOR_PASSPHRASE`, and the runner with
+17. **An assigned issue goes all the way to review and done.** Run the server
+    with `RUNNER_SECRET`, and the runner with
     `RUNNER_MOCK_OUTCOME=pr-opened`, as in
     [Running the runner](#running-the-runner); have an open issue labelled
-    `agent-ready` and one without. Dana, not yet verified, assigns the labelled
-    issue to `Mock 1`: her tab says it takes a verified operator, and nothing
-    changes. She verifies in the manager's panel and assigns the unlabelled
-    issue: refused, saying it needs the `agent-ready` label. She assigns the
-    labelled one: within a couple of seconds both tabs show it `In progress`,
+    `agent-ready` and one without. Milo, not the CEO, is offered no `Assign…`
+    on either. Dana assigns the unlabelled issue: refused, saying it needs the
+    `agent-ready` label. She assigns the labelled one: within a couple of seconds both tabs show it `In progress`,
     `Mock 1` sits and works it on its monitor, lights its `Needs you` beacon
     for a few steps, and then the card is `In review` with
     `PR #1000<n>: [mock] <title>, <link>` as its deliverable, in both tabs.
@@ -884,23 +832,23 @@ Then confirm all twenty-one:
     again. Assign another labelled issue and, while the mock works it,
     `Unassign` it: the slot stops at once and goes idle, and the runner's log
     says its worktree is kept, with the uncommitted change or commit it holds.
-19. **A spent runner budget refuses the next start, and Firstmate says so.**
-    Run the server as in step 18 and the runner with
+18. **A spent runner budget refuses the next start, and Firstmate says so.**
+    Run the server as in step 17 and the runner with
     `RUNNER_MOCK_OUTCOME=pr-opened` and `RUNNER_DAILY_BUDGET_USD=0.15`. With
     the runner up, both tabs' rosters read `Agents' spend: $0.00 of $0.15 today`
-    under the live agents. Dana, verified, assigns a labelled issue to
+    under the live agents. Dana assigns a labelled issue to
     `Mock 1`: the spend climbs five cents a step in both tabs, and once the
     pull request is handed in it reads `$0.20 of $0.15 today — budget spent, no
     new starts`, marked as a warning. She assigns another labelled issue to
     `Mock 2`: it never starts, its card notes the runner's daily budget is
     spent with the day's figures, Firstmate's conversation explains it and how
     to try again, and the runner's log says the start was refused.
-20. **The CEO prompts a coding agent from its terminal, in both tabs.** Run
-    the server with `RUNNER_SECRET` and `OPERATOR_PASSPHRASE`, and the runner
-    with `RUNNER_MOCK_OUTCOME=question`, and assign an `agent-ready` issue to
-    `Mock 1` as in step 18, then open its terminal in both tabs as in step 17.
+19. **The CEO prompts a coding agent from its terminal, in both tabs.** Run
+    the server with `RUNNER_SECRET` and the runner with
+    `RUNNER_MOCK_OUTCOME=question`, and assign an `agent-ready` issue to
+    `Mock 1` as in step 17, then open its terminal in both tabs as in step 16.
     Milo's panel says only the CEO can prompt it and his prompt box is
-    disabled. Dana, verified, sends `hurry up` while the mock works: it is not
+    disabled. Dana sends `hurry up` while the mock works: it is not
     typed, her panel says `Mock 1 is busy`, her text stays in the box, and
     Milo's panel shows nothing. Sent while its beacon is lit for the
     permission step, it is refused as waiting on a permission. Once the mock
@@ -912,7 +860,7 @@ Then confirm all twenty-one:
     checks the gate, the refusals and the two tabs against a live room, and
     `apps/runner/src/agents/ptyAgent.test.ts` that no control character
     reaches the agent's terminal.
-21. **`pnpm typecheck` passes** across the whole repository.
+20. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
@@ -958,9 +906,7 @@ public.
 | `MANAGER_CALLS_PER_DAY` / `MANAGER_CALLS_PER_RUN` | server | runtime | No. The manager's model call ceilings per UTC day and per server process. Default 150 and 1000. |
 | `LIVE_AGENTS_SECRET` | server | runtime | No. The shared secret an agent orchestrator reports with and collects the manager's assignments with, at least 16 characters; without it no live agents appear. |
 | `LIVE_AGENTS_TIMEOUT_SECONDS` | server | runtime | No. Silence after which a live agent, or a runner with its slots, leaves, at least 5. Defaults to 60. |
-| `RUNNER_SECRET` | server | runtime | No. The shared secret an agent runner syncs with, at least 16 characters; without it the runner link is off. With it, the server needs `OPERATOR_PASSPHRASE` to start. |
-| `OPERATOR_PASSPHRASE` | server | runtime | Yes, with `RUNNER_SECRET`. The passphrase a player proves to command the live coding agents, 16 to 256 characters; see [The operator](#the-operator). A secret. |
-| `REAL_AGENTS_TRUST_CEO` | server | runtime | No, and leave it off. `on` lets a server with `RUNNER_SECRET` and no passphrase start, trusting the CEO; for local development only. Defaults to `off`. |
+| `RUNNER_SECRET` | server | runtime | No. The shared secret an agent runner syncs with, at least 16 characters; without it the runner link is off. |
 | `REAL_AGENT_ISSUE_LABEL` | server | runtime | No. The label an issue needs before the CEO can hand it to a runner's agent, the same as the runner's. Defaults to `agent-ready`. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
@@ -999,9 +945,7 @@ against the report route's `Authorization` header in constant time and never
 leaves the server: clients see each agent's name, status and task and nothing
 about how they were reported. `RUNNER_SECRET` is treated the same way on the
 runner's sync and screens routes, and the runner masks it out of every screen
-it sends. `OPERATOR_PASSPHRASE` is a secret too, set the same way:
-the server compares a player's attempt against it in constant time and never
-replicates, broadcasts or logs it.
+it sends.
 
 ### Order of operations
 
@@ -1085,7 +1029,6 @@ packages/shared/   @sim/shared   the contract both sides import
   src/screens.ts      the slots' terminal screens: a frame of styled runs, a runner's batch, and its parser
   src/spend.ts        the runners' real spend in dollars: the budget refusal and how spend is said
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
-  src/operator.ts     the operator passphrase's limits, and why an attempt was refused
   src/agentPrompt.ts  the CEO's prompts to the coding agents: the one gate, and why a prompt was refused
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
@@ -1102,9 +1045,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/agents/             the live agents' feeds: the report and assignment routes, the registry, the runner link, the slots' screens, and the loop between the work and the runner's slots
   src/manager/            the AI manager: its view of the office, rule and model planners, call budget, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
-  src/rooms/operatorHandlers.ts  verifying as operator, and the CEO role it takes
   src/rooms/agentPromptHandlers.ts  the CEO's prompts to a coding agent, and the refusals sent back
-  src/sim/operator.ts     the passphrase check, in constant time, and the attempt allowances
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
 apps/runner/       @sim/runner   the agent runner: slots, agents, their screens, and the sync with the server
   src/config.ts           its RUNNER_* variables, refused at boot when wrong
@@ -1143,7 +1084,6 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/projectBoard.ts     the project board's columns, filters, and how an issue's work reads
   src/ui/ProjectBoardPanel.tsx  the project board's close-up, with the agents' work and the CEO's controls
   src/managerAccess.ts    what the local player may say to the manager, and why
-  src/operatorAccess.ts   whether the local player's word reaches the live agents, and why
   src/agentPromptAccess.ts  whether the local player may prompt a coding agent, and why a prompt was refused
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to
@@ -1196,10 +1136,7 @@ Ten things are worth knowing before changing anything:
   can no longer go back to them for rework.
   Exactly one player holds the CEO role while anyone is in the office;
   `server/sim/roles.ts` assigns it on arrival and passes it on, in the same
-  patch as the departure, when its holder leaves, or to a player who verifies
-  as operator. Work that reaches a real coding agent has a stricter gate
-  beside `mayActOnWork`: `mayCommandRealAgents`, the CEO who has also proved
-  the operator passphrase, checked wherever one is configured.
+  patch as the departure, when its holder leaves.
 - **The furniture is data too, and only some of it collides.** `shared/props.ts`
   derives every prop from the floor plan — a chair and a screen per workstation, a
   frame in every doorway gap, a plant in each room — so a layout change furnishes

@@ -95,9 +95,9 @@ describe("employManager", () => {
 
 describe("mayInstructManager", () => {
   it("listens to the CEO and nobody else", () => {
-    expect(mayInstructManager({ id: "a", kind: OCCUPANT_KIND.human, isCeo: true, isOperator: false })).toBe(true);
-    expect(mayInstructManager({ id: "b", kind: OCCUPANT_KIND.human, isCeo: false, isOperator: false })).toBe(false);
-    expect(mayInstructManager({ id: "agent-1", kind: OCCUPANT_KIND.liveAgent, isCeo: false, isOperator: false })).toBe(false);
+    expect(mayInstructManager({ id: "a", kind: OCCUPANT_KIND.human, isCeo: true })).toBe(true);
+    expect(mayInstructManager({ id: "b", kind: OCCUPANT_KIND.human, isCeo: false })).toBe(false);
+    expect(mayInstructManager({ id: "agent-1", kind: OCCUPANT_KIND.liveAgent, isCeo: false })).toBe(false);
   });
 });
 

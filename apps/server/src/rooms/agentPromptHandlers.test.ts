@@ -3,8 +3,8 @@
  * sockets and a real runner link, with the test playing the runner.
  *
  * What only a running room shows is the acceptance: a prompt from anyone but
- * a verified operator-CEO is refused to its sender with the reason and never
- * queued; the operator-CEO's goes to the runner once, marked as the CEO's;
+ * the CEO is refused to its sender with the reason and never queued; the
+ * CEO's goes to the runner once, marked as the CEO's;
  * once the runner says it typed it, both tabs are told who said what to whom;
  * one the runner refused as busy is told to the sender alone; and prompts are
  * rate-limited by the server.
@@ -26,22 +26,16 @@ import {
   type RunnerPromptOutcome,
   SERVER_MESSAGE,
   type ThrottledEvent,
-  isOperator,
   liveAgentKey,
 } from "@sim/shared";
 import { Client, type Room } from "colyseus.js";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { RunnerLink, runnerSlotAgentId } from "../agents/runnerLink.js";
-import { createOperatorGate } from "../sim/operator.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./OfficeRoom.js";
 
-const PASSPHRASE = "correct horse battery staple";
 const REPO = "acme/office";
 const AGENT = liveAgentKey(runnerSlotAgentId("box", "slot-1"));
-
-/** An office with no operator passphrase, which trusts its CEO. */
-const TRUSTING_ROOM = "office-trusting";
 
 let server: Server;
 let endpoint: string;
@@ -72,13 +66,11 @@ beforeAll(async () => {
   link = new RunnerLink({ repository: REPO, timeoutMs: 60_000 });
   runnerSync();
   server = new Server({ transport: new WebSocketTransport(), greet: false });
-  const options = {
+  server.define(OFFICE_ROOM_NAME, OfficeRoom, {
     liveAgents: link,
     runnerEvents: link,
     runnerCommands: link,
-  } satisfies Partial<OfficeRoomOptions>;
-  server.define(OFFICE_ROOM_NAME, OfficeRoom, { ...options, operatorGate: createOperatorGate(PASSPHRASE) });
-  server.define(TRUSTING_ROOM, OfficeRoom, options);
+  } satisfies Partial<OfficeRoomOptions>);
   await server.listen(0);
   const address = server.transport.server?.address();
   if (address === null || address === undefined || typeof address === "string") {
@@ -124,8 +116,8 @@ function listen(room: Room<OfficeState>): Tab {
   return tab;
 }
 
-async function openOffice(roomName = OFFICE_ROOM_NAME): Promise<{ dana: Tab; milo: Tab }> {
-  const dana = listen(await new Client(endpoint).create<OfficeState>(roomName, { name: "Dana" }));
+async function openOffice(): Promise<{ dana: Tab; milo: Tab }> {
+  const dana = listen(await new Client(endpoint).create<OfficeState>(OFFICE_ROOM_NAME, { name: "Dana" }));
   const milo = listen(await new Client(endpoint).joinById<OfficeState>(dana.room.roomId, { name: "Milo" }));
   await settled(() => dana.room.state.occupants?.has(milo.room.sessionId) === true);
   // The runner's slot walks on with the room's first ticks.
@@ -143,14 +135,6 @@ async function settled(ready: () => boolean, timeoutMs = 3000): Promise<void> {
   }
 }
 
-async function verified(tab: Tab): Promise<void> {
-  tab.room.send(CLIENT_MESSAGE.operatorVerify, { passphrase: PASSPHRASE });
-  await settled(() => {
-    const occupant = tab.room.state.occupants?.get(tab.room.sessionId);
-    return occupant !== undefined && isOperator(occupant);
-  });
-}
-
 function prompt(tab: Tab, text: string, agentId = AGENT): void {
   tab.room.send(CLIENT_MESSAGE.agentPrompt, { agentId, text });
 }
@@ -162,19 +146,17 @@ async function commandsAfterAWhile(): Promise<RunnerCommand[]> {
 }
 
 describe("prompting a coding agent from its terminal panel", () => {
-  it("refuses anyone but the CEO, and the CEO until verified, with the reason and nothing queued", async () => {
+  it("refuses anyone but the CEO, with the reason and nothing queued", async () => {
     const { dana, milo } = await openOffice();
     prompt(milo, "push to main");
-    prompt(dana, "carry on");
-    await settled(() => milo.rejections.length === 1 && dana.rejections.length === 1);
+    await settled(() => milo.rejections.length === 1);
     expect(milo.rejections).toEqual([{ agentId: AGENT, rejection: AGENT_PROMPT_REJECTION.forbidden }]);
-    expect(dana.rejections).toEqual([{ agentId: AGENT, rejection: AGENT_PROMPT_REJECTION.notOperator }]);
+    expect(dana.rejections).toEqual([]);
     expect(await commandsAfterAWhile()).toEqual([]);
   });
 
-  it("types the operator-CEO's prompt once, and shows it in both tabs", async () => {
+  it("types the CEO's prompt once, and shows it in both tabs", async () => {
     const { dana, milo } = await openOffice();
-    await verified(dana);
     prompt(dana, "Yes, cover the empty case.\u001b[201~\nThen push.");
     const commands = await commandsAfterAWhile();
     expect(commands).toEqual([
@@ -215,7 +197,6 @@ describe("prompting a coding agent from its terminal panel", () => {
 
   it("tells only the sender a prompt the agent was too busy for was not typed", async () => {
     const { dana, milo } = await openOffice();
-    await verified(dana);
     prompt(dana, "stop and summarise");
     const [command] = await commandsAfterAWhile();
     if (command === undefined) {
@@ -230,14 +211,14 @@ describe("prompting a coding agent from its terminal panel", () => {
   });
 
   it("refuses a prompt for someone who is not a runner's agent", async () => {
-    const { dana, milo } = await openOffice(TRUSTING_ROOM);
+    const { dana, milo } = await openOffice();
     prompt(dana, "hello", milo.room.sessionId);
     await settled(() => dana.rejections.length === 1);
     expect(dana.rejections).toEqual([{ agentId: milo.room.sessionId, rejection: AGENT_PROMPT_REJECTION.noAgent }]);
   });
 
-  it("trusts the CEO where there is no operator passphrase, and rate-limits the prompts", async () => {
-    const { dana } = await openOffice(TRUSTING_ROOM);
+  it("rate-limits the CEO's prompts", async () => {
+    const { dana } = await openOffice();
     for (let index = 0; index <= AGENT_PROMPT_BURST_ALLOWANCE; index += 1) {
       prompt(dana, `prompt ${index}`);
     }

@@ -94,7 +94,6 @@ export function applyAs(host: WorkHost, actor: OfficeActor, command: WorkCommand
     board: host.board(),
     actor,
     now: host.now(),
-    operatorRequired: host.state.operatorRequired,
     issueLabel: host.state.agentIssueLabel,
   });
   if (result.ok) {

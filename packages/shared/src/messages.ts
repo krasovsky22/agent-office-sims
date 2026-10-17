@@ -25,7 +25,6 @@ import {
   MAX_WORK_NOTE_LENGTH,
 } from "./constants.js";
 import type { ManagerRejection } from "./manager.js";
-import { MAX_OPERATOR_PASSPHRASE_LENGTH, type OperatorRejection } from "./operator.js";
 import { ANIMATION_STATE, type ReportedAnimation, type WorkStatus, isWorkStatus } from "./state.js";
 import type { WorkAction, WorkRejection } from "./work.js";
 
@@ -51,8 +50,6 @@ export const CLIENT_MESSAGE = {
   workMove: "work:move",
   /** Say something to the AI manager; only the CEO is listened to. */
   managerSay: "manager:say",
-  /** Prove the operator passphrase, to command the real coding agents; see `operator.ts`. */
-  operatorVerify: "operator:verify",
   /** Type a prompt into a coding agent's terminal; only the CEO is listened to. See `agentPrompt.ts`. */
   agentPrompt: "agent:prompt",
 } as const;
@@ -79,10 +76,9 @@ export const SERVER_MESSAGE = {
    */
   workRejected: "work-rejected",
   /**
-   * The CEO role passed to someone else, because its holder left or because
-   * someone verified as operator. Broadcast to every client as a
-   * {@link CeoChangedEvent}; the role itself is replicated state, so this is
-   * the announcement, not the change.
+   * The CEO role passed to someone else because its holder left. Broadcast to
+   * every client as a {@link CeoChangedEvent}; the role itself is replicated
+   * state, so this is the announcement, not the change.
    */
   ceoChanged: "ceo-changed",
   /**
@@ -107,12 +103,6 @@ export const SERVER_MESSAGE = {
    * full frame of every screen, sent to each client as it joins.
    */
   screens: "screens",
-  /**
-   * Sent only to the client whose operator verification was turned down, with
-   * the reason. Carries an {@link OperatorRejectedEvent}. A verification that
-   * succeeds needs no reply: the player's replicated operator flag is it.
-   */
-  operatorRejected: "operator:rejected",
   /**
    * A prompt the CEO sent a coding agent was typed into its terminal, an
    * {@link AgentPromptEntry}. Broadcast to every client, since everyone
@@ -221,31 +211,12 @@ export interface WorkRejectedEvent {
   readonly rejection: WorkRejection;
 }
 
-/** Why the CEO role changed hands. */
-export const CEO_CHANGE = {
-  /** Its holder left the office, and whoever had been there longest took it. */
-  succeeded: "succeeded",
-  /** Someone verified as operator and took it from its holder, who stays as an executive. */
-  operator: "operator",
-} as const;
-
-export type CeoChange = (typeof CEO_CHANGE)[keyof typeof CEO_CHANGE];
-
-/** Who holds the CEO role now, who held it before, and why it moved. */
+/** Who holds the CEO role now that its previous holder has left. */
 export interface CeoChangedEvent {
   /** Occupant id of the new CEO. */
   readonly ceoId: string;
-  /**
-   * Occupant id of the previous CEO. After a {@link CEO_CHANGE.succeeded} they
-   * have left, and are no longer resolvable in the occupants map.
-   */
+  /** Occupant id of the CEO who left. No longer resolvable in the occupants map. */
   readonly previousCeoId: string;
-  readonly change: CeoChange;
-}
-
-/** The office turned down this client's attempt to verify as operator. */
-export interface OperatorRejectedEvent {
-  readonly rejection: OperatorRejection;
 }
 
 /** Who wrote a line in the conversation with the AI manager, and why. */
@@ -294,12 +265,6 @@ export interface ManagerRejectedEvent {
 export interface ManagerSayMessage {
   /** Already sanitized by {@link parseManagerSayMessage}, and never empty. */
   readonly text: string;
-}
-
-/** An attempt at the operator passphrase. */
-export interface OperatorVerifyMessage {
-  /** Exactly as typed: a passphrase is compared, never sanitized. */
-  readonly passphrase: string;
 }
 
 /** Something the CEO wants typed into a coding agent's terminal. */
@@ -531,26 +496,6 @@ export function parseManagerSayMessage(raw: unknown): ManagerSayMessage | undefi
   }
   const text = sanitizeManagerText((raw as { text?: unknown }).text);
   return text === "" ? undefined : { text };
-}
-
-/**
- * Validates a raw `operator:verify` payload.
- *
- * The passphrase is taken as sent, not trimmed or stripped: it is compared,
- * never shown, so changing it would only turn a right answer wrong. Only the
- * shape is checked — a string of a length someone could have typed.
- */
-export function parseOperatorVerifyMessage(raw: unknown): OperatorVerifyMessage | undefined {
-  const candidate = asRecord(raw);
-  const passphrase = candidate?.passphrase;
-  if (
-    typeof passphrase !== "string" ||
-    passphrase === "" ||
-    passphrase.length > MAX_OPERATOR_PASSPHRASE_LENGTH
-  ) {
-    return undefined;
-  }
-  return { passphrase };
 }
 
 /**

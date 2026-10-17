@@ -9,29 +9,21 @@ import { describe, expect, it } from "vitest";
 
 import { agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
 
-const PLAYER: OfficeActor = { id: "a", kind: OCCUPANT_KIND.human, isCeo: false, isOperator: false };
+const PLAYER: OfficeActor = { id: "a", kind: OCCUPANT_KIND.human, isCeo: false };
 
 describe("agentPromptAccessFor", () => {
-  it("lets the CEO prompt where the server has no operator passphrase", () => {
-    expect(agentPromptAccessFor({ ...PLAYER, isCeo: true }, false, "Dana")).toMatchObject({ mayPrompt: true });
-  });
-
-  it("lets only the verified operator-CEO prompt where it has one, and tells the CEO how to verify", () => {
-    expect(agentPromptAccessFor({ ...PLAYER, isCeo: true, isOperator: true }, true, "Dana")).toMatchObject({ mayPrompt: true });
-    expect(agentPromptAccessFor({ ...PLAYER, isCeo: true }, true, "Dana")).toEqual({
-      mayPrompt: false,
-      summary: "Prompting a coding agent takes a verified operator. Verify with the passphrase at Firstmate's desk.",
-    });
+  it("lets the CEO prompt", () => {
+    expect(agentPromptAccessFor({ ...PLAYER, isCeo: true }, "Dana")).toMatchObject({ mayPrompt: true });
   });
 
   it("tells anyone else who can, and that they can still watch", () => {
-    expect(agentPromptAccessFor(PLAYER, false, "Dana")).toEqual({
+    expect(agentPromptAccessFor(PLAYER, "Dana")).toEqual({
       mayPrompt: false,
       summary: "Only the CEO, Dana, can prompt this agent. You can watch its terminal.",
     });
-    expect(agentPromptAccessFor({ ...PLAYER, isOperator: true }, true, undefined)).toEqual({
+    expect(agentPromptAccessFor(PLAYER, undefined)).toEqual({
       mayPrompt: false,
-      summary: "Only the CEO can prompt this agent, once verified as operator. You can watch its terminal.",
+      summary: "Only the CEO can prompt this agent. You can watch its terminal.",
     });
   });
 });

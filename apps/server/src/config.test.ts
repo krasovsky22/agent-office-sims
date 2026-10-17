@@ -5,10 +5,9 @@
  * `PROJECT_BOARD_*` variables, which refuse to start the server when they are
  * wrong rather than polling a repository nobody meant, or about the live
  * agents' `LIVE_AGENTS_*`, which refuse a secret too short to be one, as
- * `RUNNER_SECRET` and `OPERATOR_PASSPHRASE` do; a runner with no passphrase
- * refuses to boot at all unless `REAL_AGENTS_TRUST_CEO` says so. The AI
- * manager's `MOCK_MANAGER` and `MANAGER_*` follow the same rule: a model mode
- * with no key stops the boot, not a question.
+ * `RUNNER_SECRET` does. The AI manager's `MOCK_MANAGER` and `MANAGER_*`
+ * follow the same rule: a model mode with no key stops the boot, not a
+ * question.
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,7 +18,6 @@ import {
   readLiveAgentsConfig,
   readConfig,
   readManagerConfig,
-  readOperatorConfig,
   readPort,
   readProjectBoardConfig,
   readRunnerConfig,
@@ -237,59 +235,8 @@ describe("readRunnerConfig", () => {
   });
 });
 
-describe("readOperatorConfig", () => {
-  const PASSPHRASE = "correct horse battery";
-
-  it("trusts nobody extra by default", () => {
-    expect(readOperatorConfig({})).toEqual({ passphrase: undefined, trustCeo: false });
-    expect(readOperatorConfig({ OPERATOR_PASSPHRASE: "  " }).passphrase).toBeUndefined();
-  });
-
-  it("reads a passphrase and the trust flag", () => {
-    expect(readOperatorConfig({ OPERATOR_PASSPHRASE: ` ${PASSPHRASE} `, REAL_AGENTS_TRUST_CEO: "ON" })).toEqual({
-      passphrase: PASSPHRASE,
-      trustCeo: true,
-    });
-    expect(readOperatorConfig({ REAL_AGENTS_TRUST_CEO: "off" }).trustCeo).toBe(false);
-  });
-
-  it("refuses a short or overlong passphrase without printing it", () => {
-    const refusal = (passphrase: string) => {
-      try {
-        readOperatorConfig({ OPERATOR_PASSPHRASE: passphrase });
-      } catch (error) {
-        return (error as Error).message;
-      }
-      return "";
-    };
-    expect(refusal("hunter2")).toMatch(/OPERATOR_PASSPHRASE must be 16 to 256 characters, got 7$/);
-    expect(refusal("hunter2")).not.toContain("hunter2");
-    expect(refusal("x".repeat(257))).toMatch(/got 257$/);
-  });
-
-  it("refuses a trust flag that is neither on nor off", () => {
-    expect(() => readOperatorConfig({ REAL_AGENTS_TRUST_CEO: "yes" })).toThrow(/REAL_AGENTS_TRUST_CEO must be on or off/);
-  });
-});
-
-describe("readConfig's runner rule", () => {
-  const RUNNER = { RUNNER_SECRET: "0123456789abcdef" };
-
-  it("refuses to boot a runner with no passphrase", () => {
-    expect(() => readConfig(RUNNER)).toThrow(/RUNNER_SECRET is set but OPERATOR_PASSPHRASE is not/);
-    expect(() => readConfig({ ...RUNNER, REAL_AGENTS_TRUST_CEO: "off" })).toThrow(/OPERATOR_PASSPHRASE/);
-  });
-
-  it("boots a runner with a passphrase, or with the CEO trusted", () => {
-    const withPassphrase = readConfig({ ...RUNNER, OPERATOR_PASSPHRASE: "correct horse battery" });
-    expect(withPassphrase.operator.passphrase).toBe("correct horse battery");
-    expect(readConfig({ ...RUNNER, REAL_AGENTS_TRUST_CEO: "on" }).operator).toEqual({
-      passphrase: undefined,
-      trustCeo: true,
-    });
-  });
-
-  it("asks nothing of a server without a runner", () => {
-    expect(readConfig({}).operator).toEqual({ passphrase: undefined, trustCeo: false });
+describe("readConfig's runner", () => {
+  it("boots a runner on its secret alone", () => {
+    expect(readConfig({ RUNNER_SECRET: "0123456789abcdef" }).runner.secret).toBe("0123456789abcdef");
   });
 });

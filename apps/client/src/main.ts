@@ -10,7 +10,6 @@
 import {
   type AgentPromptEntry,
   ANIMATION_STATE,
-  CEO_CHANGE,
   CLIENT_MESSAGE,
   INTERACT_RANGE,
   INTERACTION_KIND,
@@ -40,7 +39,6 @@ import { agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAcc
 import { boardAccessFor, rejectionText } from "./boardAccess.js";
 import { DayClock } from "./dayClock.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
-import { operatorAccessFor, operatorRejectionText } from "./operatorAccess.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
 import { PlayerController } from "./player/controller.js";
@@ -361,7 +359,6 @@ function start(): void {
           name: view.name,
           kind: view.kind,
           isCeo: view.isCeo,
-          isOperator: view.isOperator,
           jobTitle: view.jobTitle,
           isLocal: view.isLocal,
           caption: captionOf(view),
@@ -373,8 +370,7 @@ function start(): void {
         })),
         boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name),
         managerAccess: local === undefined ? undefined : managerAccessFor(local, ceo?.name),
-        operatorAccess: local === undefined ? undefined : operatorAccessFor(local, room.operatorRequired()),
-        agentPromptAccess: local === undefined ? undefined : agentPromptAccessFor(local, room.operatorRequired(), ceo?.name),
+        agentPromptAccess: local === undefined ? undefined : agentPromptAccessFor(local, ceo?.name),
       });
     },
 
@@ -426,30 +422,16 @@ function start(): void {
     // looking, rather than only in the roster badge that silently moves.
     onCeoChanged: (event) => {
       const isLocal = event.ceoId === room.sessionId;
-      const who = isLocal ? "You" : (room.occupantName(event.ceoId) ?? "Someone");
       appendChatLine({
         id: nextChatId++,
         author: "Office",
-        text:
-          event.change === CEO_CHANGE.operator
-            ? `${who} verified as operator and ${isLocal ? "are" : "is"} now the CEO.`
-            : `${isLocal ? "You are" : `${who} is`} now the CEO.`,
+        text: `${isLocal ? "You are" : `${room.occupantName(event.ceoId) ?? "Someone"} is`} now the CEO.`,
         isLocal: false,
         isSystem: true,
       });
       if (isLocal) {
-        showNotice(
-          event.change === CEO_CHANGE.operator
-            ? "Verified — you are the operator and the CEO, and can send work to the live coding agents."
-            : "The CEO left — you are now the CEO and hand out the project board's work.",
-        );
-      } else if (event.previousCeoId === room.sessionId) {
-        showNotice("A verified operator has taken the CEO role; you are an executive now.");
+        showNotice("The CEO left — you are now the CEO and hand out the project board's work.");
       }
-    },
-
-    onOperatorRejected: (event) => {
-      showNotice(operatorRejectionText(event.rejection));
     },
 
     // The same snapshot goes to the wall and to the close-up panel, so what
@@ -534,7 +516,6 @@ function start(): void {
         },
         manager: {
           say: (text) => room.sendManagerSay(text),
-          verify: (passphrase) => room.sendOperatorVerify(passphrase),
           close: () => {
             readingBoard = "";
           },

@@ -24,8 +24,7 @@
  * Nor is the clock that lights the office: the tick steps `sim/clock.ts`, at
  * the rate `@sim/shared`'s `clock.ts` sets.
  * Who holds the CEO role those rules turn on is `sim/roles.ts`'s call; this
- * room only tells it when someone arrives or leaves, and `operatorHandlers.ts`
- * when someone proves the operator passphrase, which takes the role.
+ * room only tells it when someone arrives or leaves.
  *
  * A player whose socket drops without leaving keeps their place, role
  * included, for {@link RECONNECT_GRACE_SECONDS}. Only a player who left on
@@ -65,7 +64,6 @@ import { type Client, Room } from "@colyseus/core";
 import {
   type AgentPromptHistoryEvent,
   ANIMATION_STATE,
-  CEO_CHANGE,
   type CeoChangedEvent,
   type ChatEvent,
   CLIENT_MESSAGE,
@@ -126,11 +124,9 @@ import {
 } from "../sim/interaction.js";
 import { LiveAgentCrew } from "../sim/liveAgents.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
-import { type OperatorGate, isOperatorGate } from "../sim/operator.js";
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
 import { registerAgentPromptHandlers } from "./agentPromptHandlers.js";
 import { registerManagerHandlers } from "./managerHandlers.js";
-import { type OperatorHandlers, registerOperatorHandlers } from "./operatorHandlers.js";
 import {
   isProjectBoardSource,
   relayProjectBoard,
@@ -190,11 +186,6 @@ export interface OfficeRoomOptions {
   readonly agentIssueLabel?: string;
   /** The runner slots' terminal screens; absent when no runner is configured. */
   readonly screens?: ScreenSource;
-  /**
-   * Checks the operator passphrase; absent when none is configured, which
-   * leaves commands to the real agents with the CEO alone.
-   */
-  readonly operatorGate?: OperatorGate;
 }
 
 /** Reads the eligibility label off the room's options, bounded for the same reason as the grace period. */
@@ -269,9 +260,6 @@ export class OfficeRoom extends Room<OfficeState> {
 
   /** The AI manager's mind; unset in a room given no advisor. */
   private manager: OfficeManager | undefined;
-
-  /** Assigned in `onCreate`; each client's attempts at the operator passphrase. */
-  private operator!: OperatorHandlers;
 
   public override onCreate(options?: unknown): void {
     this.state = new OfficeState();
@@ -379,15 +367,6 @@ export class OfficeRoom extends Room<OfficeState> {
       state: this.state,
       prompts: this.agentPrompts,
       allow: (client) => this.spend(client, CLIENT_MESSAGE.agentPrompt),
-    });
-    // Before the manager's desk opens, so it never hands out a live agent's
-    // work under the wrong rule.
-    const operatorGate = isOperatorGate(roomOptions?.operatorGate) ? roomOptions.operatorGate : undefined;
-    this.state.operatorRequired = operatorGate !== undefined;
-    this.operator = registerOperatorHandlers(this, {
-      state: this.state,
-      gate: operatorGate,
-      now: () => this.clock.currentTime,
     });
     this.openManagersDesk(workHost, roomOptions);
 
@@ -729,7 +708,6 @@ export class OfficeRoom extends Room<OfficeState> {
     this.state.occupants.delete(sessionId);
     this.motions.delete(sessionId);
     this.budgets.delete(sessionId);
-    this.operator.forget(sessionId);
     this.held.delete(sessionId);
 
     if (departing === undefined || !isCeo(departing)) {
@@ -744,7 +722,6 @@ export class OfficeRoom extends Room<OfficeState> {
       this.broadcast(SERVER_MESSAGE.ceoChanged, {
         ceoId: successor.id,
         previousCeoId: sessionId,
-        change: CEO_CHANGE.succeeded,
       } satisfies CeoChangedEvent);
     }
   }

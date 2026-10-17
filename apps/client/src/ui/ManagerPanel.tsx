@@ -14,34 +14,20 @@
  * keyboard back to walking. With the focus out in the office, `Esc` still
  * closes it, through the controller, and stepping away closes it too.
  *
- * Where the server has an operator passphrase, the panel also says, from
- * `operatorAccess.ts`, whether the local player's word reaches the live coding
- * agents, and offers the passphrase to anyone it would change that for. The
- * passphrase is sent as typed and the field cleared at once; nothing keeps it.
- *
  * Every string is a React text node, from text the server sanitized, so a line
  * holding markup is shown rather than interpreted; a reply's line breaks are
  * kept by CSS rather than by turning them into elements.
  */
 
-import {
-  MANAGER_ENTRY_KIND,
-  MANAGER_NAME,
-  MAX_MANAGER_MESSAGE_LENGTH,
-  MAX_OPERATOR_PASSPHRASE_LENGTH,
-  type ManagerEntry,
-} from "@sim/shared";
+import { MANAGER_ENTRY_KIND, MANAGER_NAME, MAX_MANAGER_MESSAGE_LENGTH, type ManagerEntry } from "@sim/shared";
 import { useEffect, useRef, useState } from "react";
 
 import { KEYBOARD_OWNER_ATTRIBUTE } from "../keys.js";
 import type { ManagerAccess } from "../managerAccess.js";
-import type { OperatorAccess } from "../operatorAccess.js";
 
 export interface ManagerPanelActions {
   /** Called with the raw text; the server sanitizes it and decides whether to listen. */
   readonly say: (text: string) => void;
-  /** Called with the passphrase as typed; the server decides, and replies only to refuse. */
-  readonly verify: (passphrase: string) => void;
   /** Closes the panel; the caller unmounts it. */
   readonly close: () => void;
 }
@@ -50,8 +36,6 @@ interface ManagerPanelProps {
   readonly entries: readonly ManagerEntry[];
   /** `undefined` before the local player has joined, when nothing is offered. */
   readonly access: ManagerAccess | undefined;
-  /** `undefined` where the office has no operator passphrase. */
-  readonly operator: OperatorAccess | undefined;
   readonly thinking: boolean;
   readonly actions: ManagerPanelActions;
 }
@@ -66,12 +50,11 @@ function timeOf(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function ManagerPanel({ entries, access, operator, thinking, actions }: ManagerPanelProps) {
+export function ManagerPanel({ entries, access, thinking, actions }: ManagerPanelProps) {
   const rootRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLOListElement>(null);
   const [draft, setDraft] = useState("");
-  const [passphrase, setPassphrase] = useState("");
   const mayInstruct = access?.mayInstruct === true;
 
   useEffect(() => {
@@ -171,40 +154,6 @@ export function ManagerPanel({ entries, access, operator, thinking, actions }: M
           />
           <button className="hud__send" type="submit" disabled={draft.trim() === ""}>
             Send
-          </button>
-        </form>
-      ) : null}
-
-      {operator === undefined ? null : (
-        <p className={operator.mayCommand ? "hud__role" : "hud__role hud__role--readonly"} role="note">
-          {operator.summary}
-        </p>
-      )}
-      {operator?.mayVerify === true ? (
-        <form
-          className="hud__composer"
-          aria-label="Verify as operator"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (passphrase !== "") {
-              actions.verify(passphrase);
-              setPassphrase("");
-            }
-          }}
-        >
-          <input
-            className="hud__input"
-            type="password"
-            name="operator-passphrase"
-            value={passphrase}
-            maxLength={MAX_OPERATOR_PASSPHRASE_LENGTH}
-            placeholder="Operator passphrase"
-            aria-label="Operator passphrase"
-            autoComplete="off"
-            onChange={(event) => setPassphrase(event.target.value)}
-          />
-          <button className="hud__send" type="submit" disabled={passphrase === ""}>
-            Verify
           </button>
         </form>
       ) : null}

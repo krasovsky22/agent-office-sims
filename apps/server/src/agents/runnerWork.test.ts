@@ -60,17 +60,15 @@ function issue(number: number, ...labels: string[]) {
   };
 }
 
-function setup(options: { operator?: boolean } = {}) {
+function setup() {
   let nextId = 1;
   const link = new RunnerLink({ repository: REPO, timeoutMs: 30_000, commandId: () => `command-${nextId++}` });
   const state = new OfficeState();
-  state.operatorRequired = true;
   state.agentIssueLabel = "agent-ready";
   const ceo = new HumanPlayer();
   ceo.id = CEO;
   ceo.name = "Dana";
   ceo.role = PLAYER_ROLE.ceo;
-  ceo.operator = options.operator ?? true;
   state.occupants.set(CEO, ceo);
   for (const [id, name] of [
     [SLOT_1, "Mock 1"],
@@ -157,13 +155,10 @@ describe("RunnerWork outward: the CEO's word to the slots", () => {
     ]);
   });
 
-  it("refuses, and sends nothing, for an unlabelled issue or a CEO who has not verified", () => {
-    const labelled = setup();
-    expect(labelled.ceoDoes(assign(41))).toEqual({ ok: false, rejection: WORK_REJECTION.notEligible });
-    expect(labelled.pending()).toEqual([]);
-    const unverified = setup({ operator: false });
-    expect(unverified.ceoDoes(assign(39))).toEqual({ ok: false, rejection: WORK_REJECTION.notOperator });
-    expect(unverified.pending()).toEqual([]);
+  it("refuses, and sends nothing, for an unlabelled issue", () => {
+    const { ceoDoes, pending } = setup();
+    expect(ceoDoes(assign(41))).toEqual({ ok: false, rejection: WORK_REJECTION.notEligible });
+    expect(pending()).toEqual([]);
   });
 
   it("stops the slot that had the work and starts the one it went to", () => {

@@ -61,22 +61,6 @@ export function createTokenBucket(
 }
 
 /**
- * Brings the bucket up to `now` and says whether it holds a whole token,
- * without spending it.
- *
- * @param now the room clock, in milliseconds.
- */
-export function hasToken(bucket: TokenBucket, now: number): boolean {
-  const elapsedMs = Math.max(now - bucket.lastRefillAt, 0);
-  bucket.tokens = Math.min(
-    bucket.capacity,
-    bucket.tokens + (elapsedMs * bucket.refillPerSecond) / 1000,
-  );
-  bucket.lastRefillAt = now;
-  return bucket.tokens >= 1;
-}
-
-/**
  * Spends one token if there is one.
  *
  * @param now the room clock, in milliseconds.
@@ -85,7 +69,14 @@ export function hasToken(bucket: TokenBucket, now: number): boolean {
  * late is not the wave anyone meant.
  */
 export function tryConsume(bucket: TokenBucket, now: number): boolean {
-  if (!hasToken(bucket, now)) {
+  const elapsedMs = Math.max(now - bucket.lastRefillAt, 0);
+  bucket.tokens = Math.min(
+    bucket.capacity,
+    bucket.tokens + (elapsedMs * bucket.refillPerSecond) / 1000,
+  );
+  bucket.lastRefillAt = now;
+
+  if (bucket.tokens < 1) {
     return false;
   }
   bucket.tokens -= 1;
