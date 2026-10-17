@@ -466,7 +466,7 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_MOCK_OUTCOME` | `failed` | How a mock agent's work ends: `failed`, `pr-opened`, or `question`, waiting at its prompt for the CEO's answer before it opens one. |
 | `RUNNER_MODEL` | Claude Code's | The model a `claude` agent runs, passed as `--model`: `sonnet`, `claude-sonnet-4-5`. |
 | `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
-| `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it. |
+| `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it; time it waits on a person does not count. |
 | `RUNNER_DAILY_BUDGET_USD` | none | US dollars, `0` or more, the agents may spend in a day before the runner refuses new starts; see [The runner's budget](#the-runners-budget). Unset, spend is counted and nothing is refused. |
 | `REAL_AGENT_ISSUE_LABEL` | `agent-ready` | The label an issue must carry on GitHub before a real agent starts on it; the server's own setting, the same value on both. |
 | `RUNNER_GITHUB_APP_ID` | none; required for `claude` | The GitHub App the agents push and open pull requests as; see [The runner's GitHub App](#the-runners-github-app). All three or none; the mock needs none. |
