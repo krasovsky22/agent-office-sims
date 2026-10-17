@@ -25,11 +25,16 @@ function snapshot(pullRequests: readonly number[] = []): ProjectBoardSnapshot {
   };
 }
 
-function work(outputArtifact: string, assigneeId = AGENT, issueNumber = 72): WorkData {
+function work(
+  outputArtifact: string,
+  assigneeId = AGENT,
+  issueNumber = 72,
+  status: WorkData["status"] = WORK_STATUS.in_progress,
+): WorkData {
   return {
     issueNumber,
     title: "Terminal panel",
-    status: WORK_STATUS.in_progress,
+    status,
     assigneeId,
     outputArtifact,
     note: "",
@@ -73,6 +78,26 @@ describe("terminalLinks", () => {
     expect(terminalLinks(AGENT, "", [work(artifact, liveAgentKey("runner-2"))], snapshot())).toEqual({
       issue: undefined,
       pullRequests: [],
+    });
+  });
+
+  it("does not link work the agent handed in for an earlier issue", () => {
+    const earlier = work(`https://github.com/${REPO}/pull/40`, AGENT, 5, WORK_STATUS.review);
+    expect(terminalLinks(AGENT, `https://github.com/${REPO}/issues/7`, [earlier], undefined)).toEqual({
+      issue: { label: "#7", href: `https://github.com/${REPO}/issues/7` },
+      pullRequests: [],
+    });
+    expect(terminalLinks(AGENT, "", [earlier, work("", AGENT, 72, WORK_STATUS.done)], snapshot())).toEqual({
+      issue: undefined,
+      pullRequests: [],
+    });
+  });
+
+  it("finds the issue from the agent's open work, not its handed-in work", () => {
+    const earlier = work(`https://github.com/${REPO}/pull/40`, AGENT, 5, WORK_STATUS.review);
+    expect(terminalLinks(AGENT, "", [earlier, work("")], snapshot([95]))).toEqual({
+      issue: { label: "#72", href: ISSUE_URL },
+      pullRequests: [{ label: "PR #95", href: `https://github.com/${REPO}/pull/95` }],
     });
   });
 

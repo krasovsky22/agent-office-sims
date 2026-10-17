@@ -13,7 +13,7 @@
  * pull request on GitHub.
  */
 
-import { type ProjectBoardSnapshot, type WorkData, parseTaskUrl, taskReference } from "@sim/shared";
+import { type ProjectBoardSnapshot, WORK_STATUS, type WorkData, parseTaskUrl, taskReference } from "@sim/shared";
 
 import { boardIssue, githubItemUrl } from "./projectBoard.js";
 
@@ -73,7 +73,11 @@ export function terminalLinks(
 
   const issueNumber = issue === undefined ? undefined : Number(issue.label.slice(1));
   const mine = work.filter((entry) => entry.assigneeId === agentId);
-  const current = mine.find((entry) => entry.issueNumber === issueNumber) ?? mine[0];
+  // Handed-in work stays with the agent after it moves on, so only open work stands in for an unnamed task.
+  const current =
+    issueNumber === undefined
+      ? mine.find((entry) => entry.status === WORK_STATUS.assigned || entry.status === WORK_STATUS.in_progress)
+      : mine.find((entry) => entry.issueNumber === issueNumber);
 
   if (current !== undefined) {
     if (issue === undefined && snapshot !== undefined) {
