@@ -182,7 +182,7 @@ function updatesAbout(tab: Tab, name: string): string[] {
 }
 
 describe("Firstmate and the mock runner's coding agents", () => {
-  it("puts a coding agent on an issue only when asked, and says how it goes at each step", { timeout: 60_000 }, async () => {
+  it("puts a free coding agent on an issue however it is asked for, and says how it goes at each step", { timeout: 60_000 }, async () => {
     const room = await new Client(endpoint).create<OfficeState>(OFFICE_ROOM_NAME, { name: "Dana" });
     const dana: Tab = { room, entries: [] };
     room.onMessage<ManagerEntry>(SERVER_MESSAGE.managerEntry, (entry) => dana.entries.push(entry));
@@ -191,17 +191,13 @@ describe("Firstmate and the mock runner's coding agents", () => {
     }
     await settled(() => [...serverRoom(dana).state.occupants.values()].filter(isLiveAgent).length === 2);
 
-    // "Someone" is never a coding agent, and the work rules still decide what one may be given.
-    expect(await ask(dana, "put someone on #39")).toBe(
-      "Here's how that went:\n" +
-        "✗ #39 “Night shift”: a coding agent spends real money, so I only put one to work when you name it or ask for “a coding agent”. Say “put a coding agent on #39”.",
-    );
-    expect(await ask(dana, "put a coding agent on #40")).toBe(
+    // "Someone" is a coding agent too, and the work rules still decide what one may be given.
+    expect(await ask(dana, "put someone on #40")).toBe(
       "Here's how that went:\n✗ #40 “Fix the login redirect loop”: it does not carry the label that marks it ready for the coding agents.",
     );
     expect(serverRoom(dana).state.work.size).toBe(0);
 
-    expect(await ask(dana, "put a coding agent on #39")).toBe("Here's how that went:\n✓ #39 “Night shift” → Mock 1.");
+    expect(await ask(dana, "assign the night shift ticket")).toBe("Here's how that went:\n✓ #39 “Night shift” → Mock 1.");
     expect(await ask(dana, "have Mock 2 do #41")).toBe("Here's how that went:\n✓ #41 “Draft the roadmap” → Mock 2.");
 
     const opened = "Mock 1 opened PR #1000039 for #39 “Night shift” and handed it in for your review: https://github.com/acme/office/pull/1000039";

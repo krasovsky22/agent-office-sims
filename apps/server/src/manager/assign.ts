@@ -23,16 +23,16 @@
  *
  * Nothing is written to GitHub.
  *
- * A coding agent spends real money once it starts, so one is only ever put to
- * work when the CEO asked for it: by name, or as "a coding agent"
- * ({@link ANY_CODING_AGENT}), and the CEO's own words have to say so too, so a
- * model's plan cannot pick one the CEO never mentioned. "A coding agent" is
- * the first with no issue in hand, counting what this same plan has already
- * handed out, so "hand out the backlog to a coding agent" spreads it. A
- * runner's slot works one issue at a time, so a named coding agent with a
- * different issue in hand, or one from this same plan, is refused.
- * "Someone" — an empty agent — never means a coding agent: it is one of the
- * orchestrator's agents that is idle with nothing handed to it yet.
+ * An issue goes to the coding agents first. One the CEO names gets it; for
+ * "a coding agent" ({@link ANY_CODING_AGENT}) or nobody in particular
+ * ("someone", "assign #62", "hand out the backlog") it is the first free one,
+ * with no issue in hand counting what this same plan has already handed out,
+ * so a backlog spreads. With none free, nobody in particular falls back to an
+ * idle agent of the orchestrator's, and otherwise the CEO is told plainly that
+ * none is free. A runner's slot works one issue at a time, so a named coding
+ * agent with a different issue in hand, or one from this same plan, is
+ * refused. What a coding agent may spend is still decided by the work's gates
+ * and the runner, not here.
  *
  * Synchronous: the manager calls this between ticks, once the model's answer
  * is in, against the office as it is at that moment.
@@ -52,7 +52,7 @@ import { type WorkHost, applyAs } from "../rooms/workHandlers.js";
 import { ANY_CODING_AGENT, type PlannedAssignment } from "./advisor.js";
 import type { LiveAssignmentQueue } from "./liveAssignments.js";
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView } from "./officeView.js";
-import { type WorkRef, describeWork, findAgents, resolveAgent, resolveWork } from "./resolve.js";
+import { type WorkRef, describeWork, resolveAgent, resolveWork } from "./resolve.js";
 
 /** Most assignments one plan may make, so a runaway model cannot reassign the whole board. */
 export const MAX_ASSIGNMENTS_PER_PLAN = 10;
@@ -67,18 +67,9 @@ export interface AssignContext {
   readonly queue: LiveAssignmentQueue | undefined;
   /** Which room's manager is assigning, for the queue. */
   readonly origin: string;
-  /**
-   * The CEO's words: passed to the orchestrator with an assignment, and what
-   * has to ask for a coding agent before one is put to work.
-   */
+  /** The CEO's words, passed to the orchestrator with an assignment. */
   readonly note: string;
 }
-
-/** The CEO asking for one of the coding agents without naming it. */
-const CODING_AGENT_WORDS = /\bcoding agents?\b/i;
-
-/** Why a coding agent was not put to work: nobody asked for one. */
-const ASK_FOR_ONE = "a coding agent spends real money, so I only put one to work when you name it or ask for “a coding agent”.";
 
 const REFUSAL_TEXT: Readonly<Record<WorkRejection, string>> = {
   [WORK_REJECTION.forbidden]: "only the CEO can hand out work",
@@ -136,32 +127,29 @@ function carryOutOne(
         ? `✗ ${label}: pull requests go to the orchestrator's agents, and the coding agents are not among them.`
         : `✗ ${label}: pull requests go to the orchestrator's agents, and ${coder.name} is not one of them.`;
     }
-    if (!askedFor(coder, context)) {
-      return `✗ ${label}: ${ASK_FOR_ONE}`;
-    }
     const assignee = coder ?? freeCodingAgent(work.issue, context.view, load);
-    if (assignee === undefined) {
-      return context.view.issueAgents.length === 0
-        ? `✗ ${label}: there are no coding agents on the floor.`
-        : `✗ ${label}: every coding agent already has an issue in hand.`;
-    }
-    return assignIssue(work.issue, label, assignee, context, load);
+    return assignee === undefined ? noFreeCodingAgent(label, context.view) : assignIssue(work.issue, label, assignee, context, load);
   }
 
-  // Someone, or one of the orchestrator's agents by name: never a coding agent.
+  // One of the orchestrator's agents by name, or nobody in particular.
   const live = context.view.liveAgents.find((candidate) => candidate === agent);
-  if (work.kind === "issue" && live === undefined && context.queue === undefined && context.view.issueAgents.length > 0) {
-    return `✗ ${label}: ${ASK_FOR_ONE} Say “put a coding agent on #${work.issue.number}”.`;
+  if (work.kind === "issue" && live === undefined) {
+    const free = freeCodingAgent(work.issue, context.view, load);
+    if (free !== undefined) {
+      return assignIssue(work.issue, label, free, context, load);
+    }
+    if (context.queue === undefined) {
+      return noFreeCodingAgent(label, context.view);
+    }
   }
   return queueForLiveAgent(work, label, live, context, load);
 }
 
-/** Whether the CEO's words ask for this coding agent, or for any. */
-function askedFor(coder: IssueAgentView | undefined, context: AssignContext): boolean {
-  return (
-    CODING_AGENT_WORDS.test(context.note) ||
-    (coder !== undefined && findAgents(context.note, context.view).includes(coder))
-  );
+/** Why an issue for whichever coding agent is free went to none. */
+function noFreeCodingAgent(label: string, view: OfficeView): string {
+  return view.issueAgents.length === 0
+    ? `✗ ${label}: there are no coding agents on the floor.`
+    : `✗ ${label}: no coding agent is free; every one already has an issue in hand.`;
 }
 
 function assignIssue(
@@ -234,8 +222,8 @@ function queueForLiveAgent(
 }
 
 /**
- * The coding agent to give an issue to when the CEO asked for "a coding
- * agent": the one that already has it, which is no change, else the first in
+ * The coding agent to give an issue to when the CEO named none: the one that
+ * already has it, which is no change, else the first in
  * roster order with no issue in hand and none from this plan. A runner's slot
  * holds one issue at a time, review included, so there may be none.
  */

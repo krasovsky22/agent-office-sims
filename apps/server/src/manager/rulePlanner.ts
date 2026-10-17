@@ -9,14 +9,15 @@
  * issues. What it understands is the handful of things a CEO asks a manager
  * most:
  *
- * - **"Put Claude 1 on #12"**, "have Claude 1 do #39", "put a coding agent on
- *   #39", "put someone on #39", "hand out the backlog": an instruction in one
- *   of a few exact shapes becomes a plan to assign — carried out afterwards
- *   through the work's rules, like a model's plan. One that starts like an
- *   instruction and is not exactly one of them is not guessed at: nothing is
- *   done, and the CEO is asked to rephrase. "Someone" never means one of the
- *   runners' coding agents, which spend real money; only a name or "a coding
- *   agent" does (`./assign.ts`).
+ * - **"Put Claude 1 on #12"**, "assign #62", "assign the jumping ticket",
+ *   "put someone on #39", "get someone on #62", "hand out the backlog": an
+ *   instruction in one of a few shapes becomes a plan to assign — carried out
+ *   afterwards through the work's rules, like a model's plan, which gives an
+ *   issue nobody in particular was named for to a free coding agent
+ *   (`./assign.ts`). Work is named by number, by its whole title, or by words
+ *   only one open issue's title has. One that starts like an instruction and
+ *   is not one of them is not guessed at: nothing is done, and the CEO is
+ *   asked to rephrase.
  * - **"What's the status of #12?"**: any issue or pull request it can find in
  *   the message is described — its column, labels and pull requests, and
  *   which agent is on it and how far they have got.
@@ -33,7 +34,7 @@ import { LIVE_AGENT_STATUS, WORK_STATUS, type WorkStatus } from "@sim/shared";
 
 import { ANY_CODING_AGENT, type ManagerPlan, type ManagerRequest } from "./advisor.js";
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, WorkView } from "./officeView.js";
-import { type WorkRef, findAgents, findUnknownWork, findWork, resolveAgent } from "./resolve.js";
+import { type WorkRef, findAgents, findIssueByTitle, findUnknownWork, findWork, resolveAgent } from "./resolve.js";
 
 /** Most items one list in an answer names before saying how many more there are. */
 const LIST_LIMIT = 8;
@@ -47,28 +48,34 @@ const QUESTION_START =
 const FILLER = /^(please|now|today|asap|thanks)$/;
 /** A message starting with one of these is an instruction, or an attempt at one. */
 const INSTRUCTION_VERBS: ReadonlySet<string> = new Set(["put", "assign", "reassign", "give", "hand", "move", "send", "have", "distribute"]);
+/** A message starting with one of these is an instruction only when it parses as one: "get the status of #12" is a question. */
+const SOFT_VERBS: ReadonlySet<string> = new Set(["get"]);
 /** "give me…", "send us…": asking for something, not handing work out. */
 const NOT_AN_AGENT = /^(me|us|you|myself)$/;
 /** VERB AGENT (on|onto|to) WORK: "put Bo on #12". */
-const AGENT_FIRST_VERBS: ReadonlySet<string> = new Set(["put", "assign", "reassign", "give", "hand", "move"]);
+const AGENT_FIRST_VERBS: ReadonlySet<string> = new Set(["put", "assign", "reassign", "give", "hand", "move", "get"]);
 const AGENT_FIRST_LINKS: ReadonlySet<string> = new Set(["on", "onto", "to"]);
 /** VERB WORK to AGENT [and WORK to AGENT]*: "give #12 to Bo and #15 to Ada". */
 const WORK_FIRST_VERBS: ReadonlySet<string> = new Set(["assign", "reassign", "give", "hand", "send"]);
+/** VERB AGENT WORK: "assign someone the jumping ticket", "give Bo #12". */
+const DOUBLE_OBJECT_VERBS: ReadonlySet<string> = new Set(["assign", "reassign", "give"]);
+/** VERB WORK, to whoever is free: "assign #62", "assign jumping ticket". */
+const WORK_ONLY_VERBS: ReadonlySet<string> = new Set(["assign"]);
 /** have AGENT TAKE WORK: "have someone take #39". */
 const TAKE_VERBS: readonly string[] = ["take", "pick up", "do", "handle", "work on", "start on"];
 /** VERB the backlog [to AGENT]: "hand out the backlog". */
 const BACKLOG_VERBS: readonly string[] = ["hand out", "give out", "assign", "distribute"];
-const ANYONE = /^(someone|anyone|whoever)$/;
-/** One of the runners' coding agents, whichever is free: the only way to ask for one without a name. */
-const ANY_CODER = /^a coding agent$/;
+const ANYONE = /^(someone|somebody|anyone|anybody|whoever|whoever's|an agent|a free agent|an engineer|a dev|a developer)$/;
+/** One of the runners' coding agents, whichever is free, and never one of the orchestrator's. */
+const ANY_CODER = /^(a coding agent|a free coding agent|a coder)$/;
 /** The one clause an AGENT may carry: "someone who's free". */
-const AGENT_CLAUSES: readonly string[] = ["who's free", "who is free", "who's idle", "who is idle"];
+const AGENT_CLAUSES: readonly string[] = ["who's free", "who is free", "who's idle", "who is idle", "is free", "free"];
 /** What may sit between work references in the WORK slot. */
 const WORK_CONNECTORS: ReadonlySet<string> = new Set(["the", "and", ",", "#"]);
 const NUMBER = /^#?\d+$/;
 
 export const REPHRASE_TEXT =
-  "I couldn't tell exactly what to hand out, so I haven't changed anything. Say it like “assign #12 to Claude 1” or “put a coding agent on #39”.";
+  "I couldn't tell exactly what to hand out, so I haven't changed anything. Say it like “assign #39” or “put Claude 1 on #12”.";
 
 /** "who should I give #39 to?" asks for advice rather than an assignment. */
 const ASKING_ADVICE = /\b(should i|who should|who would|who could|who can)\b/i;
@@ -92,8 +99,8 @@ export const HELP_TEXT = [
   "- “What's the status of #12?”",
   "- “What is everyone working on?”",
   "- “What is Claude 1 doing?”",
-  "- “Put a coding agent on #39” or “Have Claude 1 do #39”",
-  "- “Put someone on #39” or “Hand out the backlog”, for the orchestrator's agents",
+  "- “Assign #39”, “Put someone on #39” or “Have Claude 1 do #39”",
+  "- “Hand out the backlog”",
 ].join("\n");
 
 /** One planner attempt: never throws, never waits. */
@@ -173,9 +180,9 @@ function backlogOf(view: OfficeView): IssueView[] {
 }
 
 /**
- * `undefined` for "someone": whoever of the orchestrator's agents is free,
- * chosen against the live office; {@link ANY_CODING_AGENT} for whichever
- * coding agent is.
+ * `undefined` for "someone": whoever is free, a coding agent first, chosen
+ * against the live office; {@link ANY_CODING_AGENT} for whichever coding
+ * agent is.
  */
 type Assignee = IssueAgentView | LiveAgentView | typeof ANY_CODING_AGENT | undefined;
 
@@ -218,8 +225,8 @@ function startsWith(words: readonly string[], phrase: string): boolean {
 
 /**
  * The AGENT slot, when these words are exactly one: an agent's name, first
- * name or id, someone/anyone/whoever, or "a coding agent", with at most one
- * "who's free"-style clause. `null` when they are not.
+ * name or id, someone/anyone/whoever and the like, or "a coding agent", with
+ * at most one "who's free"-style clause. `null` when they are not.
  */
 function readAgent(words: readonly string[], view: OfficeView): { readonly agent: Assignee } | null {
   for (const clause of ["", ...AGENT_CLAUSES]) {
@@ -248,8 +255,9 @@ function readAgent(words: readonly string[], view: OfficeView): { readonly agent
 
 /**
  * The WORK slot, when these words are exactly one: work references joined by
- * "the", "and", commas and possessives such as "Bo's", or exactly one
- * issue's full title. `null` when they are not.
+ * "the", "and", commas and possessives such as "Bo's", exactly one issue's
+ * full title, or words only one open issue's title has. `null` when they are
+ * not.
  */
 function readWork(words: readonly string[], view: OfficeView): WorkSlot | null {
   const plain = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -271,11 +279,11 @@ function readWork(words: readonly string[], view: OfficeView): WorkSlot | null {
     } else if (WORK_CONNECTORS.has(word)) {
       continue;
     } else if (!(word.endsWith("'s") && resolveAgent(word.slice(0, -2), view) !== undefined)) {
-      return null;
+      return byTitle(words, view);
     }
   }
   if (references.length === 0) {
-    return null;
+    return byTitle(words, view);
   }
   const work: WorkRef[] = [];
   const unknown: string[] = [];
@@ -288,6 +296,24 @@ function readWork(words: readonly string[], view: OfficeView): WorkSlot | null {
     }
   }
   return { work, unknown };
+}
+
+/** The WORK slot as the one open issue whose title has every telling word of it, else `null`. */
+function byTitle(words: readonly string[], view: OfficeView): WorkSlot | null {
+  const issue = findIssueByTitle(words.join(" "), view);
+  return issue === undefined ? null : { work: [{ kind: "issue", issue }], unknown: [] };
+}
+
+/** VERB AGENT WORK, every way the words can split, first that fits: "assign someone the jumping ticket". */
+function readDoubleObject(words: readonly string[], view: OfficeView): { slot: WorkSlot; agent: Assignee } | null {
+  for (let at = 1; at < words.length; at += 1) {
+    const agent = readAgent(words.slice(0, at), view);
+    const slot = agent === null ? null : readWork(words.slice(at), view);
+    if (agent !== null && slot !== null) {
+      return { slot, agent: agent.agent };
+    }
+  }
+  return null;
 }
 
 /** VERB WORK to AGENT [and WORK to AGENT]*, every way the words can split, first that fits. */
@@ -323,19 +349,23 @@ function readPairs(words: readonly string[], view: OfficeView): { slot: WorkSlot
  * What a message instructs, by a strict grammar: the whole message, less a
  * lead-in, a trailing "?" and closing filler, must be exactly one of
  *
- * 1. VERB AGENT (on|onto|to) WORK — "put Bo on #12"
+ * 1. VERB AGENT (on|onto|to) WORK — "put Bo on #12", "get someone on #62"
  * 2. VERB WORK to AGENT [and WORK to AGENT]* — "give #12 to Bo"
  * 3. have AGENT (take|pick up|do|handle|work on|start on) WORK — "have someone take #39"
  * 4. (hand out|give out|assign|distribute) the backlog [to AGENT]
+ * 5. (assign|reassign|give) AGENT WORK — "assign someone the jumping ticket"
+ * 6. assign WORK — "assign #62", "assign jumping ticket", to whoever is free
  *
  * A message that starts like one and is not exactly one is `unclear`, and
- * nothing is acted on. `undefined` for anything else: a question, or a
- * request such as "give me the status of #12".
+ * nothing is acted on, unless it starts with a verb as often a question's as
+ * an instruction's, such as "get". `undefined` for anything else: a question,
+ * or a request such as "give me the status of #12".
  */
 function readInstruction(message: string, view: OfficeView): Instruction | undefined {
   const words = wordsOf(message);
   const [verb = "", object = ""] = words;
-  if (QUESTION_START.test(words.join(" ")) || !INSTRUCTION_VERBS.has(verb) || NOT_AN_AGENT.test(object)) {
+  const soft = SOFT_VERBS.has(verb);
+  if (QUESTION_START.test(words.join(" ")) || !(INSTRUCTION_VERBS.has(verb) || soft) || NOT_AN_AGENT.test(object)) {
     return undefined;
   }
 
@@ -372,7 +402,18 @@ function readInstruction(message: string, view: OfficeView): Instruction | undef
   }
 
   const pairs = WORK_FIRST_VERBS.has(verb) ? readPairs(words.slice(1), view) : null;
-  return pairs === null ? { kind: "unclear" } : { kind: "work", pairs };
+  if (pairs !== null) {
+    return { kind: "work", pairs };
+  }
+  const slot = WORK_ONLY_VERBS.has(verb) ? readWork(words.slice(1), view) : null;
+  if (slot !== null) {
+    return { kind: "work", pairs: [{ slot, agent: undefined }] };
+  }
+  const pair = DOUBLE_OBJECT_VERBS.has(verb) ? readDoubleObject(words.slice(1), view) : null;
+  if (pair !== null) {
+    return { kind: "work", pairs: [pair] };
+  }
+  return soft ? undefined : { kind: "unclear" };
 }
 
 function notLoaded(): string {

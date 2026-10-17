@@ -35,13 +35,14 @@ task, and gets up to wander and chat with the other idle agents while it has
 none. And someone is in charge of all of them: Firstmate, the AI manager, a
 crimson body at its own desk in the lobby. The CEO walks up and talks to it —
 "what's open?", "what's the status of #12?", "which PRs are open?", "what is
-Claude 1 doing?", "put a coding agent on #39", "have Claude 1 do #39" — and it
-answers from the office's live state and the project board the server already
-polls, with labels, linked pull requests and who is on each issue. It gives an
-issue to one of the runner's coding agents only when the CEO names one or asks
-for "a coding agent", since each one spends real money; "put someone on #39"
-queues it for one of an orchestrator's live agents instead, which their
-orchestrator collects. It posts updates of its own to the same conversation
+Claude 1 doing?", "assign the jumping ticket", "put someone on #39", "have
+Claude 1 do #39" — and it answers from the office's live state and the project
+board the server already polls, with labels, linked pull requests and who is on
+each issue. An issue goes to the coding agent the CEO names, or else to a free
+one of the runner's coding agents, whatever the CEO calls it — by number, or by
+a word or two only one open issue's title has; with none free it is queued for
+one of an orchestrator's idle live agents, which their orchestrator collects,
+or the CEO is told no coding agent is free. It posts updates of its own to the same conversation
 when a coding agent starts on its issue, waits on a person, opens its pull
 request (with the link) or cannot carry on (with the runner's reason), and when
 one of the orchestrator's agents starts or stops. Everyone can read the conversation; only the CEO can instruct it.
@@ -1150,9 +1151,9 @@ Ten things are worth knowing before changing anything:
   it names is resolved against the live office afterwards, and only for a CEO
   who still holds the role, so the manager can never do what the CEO who asked
   could not. An issue for one of the runner's coding agents goes through
-  `applyWorkCommand` with the CEO as the actor, and only when the CEO's own
-  words name that agent or ask for "a coding agent", so a model's plan cannot
-  spend on one unasked; other work for one of the
+  `applyWorkCommand` with the CEO as the actor, so the work's own gates decide
+  whether one is put to work; an issue nobody in particular was named for goes
+  to a free coding agent first. Other work for one of the
   orchestrator's agents goes to its queue, which wraps the live agents'
   registry as their `LiveAgentSource` so an assignment shows on its agent until
   the agent's next report after collection settles it, as started or not taken.
