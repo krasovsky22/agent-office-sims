@@ -21,6 +21,7 @@ import { accessSync, constants } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
 
 import * as pty from "@lydell/node-pty";
+import { sanitizePromptText } from "@sim/shared";
 
 import { SCREEN_COLS, SCREEN_ROWS } from "../terminal.js";
 import { childEnv } from "./childEnv.js";
@@ -297,7 +298,8 @@ function startRun<P>(
 
   return {
     prompt(text) {
-      const clean = text.replace(/\r\n?/g, "\n").trim();
+      // Again here, at the PTY: no control character, an escape above all, may end the paste early.
+      const clean = sanitizePromptText(text);
       if (ended || clean === "") {
         return;
       }

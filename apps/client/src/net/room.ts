@@ -33,7 +33,8 @@
  *
  * The conversation with the AI manager is not: like chat it arrives as events —
  * the lines so far on joining, then each new one — and the manager's own badge
- * is read off its occupant.
+ * is read off its occupant. The prompts the CEO typed into the coding agents'
+ * terminals arrive the same way.
  *
  * Nor are the live agents' terminal screens, which change several times a
  * second. Each is kept here, whole, by occupant (`./screens.ts`), and read by
@@ -41,6 +42,10 @@
  */
 
 import {
+  type AgentPromptEntry,
+  type AgentPromptHistoryEvent,
+  type AgentPromptMessage,
+  type AgentPromptRejectedEvent,
   ANIMATION_STATE,
   type AnimationState,
   type CeoChangedEvent,
@@ -205,6 +210,12 @@ export interface RoomConnectionEvents {
   onManagerEntry?: (entry: ManagerEntry) => void;
   /** The manager did not take one of the local client's own messages. */
   onManagerRejected?: (event: ManagerRejectedEvent) => void;
+  /** The prompts typed into the coding agents' terminals lately, on joining. */
+  onAgentPromptHistory?: (entries: readonly AgentPromptEntry[]) => void;
+  /** A prompt was typed into a coding agent's terminal, the local player's own included. */
+  onAgentPrompted?: (entry: AgentPromptEntry) => void;
+  /** One of the local client's own prompts was not typed, and why. */
+  onAgentPromptRejected?: (event: AgentPromptRejectedEvent) => void;
 }
 
 /** The runners' books as the state replicates them, back as one total. */
@@ -401,6 +412,20 @@ export class RoomConnection {
   /** Tells the AI manager something. The conversation broadcast is the reply. */
   public sendManagerSay(text: string): void {
     this.room?.send(CLIENT_MESSAGE.managerSay, { text } satisfies ManagerSayMessage);
+  }
+
+  /**
+   * Asks for a prompt to be typed into a coding agent's terminal. The
+   * broadcast of it typed is the reply, or a rejection to this client alone.
+   *
+   * @returns whether it went out at all.
+   */
+  public sendAgentPrompt(agentId: string, text: string): boolean {
+    if (this.room === undefined) {
+      return false;
+    }
+    this.room.send(CLIENT_MESSAGE.agentPrompt, { agentId, text } satisfies AgentPromptMessage);
+    return true;
   }
 
   /** Says something out loud. Echoed back by the server, like an emote. */
@@ -609,6 +634,18 @@ export class RoomConnection {
 
     room.onMessage<ManagerRejectedEvent>(SERVER_MESSAGE.managerRejected, (event) => {
       this.events.onManagerRejected?.(event);
+    });
+
+    room.onMessage<AgentPromptHistoryEvent>(SERVER_MESSAGE.agentPromptHistory, (event) => {
+      this.events.onAgentPromptHistory?.(event.entries);
+    });
+
+    room.onMessage<AgentPromptEntry>(SERVER_MESSAGE.agentPrompted, (entry) => {
+      this.events.onAgentPrompted?.(entry);
+    });
+
+    room.onMessage<AgentPromptRejectedEvent>(SERVER_MESSAGE.agentPromptRejected, (event) => {
+      this.events.onAgentPromptRejected?.(event);
     });
 
     // Several times a second, so kept rather than passed on: the game loop

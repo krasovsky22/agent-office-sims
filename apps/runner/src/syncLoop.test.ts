@@ -8,8 +8,11 @@
 import {
   MAX_RUNNER_ACKS,
   MAX_RUNNER_EVENTS,
+  MAX_RUNNER_PROMPT_OUTCOMES,
+  RUNNER_PROMPT_OUTCOME,
   type RunnerCommand,
   type RunnerEvent,
+  type RunnerPromptOutcome,
   type RunnerSlotReport,
   type RunnerSync,
 } from "@sim/shared";
@@ -33,19 +36,22 @@ function stop(id: string): RunnerCommand {
 }
 
 /** A pool that records what it is handed, and a client that answers from a script. */
-function setup(replies: (SyncReply | Error)[], events: RunnerEvent[] = []) {
+function setup(replies: (SyncReply | Error)[], events: RunnerEvent[] = [], outcomes: RunnerPromptOutcome[] = []) {
   const sent: RunnerSync[] = [];
   const handled: string[] = [];
   const logged: string[] = [];
   let pending = [...events];
+  let prompts = [...outcomes];
   const loop = new SyncLoop({
     runnerId: "runner-1",
     repo: REPO,
     pool: {
       report: () => SLOTS,
       pendingEvents: () => pending,
+      pendingPromptOutcomes: () => prompts,
       delivered: (ids) => {
         pending = pending.filter((candidate) => !ids.has(candidate.id));
+        prompts = prompts.filter((candidate) => !ids.has(candidate.commandId));
       },
       handle: (command) => {
         handled.push(command.id);
@@ -64,7 +70,7 @@ function setup(replies: (SyncReply | Error)[], events: RunnerEvent[] = []) {
     maxBackoffMs: 30_000,
     log: (line) => logged.push(line),
   });
-  return { loop, sent, handled, logged, pending: () => pending };
+  return { loop, sent, handled, logged, pending: () => pending, prompts: () => prompts };
 }
 
 describe("SyncLoop", () => {
@@ -72,7 +78,7 @@ describe("SyncLoop", () => {
     const { loop, sent } = setup([]);
     expect(await loop.syncOnce()).toBe(true);
     expect(sent).toEqual([
-      { runnerId: "runner-1", repo: REPO, acked: [], slots: SLOTS, events: [], spend: { spentUsd: 1.25, budgetUsd: 5 } },
+      { runnerId: "runner-1", repo: REPO, acked: [], slots: SLOTS, events: [], spend: { spentUsd: 1.25, budgetUsd: 5 }, prompts: [] },
     ]);
   });
 
@@ -116,6 +122,21 @@ describe("SyncLoop", () => {
     await loop.syncOnce();
     expect(sent.map((sync) => sync.events.map((item) => item.id))).toEqual([["event-1"], ["event-1"]]);
     expect(pending()).toEqual([]);
+  });
+
+  it("keeps sending what came of a prompt until a sync carrying it is answered, a few at a time", async () => {
+    const outcomes = Array.from({ length: MAX_RUNNER_PROMPT_OUTCOMES + 1 }, (_, index) => ({
+      commandId: `command-${index}`,
+      slotId: "slot-1",
+      outcome: RUNNER_PROMPT_OUTCOME.busy,
+    }));
+    const { loop, sent, prompts } = setup([new SyncError("refused with HTTP 429: too many syncs", 429)], [], outcomes);
+    await loop.syncOnce();
+    await loop.syncOnce();
+    expect(sent.map((sync) => sync.prompts?.length)).toEqual([MAX_RUNNER_PROMPT_OUTCOMES, MAX_RUNNER_PROMPT_OUTCOMES]);
+    expect(prompts().map((outcome) => outcome.commandId)).toEqual([`command-${MAX_RUNNER_PROMPT_OUTCOMES}`]);
+    await loop.syncOnce();
+    expect(prompts()).toEqual([]);
   });
 
   it("sends no more events or acks in one sync than the contract allows, and the rest next time", async () => {

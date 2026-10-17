@@ -58,6 +58,8 @@ import { type RunnerEventRecord, type RunnerSlotRef, runnerSlotAgentId, runnerSl
 export interface RunnerCommands {
   /** Queues a command for a slot; `undefined` when the runner cannot be given it. */
   enqueue(runnerId: string, draft: RunnerCommandDraft): RunnerCommand | undefined;
+  /** Takes back a command its runner has not acked; whether it was still waiting. */
+  withdraw(runnerId: string, commandId: string): boolean;
   /** The issue a slot was holding at its runner's last sync. */
   slotIssue(runnerId: string, slotId: string): number | undefined;
   /** Every slot holding an issue at its runner's last sync. */
@@ -76,6 +78,7 @@ export function isRunnerCommands(value: unknown): value is RunnerCommands {
     typeof value === "object" &&
     candidate !== null &&
     typeof candidate.enqueue === "function" &&
+    typeof candidate.withdraw === "function" &&
     typeof candidate.slotIssue === "function" &&
     typeof candidate.heldIssues === "function" &&
     typeof candidate.issueUrl === "function"
@@ -127,7 +130,7 @@ export function pullRequestOfArtifact(
 const LIVE_AGENT_PREFIX = liveAgentKey("");
 
 /** The slot an occupant key names, for a runner's live agent. */
-function slotOf(occupantId: string): RunnerSlotRef | undefined {
+export function slotOf(occupantId: string): RunnerSlotRef | undefined {
   return isLiveAgentKey(occupantId) ? runnerSlotOf(occupantId.slice(LIVE_AGENT_PREFIX.length)) : undefined;
 }
 

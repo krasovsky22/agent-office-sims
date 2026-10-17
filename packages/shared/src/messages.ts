@@ -16,7 +16,9 @@
  * joiner would receive it as if it were still going on.
  */
 
+import type { AgentPromptRejection } from "./agentPrompt.js";
 import {
+  MAX_AGENT_PROMPT_LENGTH,
   MAX_CHAT_LENGTH,
   MAX_MANAGER_MESSAGE_LENGTH,
   MAX_MANAGER_REPLY_LENGTH,
@@ -51,6 +53,8 @@ export const CLIENT_MESSAGE = {
   managerSay: "manager:say",
   /** Prove the operator passphrase, to command the real coding agents; see `operator.ts`. */
   operatorVerify: "operator:verify",
+  /** Type a prompt into a coding agent's terminal; only the CEO is listened to. See `agentPrompt.ts`. */
+  agentPrompt: "agent:prompt",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -109,6 +113,22 @@ export const SERVER_MESSAGE = {
    * succeeds needs no reply: the player's replicated operator flag is it.
    */
   operatorRejected: "operator:rejected",
+  /**
+   * A prompt the CEO sent a coding agent was typed into its terminal, an
+   * {@link AgentPromptEntry}. Broadcast to every client, since everyone
+   * watching that agent's terminal should know why it changed course.
+   */
+  agentPrompted: "agent:prompted",
+  /**
+   * The prompts typed into the coding agents' terminals lately, an
+   * {@link AgentPromptHistoryEvent}, sent to each client as it joins.
+   */
+  agentPromptHistory: "agent:prompt-history",
+  /**
+   * Sent only to the client whose prompt was not typed, with the reason.
+   * Carries an {@link AgentPromptRejectedEvent}.
+   */
+  agentPromptRejected: "agent:prompt-rejected",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];
@@ -186,7 +206,8 @@ export interface ThrottledEvent {
   readonly command:
     | typeof CLIENT_MESSAGE.emote
     | typeof CLIENT_MESSAGE.chat
-    | typeof CLIENT_MESSAGE.managerSay;
+    | typeof CLIENT_MESSAGE.managerSay
+    | typeof CLIENT_MESSAGE.agentPrompt;
 }
 
 /**
@@ -279,6 +300,42 @@ export interface ManagerSayMessage {
 export interface OperatorVerifyMessage {
   /** Exactly as typed: a passphrase is compared, never sanitized. */
   readonly passphrase: string;
+}
+
+/** Something the CEO wants typed into a coding agent's terminal. */
+export interface AgentPromptMessage {
+  /** The agent's occupant key. */
+  readonly agentId: string;
+  /** Already sanitized by {@link parseAgentPromptMessage}, and never empty; may hold newlines. */
+  readonly text: string;
+}
+
+/** A prompt that was typed into a coding agent's terminal, as every client is told. */
+export interface AgentPromptEntry {
+  /** Increasing within a room, so a client can tell an entry it already has. */
+  readonly id: number;
+  /** The agent's occupant key. */
+  readonly agentId: string;
+  /** By name, since the agent may have left by the time the entry is read. */
+  readonly agentName: string;
+  /** Occupant id of the CEO who sent it. */
+  readonly authorId: string;
+  readonly authorName: string;
+  /** Sanitized by the server. Safe to render as text; may hold newlines. */
+  readonly text: string;
+  /** Epoch milliseconds. */
+  readonly at: number;
+}
+
+/** The prompts typed lately, oldest first, as a joining client is handed them. */
+export interface AgentPromptHistoryEvent {
+  readonly entries: readonly AgentPromptEntry[];
+}
+
+/** One of this client's prompts was not typed into the agent's terminal, and why. */
+export interface AgentPromptRejectedEvent {
+  readonly agentId: string;
+  readonly rejection: AgentPromptRejection;
 }
 
 /** Options a client may supply when joining the office room. */
@@ -598,6 +655,66 @@ const MAX_ISSUE_NUMBER = 0xffffffff;
 /** Whether a value is usable as a GitHub issue number: a positive whole number. */
 function isIssueNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= MAX_ISSUE_NUMBER;
+}
+
+/**
+ * Longest occupant key a prompt may name: a runner slot's live agent key,
+ * `agent:runner:<runner>:<slot>`, with both names at their longest.
+ */
+const MAX_AGENT_KEY_LENGTH = 96;
+
+/**
+ * Everything that is not printable text or a newline: the C0 controls but
+ * newline, DEL, the C1 controls, and the invisible marks that reorder text
+ * for whoever reads it (`U+200E`, `U+200F`, `U+202A`–`U+202E`,
+ * `U+2066`–`U+2069`).
+ */
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
+const PROMPT_CONTROL_CHARACTERS = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+/**
+ * Reduces a prompt for a coding agent to printable text and newlines.
+ *
+ * A prompt is typed into a terminal whose program reads every byte as input,
+ * so an escape character in it could end the paste it is wrapped in and type
+ * whatever follows as keystrokes: control characters go, every one of them,
+ * not only the ones that look dangerous today. A tab becomes a space, line
+ * endings become `\n`, and the whole is trimmed. Nothing is cut: a prompt
+ * longer than {@link MAX_AGENT_PROMPT_LENGTH} is the parser's to refuse.
+ */
+export function sanitizePromptText(raw: unknown): string {
+  if (typeof raw !== "string") {
+    return "";
+  }
+  return raw.replace(LINE_BREAK, "\n").replace(/\t/g, " ").replace(PROMPT_CONTROL_CHARACTERS, "").trim();
+}
+
+/**
+ * Validates a raw `agent:prompt` payload.
+ *
+ * Shape only: whether the sender may prompt the agent is `agentPromptRefusal`'s
+ * call, and whether the agent is at its prompt is its runner's.
+ *
+ * @returns the sanitized message, or `undefined` for a malformed one, one with
+ * nothing legible left, or one longer than {@link MAX_AGENT_PROMPT_LENGTH}.
+ */
+export function parseAgentPromptMessage(raw: unknown): AgentPromptMessage | undefined {
+  const candidate = asRecord(raw);
+  const agentId = candidate?.agentId;
+  if (
+    candidate === undefined ||
+    typeof agentId !== "string" ||
+    agentId === "" ||
+    agentId.length > MAX_AGENT_KEY_LENGTH ||
+    typeof candidate.text !== "string"
+  ) {
+    return undefined;
+  }
+  if (candidate.text.replace(LINE_BREAK, "\n").length > MAX_AGENT_PROMPT_LENGTH) {
+    return undefined;
+  }
+  const text = sanitizePromptText(candidate.text);
+  return text === "" ? undefined : { agentId, text };
 }
 
 /** Validates a raw `work:assign` payload. */

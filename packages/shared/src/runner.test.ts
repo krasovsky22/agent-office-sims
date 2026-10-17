@@ -13,6 +13,7 @@ import {
   MAX_RUNNER_ACKS,
   MAX_RUNNER_EVENTS,
   MAX_RUNNER_PROMPT_LENGTH,
+  MAX_RUNNER_PROMPT_OUTCOMES,
   MAX_RUNNER_SLOTS,
   parseRunnerSync,
   readAgentIssueLabel,
@@ -39,6 +40,7 @@ const SYNC = {
     { id: "slot-2", name: "Claude 2", status: "idle" },
   ],
   events: [{ id: "event-1", kind: "pr-opened", slotId: "slot-1", issueNumber: 39, pr: { number: 41, url: PULL } }],
+  prompts: [{ commandId: "command-7", slotId: "slot-1", outcome: "busy" }],
 };
 
 describe("parseRunnerSync", () => {
@@ -70,6 +72,7 @@ describe("parseRunnerSync", () => {
         },
       ],
       spend: undefined,
+      prompts: [{ commandId: "command-7", slotId: "slot-1", outcome: "busy" }],
     });
   });
 
@@ -94,6 +97,7 @@ describe("parseRunnerSync", () => {
       slots: [{ id: "slot-1", name: "slot-1", status: "needs-input", issueNumber: undefined, activity: "", pr: undefined }],
       events: [],
       spend: undefined,
+      prompts: [],
     });
   });
 
@@ -146,6 +150,10 @@ describe("parseRunnerSync", () => {
     ["a spend past the most a runner may report", { ...SYNC, spend: { spentUsd: MAX_RUNNER_USD + 1 } }],
     ["a budget that is not a number", { ...SYNC, spend: { spentUsd: 1, budgetUsd: "5" } }],
     ["a budget that is not finite", { ...SYNC, spend: { spentUsd: 1, budgetUsd: Number.POSITIVE_INFINITY } }],
+    ["an unknown prompt outcome", { ...SYNC, prompts: [{ commandId: "c", slotId: "s", outcome: "typed-anyway" }] }],
+    ["a prompt outcome for no command", { ...SYNC, prompts: [{ slotId: "s", outcome: "delivered" }] }],
+    ["a prompt outcome for a slot id with a colon", { ...SYNC, prompts: [{ commandId: "c", slotId: "s:1", outcome: "delivered" }] }],
+    ["too many prompt outcomes", { ...SYNC, prompts: Array.from({ length: MAX_RUNNER_PROMPT_OUTCOMES + 1 }, (_, i) => ({ commandId: `c${i}`, slotId: "s", outcome: "busy" })) }],
   ])("refuses a sync with %s", (_label, raw) => {
     expect(parseRunnerSync(raw)).toBeUndefined();
   });
@@ -198,6 +206,28 @@ describe("toRunnerCommand", () => {
     });
     expect(prompt?.kind === "prompt" && prompt.text.startsWith("first\nsecond")).toBe(true);
     expect(prompt?.kind === "prompt" && prompt.text.length).toBe(MAX_RUNNER_PROMPT_LENGTH);
+  });
+
+  it("marks only the CEO's prompt, and strips every control character from any prompt", () => {
+    expect(
+      toRunnerCommand("command-5", {
+        kind: "prompt",
+        slotId: "slot-1",
+        text: "yes\u001b[201~\r\nrm -rf /\u009b\u0007\tok",
+        requestedBy: "Dana",
+        fromCeo: true,
+      }),
+    ).toEqual({
+      id: "command-5",
+      slotId: "slot-1",
+      kind: "prompt",
+      text: "yes[201~\nrm -rf / ok",
+      requestedBy: "Dana",
+      fromCeo: true,
+    });
+    expect(toRunnerCommand("command-6", { kind: "prompt", slotId: "slot-1", text: "rework", requestedBy: "Dana" })).not.toHaveProperty(
+      "fromCeo",
+    );
   });
 
   it.each([

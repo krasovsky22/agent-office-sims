@@ -10,16 +10,18 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MAX_CHAT_LENGTH } from "./constants.js";
+import { MAX_AGENT_PROMPT_LENGTH, MAX_CHAT_LENGTH } from "./constants.js";
 import {
   EMOTE,
   EMOTES,
+  parseAgentPromptMessage,
   parseChatMessage,
   parseEmoteMessage,
   parseInteractMessage,
   parseOperatorVerifyMessage,
   parsePoseMessage,
   sanitizeChatText,
+  sanitizePromptText,
 } from "./messages.js";
 import { MAX_OPERATOR_PASSPHRASE_LENGTH } from "./operator.js";
 import { ANIMATION_STATE } from "./state.js";
@@ -178,4 +180,63 @@ describe("parseOperatorVerifyMessage", () => {
     expect(parseOperatorVerifyMessage({ passphrase: "x".repeat(MAX_OPERATOR_PASSPHRASE_LENGTH + 1) })).toBeUndefined();
     expect(parseOperatorVerifyMessage({ passphrase: "x".repeat(MAX_OPERATOR_PASSPHRASE_LENGTH) })).toBeDefined();
   });
+});
+
+describe("sanitizePromptText", () => {
+  it("keeps printable text and its lines", () => {
+    expect(sanitizePromptText("  Yes, cover the empty case.\nThen push.  ")).toBe("Yes, cover the empty case.\nThen push.");
+    expect(sanitizePromptText("ünïcode — ok ✓")).toBe("ünïcode — ok ✓");
+  });
+
+  it("normalises line endings and turns a tab into a space", () => {
+    expect(sanitizePromptText("one\r\ntwo\rthree\tfour")).toBe("one\ntwo\nthree four");
+  });
+
+  it("drops every control character, so nothing can end the paste it is typed in", () => {
+    const hostile = "ok\u001b[201~\u0003\u0004\u0007\u0008\u007f\u0085\u009b31m\u0000done";
+    const clean = sanitizePromptText(hostile);
+    expect(clean).toBe("ok[201~31mdone");
+    // eslint-disable-next-line no-control-regex -- checking for control characters is the point
+    expect(clean).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/);
+  });
+
+  it("drops the marks that reorder text for whoever reads it", () => {
+    expect(sanitizePromptText("a‮b⁦c‏d")).toBe("abcd");
+  });
+
+  it("is empty for anything that is not a string", () => {
+    expect(sanitizePromptText(42)).toBe("");
+    expect(sanitizePromptText(undefined)).toBe("");
+  });
+});
+
+describe("parseAgentPromptMessage", () => {
+  const agentId = "agent:runner:host-1:slot-1";
+
+  it("accepts a prompt for an agent, sanitized", () => {
+    expect(parseAgentPromptMessage({ agentId, text: "  answer:\r\nyes\u0007 " })).toEqual({ agentId, text: "answer:\nyes" });
+  });
+
+  it("accepts a prompt of exactly the longest length", () => {
+    const text = "x".repeat(MAX_AGENT_PROMPT_LENGTH);
+    expect(parseAgentPromptMessage({ agentId, text })?.text).toBe(text);
+  });
+
+  const rejected: readonly [string, unknown][] = [
+    ["a prompt past the longest length", { agentId, text: "x".repeat(MAX_AGENT_PROMPT_LENGTH + 1) }],
+    ["a prompt of control characters only", { agentId, text: "\u001b\u0000\n\t " }],
+    ["an empty prompt", { agentId, text: "" }],
+    ["a prompt that is not a string", { agentId, text: ["yes"] }],
+    ["no agent", { text: "yes" }],
+    ["an empty agent id", { agentId: "", text: "yes" }],
+    ["an agent id past any occupant key", { agentId: "a".repeat(97), text: "yes" }],
+    ["an agent id that is not a string", { agentId: 7, text: "yes" }],
+    ["null", null],
+    ["a bare string", "yes"],
+  ];
+  for (const [label, raw] of rejected) {
+    it(`rejects ${label}`, () => {
+      expect(parseAgentPromptMessage(raw)).toBeUndefined();
+    });
+  }
 });

@@ -176,6 +176,14 @@ export const MAX_MANAGER_MESSAGE_LENGTH = 400;
 export const MAX_MANAGER_REPLY_LENGTH = 1500;
 
 /**
+ * Longest prompt the CEO may type to a coding agent, in UTF-16 code units, as
+ * a text field counts them. Refused rather than cut past it: a prompt is
+ * instructions to a process that runs commands, and half of one can mean
+ * something else.
+ */
+export const MAX_AGENT_PROMPT_LENGTH = 2000;
+
+/**
  * Messages the CEO may send the manager back to back before the server starts
  * dropping them. Lower than chat, because each one may become a model call.
  */
@@ -183,6 +191,16 @@ export const MANAGER_BURST_ALLOWANCE = 4;
 
 /** Rate at which that allowance is restored, in messages/second: one every four seconds. */
 export const MANAGER_REFILL_PER_SECOND = 0.25;
+
+/**
+ * Prompts the CEO may send coding agents back to back before the server starts
+ * dropping them. Each one is typed into a real agent's terminal and starts a
+ * turn that spends money, so fewer than the manager takes.
+ */
+export const AGENT_PROMPT_BURST_ALLOWANCE = 3;
+
+/** Rate at which that allowance is restored, in prompts/second: one every five seconds. */
+export const AGENT_PROMPT_REFILL_PER_SECOND = 0.2;
 
 /**
  * How long the server holds a dropped player's place, in seconds.

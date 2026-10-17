@@ -8,6 +8,7 @@
  */
 
 import {
+  type AgentPromptEntry,
   ANIMATION_STATE,
   CEO_CHANGE,
   CLIENT_MESSAGE,
@@ -35,6 +36,7 @@ import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import * as THREE from "three";
 
+import { agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
 import { boardAccessFor, rejectionText } from "./boardAccess.js";
 import { DayClock } from "./dayClock.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
@@ -81,6 +83,9 @@ const CHAT_LOG_LIMIT = 50;
  * keeps fewer than this, so it is only ever a guard against a runaway session.
  */
 const MANAGER_LOG_LIMIT = 200;
+
+/** Prompts typed into the agents' terminals kept on the client; the server hands a joiner fewer. */
+const AGENT_PROMPT_LIMIT = 100;
 
 /** How long a "you are going too fast" notice stays on the HUD. */
 const NOTICE_DURATION_MS = 2500;
@@ -247,6 +252,7 @@ function start(): void {
   };
 
   let nextChatId = 1;
+  let nextRefusalId = 1;
   let noticeTimer: number | undefined;
 
   /** Shows a line to this player only, and takes it down again shortly. */
@@ -368,6 +374,7 @@ function start(): void {
         boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name),
         managerAccess: local === undefined ? undefined : managerAccessFor(local, ceo?.name),
         operatorAccess: local === undefined ? undefined : operatorAccessFor(local, room.operatorRequired()),
+        agentPromptAccess: local === undefined ? undefined : agentPromptAccessFor(local, room.operatorRequired(), ceo?.name),
       });
     },
 
@@ -391,6 +398,17 @@ function start(): void {
     },
 
     onThrottled: (event) => {
+      if (event.command === CLIENT_MESSAGE.agentPrompt) {
+        // Said in the terminal panel the prompt was sent from, which is waiting on an answer.
+        publishHud({
+          agentPromptRefusal: {
+            id: nextRefusalId++,
+            agentId: hud.terminalAgentId ?? "",
+            text: "Too many prompts — that one was dropped. Wait a few seconds and send it again.",
+          },
+        });
+        return;
+      }
       showNotice(
         event.command === CLIENT_MESSAGE.chat
           ? "Too many messages — that one was dropped."
@@ -471,6 +489,28 @@ function start(): void {
     onManagerRejected: (event) => {
       showNotice(managerRejectionText(event.rejection));
     },
+
+    // Handed over on every join, a reconnection included, so it replaces what this tab had.
+    onAgentPromptHistory: (entries) => {
+      publishHud({ agentPrompts: entries.slice(-AGENT_PROMPT_LIMIT) });
+    },
+
+    onAgentPrompted: (entry) => {
+      if (hud.agentPrompts.some((known) => known.id === entry.id)) {
+        return;
+      }
+      const agentPrompts: readonly AgentPromptEntry[] = [...hud.agentPrompts, entry].slice(-AGENT_PROMPT_LIMIT);
+      publishHud({ agentPrompts });
+    },
+
+    // Shown in the agent's terminal panel, and as a notice for a panel already closed.
+    onAgentPromptRejected: (event) => {
+      const text = agentPromptRejectionText(event.rejection, room.occupantName(event.agentId) ?? "The agent");
+      publishHud({ agentPromptRefusal: { id: nextRefusalId++, agentId: event.agentId, text } });
+      if (hud.terminalAgentId !== event.agentId) {
+        showNotice(text);
+      }
+    },
   });
 
   // The wall board, manager's desk or agent's screen whose panel is open, or
@@ -501,6 +541,7 @@ function start(): void {
         },
         terminal: {
           screenOf: (agentId) => room.screenOf(agentId),
+          prompt: (agentId, text) => room.sendAgentPrompt(agentId, text),
           close: () => {
             readingBoard = "";
           },

@@ -12,7 +12,10 @@
  * often while this is being built; configured to, it opens a pull request that
  * does not exist instead, and then waits at its prompt as a real agent does:
  * sent back for rework, it reads the prompt, commits again, and hands the same
- * pull request in again.
+ * pull request in again. Configured to ask a `question`, it ends its first
+ * turn with one and nothing handed in, waiting at its prompt at its desk, as a
+ * real agent that wants an answer does; the CEO's prompt is the answer, and it
+ * carries on to open its pull request.
  *
  * It does one real thing, writing a file in its worktree and committing it, so
  * a task's worktree is exercised end to end too: stopped before it writes, its
@@ -27,7 +30,7 @@ import { dirname, join } from "node:path";
 import { gitError } from "../worktrees.js";
 import type { Agent, AgentReporter, AgentRun, AgentTask } from "./types.js";
 
-export const MOCK_OUTCOMES = ["failed", "pr-opened"] as const;
+export const MOCK_OUTCOMES = ["failed", "pr-opened", "question"] as const;
 
 export type MockOutcome = (typeof MOCK_OUTCOMES)[number];
 
@@ -54,6 +57,7 @@ const BOLD = "\u001b[1m";
 const DIM = "\u001b[2m";
 const RED = "\u001b[31m";
 const GREEN = "\u001b[32m";
+const YELLOW = "\u001b[33m";
 const CYAN = "\u001b[36m";
 const RESET = "\u001b[0m";
 
@@ -72,7 +76,10 @@ interface Step {
   readonly act?: () => void;
 }
 
-/** What the mock does when sent back: reads why, and commits again. */
+/** What the mock asks at the end of its first turn, as the `question` outcome. */
+export const MOCK_QUESTION = "Should the change cover the empty case too? Answer from the office to carry on.";
+
+/** What the mock does when prompted, sent back or answered: reads the prompt, and commits again. */
 function reworkScript(task: AgentTask, text: string): readonly Step[] {
   const file = join(MOCK_DIR, `issue-${task.issueNumber}.md`);
   return [
@@ -147,6 +154,7 @@ export function createMockAgent(options: MockAgentOptions): Agent {
       let timer: ReturnType<typeof setTimeout> | undefined;
       let stopped = false;
       let worked = 0;
+      let asked = false;
 
       const next = (): void => {
         const current = steps[step];
@@ -174,7 +182,14 @@ export function createMockAgent(options: MockAgentOptions): Agent {
           return;
         }
         timer = undefined;
-        if (options.outcome === "pr-opened") {
+        if (options.outcome === "question" && !asked) {
+          // Ends its turn with nothing handed in, so its slot shows it waiting at its prompt.
+          asked = true;
+          reporter.output(`${YELLOW}?${RESET} ${MOCK_QUESTION}\r\n`);
+          reporter.turnDone();
+          return;
+        }
+        if (options.outcome === "pr-opened" || options.outcome === "question") {
           const number = FAKE_PR_OFFSET + task.issueNumber;
           const url = `https://github.com/${options.repo}/pull/${number}`;
           reporter.output(`${GREEN}✓ Opened ${url}${RESET}\r\n`);
@@ -206,7 +221,7 @@ export function createMockAgent(options: MockAgentOptions): Agent {
             return;
           }
           clearTimeout(timer);
-          reporter.output(`\r\n${BOLD}>${RESET} ${text}\r\n`);
+          reporter.output(`\r\n${BOLD}>${RESET} ${text.replace(/\n/g, "\r\n  ")}\r\n`);
           steps = reworkScript(task, text);
           step = 0;
           timer = setTimeout(next, stepMs);

@@ -133,9 +133,10 @@ function readDraft(raw: Record<string, unknown>, slotId: string): RunnerCommandD
       return typeof raw["reason"] === "string" ? { kind, slotId, reason: raw["reason"] } : undefined;
     case RUNNER_COMMAND_KIND.prompt: {
       const { text, requestedBy } = raw;
-      return typeof text === "string" && typeof requestedBy === "string"
-        ? { kind, slotId, text, requestedBy }
-        : undefined;
+      if (typeof text !== "string" || typeof requestedBy !== "string") {
+        return undefined;
+      }
+      return raw["fromCeo"] === true ? { kind, slotId, text, requestedBy, fromCeo: true } : { kind, slotId, text, requestedBy };
     }
     default:
       return undefined;
