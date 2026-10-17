@@ -21,6 +21,7 @@ import {
   type Occupant,
   interactableById,
   isBlocked,
+  liveAgentKey,
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
@@ -39,6 +40,8 @@ const SEAT = "seat-desk-north-3-1";
 const FAR_SEAT = "seat-desk-ceo-1";
 const COFFEE = "coffee-machine";
 const BOARD = "project-board";
+/** The screen at {@link SEAT}'s workstation. */
+const SCREEN = "screen-desk-north-3-1";
 
 function specOf(id: string): InteractableSpec {
   const spec = interactableById(OFFICE_LAYOUT, id);
@@ -222,6 +225,35 @@ describe("requestInteract", () => {
     expect(requestInteract(room, "bob", BOARD, 10).result).toBe("used");
     expect(bob.interactableId).toBe("");
     expect(requestInteract(room, "alice", BOARD, USE_COOLDOWN_MS).result).toBe("used");
+  });
+
+  it("lets anyone watch a seated live agent's screen without holding them or the agent", () => {
+    const room = createRoom();
+    const agent = liveAgentKey("runner-1");
+    join(room, agent, SEAT);
+    expect(requestInteract(room, agent, SEAT, 0).result).toBe("held");
+    const alice = join(room, "alice", SCREEN);
+    const bob = join(room, "bob", SCREEN, 0.3);
+    const before = snapshot(alice);
+
+    expect(requestInteract(room, "alice", SCREEN, 0).result).toBe("used");
+    expect(requestInteract(room, "bob", SCREEN, 0).result).toBe("used");
+    expect(snapshot(alice)).toEqual(before);
+    expect(bob.interactableId).toBe("");
+    expect(room.holds.holderOf(SEAT)).toBe(agent);
+  });
+
+  it("refuses a screen nobody is working at, or only a player is sitting at, with no state change", () => {
+    const room = createRoom();
+    const alice = join(room, "alice", SCREEN);
+    const before = snapshot(alice);
+    const refused = { result: "refused", decision: { allowed: false, refusal: INTERACT_REFUSAL.notOffered } };
+
+    expect(requestInteract(room, "alice", SCREEN, 0)).toEqual(refused);
+    join(room, "bob", SEAT);
+    expect(requestInteract(room, "bob", SEAT, 0).result).toBe("held");
+    expect(requestInteract(room, "alice", SCREEN, USE_COOLDOWN_MS)).toEqual(refused);
+    expect(snapshot(alice)).toEqual(before);
   });
 
   it("does not put desks or the coffee machine behind the project board cooldown", () => {

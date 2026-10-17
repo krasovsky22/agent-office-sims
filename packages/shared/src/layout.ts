@@ -199,6 +199,7 @@ export const INTERACTION_KIND = {
   coffee: "coffee",
   board: "board",
   manager: "manager",
+  screen: "screen",
 } as const;
 
 export type InteractionKind = (typeof INTERACTION_KIND)[keyof typeof INTERACTION_KIND];
@@ -236,6 +237,11 @@ export interface InteractableSpec {
    * seat. It is how the manager's chair is found from its desk.
    */
   readonly deskId: string | undefined;
+  /**
+   * The seat whose workstation a screen belongs to, or `undefined` for anything
+   * that is not a screen. It is how a screen knows who is working at it.
+   */
+  readonly seatId: string | undefined;
 }
 
 /**
@@ -296,9 +302,9 @@ export interface OfficeLayout {
   /** Cycled through in arrival order so occupants do not stack up. */
   readonly spawnPoints: readonly SpawnSpec[];
   /**
-   * Interactables placed by hand. Desk seats and the coffee machine are not
-   * listed here: they are derived from the desk and the prop they belong to,
-   * so neither can be moved and leave its interactable behind.
+   * Interactables placed by hand. Desk seats and screens and the coffee
+   * machine are not listed here: they are derived from the desk and the prop
+   * they belong to, so neither can be moved and leave its interactable behind.
    * {@link interactables} returns all of them.
    */
   readonly fixtures: readonly InteractableSpec[];
@@ -333,6 +339,9 @@ const STANDING_GAP = 0.5;
 
 /** Gap between a wall board and the occupant standing to read it. */
 const READING_GAP = 1;
+
+/** The room the desk rows stand in, where the live agents work. */
+export const OPEN_FLOOR_ROOM_ID = "open-floor";
 
 /** The open floor's wall board that shows this repository's own GitHub issues and pull requests. */
 export const PROJECT_BOARD_ID = "project-board";
@@ -685,6 +694,7 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       volume: undefined,
       exit: undefined,
       deskId: undefined,
+      seatId: undefined,
     },
   ],
 };
@@ -750,6 +760,14 @@ export function seatInteractableId(deskId: string, number: number): string {
 }
 
 /**
+ * The id of the screen at a desk's `number`th workstation, paired with its
+ * seat's {@link seatInteractableId}.
+ */
+export function screenInteractableId(deskId: string, number: number): string {
+  return `screen-${deskId}-${number}`;
+}
+
+/**
  * The interactable each prop kind turns into, or `undefined` for one that is
  * only furniture. Keyed by record, so a new prop kind is a type error here until
  * somebody decides whether it can be used.
@@ -764,8 +782,9 @@ const PROP_INTERACTION: Record<PropKind, InteractionKind | undefined> = {
 const interactableCache = new WeakMap<OfficeLayout, readonly InteractableSpec[]>();
 
 /**
- * Every interactable in a layout: a seat per workstation, one per usable prop,
- * one per wall board, then the hand-placed fixtures.
+ * Every interactable in a layout: a seat per workstation and a screen per
+ * open-floor one, one per usable prop, one per wall board, then the
+ * hand-placed fixtures.
  *
  * Cached per layout, like {@link collisionBoxes}, because both sides query it
  * often — the client once a frame for its prompt — and the layout never changes
@@ -786,6 +805,25 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
         volume: undefined,
         exit: workstation.exit,
         deskId: spec.id,
+        seatId: undefined,
+      });
+    });
+    // A screen per open-floor workstation, read from just behind the chair,
+    // which is where whoever gets up from it is stood, so it is clear floor
+    // within reach of the seat by the layout's own check. Only the open floor's,
+    // because that is where the live agents work.
+    workstations(spec).forEach((workstation, index) => {
+      if (roomAt(layout, workstation.seat)?.id !== OPEN_FLOOR_ROOM_ID) {
+        return;
+      }
+      all.push({
+        id: screenInteractableId(spec.id, index + 1),
+        kind: INTERACTION_KIND.screen,
+        anchor: { x: workstation.exit.x, z: workstation.exit.z, yaw: spec.yaw },
+        volume: undefined,
+        exit: undefined,
+        deskId: undefined,
+        seatId: seatInteractableId(spec.id, index + 1),
       });
     });
   }
@@ -804,6 +842,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
       volume: undefined,
       exit: undefined,
       deskId: undefined,
+      seatId: undefined,
     });
   }
   for (const board of layout.boards) {
@@ -816,6 +855,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
       volume: undefined,
       exit: undefined,
       deskId: undefined,
+      seatId: undefined,
     });
   }
   all.push(...layout.fixtures);

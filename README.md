@@ -81,6 +81,14 @@ then move it to swing the camera; `Esc` releases it. Walk up to a desk chair, th
 coffee machine, the project board or the manager's desk and a prompt appears;
 `E` uses it. Any movement key gets you out of a chair.
 
+Behind the chair of an open-floor desk where a live agent is working, the
+prompt reads `Watch the agent's terminal` and `E` opens its terminal at full
+size, with its name, what it is doing, and links to its issue and pull
+request. `E` or `Esc` closes it, and so do stepping away and the agent getting
+up. The panel is read-only for now; its prompt box is disabled. Behind an
+empty chair, or one a player sits in, there is no such prompt and `E` reaches
+for the chair.
+
 At the manager's desk in the lobby, `E` opens the conversation with Firstmate
 and puts the keyboard in its message box: `Enter` sends, `Esc` closes, and
 stepping away closes it too. Only the CEO's messages are taken; anyone else's
@@ -346,6 +354,15 @@ twenty-odd rows, and is repainted only when a frame changes it, at most every
 150 ms within 6 m of the camera, 600 ms within 14 m and 2 s beyond. It is
 taken down when the agent stands up or leaves, and nothing is drawn while no
 live agent sits, nor in the grey-box office, which has no monitors.
+
+`E` behind a working agent's chair opens the same terminal in a panel, whole
+and at full size, painted by the same function onto a 2D canvas, so none of
+its text is in the page. The panel repaints whenever a frame changes the
+screen. That interactable is the workstation's screen, one per open-floor
+workstation, derived in `layout.ts` like the seats, and offered only while a
+live agent holds its seat: the rule is `isOffered` in
+`packages/shared/src/interaction.ts`, which the client's prompt and the
+server's grant both run.
 
 The route is refused as the sync route is: `405`, `401`, `413` over 64 KB,
 `429` past about eight batches a second, and `400` for a body that is not a
@@ -631,7 +648,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all eighteen:
+Then confirm all nineteen:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -766,7 +783,17 @@ Then confirm all eighteen:
     other monitor stays as it was. Sync again with `slot-1` `idle`: it stands
     up, its monitor goes back to the kit screen, and the draw-call count is
     the one noted before it sat.
-17. **An assigned issue goes all the way to review and done.** Run the server
+17. **A working agent's terminal opens on `E`, in both tabs.** With the runner
+    started as in [Running the runner](#running-the-runner), assign an
+    `agent-ready` issue to `Mock 1` and, once it sits, walk Dana to just behind
+    its chair: the prompt reads `Watch the agent's terminal`. `E` opens the
+    panel with the mock's output, which moves on with each step, and its
+    issue link. Milo does the same and sees the same output. `Esc` closes
+    Dana's, `E` opens it again and `E` closes it; open it once more and walk a
+    few steps away: it closes while Milo's stays open. When the agent hands in
+    and gets up, Milo's closes too and the prompt behind the chair is
+    `Sit down` again. After `Send back` the panel also links the pull request.
+18. **An assigned issue goes all the way to review and done.** Run the server
     with `RUNNER_SECRET` and `OPERATOR_PASSPHRASE`, and the runner with
     `RUNNER_MOCK_OUTCOME=pr-opened`, as in
     [Running the runner](#running-the-runner); have an open issue labelled
@@ -784,13 +811,13 @@ Then confirm all eighteen:
     again. Assign another labelled issue and, while the mock works it,
     `Unassign` it: the slot stops at once and goes idle, and the runner's log
     says its worktree is kept, with the uncommitted change or commit it holds.
-18. **`pnpm typecheck` passes** across the whole repository.
+19. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the AI manager's answers, assignments, updates and orchestrator queue, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, the issue label check and pull requests, the GitHub App's tokens, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, the issue label check and pull requests, the GitHub App's tokens, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -1012,6 +1039,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/managerAccess.ts    what the local player may say to the manager, and why
   src/operatorAccess.ts   whether the local player's word reaches the live agents, and why
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
+  src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to
+  src/ui/AgentTerminalPanel.tsx  a working agent's terminal at full size, opened behind its chair
   src/assets/office-kit/ the vendored models, and their licence
 ```
 

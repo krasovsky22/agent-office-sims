@@ -246,11 +246,12 @@ describe("OFFICE_LAYOUT seats", () => {
     const atStart = walkTo(spawn, waypoint(start));
 
     const others = interactables(OFFICE_LAYOUT).filter((spec) => spec.exit === undefined);
-    expect(others.map((spec) => spec.kind).sort()).toEqual(
+    expect([...new Set(others.map((spec) => spec.kind))].sort()).toEqual(
       [
         INTERACTION_KIND.board,
         INTERACTION_KIND.coffee,
         INTERACTION_KIND.manager,
+        INTERACTION_KIND.screen,
       ].sort(),
     );
     for (const spec of others) {

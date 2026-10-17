@@ -14,7 +14,14 @@
  * to the open floor is a desk an agent can work at.
  */
 
-import { type InteractableSpec, INTERACTION_KIND, type OfficeLayout, interactables, roomAt } from "./layout.js";
+import {
+  type InteractableSpec,
+  INTERACTION_KIND,
+  OPEN_FLOOR_ROOM_ID,
+  type OfficeLayout,
+  interactables,
+  roomAt,
+} from "./layout.js";
 import { sanitizeName, sanitizeTitle } from "./messages.js";
 import { LIVE_AGENT_STATUS, type LiveAgentStatus, isLiveAgentOnTask } from "./state.js";
 
@@ -199,9 +206,6 @@ export function describeLiveAgentTask(status: LiveAgentStatus, title: string, ur
   const parts = [task, activity].filter((part) => part !== "");
   return parts.length === 0 ? "working" : parts.join(" · ");
 }
-
-/** The room the desk rows stand in. */
-const OPEN_FLOOR_ROOM_ID = "open-floor";
 
 const seatCache = new WeakMap<OfficeLayout, readonly InteractableSpec[]>();
 

@@ -45,6 +45,9 @@ function withBoard(board: WallBoardSpec): OfficeLayout {
 /** The aisle between the first two desk rows, where players spawn facing north. */
 const FLOOR_AISLE = { x: 0, z: 2.5 };
 
+/** Nobody is holding anything. */
+const NOBODY = () => undefined;
+
 describe("the open floor's project board", () => {
   it("hangs on the open floor, on a wall, facing into the room", () => {
     const board = projectBoard();
@@ -117,11 +120,11 @@ describe("the open floor's project board", () => {
     expect(spec.anchor.z).toBeGreaterThan(board.z);
     expect(spec.anchor.x).toBeCloseTo(board.x);
     expect(isBlocked(spec.anchor, OCCUPANT_RADIUS, OFFICE_LAYOUT)).toBe(false);
-    expect(nearestInteractable(OFFICE_LAYOUT, spec.anchor, INTERACT_RANGE)?.id).toBe(PROJECT_BOARD_ID);
+    expect(nearestInteractable(OFFICE_LAYOUT, spec.anchor, INTERACT_RANGE, NOBODY)?.id).toBe(PROJECT_BOARD_ID);
   });
 
   it("is not offered from the aisle, so reading it up close is a decision", () => {
-    expect(nearestInteractable(OFFICE_LAYOUT, FLOOR_AISLE, INTERACT_RANGE)).toBeUndefined();
+    expect(nearestInteractable(OFFICE_LAYOUT, FLOOR_AISLE, INTERACT_RANGE, NOBODY)).toBeUndefined();
   });
 
   it("holds nobody, so any number of players can read it at once", () => {

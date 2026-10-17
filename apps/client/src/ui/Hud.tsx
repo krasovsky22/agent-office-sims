@@ -12,7 +12,9 @@
  * {@link HudActions}, which the loop supplies — the HUD never touches the
  * socket itself. So do messages to the AI manager, whose conversation the loop
  * keeps in the snapshot whether or not its panel is open, counting the lines
- * nobody has read yet.
+ * nobody has read yet. A live agent's terminal is the one thing a panel reads
+ * that is not in the snapshot: it changes too often, so the panel asks for it
+ * through {@link HudActions} as it repaints.
  */
 
 import {
@@ -30,6 +32,7 @@ import {
 } from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { terminalLinks } from "../agentTerminal.js";
 import type { BoardAccess } from "../boardAccess.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
@@ -37,6 +40,7 @@ import type { ManagerAccess } from "../managerAccess.js";
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
 import type { OperatorAccess } from "../operatorAccess.js";
 import type { ConnectionStatus } from "../net/room.js";
+import { type AgentTerminalActions, AgentTerminalPanel } from "./AgentTerminalPanel.js";
 import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
 import { type ProjectBoardActions, ProjectBoardPanel } from "./ProjectBoardPanel.js";
 
@@ -165,6 +169,8 @@ export interface HudSnapshot {
   readonly managerAccess?: ManagerAccess | undefined;
   /** What the local player may send the live coding agents; absent with no operator passphrase. */
   readonly operatorAccess?: OperatorAccess | undefined;
+  /** The live agent whose terminal the local player opened with `E` behind its chair, or `undefined`. */
+  readonly terminalAgentId?: string | undefined;
 }
 
 export interface HudActions {
@@ -173,6 +179,7 @@ export interface HudActions {
   readonly sendChat: (text: string) => void;
   readonly projectBoard: ProjectBoardActions;
   readonly manager: ManagerPanelActions;
+  readonly terminal: AgentTerminalActions;
 }
 
 export interface HudStore {
@@ -550,8 +557,10 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     managerUnread,
     managerAccess,
     operatorAccess,
+    terminalAgentId,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
+  const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
 
   return (
     <div className="hud">
@@ -603,6 +612,17 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           actions={actions.manager}
         />
       ) : null}
+
+      {terminalAgentId === undefined ? null : (
+        <AgentTerminalPanel
+          // A fresh panel per agent, so nothing painted for one is shown for another.
+          key={terminalAgentId}
+          agentId={terminalAgentId}
+          agent={terminalAgent}
+          links={terminalLinks(terminalAgentId, terminalAgent?.taskUrl ?? "", work, projectBoard)}
+          actions={actions.terminal}
+        />
+      )}
 
       <div className="hud__column hud__column--right">
         <div className="hud__panel hud__panel--chat">

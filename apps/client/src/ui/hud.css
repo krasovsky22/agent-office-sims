@@ -848,3 +848,38 @@
 .hud__title-of--manager {
   color: #ff9aa5;
 }
+
+/* A live agent's terminal at full size: the canvas takes whatever height the
+   panel has left, and paints itself to match. */
+.terminal__facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+}
+
+.terminal__caption {
+  min-width: 0;
+  color: #c9ccd4;
+  overflow-wrap: anywhere;
+}
+
+.terminal__facts .board__link {
+  color: #9ccfff;
+}
+
+.terminal__screen {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border-radius: 6px;
+  background: #1e1f2e;
+}
+
+.terminal .board__title .hud__badge {
+  margin-left: 8px;
+  vertical-align: middle;
+}
