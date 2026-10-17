@@ -35,16 +35,18 @@ task, and gets up to wander and chat with the other idle agents while it has
 none. And someone is in charge of all of them: Firstmate, the AI manager, a
 crimson body at its own desk in the lobby. The CEO walks up and talks to it —
 "what's open?", "what's the status of #12?", "which PRs are open?", "what is
-Claude 1 doing?", "put a coding agent on #39", "have Claude 1 do #39" — and it
-answers from the office's live state and the project board the server already
-polls, with labels, linked pull requests and who is on each issue. It gives an
-issue to one of the runner's coding agents only when the CEO names one or asks
-for "a coding agent", since each one spends real money; "put someone on #39"
-queues it for one of an orchestrator's live agents instead, which their
-orchestrator collects. It posts updates of its own to the same conversation
-when a coding agent starts on its issue, waits on a person, opens its pull
-request (with the link) or cannot carry on (with the runner's reason), and when
-one of the orchestrator's agents starts or stops. Everyone can read the conversation; only the CEO can instruct it.
+Claude 1 doing?", "assign the jumping ticket", "put someone on #39", "have
+Claude 1 do #39" — and it answers from the office's live state and the project
+board the server already polls, with labels, linked pull requests and who is on
+each issue. An issue goes to the coding agent the CEO names, or else to a free
+one of the runner's coding agents, whatever the CEO calls it — by number, or by
+a word or two only one open issue's title has; with none free, or the issue not
+ready for them, it is queued for one of an orchestrator's idle live agents,
+which their orchestrator collects, unless one of those is already working it.
+It posts updates of its own to the same conversation when a coding agent starts
+on its issue, waits on a person, opens its pull request (with the link) or
+cannot carry on (with the runner's reason), and when one of the orchestrator's
+agents starts or stops. Everyone can read the conversation; only the CEO can instruct it.
 
 ## Running it
 
@@ -786,10 +788,10 @@ Then confirm all twenty:
     then `Mock 1 couldn't work on #N` with the mock's reason, or with
     `RUNNER_MOCK_OUTCOME=pr-opened`, `Mock 1 opened PR #<1000000 + N> for #N` with its
     link; `what is Mock 1 doing?` says the same. `have Mock 2 do #N` names the
-    slot instead; an issue without the label is refused with that reason. With
-    only the runner, `put someone on #N` is refused and says to ask for a coding
-    agent; with no runner and no orchestrator the reply says none is
-    connected; with `LIVE_AGENTS_SECRET` set, no runner, and an idle agent
+    slot instead; an issue without the label is refused with that reason.
+    `put someone on #N` and `assign <a word from its title>` go to a free slot
+    the same way; with no runner and no orchestrator the reply says there are
+    no coding agents on the floor; with `LIVE_AGENTS_SECRET` set, no runner, and an idle agent
     reported, as in [Live coding agents](#live-coding-agents), it is queued for
     that agent and the next `POST /agents/assignments` collects it. Milo's roster line for the
     manager counts the new lines; his panel at the desk shows the same
@@ -1191,9 +1193,9 @@ Ten things are worth knowing before changing anything:
   it names is resolved against the live office afterwards, and only for a CEO
   who still holds the role, so the manager can never do what the CEO who asked
   could not. An issue for one of the runner's coding agents goes through
-  `applyWorkCommand` with the CEO as the actor, and only when the CEO's own
-  words name that agent or ask for "a coding agent", so a model's plan cannot
-  spend on one unasked; other work for one of the
+  `applyWorkCommand` with the CEO as the actor, so the work's own gates decide
+  whether one is put to work; an issue nobody in particular was named for goes
+  to a free coding agent first. Other work for one of the
   orchestrator's agents goes to its queue, which wraps the live agents'
   registry as their `LiveAgentSource` so an assignment shows on its agent until
   the agent's next report after collection settles it, as started or not taken.

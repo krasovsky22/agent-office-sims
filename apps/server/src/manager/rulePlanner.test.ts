@@ -229,6 +229,7 @@ describe("planFromRules: assignments", () => {
     ["give #10 and #15 to Deckhand", [{ work: "issue #10", agent: "crew-2" }, { work: "issue #15", agent: "crew-2" }]],
     ["put Deckhand on Draft the Q3 roadmap", [{ work: "issue #15", agent: "crew-2" }]],
     ["give PR #46 to Deckhand", [{ work: "PR #46", agent: "crew-2" }]],
+    ["assign the login redirect to anyone", [{ work: "issue #10", agent: "" }]],
     ["give #10 to Deckhand, please", [{ work: "issue #10", agent: "crew-2" }]],
     [
       "give #10 to Deckhand, and #15 to Crewmate",
@@ -262,7 +263,6 @@ describe("planFromRules: assignments", () => {
     "put Crewmate on #11 instead of #15",
     "hand out the backlog except #10",
     "reassign #10 from Deckhand to Crewmate",
-    "assign the login redirect to anyone",
     "give an update on #12",
     "put together a summary of #11",
   ])("does nothing with %s, and asks to rephrase", (message) => {
@@ -389,12 +389,64 @@ describe("planFromRules: the runners' coding agents", () => {
     expect(ask(message, RUNNER_VIEW).assignments).toEqual(assignments);
   });
 
-  it("hands the backlog to “someone”, not to the coding agents, unless asked for one", () => {
+  it("hands the backlog to whoever is free, which the office makes a coding agent", () => {
     expect(ask("hand out the backlog", RUNNER_VIEW).assignments).toEqual([
       { work: "#10", agent: "" },
       { work: "#15", agent: "" },
       { work: "#39", agent: "" },
     ]);
+  });
+
+  describe("with an issue named loosely by its title", () => {
+    const project = RUNNER_VIEW.project!;
+    const JUMP_VIEW: OfficeView = {
+      ...RUNNER_VIEW,
+      project: {
+        ...project,
+        issues: [
+          ...project.issues,
+          issue(62, "Player jumping", "open"),
+          issue(63, "Desk lamp flicker", "open"),
+          issue(64, "Desk chair height", "open"),
+          issue(65, "Jumping jacks emote", "closed"),
+        ],
+      },
+    };
+
+    it.each<[string, { work: string; agent: string }[]]>([
+      ["assign jumping ticket", [{ work: "issue #62", agent: "" }]],
+      ["assign the jumping issue", [{ work: "issue #62", agent: "" }]],
+      ["assign #62", [{ work: "issue #62", agent: "" }]],
+      ["assign someone jumping ticket", [{ work: "issue #62", agent: "" }]],
+      ["assign someone the player jumping ticket, please", [{ work: "issue #62", agent: "" }]],
+      ["give Claude 2 the jumping ticket", [{ work: "issue #62", agent: "agent:runner/2" }]],
+      ["put someone on #62", [{ work: "issue #62", agent: "" }]],
+      ["get someone on the jumping issue", [{ work: "issue #62", agent: "" }]],
+      ["get a coding agent on #62", [{ work: "issue #62", agent: "a coding agent" }]],
+      ["put whoever is free on the jump ticket", [{ work: "issue #62", agent: "" }]],
+      ["have an agent pick up the desk lamp ticket", [{ work: "issue #63", agent: "" }]],
+      ["assign the jumping ticket to Claude 2", [{ work: "issue #62", agent: "agent:runner/2" }]],
+    ])("plans %s", (message, assignments) => {
+      expect(ask(message, JUMP_VIEW).assignments).toEqual(assignments);
+    });
+
+    it("asks to rephrase rather than guess between two issues the words fit", () => {
+      expect(ask("assign the desk ticket", JUMP_VIEW)).toEqual({ reply: REPHRASE_TEXT, assignments: [], tokensUsed: 0 });
+    });
+
+    it.each(["assign #12 and the jumping ticket", "put someone on jumping and #12", "assign the jumping ticket and issue 12"])(
+      "asks to rephrase %s rather than drop the numbered issue",
+      (message) => {
+        expect(ask(message, JUMP_VIEW)).toEqual({ reply: REPHRASE_TEXT, assignments: [], tokensUsed: 0 });
+      },
+    );
+
+    it("answers a question that starts like an instruction, and assigns nothing", () => {
+      expect(ask("get the status of #62", JUMP_VIEW)).toMatchObject({
+        assignments: [],
+        reply: expect.stringContaining("#62 “Player jumping” is open"),
+      });
+    });
   });
 
   describe("when two slots share a first name", () => {

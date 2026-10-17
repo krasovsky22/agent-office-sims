@@ -74,18 +74,21 @@ describe("the request", () => {
     expect(JSON.stringify(params)).not.toContain("test-key");
   });
 
-  it("tells the model a coding agent is only put to work when the CEO names one or asks for one", async () => {
+  it("tells the model to hand out work however the CEO asks, leaving the agent empty when none is named", async () => {
     const sent: Parameters<SendMessage>[0][] = [];
     const send: SendMessage = async (params) => {
       sent.push(params);
-      return reply(JSON.stringify({ reply: "Putting a coding agent on #39.", assignments: [{ work: "#39", agent: "a coding agent" }] }));
+      return reply(JSON.stringify({ reply: "Putting someone on #39.", assignments: [{ work: "#39", agent: "" }] }));
     };
     const planner = createModelPlanner({ apiKey: "test-key", model: "claude-opus-5-5", send });
 
-    expect((await planner(REQUEST, SIGNAL)).assignments).toEqual([{ work: "#39", agent: "a coding agent" }]);
-    expect(systemPrompt()).toContain('asks for a coding agent without naming one (put "a coding agent")');
-    expect(systemPrompt()).toContain("Never pick one of them for someone, anyone or nobody in particular");
-    expect(JSON.stringify(sent[0]?.output_config)).toContain('\\"a coding agent\\" for whichever of issueAgents is free');
+    expect((await planner(REQUEST, SIGNAL)).assignments).toEqual([{ work: "#39", agent: "" }]);
+    expect(systemPrompt()).toContain('"assign the jumping ticket", "put someone on #62"');
+    expect(systemPrompt()).toContain("by a word or two of its title");
+    expect(systemPrompt()).toContain('"a coding agent" when they ask for a coding agent without naming one');
+    expect(systemPrompt()).toContain('to a free agent in "issueAgents" first');
+    expect(systemPrompt()).not.toContain("Never pick one of them");
+    expect(JSON.stringify(sent[0]?.output_config)).toContain("for whoever is free, one of issueAgents first");
   });
 
   it("frames what people typed as data, inside its own tags", () => {

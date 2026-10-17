@@ -28,6 +28,9 @@ const STOPWORDS = new Set([
   "cut", "get", "put", "set", "new", "our", "all", "out", "off", "up",
 ]);
 
+/** What people call an issue, around the words that say which one: "the jumping ticket". */
+const ISSUE_NOUNS = new Set(["issue", "issues", "ticket", "tickets", "card", "task", "one"]);
+
 function words(text: string): string[] {
   return text.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 3 && !STOPWORDS.has(word));
 }
@@ -107,6 +110,30 @@ export function findWork(message: string, view: OfficeView): WorkRef[] {
   return found.sort((a, b) => a.at - b.at).map((entry) => entry.ref);
 }
 
+/** One of a title's words, or one it starts with or that starts it: "jump" and "jumping". */
+function sameWord(said: string, title: string): boolean {
+  const [short, long] = said.length <= title.length ? [said, title] : [title, said];
+  return short === long || (short.length >= 4 && long.startsWith(short));
+}
+
+/**
+ * The one open issue these words name by its title, when every telling word
+ * of them is in its title and in no other open issue's: "jumping ticket" for
+ * "Player jumping". `undefined` when they name none, or more than one, so a
+ * loose name is only acted on when it is certain.
+ */
+export function findIssueByTitle(text: string, view: OfficeView): IssueView | undefined {
+  const said = words(text).filter((word) => !ISSUE_NOUNS.has(word));
+  if (said.length === 0) {
+    return undefined;
+  }
+  const matches = (view.project?.issues ?? []).filter((issue) => {
+    const title = words(issue.title);
+    return issue.column !== "closed" && said.every((word) => title.some((candidate) => sameWord(word, candidate)));
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 /**
  * The references a message makes by number that name nothing on the project
  * board, as written: `#999`, `PR #42`. So "status of #999" can be told it does
@@ -126,7 +153,7 @@ export function findUnknownWork(message: string, view: OfficeView): string[] {
 
 /**
  * The work one reference names, as a planner wrote it: a number, `#N`,
- * `PR #N`, or an issue's title. `undefined` when it names nothing on the
+ * `PR #N`, an issue's title, or words only one open issue's title has. `undefined` when it names nothing on the
  * project board.
  */
 export function resolveWork(reference: string, view: OfficeView): WorkRef | undefined {
@@ -138,7 +165,12 @@ export function resolveWork(reference: string, view: OfficeView): WorkRef | unde
   if (titled !== undefined) {
     return { kind: "issue", issue: titled };
   }
-  return findWork(trimmed, view)[0];
+  const found = findWork(trimmed, view)[0];
+  if (found !== undefined) {
+    return found;
+  }
+  const loose = findIssueByTitle(trimmed, view);
+  return loose === undefined ? undefined : { kind: "issue", issue: loose };
 }
 
 /** An agent's name, id, and first name when no other agent shares it, any of which names it. */

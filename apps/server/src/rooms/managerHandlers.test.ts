@@ -182,7 +182,7 @@ describe("the AI manager in a live room", () => {
     await dana.room.leave();
   });
 
-  it("answers about the project board, and says why it cannot hand an issue out with no orchestrator", async () => {
+  it("answers about the project board, and says why it cannot hand an issue out with no agent to take it", async () => {
     const { dana, milo } = await openOffice();
     say(dana, "what's open?");
     await settled(() => replies(dana).length === 1);
@@ -191,7 +191,7 @@ describe("the AI manager in a live room", () => {
     say(dana, "put someone on #1");
     await settled(() => replies(dana).length === 2);
     expect(replies(dana)[1]?.text).toContain(
-      "✗ #1 “Fix the login redirect loop”: no agent orchestrator is connected, so I can't hand GitHub work to live agents.",
+      "✗ #1 “Fix the login redirect loop”: there are no coding agents on the floor.",
     );
     expect(serverRoom(dana).state.work.size).toBe(0);
 
