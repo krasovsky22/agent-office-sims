@@ -131,6 +131,17 @@ describe("readCommands", () => {
     expect(commands).toEqual([{ ...START, title: "Night shift", requestedBy: "Dana" }]);
   });
 
+  it("keeps a prompt's mark as the CEO's, and strips its control characters", () => {
+    const { commands } = readCommands([
+      { id: "command-1", slotId: "slot-1", kind: "prompt", text: "yes\u001b[201~\nok", requestedBy: "Dana", fromCeo: true },
+      { id: "command-2", slotId: "slot-1", kind: "prompt", text: "rework", requestedBy: "Dana", fromCeo: "yes" },
+    ]);
+    expect(commands).toEqual([
+      { id: "command-1", slotId: "slot-1", kind: "prompt", text: "yes[201~\nok", requestedBy: "Dana", fromCeo: true },
+      { id: "command-2", slotId: "slot-1", kind: "prompt", text: "rework", requestedBy: "Dana" },
+    ]);
+  });
+
   it("sets aside a command it cannot read, by id, so it can be acked", () => {
     const reply = readCommands([
       { id: "command-1", slotId: "slot-1", kind: "dance" },

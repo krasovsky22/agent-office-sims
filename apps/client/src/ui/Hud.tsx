@@ -18,6 +18,7 @@
  */
 
 import {
+  type AgentPromptEntry,
   EMOTES,
   type Emote,
   MANAGER_STATUS,
@@ -34,6 +35,7 @@ import {
 } from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import type { AgentPromptAccess } from "../agentPromptAccess.js";
 import { terminalLinks } from "../agentTerminal.js";
 import type { BoardAccess } from "../boardAccess.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
@@ -42,7 +44,7 @@ import type { ManagerAccess } from "../managerAccess.js";
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
 import type { OperatorAccess } from "../operatorAccess.js";
 import type { ConnectionStatus } from "../net/room.js";
-import { type AgentTerminalActions, AgentTerminalPanel } from "./AgentTerminalPanel.js";
+import { type AgentPromptRefusal, type AgentTerminalActions, AgentTerminalPanel } from "./AgentTerminalPanel.js";
 import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
 import { type ProjectBoardActions, ProjectBoardPanel } from "./ProjectBoardPanel.js";
 
@@ -175,6 +177,12 @@ export interface HudSnapshot {
   readonly terminalAgentId?: string | undefined;
   /** What the runners' real agents have spent today; absent, or no runners, until a runner reports. */
   readonly runnerSpend?: RunnerSpendTotal | undefined;
+  /** The prompts typed into the coding agents' terminals, oldest first, as the server relayed them. */
+  readonly agentPrompts: readonly AgentPromptEntry[];
+  /** What the local player may type to a coding agent; absent until they are in the office. */
+  readonly agentPromptAccess?: AgentPromptAccess | undefined;
+  /** Why the local player's latest prompt was not typed, if one was not. */
+  readonly agentPromptRefusal?: AgentPromptRefusal | undefined;
 }
 
 export interface HudActions {
@@ -202,6 +210,7 @@ const INITIAL: HudSnapshot = {
   work: [],
   managerOpen: false,
   managerLog: [],
+  agentPrompts: [],
   managerUnread: 0,
 };
 
@@ -587,6 +596,9 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     operatorAccess,
     terminalAgentId,
     runnerSpend,
+    agentPrompts,
+    agentPromptAccess,
+    agentPromptRefusal,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
@@ -649,6 +661,10 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           agentId={terminalAgentId}
           agent={terminalAgent}
           links={terminalLinks(terminalAgentId, terminalAgent?.taskUrl ?? "", work, projectBoard)}
+          prompts={agentPrompts.filter((entry) => entry.agentId === terminalAgentId)}
+          access={agentPromptAccess}
+          localId={roster.find((entry) => entry.isLocal)?.id}
+          refusal={agentPromptRefusal}
           actions={actions.terminal}
         />
       )}

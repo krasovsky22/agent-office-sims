@@ -101,7 +101,8 @@ export interface RunnerConfig {
  * - `RUNNER_DATA_DIR`: an absolute path, defaulting to `~/.sim-runner`.
  * - `RUNNER_AGENT`: one of {@link RUNNER_AGENT_KINDS}, defaulting to `mock`.
  * - `RUNNER_MOCK_OUTCOME`: how a `mock` agent's work ends, `failed` (the
- *   default) or `pr-opened` with a fake pull request.
+ *   default), `pr-opened` with a fake pull request, or `question`, waiting at
+ *   its prompt for an answer before it opens one.
  * - `RUNNER_MODEL`: the model a `claude` agent runs, its `--model`; unset,
  *   Claude Code's default.
  * - `RUNNER_MAX_AGENTS`: slots, from 1 to `MAX_RUNNER_SLOTS`, defaulting to 2.

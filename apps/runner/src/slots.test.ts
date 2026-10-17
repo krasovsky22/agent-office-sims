@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { MAX_NAME_LENGTH, MAX_TITLE_LENGTH, type RunnerCommand } from "@sim/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MOCK_NEEDS_INPUT_STEPS, MOCK_STEP_USD, createMockAgent } from "./agents/mock.js";
+import { MOCK_NEEDS_INPUT_STEPS, MOCK_QUESTION, MOCK_STEP_USD, type MockOutcome, createMockAgent } from "./agents/mock.js";
 import type { Agent, AgentReporter, AgentTask } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
@@ -61,7 +61,7 @@ function workspaces(fail?: string): SlotWorkspaces {
   };
 }
 
-function pool(outcome: "failed" | "pr-opened" = "failed", agent?: Agent, spaces = workspaces(), github?: TaskGithub) {
+function pool(outcome: MockOutcome = "failed", agent?: Agent, spaces = workspaces(), github?: TaskGithub) {
   let nextId = 1;
   return new SlotPool({
     count: 2,
@@ -746,6 +746,127 @@ describe("SlotPool spend", () => {
   });
 });
 
+describe("SlotPool prompts from the CEO", () => {
+  beforeEach(() => {
+    fixture = gitFixture();
+    asked = [];
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    fixture.cleanup();
+  });
+
+  let nextCommand = 10;
+  function ceoPrompt(text: string): RunnerCommand {
+    nextCommand += 1;
+    return { id: `command-${nextCommand}`, slotId: "slot-1", kind: "prompt", text, requestedBy: "Dana", fromCeo: true };
+  }
+
+  /** A terminal agent driven by the test, recording what is typed into it. */
+  function promptedAgent(takesPrompts = true) {
+    const typed: string[] = [];
+    const handle: { reporter?: AgentReporter } = {};
+    const agent: Agent = {
+      label: "Claude",
+      start: (_task, reporter) => {
+        handle.reporter = reporter;
+        return takesPrompts ? { stop: () => undefined, prompt: (text) => typed.push(text) } : { stop: () => undefined };
+      },
+    };
+    return { agent, typed, handle };
+  }
+
+  it("types a prompt only once the agent's turn is done, and says what came of each", async () => {
+    const { agent, typed, handle } = promptedAgent();
+    const slots = pool("failed", agent);
+    const outcomes = () => slots.pendingPromptOutcomes().map((outcome) => outcome.outcome);
+
+    // No task to be at a prompt for.
+    slots.handle(ceoPrompt("anyone there?"));
+    slots.handle(START);
+    // Still checking the issue and starting.
+    slots.handle(ceoPrompt("hurry"));
+    await settle();
+    slots.handle(ceoPrompt("hurry up"));
+    handle.reporter?.progress("Bash: pnpm test");
+    slots.handle(ceoPrompt("stop that"));
+    handle.reporter?.needsInput("Wants permission: Bash: git push");
+    slots.handle(ceoPrompt("yes"));
+    // Its turn ended: while it looks for the pull request it is still busy.
+    handle.reporter?.turnDone();
+    slots.handle(ceoPrompt("well?"));
+    expect(typed).toEqual([]);
+    expect(outcomes()).toEqual(["unavailable", "busy", "busy", "busy", "needs-input", "busy"]);
+
+    await settle();
+    expect(slot(slots)).toMatchObject({ status: "needs-input", activity: NO_PULL_REQUEST });
+    const answer = ceoPrompt("Yes, cover the empty case.\nThen open the pull request.");
+    slots.handle(answer);
+    expect(typed).toEqual(["Yes, cover the empty case.\nThen open the pull request."]);
+    expect(slot(slots)).toMatchObject({ status: "working", issueNumber: 39, activity: "Yes, cover the empty case." });
+    expect(slots.pendingPromptOutcomes().at(-1)).toEqual({ commandId: answer.id, slotId: "slot-1", outcome: "delivered" });
+
+    // Back at its prompt after a turn with its work handed in, it is free again.
+    handle.reporter?.prOpened({ number: 41, title: "Night shift", url: `https://github.com/${REPO}/pull/41` });
+    handle.reporter?.turnDone();
+    slots.handle(ceoPrompt("thanks"));
+    expect(typed).toHaveLength(2);
+    expect(outcomes().at(-1)).toBe("delivered");
+  });
+
+  it("forgets the outcomes a sync delivered, by their command's id", () => {
+    const slots = pool();
+    const first = ceoPrompt("one");
+    const second = ceoPrompt("two");
+    slots.handle(first);
+    slots.handle(second);
+    slots.delivered(new Set([first.id]));
+    expect(slots.pendingPromptOutcomes().map((outcome) => outcome.commandId)).toEqual([second.id]);
+  });
+
+  it("refuses a prompt for an agent that takes none", async () => {
+    const { agent, handle } = promptedAgent(false);
+    const slots = pool("failed", agent);
+    slots.handle(START);
+    await settle();
+    handle.reporter?.turnDone();
+    await settle();
+    slots.handle(ceoPrompt("hello"));
+    expect(slots.pendingPromptOutcomes().map((outcome) => outcome.outcome)).toEqual(["unavailable"]);
+  });
+
+  it("still gives the office's own rework prompt whatever the agent is doing, and reports nothing for it", async () => {
+    const { agent, typed, handle } = promptedAgent();
+    const slots = pool("failed", agent);
+    slots.handle(START);
+    await settle();
+    handle.reporter?.progress("Bash: pnpm test");
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "prompt", text: "Rework it.", requestedBy: "Dana" });
+    expect(typed).toEqual(["Rework it."]);
+    expect(slots.pendingPromptOutcomes()).toEqual([]);
+  });
+
+  it("has a mock asking a question wait at its desk until the CEO answers, then hand in", async () => {
+    const slots = pool("question");
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
+    // Its turn is over with nothing handed in: it waits at its prompt, holding the issue.
+    expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: NO_PULL_REQUEST, pr: undefined });
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS / 2);
+    expect(slot(slots)?.issueNumber).toBe(39);
+
+    const answer = ceoPrompt("Yes, the empty case too.");
+    slots.handle(answer);
+    expect(slots.pendingPromptOutcomes()).toEqual([{ commandId: answer.id, slotId: "slot-1", outcome: "delivered" }]);
+    expect(slot(slots)).toMatchObject({ status: "working", activity: "Yes, the empty case too." });
+    await vi.advanceTimersByTimeAsync(STEP_MS * 6);
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE, pr: { number: 1_000_039 } });
+    expect(slots.pendingEvents().map((event) => event.kind)).toEqual(["started", "pr-opened"]);
+  });
+});
+
 describe("SlotPool screens", () => {
   // Real timers: xterm parses what it is fed on a timer of its own.
   beforeEach(() => {
@@ -824,6 +945,25 @@ describe("SlotPool screens", () => {
       "● Bash: pnpm test",
       `✓ Opened https://github.com/${REPO}/pull/1000039`,
     ]);
+  });
+
+  it("prints the mock's question, and the CEO's answer typed to it", async () => {
+    const slots = new SlotPool({
+      count: 1,
+      agent: createMockAgent({ outcome: "question", repo: REPO, stepMs: 1 }),
+      workspaces: workspaces(),
+      taskTimeoutMs: TIMEOUT_MS,
+    });
+    slots.handle(START);
+    await vi.waitFor(() => expect(slot(slots)?.activity).toBe(NO_PULL_REQUEST), { timeout: 10_000 });
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "prompt", text: "Yes.\nBoth cases.", requestedBy: "Dana", fromCeo: true });
+    await vi.waitFor(() => expect(slots.pendingEvents().map((event) => event.kind)).toContain("pr-opened"), {
+      timeout: 10_000,
+    });
+    const text = await screenText(slots);
+    expect(text).toContain(`? ${MOCK_QUESTION}`);
+    expect(text).toContain("> Yes.");
+    expect(text).toContain("  Both cases.");
   });
 });
 

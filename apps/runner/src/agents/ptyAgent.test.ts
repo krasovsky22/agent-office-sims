@@ -249,6 +249,25 @@ exit 0`,
     expect(readFileSync(join(work.workdir, "typed.txt"), "utf8")).toBe("\u001b[200~Rework it.\u001b[201~");
   });
 
+  it("types no control character, so nothing in a prompt can end its paste or signal the agent", async () => {
+    const command = fakeClaude(
+      "hostile.sh",
+      `stty -echo
+hook SessionStart '{"source":"startup"}'
+IFS= read -r line
+printf '%s' "$line" > typed.txt
+exit 0`,
+    );
+    const work = task();
+    const reporter = recorder();
+    const run = agentFor(command).start(work, reporter);
+    await reporter.waitFor(/^started/);
+    run.prompt?.("yes\u001b[201~\u0003\u0004rm\u009b -rf\u0007 .");
+    await reporter.waitFor(/^exited/);
+    expect(reporter.seen.at(-1)).toBe("exited: Claude exited with code 0");
+    expect(readFileSync(join(work.workdir, "typed.txt"), "utf8")).toBe("\u001b[200~yes[201~rm -rf .\u001b[201~");
+  });
+
   it("follows OSC 9;4 progress: busy is working, idle again is turn done", async () => {
     const command = fakeClaude(
       "progress.sh",

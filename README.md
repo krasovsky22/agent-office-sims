@@ -91,9 +91,25 @@ Behind the chair of an open-floor desk where a live agent is working, the
 prompt reads `Watch the agent's terminal` and `E` opens its terminal at full
 size, with its name, what it is doing, and links to its issue and pull
 request. `E` or `Esc` closes it, and so do stepping away and the agent getting
-up. The panel is read-only for now; its prompt box is disabled. Behind an
-empty chair, or one a player sits in, there is no such prompt and `E` reaches
-for the chair.
+up. Behind an empty chair, or one a player sits in, there is no such prompt
+and `E` reaches for the chair.
+
+Under the terminal, the CEO can prompt a runner's agent: answer the question
+it ended its turn on, or redirect it. Click the prompt box and type; `Enter`
+sends, `Shift+Enter` starts a new line, and `Esc` hands the keys back to the
+office. A prompt is at most 2,000 characters of printable text and newlines;
+the server strips every other character, and the runner strips them again
+before it pastes the prompt into the agent's terminal and presses Enter, so no
+keystroke of the CEO's reaches it raw. It takes the CEO, and, where the server
+has an operator passphrase, a verified one (see [The operator](#the-operator));
+everyone else's panel says who can, and the server refuses their prompts with
+that reason. A prompt is typed only while the agent waits at its prompt, its
+turn done; one sent while it is busy, or waiting on a permission, is refused
+rather than queued, and only the CEO who sent it is told why, beside the box,
+where what they wrote is still there to send again. Every tab watching the
+panel shows each prompt once it is typed: `Dana → Claude 1: …`. Prompts are
+limited to three in a burst, one more every five seconds, and are not kept
+across a server restart.
 
 At the manager's desk in the lobby, `E` opens the conversation with Firstmate
 and puts the keyboard in its message box: `Enter` sends, `Esc` closes, and
@@ -236,13 +252,16 @@ Each sync carries the runner's whole state. `slots` lists every slot, at most
 optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`).
 `events` lists what happened since the last answered sync, at most 8, each
 `started`, `pr-opened`, `failed` or `finished`, with an optional `pr` and
-`message`; `acked` holds at most 32 ids. Strings are measured in bytes: the
+`message`; `prompts` says what came of the CEO's prompts, at most 8, each a
+`commandId`, its `slotId` and an `outcome`, `delivered`, `busy`, `needs-input`
+or `unavailable`; `acked` holds at most 32 ids. Strings are measured in bytes: the
 UTF-8 of the string as `JSON.stringify` writes it, escapes included and quotes
 not. A `name` is at most 18 bytes, an `activity` or a `pr` title 90, a `message`
 280 and a `pr` link 300; a sync with a longer one is refused rather than cut,
 which keeps every sync the server takes under 16 KB whatever its characters,
-sent as `JSON.stringify` writes it. A runner re-sends an event until a sync
-carrying it is answered, and the server passes each event id on once. The shape is `RunnerSync` in
+sent as `JSON.stringify` writes it. A runner re-sends an event, or a prompt's
+outcome, until a sync carrying it is answered, and the server passes each event
+id on once and takes each prompt's first outcome. The shape is `RunnerSync` in
 `packages/shared/src/runner.ts`.
 
 Slots are live agents on the floor, beside the orchestrator's: a `starting`,
@@ -302,7 +321,10 @@ request, and nothing in the office merges.
 The reply carries every command queued for that runner that it has not acked
 yet: `start` (`issueNumber`, `title`, `url`, `note`, `requestedBy`), `stop`
 (`reason`, and the `issueNumber` it is for, so a stop that arrives after the
-slot moved on ends nothing else) or `prompt` (`text`, `requestedBy`), each with
+slot moved on ends nothing else) or `prompt` (`text`, `requestedBy`, and
+`fromCeo: true` on one the CEO typed in the terminal panel, which the runner
+types only while its agent waits at its prompt and reports in `prompts`;
+the office's own rework prompt is given whatever the agent is doing), each with
 an `id` and a `slotId`. A command comes back in every reply until a sync lists its id in
 `acked`, and never after, so a lost reply loses nothing and a runner tells a
 repeat by its id. Ids are random, so a restarted server never reuses one.
@@ -408,7 +430,11 @@ its desk, stopping partway for a few of them as `needs-input` on
 goes back to idle. With `RUNNER_MOCK_OUTCOME=pr-opened` it reports `pr-opened`
 instead, with a pull request that does not exist (number `1000000 + n`), and
 keeps the issue, waiting at its prompt as a real agent does: a rework `prompt`
-has it commit again and hand the same pull request in again. A `stop` command
+has it commit again and hand the same pull request in again. With
+`RUNNER_MOCK_OUTCOME=question` it ends its first turn with a question instead,
+nothing handed in, and waits at its desk with its `Needs you` beacon lit, as
+Claude does when it wants an answer; the CEO's prompt from its terminal panel is
+the answer, and it carries on to the same fake pull request. A `stop` command
 ends the work at once and reports it `failed` with the reason, and so does the
 task timeout, which counts only while an agent works: once its pull request is
 handed in, the work waits on review for as long as it takes. The mock prints its steps in colour to its slot's
@@ -455,7 +481,7 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_REPO` | `krasovsky22/agent-office-sims` | `owner/name`; must be the server's `PROJECT_BOARD_REPO`. |
 | `RUNNER_DATA_DIR` | `~/.sim-runner` | An absolute path for the runner's own files, its clone and its tasks' worktrees, created private to its user. |
 | `RUNNER_AGENT` | `mock` | The agent each slot runs: `mock` or `claude`. |
-| `RUNNER_MOCK_OUTCOME` | `failed` | How a mock agent's work ends: `failed` or `pr-opened`. |
+| `RUNNER_MOCK_OUTCOME` | `failed` | How a mock agent's work ends: `failed`, `pr-opened`, or `question`, waiting at its prompt for the CEO's answer before it opens one. |
 | `RUNNER_MODEL` | Claude Code's | The model a `claude` agent runs, passed as `--model`: `sonnet`, `claude-sonnet-4-5`. |
 | `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
 | `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it. |
@@ -559,8 +585,11 @@ Claude that sits on a first-run screen instead of starting (not signed in, the
 folder-trust question, a setup prompt) is reported as `needs-input` with the
 reason, as is one still silent 12 seconds after it was started.
 
-Nobody answers Claude's questions yet, so a slot waiting on a person waits
-until the task timeout or a `stop`. A `stop` or the timeout sends `SIGTERM` to
+A Claude whose turn ended on a question, `Finished without a pull request`,
+waits at its prompt for the CEO, who answers it from its terminal panel. One
+stopped at a permission or a question dialog cannot be answered from the
+office: a prompt for it is refused, and it waits until the task timeout or a
+`stop`. A `stop` or the timeout sends `SIGTERM` to
 Claude's whole process group, which it leads, and `SIGKILL` five seconds later
 to anything still there; what is left in the group when Claude exits is killed
 too.
@@ -681,7 +710,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twenty:
+Then confirm all twenty-one:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -862,13 +891,30 @@ Then confirm all twenty:
     `Mock 2`: it never starts, its card notes the runner's daily budget is
     spent with the day's figures, Firstmate's conversation explains it and how
     to try again, and the runner's log says the start was refused.
+20. **The CEO prompts a coding agent from its terminal, in both tabs.** Run
+    the server with `RUNNER_SECRET` and `OPERATOR_PASSPHRASE`, and the runner
+    with `RUNNER_MOCK_OUTCOME=question`, and assign an `agent-ready` issue to
+    `Mock 1` as in step 18, then open its terminal in both tabs as in step 17.
+    Milo's panel says only the CEO can prompt it and his prompt box is
+    disabled. Dana, verified, sends `hurry up` while the mock works: it is not
+    typed, her panel says `Mock 1 is busy`, her text stays in the box, and
+    Milo's panel shows nothing. Sent while its beacon is lit for the
+    permission step, it is refused as waiting on a permission. Once the mock
+    asks its question and waits, its beacon lit with
+    `Finished without a pull request`, Dana sends `Yes, the empty case too.`:
+    the mock's terminal shows `> Yes, the empty case too.` once, both panels
+    show `Dana → Mock 1: Yes, the empty case too.`, and the mock carries on to
+    hand its pull request in. `apps/server/src/rooms/agentPromptHandlers.test.ts`
+    checks the gate, the refusals and the two tabs against a live room, and
+    `apps/runner/src/agents/ptyAgent.test.ts` that no control character
+    reaches the agent's terminal.
 20. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts to the coding agents, their gate and their delivery, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```

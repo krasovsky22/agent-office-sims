@@ -31,6 +31,12 @@
  * (`./budget.ts`), and a start that arrives once the day's budget is spent is
  * refused, as a failed start that says why and is marked as the budget's, so
  * the office can explain it.
+ * A prompt the CEO typed in the office is given to the agent only while it
+ * waits at its prompt: its turn is done, or it ended one with nothing handed
+ * in. In the middle of a turn, at a permission or a question, or with no task
+ * to be at, it is refused instead, never queued behind what the agent is
+ * doing, and the slot reports which, by the command's id, until a sync
+ * carrying the report is answered.
  */
 
 import { randomUUID } from "node:crypto";
@@ -41,11 +47,14 @@ import {
   MAX_WORK_NOTE_LENGTH,
   RUNNER_COMMAND_KIND,
   RUNNER_EVENT_KIND,
+  RUNNER_PROMPT_OUTCOME,
   RUNNER_REFUSAL,
   RUNNER_SLOT_STATUS,
   type RunnerCommand,
   type RunnerEvent,
   type RunnerEventKind,
+  type RunnerPromptOutcome,
+  type RunnerPromptOutcomeKind,
   type RunnerPullRequest,
   type RunnerRefusal,
   type RunnerSlotReport,
@@ -82,6 +91,7 @@ export interface SlotWorkspaces {
 }
 
 type StartCommand = Extract<RunnerCommand, { kind: typeof RUNNER_COMMAND_KIND.start }>;
+type PromptCommand = Extract<RunnerCommand, { kind: typeof RUNNER_COMMAND_KIND.prompt }>;
 
 export interface SlotPoolOptions {
   readonly count: number;
@@ -157,6 +167,7 @@ export function fitBytes(value: string, maxBytes: number): string {
 export class SlotPool {
   private readonly slots: Slot[];
   private readonly events: RunnerEvent[] = [];
+  private readonly promptOutcomes: RunnerPromptOutcome[] = [];
   private readonly eventId: () => string;
   private readonly log: (line: string) => void;
   private readonly redactor: Redactor;
@@ -214,12 +225,23 @@ export class SlotPool {
     return this.events;
   }
 
-  /** Forgets events a sync has delivered. */
+  /** What came of the CEO's prompts, not yet delivered, oldest first. */
+  public pendingPromptOutcomes(): readonly RunnerPromptOutcome[] {
+    return this.promptOutcomes;
+  }
+
+  /** Forgets the events, and the prompt outcomes by their command's id, that a sync has delivered. */
   public delivered(ids: ReadonlySet<string>): void {
     for (let index = this.events.length - 1; index >= 0; index -= 1) {
       const event = this.events[index];
       if (event !== undefined && ids.has(event.id)) {
         this.events.splice(index, 1);
+      }
+    }
+    for (let index = this.promptOutcomes.length - 1; index >= 0; index -= 1) {
+      const outcome = this.promptOutcomes[index];
+      if (outcome !== undefined && ids.has(outcome.commandId)) {
+        this.promptOutcomes.splice(index, 1);
       }
     }
   }
@@ -247,7 +269,11 @@ export class SlotPool {
         this.end(slot, RUNNER_EVENT_KIND.failed, `Stopped: ${command.reason || "the server asked"}`);
         return;
       case RUNNER_COMMAND_KIND.prompt:
-        this.prompt(slot, command.text);
+        if (command.fromCeo === true) {
+          this.promptFromCeo(slot, command);
+        } else {
+          this.prompt(slot, command.text);
+        }
         return;
     }
   }
@@ -360,6 +386,48 @@ export class SlotPool {
     this.arm(slot, run);
     this.setStatus(slot, run, RUNNER_SLOT_STATUS.working, text.split("\n")[0] ?? "");
     run.agentRun.prompt(text);
+  }
+
+  /**
+   * A prompt the CEO typed: given only while the agent waits at its prompt,
+   * and reported either way.
+   */
+  private promptFromCeo(slot: Slot, command: PromptCommand): void {
+    const outcome = this.promptable(slot);
+    if (outcome === RUNNER_PROMPT_OUTCOME.delivered) {
+      this.log(`${slot.id} prompted by ${command.requestedBy}`);
+      this.prompt(slot, command.text);
+    } else {
+      this.log(`prompt for ${slot.id} from ${command.requestedBy} not typed: ${outcome}`);
+    }
+    this.promptOutcomes.push({ commandId: command.id, slotId: slot.id, outcome });
+    if (this.promptOutcomes.length > MAX_PENDING_EVENTS) {
+      this.promptOutcomes.shift();
+    }
+  }
+
+  /**
+   * Whether the slot's agent waits at its prompt, and if not, why. Its turn
+   * is done when the slot is idle with a task, or needs a person only because
+   * a turn ended with nothing handed in; a slot still looking for its pull
+   * request after a turn is busy until it has.
+   */
+  private promptable(slot: Slot): RunnerPromptOutcomeKind {
+    const run = slot.run;
+    if (run === undefined || !run.live || run.workdir === undefined || run.agentRun.prompt === undefined) {
+      return slot.status === RUNNER_SLOT_STATUS.starting ? RUNNER_PROMPT_OUTCOME.busy : RUNNER_PROMPT_OUTCOME.unavailable;
+    }
+    switch (slot.status) {
+      case RUNNER_SLOT_STATUS.idle:
+        return run.checking ? RUNNER_PROMPT_OUTCOME.busy : RUNNER_PROMPT_OUTCOME.delivered;
+      case RUNNER_SLOT_STATUS.needsInput:
+        return run.missing ? RUNNER_PROMPT_OUTCOME.delivered : RUNNER_PROMPT_OUTCOME.needsInput;
+      case RUNNER_SLOT_STATUS.starting:
+      case RUNNER_SLOT_STATUS.working:
+        return RUNNER_PROMPT_OUTCOME.busy;
+      case RUNNER_SLOT_STATUS.exited:
+        return RUNNER_PROMPT_OUTCOME.unavailable;
+    }
   }
 
   /**

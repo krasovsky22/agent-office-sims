@@ -127,7 +127,7 @@ export function pullRequestOfArtifact(
 const LIVE_AGENT_PREFIX = liveAgentKey("");
 
 /** The slot an occupant key names, for a runner's live agent. */
-function slotOf(occupantId: string): RunnerSlotRef | undefined {
+export function slotOf(occupantId: string): RunnerSlotRef | undefined {
   return isLiveAgentKey(occupantId) ? runnerSlotOf(occupantId.slice(LIVE_AGENT_PREFIX.length)) : undefined;
 }
 

@@ -13,15 +13,15 @@
  * Shared because the shape is the contract the runner is written against.
  */
 
-import { MAX_WORK_NOTE_LENGTH } from "./constants.js";
+import { MAX_AGENT_PROMPT_LENGTH, MAX_WORK_NOTE_LENGTH } from "./constants.js";
 import { MAX_TASK_URL_LENGTH, parseTaskUrl } from "./liveAgents.js";
 import { MAX_LABEL_LENGTH } from "./projectBoard.js";
 import {
   MAX_NAME_LENGTH,
   MAX_TITLE_LENGTH,
-  sanitizeBody,
   sanitizeManagerText,
   sanitizeName,
+  sanitizePromptText,
   sanitizeTitle,
   sanitizeWorkNote,
 } from "./messages.js";
@@ -98,6 +98,19 @@ export const RUNNER_COMMAND_KIND = {
 
 export type RunnerCommandKind = (typeof RUNNER_COMMAND_KIND)[keyof typeof RUNNER_COMMAND_KIND];
 
+/** What came of a prompt the CEO typed in the office: typed into the agent's terminal, or why not. */
+export const RUNNER_PROMPT_OUTCOME = {
+  delivered: "delivered",
+  /** It is in the middle of a turn, or still starting. */
+  busy: "busy",
+  /** It waits on a permission, a question or a sign-in. */
+  needsInput: "needs-input",
+  /** The slot holds no task, or its agent takes no prompts. */
+  unavailable: "unavailable",
+} as const;
+
+export type RunnerPromptOutcomeKind = (typeof RUNNER_PROMPT_OUTCOME)[keyof typeof RUNNER_PROMPT_OUTCOME];
+
 /** A pull request a slot's agent opened. */
 export interface RunnerPullRequest {
   readonly number: number;
@@ -141,6 +154,18 @@ export interface RunnerSpendReport {
 }
 
 /**
+ * What came of one of the CEO's prompts, reported until a sync carrying it is
+ * answered, as an event is. The server takes the first report of a command
+ * and ignores any repeat.
+ */
+export interface RunnerPromptOutcome {
+  /** The prompt command's id. */
+  readonly commandId: string;
+  readonly slotId: string;
+  readonly outcome: RunnerPromptOutcomeKind;
+}
+
+/**
  * One sync: the runner's whole state, the commands it has taken, and what has
  * happened since its last successful sync.
  *
@@ -157,6 +182,8 @@ export interface RunnerSync {
   readonly events: readonly RunnerEvent[];
   /** `undefined` from a runner that does not meter its agents. */
   readonly spend?: RunnerSpendReport | undefined;
+  /** What came of the CEO's prompts since the last successful sync; none when left out. */
+  readonly prompts?: readonly RunnerPromptOutcome[];
 }
 
 /** Put an agent to work on an issue. */
@@ -186,13 +213,21 @@ export interface RunnerStopCommand {
   readonly issueNumber?: number;
 }
 
-/** Say something to the slot's agent. */
+/**
+ * Say something to the slot's agent.
+ *
+ * The office's own rework prompt is given whatever the agent is doing. One
+ * the CEO typed in the agent's terminal panel is marked `fromCeo`: it is typed
+ * only while the agent waits at its prompt, and refused otherwise, and the
+ * runner reports which as a {@link RunnerPromptOutcome}.
+ */
 export interface RunnerPromptCommand {
   readonly id: string;
   readonly slotId: string;
   readonly kind: typeof RUNNER_COMMAND_KIND.prompt;
   readonly text: string;
   readonly requestedBy: string;
+  readonly fromCeo?: boolean;
 }
 
 export type RunnerCommand = RunnerStartCommand | RunnerStopCommand | RunnerPromptCommand;
@@ -224,7 +259,10 @@ export const MAX_RUNNER_EVENTS = 8;
 export const MAX_RUNNER_ACKS = 32;
 
 /** Longest prompt the server will send; it is the one multi-line string here. */
-export const MAX_RUNNER_PROMPT_LENGTH = 2000;
+export const MAX_RUNNER_PROMPT_LENGTH = MAX_AGENT_PROMPT_LENGTH;
+
+/** Most prompt outcomes one sync may carry. */
+export const MAX_RUNNER_PROMPT_OUTCOMES = 8;
 
 /** A runner's or a slot's id: narrow, since it becomes part of a live agent's id. */
 const RUNNER_NAME = /^[A-Za-z0-9._-]{1,32}$/;
@@ -241,6 +279,7 @@ const MAX_ISSUE_NUMBER = 0xffffffff;
 const SLOT_STATUSES: ReadonlySet<string> = new Set(Object.values(RUNNER_SLOT_STATUS));
 const EVENT_KINDS: ReadonlySet<string> = new Set(Object.values(RUNNER_EVENT_KIND));
 const REFUSALS: ReadonlySet<string> = new Set(Object.values(RUNNER_REFUSAL));
+const PROMPT_OUTCOMES: ReadonlySet<string> = new Set(Object.values(RUNNER_PROMPT_OUTCOME));
 
 function asRecord(raw: unknown): Record<string, unknown> | undefined {
   return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
@@ -273,6 +312,10 @@ function isRefusal(value: unknown): value is RunnerRefusal {
 
 function isUsd(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_RUNNER_USD;
+}
+
+function isPromptOutcome(value: unknown): value is RunnerPromptOutcomeKind {
+  return typeof value === "string" && PROMPT_OUTCOMES.has(value);
 }
 
 /**
@@ -407,6 +450,15 @@ function parseSpend(raw: unknown): RunnerSpendReport | undefined | null {
   return { spentUsd: candidate["spentUsd"], budgetUsd: isUsd(budget) ? budget : undefined };
 }
 
+function parsePromptOutcome(raw: unknown): RunnerPromptOutcome | undefined {
+  const candidate = asRecord(raw);
+  if (candidate === undefined) {
+    return undefined;
+  }
+  const { commandId, slotId, outcome } = candidate;
+  return isItemId(commandId) && isRunnerName(slotId) && isPromptOutcome(outcome) ? { commandId, slotId, outcome } : undefined;
+}
+
 /**
  * Validates a raw sync body.
  *
@@ -430,13 +482,14 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
   const slots = parseList(candidate["slots"], MAX_RUNNER_SLOTS, parseSlot);
   const events = parseList(candidate["events"], MAX_RUNNER_EVENTS, parseEvent);
   const spend = parseSpend(candidate["spend"]);
-  if (acked === undefined || slots === undefined || events === undefined || spend === null) {
+  const prompts = parseList(candidate["prompts"], MAX_RUNNER_PROMPT_OUTCOMES, parsePromptOutcome);
+  if (acked === undefined || slots === undefined || events === undefined || spend === null || prompts === undefined) {
     return undefined;
   }
   if (new Set(slots.map((slot) => slot.id)).size !== slots.length) {
     return undefined;
   }
-  return { runnerId, repo, acked, slots, events, spend };
+  return { runnerId, repo, acked, slots, events, spend, prompts };
 }
 
 /**
@@ -476,11 +529,13 @@ export function toRunnerCommand(id: string, draft: RunnerCommandDraft): RunnerCo
       return isIssueNumber(draft.issueNumber) ? { ...stop, issueNumber: draft.issueNumber } : undefined;
     }
     case RUNNER_COMMAND_KIND.prompt: {
-      const text = sanitizeBody(draft.text, MAX_RUNNER_PROMPT_LENGTH);
+      // Typed into a terminal: printable text and newlines, nothing else.
+      const text = sanitizePromptText(draft.text.slice(0, MAX_RUNNER_PROMPT_LENGTH));
       if (text === "") {
         return undefined;
       }
-      return { id, slotId: draft.slotId, kind: draft.kind, text, requestedBy: sanitizeName(draft.requestedBy) };
+      const prompt = { id, slotId: draft.slotId, kind: draft.kind, text, requestedBy: sanitizeName(draft.requestedBy) };
+      return draft.fromCeo === true ? { ...prompt, fromCeo: true } : prompt;
     }
   }
 }

@@ -8,6 +8,8 @@
  */
 
 import {
+  AGENT_PROMPT_BURST_ALLOWANCE,
+  AGENT_PROMPT_REFILL_PER_SECOND,
   CHAT_BURST_ALLOWANCE,
   CHAT_REFILL_PER_SECOND,
   CLIENT_MESSAGE,
@@ -102,6 +104,16 @@ describe("createExpressionBudget", () => {
     expect(allowedOf(budget.emote, 50, 0)).toBe(EMOTE_BURST_ALLOWANCE);
     expect(allowedOf(budget.chat, 50, 0)).toBe(CHAT_BURST_ALLOWANCE);
     expect(allowedOf(budget[CLIENT_MESSAGE.managerSay], 50, 0)).toBe(MANAGER_BURST_ALLOWANCE);
+    expect(allowedOf(budget[CLIENT_MESSAGE.agentPrompt], 50, 0)).toBe(AGENT_PROMPT_BURST_ALLOWANCE);
+  });
+
+  it("limits prompts to the coding agents apart from the manager, and refills them at their own rate", () => {
+    const budget = createExpressionBudget(0);
+    allowedOf(budget[CLIENT_MESSAGE.agentPrompt], AGENT_PROMPT_BURST_ALLOWANCE, 0);
+
+    expect(tryConsume(budget[CLIENT_MESSAGE.agentPrompt], 0)).toBe(false);
+    expect(tryConsume(budget[CLIENT_MESSAGE.managerSay], 0)).toBe(true);
+    expect(tryConsume(budget[CLIENT_MESSAGE.agentPrompt], 1000 / AGENT_PROMPT_REFILL_PER_SECOND + 10)).toBe(true);
   });
 
   it("limits messages to the manager apart from chat", () => {

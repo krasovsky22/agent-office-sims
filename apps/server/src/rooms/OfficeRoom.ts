@@ -46,7 +46,9 @@
  * turns each change to the work into a command for the runner and each event
  * the runner reports into the agent's own move on the work. What the runners
  * report spending today is copied into the state on the tick, for every
- * client's HUD.
+ * client's HUD. The CEO's prompts to those agents go out through
+ * `agents/agentPrompts.ts`, and what the runner says came of each comes
+ * back on the same tick as its events.
  *
  * Nor is how the AI manager thinks. The room seats it at its desk, hands every
  * message to it through `managerHandlers.ts`, and sends each joining client the
@@ -61,6 +63,7 @@
 
 import { type Client, Room } from "@colyseus/core";
 import {
+  type AgentPromptHistoryEvent,
   ANIMATION_STATE,
   CEO_CHANGE,
   type CeoChangedEvent,
@@ -96,6 +99,7 @@ import {
   releaseGoneWork,
 } from "@sim/shared";
 
+import { AgentPrompts } from "../agents/agentPrompts.js";
 import { type LiveAgentSource, isLiveAgentSource } from "../agents/registry.js";
 import {
   type RunnerEventInbox,
@@ -124,6 +128,7 @@ import { LiveAgentCrew } from "../sim/liveAgents.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
 import { type OperatorGate, isOperatorGate } from "../sim/operator.js";
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
+import { registerAgentPromptHandlers } from "./agentPromptHandlers.js";
 import { registerManagerHandlers } from "./managerHandlers.js";
 import { type OperatorHandlers, registerOperatorHandlers } from "./operatorHandlers.js";
 import {
@@ -257,6 +262,8 @@ export class OfficeRoom extends Room<OfficeState> {
   private runnerWork: RunnerWork | undefined;
   /** Read every tick into the state's books; unset in a room given no runner. */
   private runnerSpend: RunnerSpendSource | undefined;
+  /** The CEO's prompts to the runners' agents; assigned in `onCreate`. */
+  private agentPrompts!: AgentPrompts;
   private screens: ScreenSource | undefined;
   private stopRelayingScreens: (() => void) | undefined;
 
@@ -346,8 +353,8 @@ export class OfficeRoom extends Room<OfficeState> {
         this.runnerWork?.changed(change);
       },
     };
-    const runnerCommands = roomOptions?.runnerCommands;
-    if (isRunnerCommands(runnerCommands)) {
+    const runnerCommands = isRunnerCommands(roomOptions?.runnerCommands) ? roomOptions.runnerCommands : undefined;
+    if (runnerCommands !== undefined) {
       this.runnerWork = new RunnerWork({
         host: workHost,
         runner: runnerCommands,
@@ -356,6 +363,23 @@ export class OfficeRoom extends Room<OfficeState> {
       });
     }
     registerWorkHandlers(this, workHost);
+    this.agentPrompts = new AgentPrompts({
+      state: this.state,
+      runner: runnerCommands,
+      now: () => Date.now(),
+      refuse: (sessionId, event) => {
+        this.clients.getById(sessionId)?.send(SERVER_MESSAGE.agentPromptRejected, event);
+      },
+      publish: (entry) => {
+        this.broadcast(SERVER_MESSAGE.agentPrompted, entry);
+      },
+      log: recordOfficeEvent,
+    });
+    registerAgentPromptHandlers(this, {
+      state: this.state,
+      prompts: this.agentPrompts,
+      allow: (client) => this.spend(client, CLIENT_MESSAGE.agentPrompt),
+    });
     // Before the manager's desk opens, so it never hands out a live agent's
     // work under the wrong rule.
     const operatorGate = isOperatorGate(roomOptions?.operatorGate) ? roomOptions.operatorGate : undefined;
@@ -465,6 +489,10 @@ export class OfficeRoom extends Room<OfficeState> {
       } satisfies ManagerHistoryEvent);
     }
     this.sendScreens(client);
+    const prompts = this.agentPrompts.history();
+    if (prompts.length > 0) {
+      client.send(SERVER_MESSAGE.agentPromptHistory, { entries: prompts } satisfies AgentPromptHistoryEvent);
+    }
   }
 
   /** Every screen whole, since the diffs broadcast while this client was away are not repeated. */
@@ -537,10 +565,16 @@ export class OfficeRoom extends Room<OfficeState> {
     if (events !== undefined && events.length > 0) {
       this.runnerWork?.receive(events);
     }
+    const prompts = this.runnerEvents?.drainPrompts();
+    if (prompts !== undefined && prompts.length > 0) {
+      this.agentPrompts.receive(prompts);
+    }
     // Once a second: a slot still holding work this room has no record of,
-    // as after the room was closed and opened again, is stopped.
+    // as after the room was closed and opened again, is stopped, and a prompt
+    // its runner never answered is given up on.
     if (this.state.tick % TICK_RATE_HZ === 0) {
       this.runnerWork?.reconcile();
+      this.agentPrompts.expire();
     }
     if (this.runnerSpend !== undefined) {
       this.showRunnerSpend(this.runnerSpend.spend());

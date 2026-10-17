@@ -22,7 +22,9 @@
  * Events travel the other way. A runner reports each one until a sync
  * carrying it is answered, so the same event can arrive twice; it is passed on
  * once, by id. Each room opens its own inbox and drains it on its tick, so a
- * flood of syncs is only ever a longer list for the next tick to read.
+ * flood of syncs is only ever a longer list for the next tick to read. What
+ * came of the CEO's prompts travels the same way, in the same inbox; the room
+ * that sent a prompt is the one that knows it, and takes its first report.
  *
  * Like the registry, everything here runs on Node's event loop, from an HTTP
  * request or this module's own sweep timer, and never inside a tick. The
@@ -45,6 +47,7 @@ import {
   type RunnerCommand,
   type RunnerCommandDraft,
   type RunnerEvent,
+  type RunnerPromptOutcome,
   type RunnerSlotReport,
   type RunnerSlotStatus,
   type RunnerSpendReport,
@@ -69,10 +72,18 @@ export interface RunnerEventRecord {
   readonly event: RunnerEvent;
 }
 
+/** What came of one of the CEO's prompts, with the runner that said so. */
+export interface RunnerPromptRecord {
+  readonly runnerId: string;
+  readonly outcome: RunnerPromptOutcome;
+}
+
 /** One room's view of the events: what has arrived since it last looked. */
 export interface RunnerEventInbox {
   /** Everything since the last drain, oldest first; empty when nothing arrived. */
   drain(): readonly RunnerEventRecord[];
+  /** Every prompt outcome since the last drain of them, oldest first, repeats included. */
+  drainPrompts(): readonly RunnerPromptRecord[];
   /** Stops collecting; a closed inbox is never written to again. */
   close(): void;
 }
@@ -198,10 +209,12 @@ interface Runner {
 
 interface Inbox {
   events: RunnerEventRecord[];
+  prompts: RunnerPromptRecord[];
 }
 
 /** What an inbox drains to when nothing arrived, so an idle tick allocates nothing. */
 const NOTHING: readonly RunnerEventRecord[] = [];
+const NO_PROMPTS: readonly RunnerPromptRecord[] = [];
 
 function sameRecord(a: LiveAgentRecord, b: LiveAgentRecord): boolean {
   return (
@@ -293,6 +306,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
       runner.outbox.delete(id);
     }
     this.receive(sync.runnerId, runner, sync.events);
+    this.receivePrompts(sync.runnerId, sync.prompts ?? []);
 
     const records = sync.slots.map((slot) => this.record(sync.runnerId, runner, slot));
     runner.slots = sync.slots;
@@ -374,7 +388,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
   }
 
   public openEventInbox(): RunnerEventInbox {
-    const inbox: Inbox = { events: [] };
+    const inbox: Inbox = { events: [], prompts: [] };
     this.inboxes.add(inbox);
     return {
       drain: () => {
@@ -383,6 +397,14 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
         }
         const drained = inbox.events;
         inbox.events = [];
+        return drained;
+      },
+      drainPrompts: () => {
+        if (inbox.prompts.length === 0) {
+          return NO_PROMPTS;
+        }
+        const drained = inbox.prompts;
+        inbox.prompts = [];
         return drained;
       },
       close: () => {
@@ -475,6 +497,22 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
         inbox.events.push({ runnerId, event });
         if (inbox.events.length > MAX_INBOX_EVENTS) {
           inbox.events.shift();
+        }
+      }
+    }
+  }
+
+  /**
+   * Passes every prompt outcome to every open inbox. Not deduplicated here: a
+   * room forgets a prompt once it has heard what came of it, so a repeat finds
+   * nothing to settle.
+   */
+  private receivePrompts(runnerId: string, outcomes: readonly RunnerPromptOutcome[]): void {
+    for (const outcome of outcomes) {
+      for (const inbox of this.inboxes) {
+        inbox.prompts.push({ runnerId, outcome });
+        if (inbox.prompts.length > MAX_INBOX_EVENTS) {
+          inbox.prompts.shift();
         }
       }
     }

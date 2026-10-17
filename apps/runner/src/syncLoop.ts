@@ -8,7 +8,8 @@
  * sync acks it, so this side remembers which ids it has taken and acks each
  * one until a sync carrying the ack is answered. Events work the same way in
  * the other direction: they stay queued in the slot pool until a sync carrying
- * them is answered, and the server passes each id on once.
+ * them is answered, and the server passes each id on once. What came of the
+ * CEO's prompts rides along the same way.
  *
  * Syncs run one at a time, never overlapping, so an answer always settles
  * exactly what its own request carried. A failed sync is retried with backoff
@@ -17,7 +18,7 @@
  * is back.
  */
 
-import { MAX_RUNNER_ACKS, MAX_RUNNER_EVENTS, type RunnerSync } from "@sim/shared";
+import { MAX_RUNNER_ACKS, MAX_RUNNER_EVENTS, MAX_RUNNER_PROMPT_OUTCOMES, type RunnerSync } from "@sim/shared";
 
 import type { SlotPool } from "./slots.js";
 import type { SyncClient } from "./syncClient.js";
@@ -31,7 +32,7 @@ const REMEMBERED_COMMAND_IDS = 512;
 export interface SyncLoopOptions {
   readonly runnerId: string;
   readonly repo: string;
-  readonly pool: Pick<SlotPool, "report" | "pendingEvents" | "delivered" | "handle" | "spend">;
+  readonly pool: Pick<SlotPool, "report" | "pendingEvents" | "pendingPromptOutcomes" | "delivered" | "handle" | "spend">;
   readonly client: SyncClient;
   readonly intervalMs?: number;
   readonly maxBackoffMs?: number;
@@ -77,6 +78,7 @@ export class SyncLoop {
     const { pool } = this.options;
     const acked = this.acks.slice(0, MAX_RUNNER_ACKS);
     const events = pool.pendingEvents().slice(0, MAX_RUNNER_EVENTS);
+    const prompts = pool.pendingPromptOutcomes().slice(0, MAX_RUNNER_PROMPT_OUTCOMES);
     const sync: RunnerSync = {
       runnerId: this.options.runnerId,
       repo: this.options.repo,
@@ -84,6 +86,7 @@ export class SyncLoop {
       slots: pool.report(),
       events,
       spend: pool.spend(),
+      prompts,
     };
 
     let reply;
@@ -97,7 +100,7 @@ export class SyncLoop {
 
     const settled = new Set(acked);
     this.acks = this.acks.filter((id) => !settled.has(id));
-    pool.delivered(new Set(events.map((event) => event.id)));
+    pool.delivered(new Set([...events.map((event) => event.id), ...prompts.map((prompt) => prompt.commandId)]));
 
     for (const id of reply.unreadable) {
       if (this.take(id)) {
