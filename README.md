@@ -648,7 +648,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all eighteen:
+Then confirm all nineteen:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
