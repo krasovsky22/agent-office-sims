@@ -257,6 +257,7 @@ describe("RunnerWork outward: the CEO's word to the slots", () => {
       host,
       runner: {
         enqueue: () => undefined,
+        withdraw: () => false,
         slotIssue: () => undefined,
         heldIssues: () => [],
         issueUrl: (number) => link.issueUrl(number),

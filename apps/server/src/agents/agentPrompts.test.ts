@@ -194,4 +194,15 @@ describe("AgentPrompts", () => {
     sync([report("command-1", RUNNER_PROMPT_OUTCOME.delivered)]);
     expect(published).toEqual([]);
   });
+
+  it("takes back a prompt it gave up on before its runner picked it up, so it is never typed", () => {
+    const { prompts, link, sync, tick, refused } = setup();
+    sync();
+    prompts.submit(CEO, { agentId: SLOT_1, text: "go on" });
+    expect(link.pending("box")).toHaveLength(1);
+    tick(30_000);
+    prompts.expire();
+    expect(refused).toEqual([{ sessionId: CEO, event: { agentId: SLOT_1, rejection: AGENT_PROMPT_REJECTION.unanswered } }]);
+    expect(sync()).toEqual([]);
+  });
 });

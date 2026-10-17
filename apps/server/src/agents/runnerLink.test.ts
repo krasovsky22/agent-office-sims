@@ -199,6 +199,20 @@ describe("RunnerLink commands", () => {
     expect(reply.kind === "accepted" && reply.commands.map((command) => command.id)).toEqual(["command-1", "command-3"]);
   });
 
+  it("takes back a command the runner has not acked, and only that one", () => {
+    const { link } = setup();
+    link.sync(sync());
+    link.enqueue("runner-1", START);
+    link.enqueue("runner-1", { kind: "prompt", slotId: "slot-1", text: "keep going", requestedBy: "Dana" });
+    expect(link.withdraw("runner-1", "command-2")).toBe(true);
+    const reply = link.sync(sync());
+    expect(reply.kind === "accepted" && reply.commands.map((command) => command.id)).toEqual(["command-1"]);
+    expect(link.withdraw("runner-1", "command-2")).toBe(false);
+    link.sync(sync({ acked: ["command-1"] }));
+    expect(link.withdraw("runner-1", "command-1")).toBe(false);
+    expect(link.withdraw("runner-9", "command-1")).toBe(false);
+  });
+
   it("refuses a command for a runner it has not heard from, or a slot it did not report", () => {
     const { link } = setup();
     expect(link.enqueue("runner-1", START)).toBeUndefined();

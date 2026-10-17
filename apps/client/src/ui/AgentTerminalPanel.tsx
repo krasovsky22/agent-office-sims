@@ -161,14 +161,14 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
     if (sending === undefined) {
       return;
     }
-    if (prompts.some((entry) => entry.id > sending.afterEntryId && entry.authorId === localId)) {
+    if (prompts.some((entry) => entry.id > sending.afterEntryId && entry.agentId === agentId && entry.authorId === localId)) {
       setDraft("");
       setSending(undefined);
       setSeenRefusalId(refusal?.id ?? 0);
-    } else if (refusal !== undefined && refusal.id !== sending.refusalId) {
+    } else if (refusal !== undefined && refusal.agentId === agentId && refusal.id !== sending.refusalId) {
       setSending(undefined);
     }
-  }, [prompts, refusal, sending, localId]);
+  }, [prompts, refusal, sending, localId, agentId]);
 
   useEffect(() => {
     if (sending === undefined) {

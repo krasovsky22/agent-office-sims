@@ -10,7 +10,8 @@
  * it; or refused as busy, waiting on a permission, or not at work, and only
  * the CEO who sent it is told, with the reason. A runner that never says is
  * taken to have lost it after {@link DEFAULT_ANSWER_TIMEOUT_MS}, and the CEO is
- * told that too, so no prompt is left looking sent.
+ * told that too, so no prompt is left looking sent; one it has not yet picked
+ * up is taken back, so it cannot be typed after the CEO was told it was lost.
  *
  * The command reaches the runner exactly once, by the runner link's ids; the
  * runner's report of it is taken once here, by the same id, and forgotten.
@@ -53,7 +54,7 @@ const REFUSAL: Readonly<Record<Exclude<RunnerPromptOutcomeKind, "delivered">, Ag
 export interface AgentPromptsOptions {
   readonly state: OfficeState;
   /** Where the prompt is queued for the agent's runner; absent when the server has no runner. */
-  readonly runner: Pick<RunnerCommands, "enqueue"> | undefined;
+  readonly runner: Pick<RunnerCommands, "enqueue" | "withdraw"> | undefined;
   /** Epoch milliseconds, for an entry's time and the answer timeout. */
   readonly now: () => number;
   /** Tells one client, by session id, that its prompt was not typed. */
@@ -158,6 +159,7 @@ export class AgentPrompts {
     for (const [id, prompt] of this.pending) {
       if (prompt.sentAt <= cutoff) {
         this.pending.delete(id);
+        this.options.runner?.withdraw(prompt.runnerId, id);
         this.refused(prompt, AGENT_PROMPT_REJECTION.unanswered);
       }
     }

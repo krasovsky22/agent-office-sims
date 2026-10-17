@@ -349,6 +349,15 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
     return command;
   }
 
+  /**
+   * Takes back a command its runner has not acked yet, so it never goes out.
+   *
+   * @returns whether it was still waiting to.
+   */
+  public withdraw(runnerId: string, commandId: string): boolean {
+    return this.runners.get(runnerId)?.outbox.delete(commandId) ?? false;
+  }
+
   /** Whether a runner's last sync was taken, and it has not gone silent since. */
   public hasRunner(runnerId: string): boolean {
     return this.runners.has(runnerId);
