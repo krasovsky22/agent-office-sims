@@ -6,16 +6,19 @@
  * the floor can all be developed and tested end to end without a real agent.
  * It says it spends a little on every step all the same, pretend money, so
  * the runner's daily budget can be run out and seen to refuse the next start.
- * Partway through it stops to wait on a person for a few steps, as a real
- * agent does for a permission, so the office's needs-you beacon can be seen
- * without one. By default the work fails, which is what a real agent does most
- * often while this is being built; configured to, it opens a pull request that
- * does not exist instead, and then waits at its prompt as a real agent does:
- * sent back for rework, it reads the prompt, commits again, and hands the same
- * pull request in again. Configured to ask a `question`, it ends its first
- * turn with one and nothing handed in, waiting at its prompt at its desk, as a
- * real agent that wants an answer does; the CEO's prompt is the answer, and it
- * carries on to open its pull request.
+ * Partway through it stops to wait on a person, as a real agent does for a
+ * permission, so the office's needs-you beacon can be seen without one; like a
+ * real agent it waits for as long as nobody answers, and a prompt is the
+ * answer that has it carry on. By default the work fails, which is what a real
+ * agent does most often while this is being built; configured to, it hands in
+ * a simulated pull request instead, one it never opens on GitHub and that the
+ * office says is simulated wherever it names it, and then waits at its prompt
+ * as a real agent does: sent back for rework, it reads the prompt, commits
+ * again, and hands the same simulated pull request in again. Configured to ask
+ * a `question`, it ends its first turn with one and nothing handed in, waiting
+ * at its prompt at its desk, as a real agent that wants an answer does; the
+ * CEO's prompt is the answer, and it carries on to hand its simulated pull
+ * request in.
  *
  * It does one real thing, writing a file in its worktree and committing it, so
  * a task's worktree is exercised end to end too: stopped before it writes, its
@@ -36,8 +39,6 @@ export type MockOutcome = (typeof MOCK_OUTCOMES)[number];
 
 export interface MockAgentOptions {
   readonly outcome: MockOutcome;
-  /** `owner/name`, for the fake pull request's link. */
-  readonly repo: string;
   /** Between one scripted step and the next. */
   readonly stepMs?: number;
 }
@@ -45,13 +46,17 @@ export interface MockAgentOptions {
 const DEFAULT_STEP_MS = 2000;
 
 /**
- * Added to the issue number for the fake pull request's, so its link is
- * shaped like a real one and still names no pull request that exists.
+ * Added to the issue number for the simulated pull request's. The contract
+ * needs a number, and this one is never shown; should anything show it, it
+ * still names no pull request that exists.
  */
-const FAKE_PR_OFFSET = 1_000_000;
+const SIMULATED_PR_OFFSET = 1_000_000;
 
 /** Where in its worktree the mock writes, apart from anything the repository has. */
 const MOCK_DIR = ".sims-mock";
+
+/** What the mock waits on a person for, as a real agent waits on a permission. */
+export const MOCK_PERMISSION = "Permission: Bash pnpm test";
 
 const BOLD = "\u001b[1m";
 const DIM = "\u001b[2m";
@@ -61,16 +66,13 @@ const YELLOW = "\u001b[33m";
 const CYAN = "\u001b[36m";
 const RESET = "\u001b[0m";
 
-/** How many steps the mock waits on a person before it carries on. */
-export const MOCK_NEEDS_INPUT_STEPS = 3;
-
 /** The pretend US dollars each step it works costs: twenty cents for a task. */
 export const MOCK_STEP_USD = 0.05;
 
 /** One step of the script: what it is doing, or what it is waiting on. */
 interface Step {
   readonly activity: string;
-  /** Whether it is waiting on a person rather than working. */
+  /** Whether it waits on a person rather than working: until a prompt answers it, however long that takes. */
   readonly needsInput?: boolean;
   /** What the step really does, if anything; throws to fail the work. */
   readonly act?: () => void;
@@ -108,10 +110,7 @@ function script(task: AgentTask): readonly Step[] {
       },
     },
     { activity: "Bash: git commit", act: () => commit(task.workdir, `mock: work on #${task.issueNumber}`) },
-    ...Array.from({ length: MOCK_NEEDS_INPUT_STEPS }, (): Step => ({
-      activity: "Permission: Bash pnpm test",
-      needsInput: true,
-    })),
+    { activity: MOCK_PERMISSION, needsInput: true },
     { activity: "Bash: pnpm test" },
   ];
 }
@@ -155,20 +154,25 @@ export function createMockAgent(options: MockAgentOptions): Agent {
       let stopped = false;
       let worked = 0;
       let asked = false;
+      /** It is waiting on a person, with no timer: only a prompt moves it on. */
+      let waiting = false;
 
       const next = (): void => {
         const current = steps[step];
         step += 1;
         if (current !== undefined) {
           if (current.needsInput === true) {
+            // No timer: it waits for as long as nobody answers.
+            timer = undefined;
+            waiting = true;
             reporter.needsInput(current.activity);
-            reporter.output(`${CYAN}?${RESET} ${current.activity}\r\n`);
-          } else {
-            reporter.progress(current.activity);
-            reporter.output(`${CYAN}●${RESET} ${current.activity}\r\n`);
-            worked += 1;
-            reporter.spent(worked * MOCK_STEP_USD);
+            reporter.output(`${CYAN}?${RESET} ${current.activity}\r\n${DIM}  Waiting for an answer…${RESET}\r\n`);
+            return;
           }
+          reporter.progress(current.activity);
+          reporter.output(`${CYAN}●${RESET} ${current.activity}\r\n`);
+          worked += 1;
+          reporter.spent(worked * MOCK_STEP_USD);
           try {
             current.act?.();
           } catch (error) {
@@ -190,13 +194,11 @@ export function createMockAgent(options: MockAgentOptions): Agent {
           return;
         }
         if (options.outcome === "pr-opened" || options.outcome === "question") {
-          const number = FAKE_PR_OFFSET + task.issueNumber;
-          const url = `https://github.com/${options.repo}/pull/${number}`;
-          reporter.output(`${GREEN}✓ Opened ${url}${RESET}\r\n`);
-          reporter.prOpened({ number, title: `[mock] ${task.title}`, url });
+          reporter.output(`${GREEN}✓ Handed in a simulated pull request; nothing was opened on GitHub${RESET}\r\n`);
+          reporter.prOpened({ number: SIMULATED_PR_OFFSET + task.issueNumber, title: `[mock] ${task.title}`, url: "", simulated: true });
           reporter.turnDone();
         } else {
-          const message = "The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a pull request.";
+          const message = "The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a simulated pull request.";
           reporter.output(`${RED}✗ ${message}${RESET}\r\n`);
           reporter.failed(message);
         }
@@ -209,6 +211,7 @@ export function createMockAgent(options: MockAgentOptions): Agent {
       }, stepMs);
 
       return {
+        promptAnswersWait: true,
         stop() {
           stopped = true;
           if (timer !== undefined) {
@@ -222,8 +225,13 @@ export function createMockAgent(options: MockAgentOptions): Agent {
           }
           clearTimeout(timer);
           reporter.output(`\r\n${BOLD}>${RESET} ${text.replace(/\n/g, "\r\n  ")}\r\n`);
-          steps = reworkScript(task, text);
-          step = 0;
+          if (waiting) {
+            // The answer to what it waits on: it carries on from there.
+            waiting = false;
+          } else {
+            steps = reworkScript(task, text);
+            step = 0;
+          }
           timer = setTimeout(next, stepMs);
         },
       };

@@ -41,7 +41,7 @@ import { DayClock } from "./dayClock.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
-import { PlayerController } from "./player/controller.js";
+import { type CameraFocus, PlayerController, shoulderView } from "./player/controller.js";
 import { AgentScreens } from "./scene/agentScreen.js";
 import { Avatar } from "./scene/avatar.js";
 import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
@@ -87,6 +87,13 @@ const AGENT_PROMPT_LIMIT = 100;
 
 /** How long a "you are going too fast" notice stays on the HUD. */
 const NOTICE_DURATION_MS = 2500;
+
+/**
+ * How far into its lean over a working agent's shoulder the camera hides
+ * that agent: about where the boom has come in past the player to the agent's
+ * head, which would otherwise fill the view.
+ */
+const LEAN_HIDES_AGENT_AT = 0.5;
 
 /** How often the `?debug` readout is refreshed. Off the frame path otherwise. */
 const DEBUG_INTERVAL_MS = 500;
@@ -539,6 +546,27 @@ function start(): void {
   const debugEnabled = readDebugEnabled();
   let nextDebugMs = 0;
 
+  // The seat whose agent the camera last leaned in over, and the agent hidden
+  // for it: leaned in, the camera is where that agent's head is.
+  let leanSeat: string | undefined;
+  let hiddenAgentId: string | undefined;
+
+  // Each screen's view over its agent's shoulder, worked out once: the layout
+  // does not move, and the controller tells a view it is already in by identity.
+  const shoulderViews = new Map<string, CameraFocus | undefined>();
+  const shoulderViewOf = (screen: InteractableSpec): CameraFocus | undefined => {
+    // Nothing to lean in for without the monitors: the grey-box office, or a kit still loading.
+    if (agentScreens === undefined || screen.seatId === undefined) {
+      return undefined;
+    }
+    if (!shoulderViews.has(screen.id)) {
+      const seat = interactableById(OFFICE_LAYOUT, screen.seatId);
+      const centre = agentScreens.screenCentre(screen.seatId);
+      shoulderViews.set(screen.id, seat === undefined || centre === undefined ? undefined : shoulderView(seat.anchor, centre));
+    }
+    return shoulderViews.get(screen.id);
+  };
+
   // The prompt as last published, held as loose fields so the per-frame check
   // that nothing has changed costs no allocation.
   let promptKeys = "";
@@ -623,6 +651,23 @@ function start(): void {
     // replicated hold is stale and would keep offering "Stand up".
     const locallyHeldWith = controller.held ? engagedWith : "";
     const target = refreshPrompt(locallyHeldWith);
+    // Standing still behind a working agent's chair leans the camera in over
+    // its shoulder, to read its monitor; `E` still opens the whole terminal.
+    const shoulder = target?.kind === INTERACTION_KIND.screen ? shoulderViewOf(target) : undefined;
+    controller.setFocus(shoulder);
+    if (shoulder !== undefined && controller.leaningInto === shoulder) {
+      leanSeat = target?.seatId;
+    }
+    const hide = controller.leanedIn > LEAN_HIDES_AGENT_AT && leanSeat !== undefined ? room.holderOf(leanSeat) : undefined;
+    if (hide !== hiddenAgentId) {
+      if (hiddenAgentId !== undefined) {
+        avatars.get(hiddenAgentId)?.setBodyHidden(false);
+      }
+      if (hide !== undefined) {
+        avatars.get(hide)?.setBodyHidden(true);
+      }
+      hiddenAgentId = hide;
+    }
     if (controller.takeReleaseRequest()) {
       room.sendRelease();
     }

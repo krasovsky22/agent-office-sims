@@ -103,8 +103,9 @@ before it pastes the prompt into the agent's terminal and presses Enter, so no
 keystroke of the CEO's reaches it raw. It takes the CEO;
 everyone else's panel says who can, and the server refuses their prompts with
 that reason. A prompt is typed only while the agent waits at its prompt, its
-turn done; one sent while it is busy, or waiting on a permission, is refused
-rather than queued, and only the CEO who sent it is told why, beside the box,
+turn done, or, for the mock agent, while it waits on a person, which the
+prompt answers; one sent while it is busy, or while a real agent waits on a
+permission, is refused rather than queued, and only the CEO who sent it is told why, beside the box,
 where what they wrote is still there to send again. Every tab watching the
 panel shows each prompt once it is typed: `Dana → Claude 1: …`. Prompts are
 limited to three in a burst, one more every five seconds, and are not kept
@@ -219,7 +220,9 @@ optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`).
 `started`, `pr-opened`, `failed` or `finished`, with an optional `pr` and
 `message`; `prompts` says what came of the CEO's prompts, at most 8, each a
 `commandId`, its `slotId` and an `outcome`, `delivered`, `busy`, `needs-input`
-or `unavailable`; `acked` holds at most 32 ids. Strings are measured in bytes: the
+or `unavailable`; `acked` holds at most 32 ids. A `pr` with `"simulated":true`
+is the mock agent's stand-in, with no `url`: nothing was opened on GitHub, and
+the office never links it or shows its number. Strings are measured in bytes: the
 UTF-8 of the string as `JSON.stringify` writes it, escapes included and quotes
 not. A `name` is at most 18 bytes, an `activity` or a `pr` title 90, a `message`
 280 and a `pr` link 300; a sync with a longer one is refused rather than cut,
@@ -268,7 +271,7 @@ and as that live agent, so one about work it no longer holds changes nothing:
 | Event | The work |
 | --- | --- |
 | `started` | claimed: `assigned` to `in_progress` |
-| `pr-opened` | the pull request attached as its deliverable, `PR #N: title, url`, and handed in for `review` |
+| `pr-opened` | the pull request attached as its deliverable, `PR #N: title, url`, and handed in for `review`; a simulated one as `Simulated pull request, nothing on GitHub: title` |
 | `failed` | its note says why, e.g. `#39 is not labelled agent-ready on GitHub, so no agent may work it` |
 
 Only an issue carrying the maintainer's eligibility label goes to a slot:
@@ -352,6 +355,13 @@ twenty-odd rows, and is repainted only when a frame changes it, at most every
 taken down when the agent stands up or leaves, and nothing is drawn while no
 live agent sits, nor in the grey-box office, which has no monitors.
 
+From the camera that follows a player, a seated agent's monitor is hidden
+behind the agent's head and the player's own avatar, so a player who stands
+still behind a working agent's chair, at its `Watch the agent's terminal`
+prompt, has the camera lean in over the agent's shoulder to read its monitor
+square on, the agent hidden while the camera is where its head is; the first
+step, or the agent getting up, eases it back out. The eye is never inside or
+behind a wall, a chair backed onto one included.
 `E` behind a working agent's chair opens the same terminal in a panel, whole
 and at full size, painted by the same function onto a 2D canvas, so none of
 its text is in the page. The panel repaints whenever a frame changes the
@@ -392,19 +402,24 @@ Two idle slots, `Mock 1` and `Mock 2`, walk onto the floor. The runner syncs
 about once a second, backing off up to 30 seconds while the server is
 unreachable or refusing it, and logs each new reason once. On a `start`
 command a mock slot reports `started`, works through a few scripted steps on
-its desk, stopping partway for a few of them as `needs-input` on
-`Permission: Bash pnpm test` so its beacon lights, and reports `failed`, then
-goes back to idle. With `RUNNER_MOCK_OUTCOME=pr-opened` it reports `pr-opened`
-instead, with a pull request that does not exist (number `1000000 + n`), and
-keeps the issue, waiting at its prompt as a real agent does: a rework `prompt`
-has it commit again and hand the same pull request in again. With
-`RUNNER_MOCK_OUTCOME=question` it ends its first turn with a question instead,
+its desk, and stops partway as `needs-input` on `Permission: Bash pnpm test`,
+so its beacon lights. It stays in its chair and waits there for as long as
+nobody answers, as a real agent waits on a permission; the CEO's prompt from
+its terminal panel is the answer, whatever it says, and it carries on, reports
+`failed`, and goes back to idle. With `RUNNER_MOCK_OUTCOME=pr-opened` it
+reports `pr-opened` instead, with a simulated pull request: it opens nothing on
+GitHub, and the board, the manager and the runner's log all call it a
+simulated pull request, with no number and no link. It keeps the issue,
+waiting at its prompt as a real agent does: a rework `prompt` has it commit
+again and hand the same simulated pull request in again. With
+`RUNNER_MOCK_OUTCOME=question` it ends that turn with a question instead,
 nothing handed in, and waits at its desk with its `Needs you` beacon lit, as
-Claude does when it wants an answer; the CEO's prompt from its terminal panel is
-the answer, and it carries on to the same fake pull request. A `stop` command
-ends the work at once and reports it `failed` with the reason, and so does the
-task timeout, which counts only while an agent works: once its pull request is
-handed in, the work waits on review for as long as it takes. The mock prints its steps in colour to its slot's
+Claude does when it wants an answer; the CEO's prompt is the answer, and it
+carries on to the same simulated pull request. A `stop` command ends the work
+at once and reports it `failed` with the reason, and so does the task timeout,
+which counts only while an agent works: it is held while the agent waits on a
+person, and once its pull request is handed in, the work waits on review for
+as long as it takes. The mock prints its steps in colour to its slot's
 screen, which the runner posts to the server (see [Screens](#screens)); a new
 run starts on a cleared screen, and an idle slot's says it is waiting for work.
 A runner that is killed leaves the floor after
@@ -451,7 +466,7 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_MOCK_OUTCOME` | `failed` | How a mock agent's work ends: `failed`, `pr-opened`, or `question`, waiting at its prompt for the CEO's answer before it opens one. |
 | `RUNNER_MODEL` | Claude Code's | The model a `claude` agent runs, passed as `--model`: `sonnet`, `claude-sonnet-4-5`. |
 | `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
-| `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it. |
+| `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it; time it waits on a person does not count. |
 | `RUNNER_DAILY_BUDGET_USD` | none | US dollars, `0` or more, the agents may spend in a day before the runner refuses new starts; see [The runner's budget](#the-runners-budget). Unset, spend is counted and nothing is refused. |
 | `REAL_AGENT_ISSUE_LABEL` | `agent-ready` | The label an issue must carry on GitHub before a real agent starts on it; the server's own setting, the same value on both. |
 | `RUNNER_GITHUB_APP_ID` | none; required for `claude` | The GitHub App the agents push and open pull requests as; see [The runner's GitHub App](#the-runners-github-app). All three or none; the mock needs none. |
@@ -555,8 +570,9 @@ reason, as is one still silent 12 seconds after it was started.
 A Claude whose turn ended on a question, `Finished without a pull request`,
 waits at its prompt for the CEO, who answers it from its terminal panel. One
 stopped at a permission or a question dialog cannot be answered from the
-office: a prompt for it is refused, and it waits until the task timeout or a
-`stop`. A `stop` or the timeout sends `SIGTERM` to
+office, since the Enter after a pasted prompt would choose whatever the dialog
+has selected: a prompt for it is refused, and it waits, the task timeout held,
+until a `stop`. A `stop` or the timeout sends `SIGTERM` to
 Claude's whole process group, which it leads, and `SIGKILL` five seconds later
 to anything still there; what is left in the group when Claude exits is killed
 too.
@@ -780,10 +796,13 @@ Then confirm all twenty:
     `agent-ready` that nobody has: with the runner running, as in
     [Running the runner](#running-the-runner), it goes to a mock slot and both
     tabs' boards show the issue assigned to it, and Firstmate posts
-    `Mock 1 started on #N`, `Mock 1 needs you on #N: Permission: Bash pnpm test`,
-    then `Mock 1 couldn't work on #N` with the mock's reason, or with
-    `RUNNER_MOCK_OUTCOME=pr-opened`, `Mock 1 opened PR #<1000000 + N> for #N` with its
-    link; `what is Mock 1 doing?` says the same. `have Mock 2 do #N` names the
+    `Mock 1 started on #N` and `Mock 1 needs you on #N: Permission: Bash pnpm test`,
+    and `Mock 1` waits in its chair, its beacon lit, however long nobody
+    answers; `what is Mock 1 doing?` says it is waiting on you. Once a prompt
+    answers it, Firstmate posts `Mock 1 couldn't work on #N` with the mock's
+    reason, or with `RUNNER_MOCK_OUTCOME=pr-opened`,
+    `Mock 1 handed in #N … for your review as a simulated pull request: the mock agent opened nothing on GitHub.`,
+    with no number and no link. `have Mock 2 do #N` names the
     slot instead; an issue without the label is refused with that reason.
     `put someone on #N` and `assign <a word from its title>` go to a free slot
     the same way; with no runner and no orchestrator the reply says there are
@@ -809,13 +828,16 @@ Then confirm all twenty:
 16. **A working agent's terminal opens on `E`, in both tabs.** With the runner
     started as in [Running the runner](#running-the-runner), assign an
     `agent-ready` issue to `Mock 1` and, once it sits, walk Dana to just behind
-    its chair: the prompt reads `Watch the agent's terminal`. `E` opens the
-    panel with the mock's output, which moves on with each step, and its
-    issue link. Milo does the same and sees the same output. `Esc` closes
+    its chair: the prompt reads `Watch the agent's terminal`, and standing
+    still there the camera leans in over the agent's shoulder until its
+    monitor fills the view and its lines can be read; a step eases it back.
+    `E` opens the panel with the mock's output, which moves on with each step,
+    and its issue link. Milo does the same and sees the same output. `Esc` closes
     Dana's, `E` opens it again and `E` closes it; open it once more and walk a
     few steps away: it closes while Milo's stays open. When the agent hands in
     and gets up, Milo's closes too and the prompt behind the chair is
-    `Sit down` again. After `Send back` the panel also links the pull request.
+    `Sit down` again. After `Send back` the panel also says it handed in a
+    simulated pull request, which it does not link.
 17. **An assigned issue goes all the way to review and done.** Run the server
     with `RUNNER_SECRET`, and the runner with
     `RUNNER_MOCK_OUTCOME=pr-opened`, as in
@@ -823,9 +845,11 @@ Then confirm all twenty:
     `agent-ready` and one without. Milo, not the CEO, is offered no `Assign…`
     on either. Dana assigns the unlabelled issue: refused, saying it needs the
     `agent-ready` label. She assigns the labelled one: within a couple of
-    seconds both tabs show it `In progress`, `Mock 1` sits and works it on its monitor, lights its `Needs you` beacon
-    for a few steps, and then the card is `In review` with
-    `PR #1000<n>: [mock] <title>, <link>` as its deliverable, in both tabs.
+    seconds both tabs show it `In progress`, `Mock 1` sits and works it on its
+    monitor, lights its `Needs you` beacon and waits in its chair until a
+    prompt answers it, and then the card is `In review` with
+    `Simulated pull request, nothing on GitHub: [mock] <title>` as its
+    deliverable, with no link, in both tabs.
     `Send back` puts it `In progress` again and the mock works a rework turn
     and hands it in again. Close the issue on GitHub: within one poll both
     tabs show it `Done`, `Mock 1` says `Shipped #<n>` in the chat and is idle
@@ -1055,7 +1079,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/budget.ts           the day's spend, and the daily budget that refuses new starts
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
-  src/agents/mock.ts      the mock agent: scripted progress, a commit and a wait on a person, then failed, a question it waits on an answer to, or a fake pull request it reworks on a prompt
+  src/agents/mock.ts      the mock agent: scripted progress, a commit and a wait on a person until a prompt answers it, then failed, a question it waits on an answer to, or a simulated pull request it reworks on a prompt
   src/github.ts           the issue's label check, and finding or opening a task's pull request
   src/githubApp.ts        the runner's GitHub App: minting installation tokens and keeping them fresh for gh and git
   src/terminal.ts         each slot's headless terminal, read off as screen frames

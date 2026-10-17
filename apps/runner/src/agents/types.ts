@@ -58,6 +58,14 @@ export interface AgentRun {
   stop(): void;
   /** Says something to it at its prompt, starting another turn; left out by an agent that takes no prompts. */
   prompt?(text: string): void;
+  /**
+   * Whether a prompt answers what it waits on while it needs a person, as the
+   * mock's does, so the CEO can answer it from the office. Left out by an agent
+   * whose waits a prompt cannot answer safely: a real agent's permission
+   * dialog takes a keypress, and the Enter after a pasted prompt would choose
+   * whatever the dialog has selected, whatever the prompt said.
+   */
+  readonly promptAnswersWait?: boolean;
 }
 
 export interface Agent {

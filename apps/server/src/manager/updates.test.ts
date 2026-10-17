@@ -26,6 +26,7 @@ function work(status: WorkStatus, extra: Partial<WorkView> = {}): WorkView {
     assignee: "Crewmate",
     hasDeliverable: status === WORK_STATUS.review,
     pullRequest: undefined,
+    simulatedPullRequest: false,
     note: undefined,
     ...extra,
   };
@@ -76,6 +77,16 @@ describe("describeChanges", () => {
     ]);
     // Handed out and started between two looks is still a start.
     expect(describeChanges(observe(view([]), []), started)).toEqual(["Crewmate started on #39 “Night shift”."]);
+  });
+
+  it("says a simulated pull request is one, with no number and no link", () => {
+    const started = observe(view([], [work(WORK_STATUS.in_progress)]), []);
+    const simulated = observe(view([], [work(WORK_STATUS.review, { simulatedPullRequest: true })]), []);
+    const [line] = describeChanges(started, simulated);
+    expect(line).toBe(
+      "Crewmate handed in #39 “Night shift” for your review as a simulated pull request: the mock agent opened nothing on GitHub.",
+    );
+    expect(line).not.toMatch(/https:|PR #/);
   });
 
   it("passes on, once, why a coding agent could not work its issue, a budget refusal included", () => {

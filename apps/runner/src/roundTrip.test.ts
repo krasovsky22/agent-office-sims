@@ -3,7 +3,9 @@
  * issue's acceptance, end to end.
  *
  * A mock runner's two slots reach the floor idle, a start command queued the
- * way the server queues one round-trips to `started` and back to idle, its
+ * way the server queues one round-trips to `started`, through a wait on a
+ * person that holds until the server's prompt answers it, to a simulated pull
+ * request and back to idle, its
  * work done in a worktree of its own cut from a temporary origin, and a
  * runner that goes silent leaves the floor once the timeout passes. Its
  * slots' screens reach the server's screen store as the mock prints, and the
@@ -24,7 +26,7 @@ import { createRunnerEndpoint } from "../../server/src/agents/runnerEndpoint.js"
 import { RunnerLink, type RunnerEventRecord } from "../../server/src/agents/runnerLink.js";
 import { ScreenStore } from "../../server/src/agents/screens.js";
 import { createScreensEndpoint } from "../../server/src/agents/screensEndpoint.js";
-import { MOCK_NEEDS_INPUT_STEPS, createMockAgent } from "./agents/mock.js";
+import { MOCK_PERMISSION, createMockAgent } from "./agents/mock.js";
 import type { Agent } from "./agents/types.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
 import { createRedactor } from "./redact.js";
@@ -81,7 +83,7 @@ afterAll(async () => {
 function runner(outcome: "failed" | "pr-opened", agent?: Agent) {
   const pool = new SlotPool({
     count: 2,
-    agent: agent ?? createMockAgent({ outcome, repo: REPO, stepMs: STEP_MS }),
+    agent: agent ?? createMockAgent({ outcome, stepMs: STEP_MS }),
     workspaces,
     taskTimeoutMs: TIMEOUT_MS,
   });
@@ -158,12 +160,20 @@ describe("the mock runner and the server's runner link", () => {
     await syncUntil(loop, () => link.current()[0]?.status === LIVE_AGENT_STATUS.working);
     expect(link.current()[0]?.task).toEqual({ title: "Night shift", url: `https://github.com/${REPO}/issues/39` });
 
-    // The mock stops to wait on a person, still on its issue, then carries on.
+    // The mock stops to wait on a person, still on its issue, and waits for
+    // as long as nobody answers: ten of its steps and more go by.
     await syncUntil(loop, () => link.current()[0]?.status === LIVE_AGENT_STATUS.needsInput);
+    for (let sync = 0; sync < 10; sync += 1) {
+      await new Promise((resolve) => setTimeout(resolve, STEP_MS));
+      expect(await loop.syncOnce()).toBe(true);
+    }
     expect(link.current()[0]).toMatchObject({
-      activity: "Permission: Bash pnpm test",
+      status: LIVE_AGENT_STATUS.needsInput,
+      activity: MOCK_PERMISSION,
       task: { title: "Night shift", url: `https://github.com/${REPO}/issues/39` },
     });
+    // A prompt from the server is the answer, and it carries on.
+    link.enqueue("runner-1", { kind: "prompt", slotId: "slot-1", text: "Go ahead.", requestedBy: "Dana" });
     await syncUntil(loop, () => link.current()[0]?.status === LIVE_AGENT_STATUS.working);
 
     await syncUntil(loop, () => {
@@ -174,7 +184,8 @@ describe("the mock runner and the server's runner link", () => {
       ["started", "slot-1", 39],
       ["pr-opened", "slot-1", 39],
     ]);
-    expect(events[1]?.event.pr?.url).toBe(`https://github.com/${REPO}/pull/1000039`);
+    // Simulated: nothing on GitHub, so nothing to link.
+    expect(events[1]?.event.pr).toEqual({ number: 1_000_039, title: "[mock] Night shift", url: "", simulated: true });
     // Its commit is in its own worktree, kept since nothing pushed it.
     await workspaces.settled();
     expect(workspaces.current().map((record) => [record.slotId, record.issueNumber])).toEqual([["slot-1", 39]]);
@@ -204,7 +215,7 @@ describe("the mock runner and the server's runner link", () => {
       repo: REPO,
       pool: new SlotPool({
         count: 1,
-        agent: createMockAgent({ outcome: "failed", repo: REPO }),
+        agent: createMockAgent({ outcome: "failed" }),
         workspaces,
         taskTimeoutMs: TIMEOUT_MS,
       }),
@@ -241,16 +252,21 @@ describe("the mock runner's screens and the server's screen store", () => {
       requestedBy: "Dana",
     });
     await loop.syncOnce();
-    await postUntil(screens, () => storedText("slot-1").some((row) => row.startsWith("✓ Opened")));
+    await postUntil(screens, () => storedText("slot-1").includes("  Waiting for an answer…"));
+    link.enqueue("runner-1", { kind: "prompt", slotId: "slot-1", text: "Go ahead.", requestedBy: "Dana" });
+    await loop.syncOnce();
+    await postUntil(screens, () => storedText("slot-1").some((row) => row.startsWith("✓ ")));
     expect(storedText("slot-1")).toEqual([
       "mock agent on #39: Night shift",
       "for Dana",
       "● Reading issue #39",
       "● Edit: .sims-mock/issue-39.md",
       "● Bash: git commit",
-      ...Array.from({ length: MOCK_NEEDS_INPUT_STEPS }, () => "? Permission: Bash pnpm test"),
+      `? ${MOCK_PERMISSION}`,
+      "  Waiting for an answer…",
+      "> Go ahead.",
       "● Bash: pnpm test",
-      `✓ Opened https://github.com/${REPO}/pull/1000039`,
+      "✓ Handed in a simulated pull request; nothing was opened on GitHub",
     ]);
     // After the first whole screens, only diffs, and only for the slot at work.
     const later = heard.slice(1).flatMap((event) => event.screens);

@@ -15,8 +15,11 @@ import {
   MAX_RUNNER_PROMPT_LENGTH,
   MAX_RUNNER_PROMPT_OUTCOMES,
   MAX_RUNNER_SLOTS,
+  SIMULATED_PULL_REQUEST,
+  isSimulatedPullRequestArtifact,
   parseRunnerSync,
   readAgentIssueLabel,
+  simulatedPullRequestArtifact,
   toRunnerCommand,
 } from "./runner.js";
 import { MAX_RUNNER_USD } from "./spend.js";
@@ -101,6 +104,19 @@ describe("parseRunnerSync", () => {
     });
   });
 
+  it("keeps a simulated pull request as simulated, with no link", () => {
+    const pr = { number: 1_000_039, title: "[mock] Night shift", url: "", simulated: true };
+    const parsed = parseRunnerSync({
+      ...SYNC,
+      slots: [{ id: "slot-1", status: "idle", issueNumber: 39, pr }],
+      events: [{ id: "event-1", kind: "pr-opened", slotId: "slot-1", issueNumber: 39, pr: { number: 1_000_039, simulated: true } }],
+    });
+    expect(parsed?.slots[0]?.pr).toEqual({ number: 1_000_039, title: "[mock] Night shift", url: "", simulated: true });
+    expect(parsed?.events[0]?.pr).toEqual({ number: 1_000_039, title: "", url: "", simulated: true });
+    // Only `true` makes one simulated: anything else is a real one, which needs its link.
+    expect(parseRunnerSync({ ...SYNC, slots: [{ id: "s", status: "idle", pr: { number: 1, simulated: "yes" } }] })).toBeUndefined();
+  });
+
   it("sanitises every string it keeps", () => {
     const parsed = parseRunnerSync({
       ...SYNC,
@@ -138,6 +154,8 @@ describe("parseRunnerSync", () => {
     ["a slot name longer than a nameplate", { ...SYNC, slots: [{ id: "s", name: "n".repeat(19), status: "idle" }] }],
     ["an activity longer than a title", { ...SYNC, slots: [{ id: "s", status: "working", activity: "a".repeat(91) }] }],
     ["a pull request title longer than a title", { ...SYNC, slots: [{ id: "s", status: "working", pr: { number: 1, title: "t".repeat(91), url: PULL } }] }],
+    ["a simulated pull request with a link", { ...SYNC, slots: [{ id: "s", status: "idle", pr: { number: 1, url: PULL, simulated: true } }] }],
+    ["a simulated pull request title longer than a title", { ...SYNC, slots: [{ id: "s", status: "idle", pr: { number: 1, title: "t".repeat(91), simulated: true } }] }],
     ["an event message longer than a work note", { ...SYNC, events: [{ ...SYNC.events[0], message: "m".repeat(281) }] }],
     ["an event message within its length but past its bytes", { ...SYNC, events: [{ ...SYNC.events[0], message: "\u2014".repeat(94) }] }],
     ["a slot name of control characters past its bytes", { ...SYNC, slots: [{ id: "s", name: "\u001b".repeat(4), status: "idle" }] }],
@@ -252,5 +270,16 @@ describe("readAgentIssueLabel", () => {
   it("refuses a name GitHub would not give a label", () => {
     expect(() => readAgentIssueLabel("x".repeat(51))).toThrow(/REAL_AGENT_ISSUE_LABEL/);
     expect(() => readAgentIssueLabel("agent\nready")).toThrow(/REAL_AGENT_ISSUE_LABEL/);
+  });
+});
+
+describe("simulatedPullRequestArtifact", () => {
+  it("names a simulated pull request as one, and is told apart from any other deliverable", () => {
+    expect(simulatedPullRequestArtifact("[mock] Night shift")).toBe("Simulated pull request, nothing on GitHub: [mock] Night shift");
+    expect(simulatedPullRequestArtifact("")).toBe(SIMULATED_PULL_REQUEST);
+    expect(isSimulatedPullRequestArtifact(simulatedPullRequestArtifact("[mock] Night shift"))).toBe(true);
+    expect(isSimulatedPullRequestArtifact(SIMULATED_PULL_REQUEST)).toBe(true);
+    expect(isSimulatedPullRequestArtifact(`PR #41: Night shift, ${PULL}`)).toBe(false);
+    expect(isSimulatedPullRequestArtifact("")).toBe(false);
   });
 });

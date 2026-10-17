@@ -39,6 +39,7 @@ export interface Observation {
       readonly assigneeId: string;
       readonly assignee: string | undefined;
       readonly pullRequest: LinkView | undefined;
+      readonly simulatedPullRequest: boolean;
       readonly note: string | undefined;
     }
   >;
@@ -93,6 +94,7 @@ export function observe(
           assigneeId: work.assigneeId,
           assignee: work.assignee,
           pullRequest: work.pullRequest,
+          simulatedPullRequest: work.simulatedPullRequest,
           note: work.note,
         },
       ]),
@@ -136,9 +138,11 @@ export function describeChanges(before: Observation, after: Observation): string
     }
     if ((was === WORK_STATUS.assigned || was === WORK_STATUS.in_progress) && work.status === WORK_STATUS.review) {
       lines.push(
-        work.pullRequest === undefined
-          ? `${who} handed in ${work.label} for your review.`
-          : `${who} opened ${work.pullRequest.reference} for ${work.label} and handed it in for your review: ${work.pullRequest.url}`,
+        work.simulatedPullRequest
+          ? `${who} handed in ${work.label} for your review as a simulated pull request: the mock agent opened nothing on GitHub.`
+          : work.pullRequest === undefined
+            ? `${who} handed in ${work.label} for your review.`
+            : `${who} opened ${work.pullRequest.reference} for ${work.label} and handed it in for your review: ${work.pullRequest.url}`,
       );
     }
     const noted = previous?.assigneeId === work.assigneeId ? previous.note : undefined;

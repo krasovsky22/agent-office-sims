@@ -222,12 +222,15 @@ describe("the slot pool and mock agent in task worktrees", () => {
     await workspaces.reattach();
     const pool = new SlotPool({
       count: 2,
-      agent: createMockAgent({ outcome: "failed", repo: "krasovsky22/agent-office-sims", stepMs: STEP_MS }),
+      agent: createMockAgent({ outcome: "failed", stepMs: STEP_MS }),
       workspaces,
       taskTimeoutMs: 60_000,
     });
 
     pool.handle(START);
+    // It commits, then waits on a person until a prompt answers it.
+    await until(() => pool.report()[0]?.status === "needs-input");
+    pool.handle({ id: "command-answer", slotId: "slot-1", kind: "prompt", text: "Go ahead.", requestedBy: "Dana" });
     await until(() => pool.pendingEvents().some((event) => event.kind === "failed"));
     await workspaces.settled();
     const path = join(dataDir, "worktrees", "issue-39-slot-1");

@@ -1,9 +1,11 @@
 /**
  * The slot pool with the `mock` agent: a start checks the issue, opens the
- * task's workspace, runs its script to `started` and an outcome there: a
- * failure closes the workspace and leaves the slot idle again, and a pull
- * request keeps the task for rework until a stop. A stop or the task timeout
- * cuts work short, and everything reported fits the contract's budgets.
+ * task's workspace, runs its script to `started`, waits on a person until a
+ * prompt answers it, and reaches an outcome there: a failure closes the
+ * workspace and leaves the slot idle again, and a simulated pull request keeps
+ * the task for rework until a stop. A stop or the task timeout cuts work
+ * short, a wait on a person holds the timeout, and everything reported fits
+ * the contract's budgets.
  *
  * Fake timers drive the mock's script, so each step is a step of the clock.
  * The workspace is a plain git checkout the mock commits in; real worktrees
@@ -16,7 +18,7 @@ import { join } from "node:path";
 import { MAX_NAME_LENGTH, MAX_TITLE_LENGTH, type RunnerCommand } from "@sim/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MOCK_NEEDS_INPUT_STEPS, MOCK_QUESTION, MOCK_STEP_USD, type MockOutcome, createMockAgent } from "./agents/mock.js";
+import { MOCK_PERMISSION, MOCK_QUESTION, MOCK_STEP_USD, type MockOutcome, createMockAgent } from "./agents/mock.js";
 import type { Agent, AgentReporter, AgentTask } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
@@ -27,8 +29,10 @@ import { NO_PULL_REQUEST, type SlotWorkspaces, SlotPool, TURN_DONE, fitBytes } f
 const REPO = "krasovsky22/agent-office-sims";
 const STEP_MS = 100;
 const TIMEOUT_MS = 60_000;
-/** The mock's whole script, from the start command to its outcome. */
-const SCRIPT_MS = STEP_MS * (5 + MOCK_NEEDS_INPUT_STEPS);
+/** The mock's script from the start command to its wait on a person. */
+const TO_WAIT_MS = STEP_MS * 4;
+/** The rest of its script, from the answer to its outcome. */
+const FROM_ANSWER_MS = STEP_MS * 2;
 
 const START: RunnerCommand = {
   id: "command-1",
@@ -40,6 +44,9 @@ const START: RunnerCommand = {
   note: "",
   requestedBy: "Dana",
 };
+
+/** The CEO's answer to what the mock waits on. */
+const ANSWER: RunnerCommand = { id: "command-answer", slotId: "slot-1", kind: "prompt", text: "Go ahead.", requestedBy: "Dana" };
 
 let fixture: GitFixture;
 /** What the pool asked of its workspaces, in order. */
@@ -65,7 +72,7 @@ function pool(outcome: MockOutcome = "failed", agent?: Agent, spaces = workspace
   let nextId = 1;
   return new SlotPool({
     count: 2,
-    agent: agent ?? createMockAgent({ outcome, repo: REPO, stepMs: STEP_MS }),
+    agent: agent ?? createMockAgent({ outcome, stepMs: STEP_MS }),
     workspaces: spaces,
     taskTimeoutMs: TIMEOUT_MS,
     eventId: () => `event-${nextId++}`,
@@ -80,6 +87,13 @@ async function settle(): Promise<void> {
 
 function slot(slots: SlotPool, id = "slot-1") {
   return slots.report().find((candidate) => candidate.id === id);
+}
+
+/** Runs the mock's whole script to its outcome, answering its wait on a person. */
+async function runScript(slots: SlotPool): Promise<void> {
+  await vi.advanceTimersByTimeAsync(TO_WAIT_MS);
+  slots.handle(ANSWER);
+  await vi.advanceTimersByTimeAsync(FROM_ANSWER_MS);
 }
 
 describe("SlotPool", () => {
@@ -118,11 +132,17 @@ describe("SlotPool", () => {
     await vi.advanceTimersByTimeAsync(STEP_MS * 2);
     expect(slot(slots)).toMatchObject({ status: "working", activity: "Bash: git commit" });
 
-    // It waits on a person, still holding its issue, then carries on.
+    // It waits on a person, still holding its issue, for as long as nobody
+    // answers: the wait never ends on its own, and the task timeout is held.
     await vi.advanceTimersByTimeAsync(STEP_MS);
-    expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: "Permission: Bash pnpm test" });
-    await vi.advanceTimersByTimeAsync(STEP_MS * (MOCK_NEEDS_INPUT_STEPS - 1));
-    expect(slot(slots)?.status).toBe("needs-input");
+    expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: MOCK_PERMISSION });
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 3);
+    expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: MOCK_PERMISSION });
+    expect(slots.pendingEvents().map((event) => event.kind)).toEqual(["started"]);
+
+    // A prompt is the answer, and it carries on.
+    slots.handle(ANSWER);
+    expect(slot(slots)).toMatchObject({ status: "working", activity: "Go ahead." });
     await vi.advanceTimersByTimeAsync(STEP_MS);
     expect(slot(slots)).toMatchObject({ status: "working", activity: "Bash: pnpm test" });
 
@@ -139,7 +159,7 @@ describe("SlotPool", () => {
     const slots = pool();
     for (const id of ["command-1", "command-2"]) {
       slots.handle({ ...START, id });
-      await vi.advanceTimersByTimeAsync(SCRIPT_MS);
+      await runScript(slots);
     }
     expect(slots.pendingEvents().map((event) => event.message)).toEqual([
       "",
@@ -246,11 +266,23 @@ describe("SlotPool", () => {
     expect(asked).toEqual(["close slot-1 #39"]);
   });
 
-  it("opens a fake pull request when the mock is configured to, and keeps the task for review", async () => {
-    const slots = pool("pr-opened");
+  it("hands in a simulated pull request when the mock is configured to, and keeps the task for review", async () => {
+    const log: string[] = [];
+    const slots = new SlotPool({
+      count: 1,
+      agent: createMockAgent({ outcome: "pr-opened", stepMs: STEP_MS }),
+      workspaces: workspaces(),
+      taskTimeoutMs: TIMEOUT_MS,
+      eventId: (() => {
+        let next = 1;
+        return () => `event-${next++}`;
+      })(),
+      log: (line) => log.push(line),
+    });
     slots.handle(START);
-    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
-    const pr = { number: 1_000_039, title: "[mock] Night shift", url: `https://github.com/${REPO}/pull/1000039` };
+    await runScript(slots);
+    // Nothing on GitHub: no link to it, and it says it is simulated.
+    const pr = { number: 1_000_039, title: "[mock] Night shift", url: "", simulated: true };
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE, pr });
     expect(slots.pendingEvents()[1]).toEqual({
       id: "event-2",
@@ -260,6 +292,8 @@ describe("SlotPool", () => {
       pr,
       message: "",
     });
+    expect(log.at(-1)).toBe("slot-1 handed in #39: a simulated pull request; nothing was opened on GitHub");
+    expect(log.join("\n")).not.toContain("github.com");
     // Handed in, the work waits on review rather than the task timeout, its worktree kept.
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 2);
     expect(slot(slots)?.issueNumber).toBe(39);
@@ -270,7 +304,7 @@ describe("SlotPool", () => {
   it("takes a rework prompt, hands the same pull request in again, and gives the task up when stopped", async () => {
     const slots = pool("pr-opened");
     slots.handle(START);
-    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
+    await runScript(slots);
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "prompt", text: "Rename the lift.", requestedBy: "Dana" });
     expect(slot(slots)).toMatchObject({ status: "working", issueNumber: 39, activity: "Rename the lift.", pr: { number: 1_000_039 } });
     await vi.advanceTimersByTimeAsync(STEP_MS * 6);
@@ -294,7 +328,7 @@ describe("SlotPool", () => {
   it("takes a start for the issue it already holds as a prompt with the start's note", async () => {
     const slots = pool("pr-opened");
     slots.handle(START);
-    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
+    await runScript(slots);
     slots.handle({ ...START, id: "command-2", note: "Rename the lift." });
     expect(slot(slots)).toMatchObject({ status: "working", activity: "Rename the lift." });
     expect(asked).toEqual(["open slot-1 #39"]);
@@ -303,7 +337,7 @@ describe("SlotPool", () => {
   it("says again how far it got when started on the issue it holds, as after a server restart", async () => {
     const slots = pool("pr-opened");
     slots.handle(START);
-    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
+    await runScript(slots);
     slots.delivered(new Set(slots.pendingEvents().map((event) => event.id)));
     slots.handle({ ...START, id: "command-2" });
     expect(slots.pendingEvents().map((event) => [event.kind, event.pr?.number])).toEqual([
@@ -459,7 +493,9 @@ describe("SlotPool", () => {
     await vi.advanceTimersByTimeAsync(STEP_MS * 2);
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "CEO changed their mind" });
     expect(slot(slots)?.status).toBe("idle");
-    await vi.advanceTimersByTimeAsync(SCRIPT_MS * 2);
+    await vi.advanceTimersByTimeAsync(TO_WAIT_MS * 2);
+    slots.handle(ANSWER);
+    await vi.advanceTimersByTimeAsync(FROM_ANSWER_MS * 2);
     expect(slots.pendingEvents().map((event) => [event.kind, event.message])).toEqual([
       ["started", ""],
       ["failed", "Stopped: CEO changed their mind"],
@@ -491,6 +527,34 @@ describe("SlotPool", () => {
     expect(slots.pendingEvents()[0]).toMatchObject({ kind: "failed", message: "Timed out after 1 minute" });
   });
 
+  it("holds the task timeout while its agent waits on a person, and counts on from there once it works again", async () => {
+    let reporter: AgentReporter | undefined;
+    const agent: Agent = {
+      label: "Asker",
+      start: (_task, given) => {
+        reporter = given;
+        return { stop: () => undefined };
+      },
+    };
+    const slots = pool("failed", agent);
+    slots.handle(START);
+    await settle();
+    reporter?.progress("Bash: pnpm test");
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 0.4);
+    reporter?.needsInput("Wants permission: Bash: git push");
+    // However long the person takes, the agent is not taking too long.
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 5);
+    expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39 });
+    expect(slots.pendingEvents().map((event) => event.kind)).toEqual(["started"]);
+
+    reporter?.progress("Bash: git push");
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 0.6 - 1);
+    expect(slot(slots)).toMatchObject({ status: "working", issueNumber: 39 });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined });
+    expect(slots.pendingEvents().at(-1)).toMatchObject({ kind: "failed", message: "Timed out after 1 minute" });
+  });
+
   it("stops every run as the runner shuts down", () => {
     const slots = pool();
     slots.handle(START);
@@ -514,7 +578,7 @@ describe("SlotPool", () => {
   it("forgets only the events a sync delivered", async () => {
     const slots = pool();
     slots.handle(START);
-    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
+    await runScript(slots);
     slots.delivered(new Set(["event-1"]));
     expect(slots.pendingEvents().map((event) => event.id)).toEqual(["event-2"]);
   });
@@ -708,10 +772,10 @@ describe("SlotPool spend", () => {
   });
 
   it("counts the mock's pretend spend, step by step", async () => {
-    const slots = budgeted(createMockAgent({ outcome: "failed", repo: REPO, stepMs: STEP_MS }), undefined);
+    const slots = budgeted(createMockAgent({ outcome: "failed", stepMs: STEP_MS }), undefined);
     slots.handle(START);
     await settle();
-    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
+    await runScript(slots);
     expect(slots.spend().spentUsd).toBeCloseTo(4 * MOCK_STEP_USD);
   });
 
@@ -816,6 +880,29 @@ describe("SlotPool prompts from the CEO", () => {
     expect(outcomes().at(-1)).toBe("delivered");
   });
 
+  it("types the CEO's prompt as the answer to a mock waiting on a person, and refuses it at a real agent's permission", async () => {
+    const slots = pool("pr-opened");
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(TO_WAIT_MS);
+    expect(slot(slots)).toMatchObject({ status: "needs-input", activity: MOCK_PERMISSION });
+    const answer = ceoPrompt("Go ahead and run the tests.");
+    slots.handle(answer);
+    expect(slots.pendingPromptOutcomes()).toEqual([{ commandId: answer.id, slotId: "slot-1", outcome: "delivered" }]);
+    expect(slot(slots)).toMatchObject({ status: "working", activity: "Go ahead and run the tests." });
+    await vi.advanceTimersByTimeAsync(FROM_ANSWER_MS);
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE, pr: { simulated: true } });
+
+    // A dialog would take the Enter after the paste as its choice, whatever the prompt said.
+    const { agent, typed, handle } = promptedAgent();
+    const real = pool("failed", agent);
+    real.handle(START);
+    await settle();
+    handle.reporter?.needsInput("Wants permission: Bash: git push");
+    real.handle(ceoPrompt("No, don't push."));
+    expect(typed).toEqual([]);
+    expect(real.pendingPromptOutcomes().map((outcome) => outcome.outcome)).toEqual(["needs-input"]);
+  });
+
   it("forgets the outcomes a sync delivered, by their command's id", () => {
     const slots = pool();
     const first = ceoPrompt("one");
@@ -851,7 +938,7 @@ describe("SlotPool prompts from the CEO", () => {
   it("has a mock asking a question wait at its desk until the CEO answers, then hand in", async () => {
     const slots = pool("question");
     slots.handle(START);
-    await vi.advanceTimersByTimeAsync(SCRIPT_MS);
+    await runScript(slots);
     // Its turn is over with nothing handed in: it waits at its prompt, holding the issue.
     expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: NO_PULL_REQUEST, pr: undefined });
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS / 2);
@@ -926,35 +1013,43 @@ describe("SlotPool screens", () => {
   it("prints the mock agent's script", async () => {
     const slots = new SlotPool({
       count: 1,
-      agent: createMockAgent({ outcome: "pr-opened", repo: REPO, stepMs: 1 }),
+      agent: createMockAgent({ outcome: "pr-opened", stepMs: 1 }),
       workspaces: workspaces(),
       taskTimeoutMs: TIMEOUT_MS,
     });
     slots.handle(START);
-    // `idle` is also the status just after `started`; the run is over once its pull request is open.
+    await vi.waitFor(() => expect(slot(slots)?.status).toBe("needs-input"), { timeout: 10_000 });
+    slots.handle(ANSWER);
+    // `idle` is also the status just after `started`; the run is over once its pull request is handed in.
     await vi.waitFor(() => expect(slots.pendingEvents().map((event) => event.kind)).toContain("pr-opened"), {
       timeout: 10_000,
     });
-    expect(await screenText(slots)).toEqual([
+    const screen = await screenText(slots);
+    expect(screen).toEqual([
       "mock agent on #39: Night shift",
       "for Dana",
       "● Reading issue #39",
       "● Edit: .sims-mock/issue-39.md",
       "● Bash: git commit",
-      ...Array.from({ length: MOCK_NEEDS_INPUT_STEPS }, () => "? Permission: Bash pnpm test"),
+      `? ${MOCK_PERMISSION}`,
+      "  Waiting for an answer…",
+      "> Go ahead.",
       "● Bash: pnpm test",
-      `✓ Opened https://github.com/${REPO}/pull/1000039`,
+      "✓ Handed in a simulated pull request; nothing was opened on GitHub",
     ]);
+    expect(screen.join("\n")).not.toContain("github.com");
   });
 
   it("prints the mock's question, and the CEO's answer typed to it", async () => {
     const slots = new SlotPool({
       count: 1,
-      agent: createMockAgent({ outcome: "question", repo: REPO, stepMs: 1 }),
+      agent: createMockAgent({ outcome: "question", stepMs: 1 }),
       workspaces: workspaces(),
       taskTimeoutMs: TIMEOUT_MS,
     });
     slots.handle(START);
+    await vi.waitFor(() => expect(slot(slots)?.activity).toBe(MOCK_PERMISSION), { timeout: 10_000 });
+    slots.handle(ANSWER);
     await vi.waitFor(() => expect(slot(slots)?.activity).toBe(NO_PULL_REQUEST), { timeout: 10_000 });
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "prompt", text: "Yes.\nBoth cases.", requestedBy: "Dana", fromCeo: true });
     await vi.waitFor(() => expect(slots.pendingEvents().map((event) => event.kind)).toContain("pr-opened"), {

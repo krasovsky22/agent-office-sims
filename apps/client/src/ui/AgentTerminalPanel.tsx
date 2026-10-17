@@ -14,7 +14,8 @@
  * from the net layer whenever the frame's version moves on.
  *
  * Around the terminal: the agent's name, what it is doing, and links to its
- * issue and pull requests, which open on GitHub in a new tab. `E` or `Esc`
+ * issue and pull requests, which open on GitHub in a new tab; a simulated
+ * pull request, which is on no page, is named and not linked. `E` or `Esc`
  * closes the panel, and so does stepping away or the agent leaving the desk;
  * `main.ts` decides all of them.
  *
@@ -234,6 +235,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
             {link.label}
           </a>
         ))}
+        {links.simulatedPullRequest ? <span className="terminal__caption">Simulated pull request, nothing on GitHub</span> : null}
       </p>
 
       <canvas className="terminal__screen" ref={canvasRef} role="img" aria-label={`${name}'s terminal output`} />

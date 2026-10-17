@@ -425,6 +425,8 @@ export class Avatar {
 
   private readonly ceoMarker: THREE.Mesh;
   private readonly cup: THREE.Mesh;
+  /** Kept across a change of body, so a body swapped in while hidden stays hidden. */
+  private bodyHidden = false;
   private readonly nameplate: THREE.Sprite;
   private readonly nameplateCanvas = document.createElement("canvas");
   private readonly nameplateTexture: THREE.CanvasTexture;
@@ -647,7 +649,17 @@ export class Avatar {
     const next = createHumanoidBody(model, this.look, this.animation);
     this.body.dispose();
     this.body = next;
+    this.body.root.visible = !this.bodyHidden;
     this.group.add(this.body.root);
+  }
+
+  /**
+   * Hides the body, and only the body: what floats over its head still shows.
+   * For a seated agent the camera has leaned in over, which is where its head is.
+   */
+  public setBodyHidden(hidden: boolean): void {
+    this.bodyHidden = hidden;
+    this.body.root.visible = !hidden;
   }
 
   /** Shows an emote above the head, replacing any emote still showing. */

@@ -48,6 +48,7 @@ describe("terminalLinks", () => {
     expect(terminalLinks(AGENT, ISSUE_URL, [], undefined)).toEqual({
       issue: { label: "#72", href: ISSUE_URL },
       pullRequests: [],
+      simulatedPullRequest: false,
     });
   });
 
@@ -70,6 +71,7 @@ describe("terminalLinks", () => {
     expect(terminalLinks(AGENT, "", [work("")], snapshot([95]))).toEqual({
       issue: { label: "#72", href: ISSUE_URL },
       pullRequests: [{ label: "PR #95", href: `https://github.com/${REPO}/pull/95` }],
+      simulatedPullRequest: false,
     });
   });
 
@@ -78,6 +80,7 @@ describe("terminalLinks", () => {
     expect(terminalLinks(AGENT, "", [work(artifact, liveAgentKey("runner-2"))], snapshot())).toEqual({
       issue: undefined,
       pullRequests: [],
+      simulatedPullRequest: false,
     });
   });
 
@@ -86,10 +89,12 @@ describe("terminalLinks", () => {
     expect(terminalLinks(AGENT, `https://github.com/${REPO}/issues/7`, [earlier], undefined)).toEqual({
       issue: { label: "#7", href: `https://github.com/${REPO}/issues/7` },
       pullRequests: [],
+      simulatedPullRequest: false,
     });
     expect(terminalLinks(AGENT, "", [earlier, work("", AGENT, 72, WORK_STATUS.done)], snapshot())).toEqual({
       issue: undefined,
       pullRequests: [],
+      simulatedPullRequest: false,
     });
   });
 
@@ -98,6 +103,16 @@ describe("terminalLinks", () => {
     expect(terminalLinks(AGENT, "", [earlier, work("")], snapshot([95]))).toEqual({
       issue: { label: "#72", href: ISSUE_URL },
       pullRequests: [{ label: "PR #95", href: `https://github.com/${REPO}/pull/95` }],
+      simulatedPullRequest: false,
+    });
+  });
+
+  it("names a simulated pull request as one, and links nothing for it", () => {
+    const artifact = "Simulated pull request, nothing on GitHub: [mock] Terminal panel";
+    expect(terminalLinks(AGENT, ISSUE_URL, [work(artifact, AGENT, 72, WORK_STATUS.review)], snapshot())).toEqual({
+      issue: { label: "#72", href: ISSUE_URL },
+      pullRequests: [],
+      simulatedPullRequest: true,
     });
   });
 
@@ -116,6 +131,7 @@ describe("terminalLinks", () => {
     expect(terminalLinks(AGENT, elsewhere, [], snapshot([95]))).toEqual({
       issue: { label: "#72", href: elsewhere },
       pullRequests: [],
+      simulatedPullRequest: false,
     });
   });
 
@@ -124,6 +140,7 @@ describe("terminalLinks", () => {
     expect(terminalLinks(AGENT, pull, [], snapshot())).toEqual({
       issue: undefined,
       pullRequests: [{ label: "PR #40", href: pull }],
+      simulatedPullRequest: false,
     });
   });
 });

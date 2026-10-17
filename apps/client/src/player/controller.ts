@@ -11,6 +11,13 @@
  * {@link PlayerController.applyCorrection} eases the predicted position back
  * toward the authoritative one, but only once the gap is wider than anything an
  * honest round trip explains.
+ *
+ * The camera follows on a boom behind the player. A seated agent's monitor is
+ * right in front of that agent, so from the boom the agent's head and the
+ * player's own avatar hide it, and its text is too small to read; a player
+ * standing still behind a working agent's chair has the camera lean in over
+ * the agent's shoulder instead, {@link shoulderView}, and back out on the
+ * first step.
  */
 
 import {
@@ -47,6 +54,22 @@ const CAMERA_WALL_PADDING = 0.3;
 
 /** Height on the avatar the camera aims at. */
 const CAMERA_TARGET_Y = 1.25;
+
+/**
+ * Where the over-the-shoulder eye sits: just behind the seated agent's chair,
+ * at the height of its head, square on to its monitor and close enough to read
+ * it. An avatar's head is wider than the monitor and nearly touches it, so
+ * nowhere beside or above it sees the screen; the agent the camera leans in
+ * over is hidden while it is there (`main.ts`).
+ */
+const SHOULDER_BACK = 0.1;
+const SHOULDER_HEIGHT = 1.25;
+
+/** How long a player stands still at a working agent's screen before the camera leans in, in seconds. */
+const FOCUS_DWELL_SECONDS = 0.35;
+
+/** How long the camera takes to lean in over the shoulder, or back out to the boom, in seconds. */
+const FOCUS_EASE_SECONDS = 0.6;
 
 const CAMERA_PITCH_MIN = 0.08;
 const CAMERA_PITCH_MAX = 1.1;
@@ -114,6 +137,15 @@ const CAMERA_OCCLUDERS: readonly Box3[] = OFFICE_LAYOUT.walls.map((spec) => ({
 }));
 
 /**
+ * A view the camera can lean into instead of its boom: where the eye is, and
+ * the point it looks at.
+ */
+export interface CameraFocus {
+  readonly eye: THREE.Vector3;
+  readonly target: THREE.Vector3;
+}
+
+/**
  * How far along a segment the first wall is, as a fraction in (0, 1].
  *
  * Slab test per box, taking the nearest hit. Returns 1 when the segment reaches
@@ -163,6 +195,39 @@ function distanceToFirstWall(
   return nearest;
 }
 
+/**
+ * The view over the shoulder of the agent seated at `seat`, looking at its
+ * monitor's screen, centred at `screen`.
+ *
+ * A wall between the screen and the eye brings the eye in along that line to
+ * just short of the wall, as the boom is brought in, so it is never inside one.
+ *
+ * @returns the view, or `undefined` when no eye outside a wall is far enough
+ * from the screen to show it.
+ */
+export function shoulderView(seat: { readonly x: number; readonly z: number }, screen: THREE.Vector3): CameraFocus | undefined {
+  const forwardX = screen.x - seat.x;
+  const forwardZ = screen.z - seat.z;
+  const length = Math.hypot(forwardX, forwardZ);
+  if (length < MOVEMENT_EPSILON) {
+    return undefined;
+  }
+  const eye = new THREE.Vector3(
+    seat.x - (forwardX / length) * SHOULDER_BACK,
+    SHOULDER_HEIGHT,
+    seat.z - (forwardZ / length) * SHOULDER_BACK,
+  );
+  const reach = distanceToFirstWall(screen.x, screen.y, screen.z, eye.x - screen.x, eye.y - screen.y, eye.z - screen.z);
+  eye.sub(screen).multiplyScalar(reach).add(screen);
+  // An eye pulled in almost onto the screen shows nothing worth leaning in for.
+  return eye.distanceTo(screen) < CAMERA_MIN_DISTANCE / 2 ? undefined : { eye, target: screen.clone() };
+}
+
+/** Eases in and out of a blend, so the camera neither lurches off nor slams into place. */
+function smoothstep(t: number): number {
+  return t * t * (3 - 2 * t);
+}
+
 export class PlayerController {
   /** The predicted pose, which is what the local avatar renders at. */
   public readonly pose: Pose = { x: 0, z: 0, yaw: 0, animation: ANIMATION_STATE.idle };
@@ -171,7 +236,17 @@ export class PlayerController {
   private cameraYaw = 0;
   private cameraPitch = CAMERA_PITCH_DEFAULT;
   private readonly cameraTarget = new THREE.Vector3();
+  private readonly lookTarget = new THREE.Vector3();
   private disposers: Array<() => void> = [];
+
+  /** The view to lean into while the player stands still, if there is one this frame. */
+  private focus: CameraFocus | undefined;
+  /** The view the camera is in or easing out of, kept until it is back on its boom. */
+  private leaning: CameraFocus | undefined;
+  /** How far into {@link leaning} the camera is, 0 on its boom to 1 in the view. */
+  private focusBlend = 0;
+  /** How long the player has stood still, in seconds. */
+  private stillSeconds = 0;
 
   /** The interactable the player is being held at, or `undefined` when free. */
   private hold: InteractableSpec | undefined;
@@ -331,6 +406,29 @@ export class PlayerController {
     return this.hold !== undefined;
   }
 
+  /** How far the camera has leaned into its focus, 0 on its boom to 1 all the way in. */
+  public get leanedIn(): number {
+    return this.focusBlend;
+  }
+
+  /** The view {@link leanedIn} measures, which may still be one the camera is easing out of. */
+  public get leaningInto(): CameraFocus | undefined {
+    return this.leaning;
+  }
+
+  /**
+   * The view the camera leans into once the player has stood still for a
+   * moment, such as {@link shoulderView} at a working agent's screen, or
+   * `undefined` for none. Set every frame; a view that goes away, or a step,
+   * eases the camera back to its boom.
+   */
+  public setFocus(focus: CameraFocus | undefined): void {
+    this.focus = focus;
+    if (focus !== undefined && (this.leaning === undefined || this.focusBlend === 0)) {
+      this.leaning = focus;
+    }
+  }
+
   /**
    * Takes a pending interact keypress, if there is one.
    *
@@ -365,6 +463,14 @@ export class PlayerController {
 
   /** Advances the local player by one frame and follows with the camera. */
   public update(deltaSeconds: number): void {
+    this.stillSeconds = this.movementPressed() ? 0 : this.stillSeconds + deltaSeconds;
+    const leanIn = this.focus !== undefined && this.focus === this.leaning && this.stillSeconds >= FOCUS_DWELL_SECONDS;
+    const step = deltaSeconds / FOCUS_EASE_SECONDS;
+    this.focusBlend = Math.min(1, Math.max(0, this.focusBlend + (leanIn ? step : -step)));
+    if (this.focusBlend === 0) {
+      this.leaning = this.focus;
+    }
+
     if (this.hold !== undefined) {
       if (!this.movementPressed()) {
         // Held: the pose is the server's, so there is nothing to predict. The
@@ -512,6 +618,12 @@ export class PlayerController {
       this.cameraTarget.y + boomY * fraction,
       this.cameraTarget.z + boomZ * fraction,
     );
-    this.camera.lookAt(this.cameraTarget);
+    this.lookTarget.copy(this.cameraTarget);
+    if (this.leaning !== undefined && this.focusBlend > 0) {
+      const blend = smoothstep(this.focusBlend);
+      this.camera.position.lerp(this.leaning.eye, blend);
+      this.lookTarget.lerp(this.leaning.target, blend);
+    }
+    this.camera.lookAt(this.lookTarget);
   }
 }
