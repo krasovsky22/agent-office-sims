@@ -475,8 +475,9 @@ The CEO's note follows, quoted. Claude reads the issue itself, so none of its
 text passes through the runner.
 
 The runner reads the pull request off Claude's `PostToolUse` hook, from the
-URL a `gh pr create` it ran printed, on `RUNNER_REPO` only, and reports
-`pr-opened` at once. When a turn ends with nothing handed in, the slot looks
+URL a `gh pr create` it ran printed, on `RUNNER_REPO` only, counts it handed
+in at once, and reports `pr-opened` once `gh pr view` has given its title (an
+empty one if that fails). When a turn ends with nothing handed in, the slot looks
 for itself: the open pull request for the task's branch
 (`gh pr list --head <branch>`), or, for a branch Claude pushed without opening
 one, a pull request the runner opens with `gh pr create`, titled after the
@@ -1034,8 +1035,8 @@ Ten things are worth knowing before changing anything:
   happening. Nothing draws an emote or a bubble it did not receive from the
   server, including the one above your own head, so what you see over yourself
   is what everyone else sees.
-- **The work is server-authoritative, and has one gate; GitHub is read-only.**
-  The project board's issues come from GitHub and are never written back to:
+- **The work is server-authoritative, and has one gate; the server only reads GitHub.**
+  The project board's issues come from GitHub and the game server never writes back to them:
   no assignee, label, comment or state, and no token scope beyond reading.
   What the office does about an issue is an `IssueWork` in replicated state,
   keyed by the issue number. A client asks; the server decides.
