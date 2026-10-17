@@ -60,7 +60,7 @@ const TAKE_VERBS: readonly string[] = ["take", "pick up", "do", "handle", "work 
 const BACKLOG_VERBS: readonly string[] = ["hand out", "give out", "assign", "distribute"];
 const ANYONE = /^(someone|anyone|whoever)$/;
 /** One of the runners' coding agents, whichever is free: the only way to ask for one without a name. */
-const ANY_CODER = /^(a|any) coding agent$/;
+const ANY_CODER = /^a coding agent$/;
 /** The one clause an AGENT may carry: "someone who's free". */
 const AGENT_CLAUSES: readonly string[] = ["who's free", "who is free", "who's idle", "who is idle"];
 /** What may sit between work references in the WORK slot. */
@@ -116,9 +116,6 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     const backlog = backlogOf(view);
     if (backlog.length === 0) {
       return { reply: "Every open issue nobody is on already has an agent, so there is nothing to hand out.", assignments: [] };
-    }
-    if (instruction.agent === undefined && !view.orchestrator) {
-      return { reply: SOMEONE_IS_NOT_A_CODER, assignments: [] };
     }
     return {
       reply: "Handing out the open issues nobody is on:",
@@ -186,9 +183,6 @@ type Assignee = IssueAgentView | LiveAgentView | typeof ANY_CODING_AGENT | undef
 function assigneeName(agent: Assignee): string {
   return agent === undefined ? "" : agent === ANY_CODING_AGENT ? ANY_CODING_AGENT : agent.id;
 }
-
-const SOMEONE_IS_NOT_A_CODER =
-  "There's no orchestrator to hand the backlog to, and a coding agent spends real money, so I only put one to work when you ask: say “hand out the backlog to a coding agent”, or name one.";
 
 /** Work read from a WORK slot: what it names, and what it names that is not on the board. */
 interface WorkSlot {

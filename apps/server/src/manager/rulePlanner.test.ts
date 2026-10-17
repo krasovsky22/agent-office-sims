@@ -372,7 +372,7 @@ describe("planFromRules: the runners' coding agents", () => {
 
   it.each<[string, { work: string; agent: string }[]]>([
     ["put a coding agent on #39", [{ work: "issue #39", agent: "a coding agent" }]],
-    ["Put any coding agent who's free on #39", [{ work: "issue #39", agent: "a coding agent" }]],
+    ["Put a coding agent who's free on #39", [{ work: "issue #39", agent: "a coding agent" }]],
     ["have a coding agent take #39", [{ work: "issue #39", agent: "a coding agent" }]],
     ["have Claude 2 do #39", [{ work: "issue #39", agent: "agent:runner/2" }]],
     ["Put Claude 2 on #39", [{ work: "issue #39", agent: "agent:runner/2" }]],
@@ -389,10 +389,12 @@ describe("planFromRules: the runners' coding agents", () => {
     expect(ask(message, RUNNER_VIEW).assignments).toEqual(assignments);
   });
 
-  it("does not hand the backlog to the coding agents unless asked to, with no orchestrator to take it", () => {
-    const plan = ask("hand out the backlog", RUNNER_VIEW);
-    expect(plan.assignments).toEqual([]);
-    expect(plan.reply).toContain("say “hand out the backlog to a coding agent”");
+  it("hands the backlog to “someone”, not to the coding agents, unless asked for one", () => {
+    expect(ask("hand out the backlog", RUNNER_VIEW).assignments).toEqual([
+      { work: "#10", agent: "" },
+      { work: "#15", agent: "" },
+      { work: "#39", agent: "" },
+    ]);
   });
 
   describe("when two slots share a first name", () => {
