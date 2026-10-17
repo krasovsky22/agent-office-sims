@@ -4,9 +4,9 @@
  * agent, so what the CEO reads in the conversation at each step is what the
  * office would say about a real agent's work.
  *
- * Both slots' mocks stop to wait on the CEO, and wait until the office's
- * prompt answers them; then one hands in a simulated pull request and the
- * other fails, so both endings are heard. The runner's modules are imported
+ * Both slots' mocks stop to wait on the CEO, and wait until the CEO answers
+ * them from their terminal panels; then one hands in a simulated pull request
+ * and the other fails, so both endings are heard. The runner's modules are imported
  * from its source, as the runner's own round trip imports the server's;
  * nothing here reaches GitHub.
  */
@@ -17,6 +17,8 @@ import { join } from "node:path";
 import { Server, matchMaker } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
+  type AgentPromptEntry,
+  type AgentPromptRejectedEvent,
   type BoardIssue,
   CLIENT_MESSAGE,
   EMPTY_BOARD_LISTS,
@@ -28,6 +30,7 @@ import {
   RUNNER_SYNC_PATH,
   SERVER_MESSAGE,
   isLiveAgent,
+  liveAgentKey,
 } from "@sim/shared";
 import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -41,7 +44,7 @@ import { createSyncClient } from "../../../runner/src/syncClient.js";
 import { SyncLoop } from "../../../runner/src/syncLoop.js";
 import { Worktrees } from "../../../runner/src/worktrees.js";
 import { createRunnerEndpoint } from "../agents/runnerEndpoint.js";
-import { RunnerLink } from "../agents/runnerLink.js";
+import { RunnerLink, runnerSlotAgentId } from "../agents/runnerLink.js";
 import { createHealthServer } from "../http.js";
 import { OfficeRoom, type OfficeRoomOptions } from "../rooms/OfficeRoom.js";
 import { createManagerAdvisor } from "./advisor.js";
@@ -185,7 +188,18 @@ describe("Firstmate and the mock runner's coding agents", () => {
     const room = await new Client(endpoint).create<OfficeState>(OFFICE_ROOM_NAME, { name: "Dana" });
     const dana: Tab = { room, entries: [] };
     room.onMessage<ManagerEntry>(SERVER_MESSAGE.managerEntry, (entry) => dana.entries.push(entry));
-    for (const ignored of [SERVER_MESSAGE.managerHistory, SERVER_MESSAGE.projectBoard, SERVER_MESSAGE.ceoChanged, SERVER_MESSAGE.chat, SERVER_MESSAGE.screens]) {
+    const typed: AgentPromptEntry[] = [];
+    const rejected: AgentPromptRejectedEvent[] = [];
+    room.onMessage<AgentPromptEntry>(SERVER_MESSAGE.agentPrompted, (entry) => typed.push(entry));
+    room.onMessage<AgentPromptRejectedEvent>(SERVER_MESSAGE.agentPromptRejected, (event) => rejected.push(event));
+    for (const ignored of [
+      SERVER_MESSAGE.managerHistory,
+      SERVER_MESSAGE.projectBoard,
+      SERVER_MESSAGE.ceoChanged,
+      SERVER_MESSAGE.chat,
+      SERVER_MESSAGE.screens,
+      SERVER_MESSAGE.agentPromptHistory,
+    ]) {
       room.onMessage(ignored, () => undefined);
     }
     await settled(() => [...serverRoom(dana).state.occupants.values()].filter(isLiveAgent).length === 2);
@@ -209,10 +223,16 @@ describe("Firstmate and the mock runner's coding agents", () => {
     );
     expect(serverRoom(dana).state.work.get("39")?.status).toBe("in_progress");
 
-    // The office's prompt is the answer that carries each one on.
+    // The CEO answers each from its terminal panel, and that carries it on.
     for (const slotId of ["slot-1", "slot-2"]) {
-      link.enqueue("runner-1", { kind: "prompt", slotId, text: "Go ahead.", requestedBy: "Dana" });
+      room.send(CLIENT_MESSAGE.agentPrompt, { agentId: liveAgentKey(runnerSlotAgentId("runner-1", slotId)), text: "Go ahead." });
     }
+    await settled(() => typed.length === 2, 10_000);
+    expect(typed.map((entry) => [entry.agentName, entry.text])).toEqual([
+      ["Mock 1", "Go ahead."],
+      ["Mock 2", "Go ahead."],
+    ]);
+    expect(rejected).toEqual([]);
     const opened = "Mock 1 handed in #39 “Night shift” for your review as a simulated pull request: the mock agent opened nothing on GitHub.";
     const failed =
       "Mock 2 couldn't work on #41 “Draft the roadmap”: The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a simulated pull request.";

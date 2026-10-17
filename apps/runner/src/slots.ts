@@ -37,10 +37,11 @@
  * the office can explain it.
  * A prompt the CEO typed in the office is given to the agent only while it
  * waits at its prompt: its turn is done, or it ended one with nothing handed
- * in. In the middle of a turn, at a permission or a question, or with no task
- * to be at, it is refused instead, never queued behind what the agent is
- * doing, and the slot reports which, by the command's id, until a sync
- * carrying the report is answered.
+ * in, or it waits on a person and a prompt is its answer, as the mock's wait
+ * is. In the middle of a turn, at a real agent's permission or question, or
+ * with no task to be at, it is refused instead, never queued behind what the
+ * agent is doing, and the slot reports which, by the command's id, until a
+ * sync carrying the report is answered.
  */
 
 import { randomUUID } from "node:crypto";
@@ -441,7 +442,8 @@ export class SlotPool {
    * Whether the slot's agent waits at its prompt, and if not, why. Its turn
    * is done when the slot is idle with a task, or needs a person only because
    * a turn ended with nothing handed in; a slot still looking for its pull
-   * request after a turn is busy until it has.
+   * request after a turn is busy until it has. An agent whose wait on a person
+   * a prompt answers takes the prompt as that answer.
    */
   private promptable(slot: Slot): RunnerPromptOutcomeKind {
     const run = slot.run;
@@ -452,7 +454,7 @@ export class SlotPool {
       case RUNNER_SLOT_STATUS.idle:
         return run.checking ? RUNNER_PROMPT_OUTCOME.busy : RUNNER_PROMPT_OUTCOME.delivered;
       case RUNNER_SLOT_STATUS.needsInput:
-        return run.missing ? RUNNER_PROMPT_OUTCOME.delivered : RUNNER_PROMPT_OUTCOME.needsInput;
+        return run.missing || run.agentRun.promptAnswersWait === true ? RUNNER_PROMPT_OUTCOME.delivered : RUNNER_PROMPT_OUTCOME.needsInput;
       case RUNNER_SLOT_STATUS.starting:
       case RUNNER_SLOT_STATUS.working:
         return RUNNER_PROMPT_OUTCOME.busy;

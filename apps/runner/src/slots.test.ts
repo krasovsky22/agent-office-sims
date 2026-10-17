@@ -880,6 +880,29 @@ describe("SlotPool prompts from the CEO", () => {
     expect(outcomes().at(-1)).toBe("delivered");
   });
 
+  it("types the CEO's prompt as the answer to a mock waiting on a person, and refuses it at a real agent's permission", async () => {
+    const slots = pool("pr-opened");
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(TO_WAIT_MS);
+    expect(slot(slots)).toMatchObject({ status: "needs-input", activity: MOCK_PERMISSION });
+    const answer = ceoPrompt("Go ahead and run the tests.");
+    slots.handle(answer);
+    expect(slots.pendingPromptOutcomes()).toEqual([{ commandId: answer.id, slotId: "slot-1", outcome: "delivered" }]);
+    expect(slot(slots)).toMatchObject({ status: "working", activity: "Go ahead and run the tests." });
+    await vi.advanceTimersByTimeAsync(FROM_ANSWER_MS);
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE, pr: { simulated: true } });
+
+    // A dialog would take the Enter after the paste as its choice, whatever the prompt said.
+    const { agent, typed, handle } = promptedAgent();
+    const real = pool("failed", agent);
+    real.handle(START);
+    await settle();
+    handle.reporter?.needsInput("Wants permission: Bash: git push");
+    real.handle(ceoPrompt("No, don't push."));
+    expect(typed).toEqual([]);
+    expect(real.pendingPromptOutcomes().map((outcome) => outcome.outcome)).toEqual(["needs-input"]);
+  });
+
   it("forgets the outcomes a sync delivered, by their command's id", () => {
     const slots = pool();
     const first = ceoPrompt("one");

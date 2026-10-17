@@ -103,8 +103,9 @@ before it pastes the prompt into the agent's terminal and presses Enter, so no
 keystroke of the CEO's reaches it raw. It takes the CEO;
 everyone else's panel says who can, and the server refuses their prompts with
 that reason. A prompt is typed only while the agent waits at its prompt, its
-turn done; one sent while it is busy, or waiting on a permission, is refused
-rather than queued, and only the CEO who sent it is told why, beside the box,
+turn done, or, for the mock agent, while it waits on a person, which the
+prompt answers; one sent while it is busy, or while a real agent waits on a
+permission, is refused rather than queued, and only the CEO who sent it is told why, beside the box,
 where what they wrote is still there to send again. Every tab watching the
 panel shows each prompt once it is typed: `Dana → Claude 1: …`. Prompts are
 limited to three in a burst, one more every five seconds, and are not kept
@@ -569,8 +570,9 @@ reason, as is one still silent 12 seconds after it was started.
 A Claude whose turn ended on a question, `Finished without a pull request`,
 waits at its prompt for the CEO, who answers it from its terminal panel. One
 stopped at a permission or a question dialog cannot be answered from the
-office: a prompt for it is refused, and it waits until the task timeout or a
-`stop`. A `stop` or the timeout sends `SIGTERM` to
+office, since the Enter after a pasted prompt would choose whatever the dialog
+has selected: a prompt for it is refused, and it waits, the task timeout held,
+until a `stop`. A `stop` or the timeout sends `SIGTERM` to
 Claude's whole process group, which it leads, and `SIGKILL` five seconds later
 to anything still there; what is left in the group when Claude exits is killed
 too.

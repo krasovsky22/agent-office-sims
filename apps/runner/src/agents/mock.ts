@@ -211,6 +211,7 @@ export function createMockAgent(options: MockAgentOptions): Agent {
       }, stepMs);
 
       return {
+        promptAnswersWait: true,
         stop() {
           stopped = true;
           if (timer !== undefined) {
