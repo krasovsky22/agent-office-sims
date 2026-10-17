@@ -42,10 +42,11 @@ each issue. An issue goes to the coding agent the CEO names, or else to a free
 one of the runner's coding agents, whatever the CEO calls it — by number, or by
 a word or two only one open issue's title has; with none free, or the issue not
 ready for them, it is queued for one of an orchestrator's idle live agents,
-which their orchestrator collects, unless one of those is already working it. It posts updates of its own to the same conversation
-when a coding agent starts on its issue, waits on a person, opens its pull
-request (with the link) or cannot carry on (with the runner's reason), and when
-one of the orchestrator's agents starts or stops. Everyone can read the conversation; only the CEO can instruct it.
+which their orchestrator collects, unless one of those is already working it.
+It posts updates of its own to the same conversation when a coding agent starts
+on its issue, waits on a person, opens its pull request (with the link) or
+cannot carry on (with the runner's reason), and when one of the orchestrator's
+agents starts or stops. Everyone can read the conversation; only the CEO can instruct it.
 
 ## Running it
 
@@ -760,10 +761,10 @@ Then confirm all nineteen:
     then `Mock 1 couldn't work on #N` with the mock's reason, or with
     `RUNNER_MOCK_OUTCOME=pr-opened`, `Mock 1 opened PR #<1000000 + N> for #N` with its
     link; `what is Mock 1 doing?` says the same. `have Mock 2 do #N` names the
-    slot instead; an issue without the label is refused with that reason. With
-    only the runner, `put someone on #N` is refused and says to ask for a coding
-    agent; with no runner and no orchestrator the reply says none is
-    connected; with `LIVE_AGENTS_SECRET` set, no runner, and an idle agent
+    slot instead; an issue without the label is refused with that reason.
+    `put someone on #N` and `assign <a word from its title>` go to a free slot
+    the same way; with no runner and no orchestrator the reply says there are
+    no coding agents on the floor; with `LIVE_AGENTS_SECRET` set, no runner, and an idle agent
     reported, as in [Live coding agents](#live-coding-agents), it is queued for
     that agent and the next `POST /agents/assignments` collects it. Milo's roster line for the
     manager counts the new lines; his panel at the desk shows the same
