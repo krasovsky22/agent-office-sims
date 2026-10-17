@@ -385,7 +385,7 @@ are masked the same way before they are synced.
 
 `apps/runner` (`@sim/runner`) is that runner. Each of its slots runs one agent
 on one issue at a time. The default agent is `mock`, which needs no
-credentials and spends nothing, so the whole loop can be developed and tested
+credentials and spends no real money, so the whole loop can be developed and tested
 without a real one; `RUNNER_AGENT=claude` runs Claude Code instead, acting on
 GitHub only as [the runner's GitHub App](#the-runners-github-app), without which
 it refuses to start (see [Claude Code in the runner](#claude-code-in-the-runner)). With `pnpm dev` running and `RUNNER_SECRET` set on the
