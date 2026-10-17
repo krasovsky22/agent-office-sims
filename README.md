@@ -40,9 +40,9 @@ Claude 1 do #39" — and it answers from the office's live state and the project
 board the server already polls, with labels, linked pull requests and who is on
 each issue. An issue goes to the coding agent the CEO names, or else to a free
 one of the runner's coding agents, whatever the CEO calls it — by number, or by
-a word or two only one open issue's title has; with none free it is queued for
-one of an orchestrator's idle live agents, which their orchestrator collects,
-or the CEO is told no coding agent is free. It posts updates of its own to the same conversation
+a word or two only one open issue's title has; with none free, or the issue not
+ready for them, it is queued for one of an orchestrator's idle live agents,
+which their orchestrator collects, unless one of those is already working it. It posts updates of its own to the same conversation
 when a coding agent starts on its issue, waits on a person, opens its pull
 request (with the link) or cannot carry on (with the runner's reason), and when
 one of the orchestrator's agents starts or stops. Everyone can read the conversation; only the CEO can instruct it.

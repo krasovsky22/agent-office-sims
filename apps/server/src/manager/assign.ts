@@ -27,9 +27,10 @@
  * "a coding agent" ({@link ANY_CODING_AGENT}) or nobody in particular
  * ("someone", "assign #62", "hand out the backlog") it is the first free one,
  * with no issue in hand counting what this same plan has already handed out,
- * so a backlog spreads. With none free, nobody in particular falls back to an
- * idle agent of the orchestrator's, and otherwise the CEO is told plainly that
- * none is free. A runner's slot works one issue at a time, so a named coding
+ * so a backlog spreads. Nobody in particular leaves an issue with the
+ * orchestrator's agent already working it, and with no coding agent free, or
+ * one the work's gates refuse, falls back to an idle agent of the
+ * orchestrator's; otherwise the CEO is told plainly why not. A runner's slot works one issue at a time, so a named coding
  * agent with a different issue in hand, or one from this same plan, is
  * refused. What a coding agent may spend is still decided by the work's gates
  * and the runner, not here.
@@ -131,15 +132,21 @@ function carryOutOne(
     return assignee === undefined ? noFreeCodingAgent(label, context.view) : assignIssue(work.issue, label, assignee, context, load);
   }
 
-  // One of the orchestrator's agents by name, or nobody in particular.
-  const live = context.view.liveAgents.find((candidate) => candidate === agent);
+  // One of the orchestrator's agents by name, or nobody in particular: then
+  // whichever of them is already on it, else a free coding agent the work's
+  // gates allow, else one of theirs.
+  const url = work.kind === "issue" ? work.issue.url : work.pull.url;
+  const live = context.view.liveAgents.find((candidate) =>
+    agent === undefined ? candidate.task?.url === url : candidate === agent,
+  );
   if (work.kind === "issue" && live === undefined) {
     const free = freeCodingAgent(work.issue, context.view, load);
-    if (free !== undefined) {
-      return assignIssue(work.issue, label, free, context, load);
-    }
-    if (context.queue === undefined) {
+    if (free === undefined && context.queue === undefined) {
       return noFreeCodingAgent(label, context.view);
+    }
+    if (free !== undefined) {
+      const queue = context.queue === undefined ? undefined : () => queueForLiveAgent(work, label, undefined, context, load);
+      return assignIssue(work.issue, label, free, context, load, queue);
     }
   }
   return queueForLiveAgent(work, label, live, context, load);
@@ -158,6 +165,7 @@ function assignIssue(
   agent: IssueAgentView,
   context: AssignContext,
   load: Map<string, number>,
+  otherwise?: () => string,
 ): string {
   const current = issue.work;
   if (current?.assigneeId === agent.id) {
@@ -172,7 +180,7 @@ function assignIssue(
     payload: { issueNumber: issue.number, assigneeId: agent.id },
   });
   if (!result.ok) {
-    return `✗ ${label}: ${REFUSAL_TEXT[result.rejection]}.`;
+    return otherwise?.() ?? `✗ ${label}: ${REFUSAL_TEXT[result.rejection]}.`;
   }
   load.set(agent.id, (load.get(agent.id) ?? 0) + 1);
   const from = current?.assignee === undefined ? "" : ` (from ${current.assignee})`;
