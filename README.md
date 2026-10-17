@@ -822,8 +822,8 @@ Then confirm all twenty:
     [Running the runner](#running-the-runner); have an open issue labelled
     `agent-ready` and one without. Milo, not the CEO, is offered no `Assign…`
     on either. Dana assigns the unlabelled issue: refused, saying it needs the
-    `agent-ready` label. She assigns the labelled one: within a couple of seconds both tabs show it `In progress`,
-    `Mock 1` sits and works it on its monitor, lights its `Needs you` beacon
+    `agent-ready` label. She assigns the labelled one: within a couple of
+    seconds both tabs show it `In progress`, `Mock 1` sits and works it on its monitor, lights its `Needs you` beacon
     for a few steps, and then the card is `In review` with
     `PR #1000<n>: [mock] <title>, <link>` as its deliverable, in both tabs.
     `Send back` puts it `In progress` again and the mock works a rework turn
