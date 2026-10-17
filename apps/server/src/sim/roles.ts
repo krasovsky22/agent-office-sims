@@ -4,9 +4,8 @@
  * The role is what makes the board's authority rules mean anything, so the
  * room must never be in a state where two players hold it or where players are
  * present and nobody does. Both of those are decided here and nowhere else:
- * the room calls {@link roleForArrival} as a player joins,
- * {@link appointSuccessor} after one leaves, and {@link takeCeoRole} when one
- * verifies as operator, and writes no role itself.
+ * the room calls {@link roleForArrival} as a player joins and
+ * {@link appointSuccessor} after one leaves, and writes no role itself.
  *
  * Each call reads and writes the occupants map synchronously, inside a single
  * message or leave handler. Colyseus encodes a patch only between handlers, so
@@ -98,29 +97,6 @@ export function appointSuccessor(
     successor.role = PLAYER_ROLE.ceo;
   }
   return successor;
-}
-
-/**
- * Hands the role to a player who has just verified as operator.
- *
- * The operator is who the server's owner says runs the real agents, so they
- * take the role from whoever holds it, and that player stays on as an
- * executive. The demotion and the promotion are one synchronous call, so no
- * patch shows two CEOs or none.
- *
- * @returns the player who held the role, so the room can announce the change,
- * or `undefined` when `player` already held it.
- */
-export function takeCeoRole(occupants: MapSchema<Occupant>, player: HumanPlayer): HumanPlayer | undefined {
-  const previous = findCeo(occupants);
-  if (previous === player) {
-    return undefined;
-  }
-  if (previous !== undefined) {
-    previous.role = PLAYER_ROLE.exec;
-  }
-  player.role = PLAYER_ROLE.ceo;
-  return previous;
 }
 
 /**

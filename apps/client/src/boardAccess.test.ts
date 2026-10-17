@@ -16,8 +16,8 @@ import { describe, expect, it } from "vitest";
 
 import { boardAccessFor, mayAct, rejectionText } from "./boardAccess.js";
 
-const DANA: OfficeActor = { id: "dana", kind: OCCUPANT_KIND.human, isCeo: true, isOperator: false };
-const MILO: OfficeActor = { id: "milo", kind: OCCUPANT_KIND.human, isCeo: false, isOperator: false };
+const DANA: OfficeActor = { id: "dana", kind: OCCUPANT_KIND.human, isCeo: true };
+const MILO: OfficeActor = { id: "milo", kind: OCCUPANT_KIND.human, isCeo: false };
 const ADA = { id: "agent-1" };
 
 describe("boardAccessFor", () => {
@@ -95,11 +95,10 @@ describe("rejectionText", () => {
     expect(rejectionText(WORK_REJECTION.forbidden)).toContain("CEO");
   });
 
-  it("names the label an issue refused for want of it needs, and asks the CEO to verify", () => {
+  it("names the label an issue refused for want of it needs", () => {
     expect(rejectionText(WORK_REJECTION.notEligible, "agent-ready")).toBe(
       "That issue is not marked ready for the coding agents: a maintainer has to label it agent-ready first.",
     );
     expect(rejectionText(WORK_REJECTION.notEligible)).toBe("That issue is not marked ready for the coding agents.");
-    expect(rejectionText(WORK_REJECTION.notOperator)).toContain("operator passphrase");
   });
 });

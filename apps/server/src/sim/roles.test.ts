@@ -8,7 +8,7 @@ import { MapSchema } from "@colyseus/schema";
 import { HumanPlayer, OCCUPANT_KIND, type Occupant, PLAYER_ROLE, type PlayerRole } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { appointSuccessor, describeRoleProblems, findCeo, roleForArrival, takeCeoRole } from "./roles.js";
+import { appointSuccessor, describeRoleProblems, findCeo, roleForArrival } from "./roles.js";
 
 function player(id: string, role: PlayerRole): HumanPlayer {
   const occupant = new HumanPlayer();
@@ -100,27 +100,5 @@ describe("describeRoleProblems", () => {
     ).toHaveLength(1);
     expect(describeRoleProblems(office(player("a", PLAYER_ROLE.exec)))).toHaveLength(1);
     expect(describeRoleProblems(office())).toEqual([]);
-  });
-});
-
-describe("takeCeoRole", () => {
-  it("hands the role to the operator and keeps its holder as an executive", () => {
-    const dana = player("dana", PLAYER_ROLE.ceo);
-    const ines = player("ines", PLAYER_ROLE.exec);
-    const occupants = office(dana, ines);
-
-    expect(takeCeoRole(occupants, ines)?.id).toBe("dana");
-    expect(findCeo(occupants)?.id).toBe("ines");
-    expect(dana.role).toBe(PLAYER_ROLE.exec);
-    expect(describeRoleProblems(occupants)).toEqual([]);
-  });
-
-  it("changes nothing for a player who already holds it", () => {
-    const dana = player("dana", PLAYER_ROLE.ceo);
-    const occupants = office(dana, player("ines", PLAYER_ROLE.exec));
-
-    expect(takeCeoRole(occupants, dana)).toBeUndefined();
-    expect(findCeo(occupants)?.id).toBe("dana");
-    expect(describeRoleProblems(occupants)).toEqual([]);
   });
 });

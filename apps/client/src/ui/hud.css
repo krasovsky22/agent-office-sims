@@ -122,11 +122,6 @@
   color: #7fe8da;
 }
 
-.hud__badge--operator {
-  background: rgba(240, 138, 122, 0.16);
-  color: #f08a7a;
-}
-
 /* Solid and warm, the colour of the beacon over the agent's head, so a live
    agent waiting on a person stands out in the roster as it does on the floor. */
 .hud__badge--needs-you {

@@ -83,8 +83,6 @@ const REJECTION_TEXT: Readonly<Record<WorkRejection, string>> = {
   [WORK_REJECTION.illegalTransition]: "That work cannot move there from where it is now.",
   [WORK_REJECTION.unknownAssignee]: "That agent is no longer in the office.",
   [WORK_REJECTION.missingArtifact]: "That work has no deliverable to hand in yet.",
-  [WORK_REJECTION.notOperator]:
-    "Putting a live coding agent to work takes a verified operator. Verify with the operator passphrase in the manager's panel.",
   [WORK_REJECTION.notEligible]: "That issue is not marked ready for the coding agents.",
 };
 

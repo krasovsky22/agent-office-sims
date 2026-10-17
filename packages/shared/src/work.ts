@@ -16,9 +16,8 @@
  * - {@link mayActOnWork}, the one place authority is decided, reading the
  *   {@link WORK_ACTION_AUTHORITY} table: the CEO hands the work out and judges
  *   it, and the agent an issue was given to does the work on it.
- *   Beside it, {@link mayCommandRealAgents}, the stricter rule for work that
- *   reaches a real coding agent, and {@link isAgentReady}, which issues one
- *   may be given at all.
+ *   Beside it, {@link isAgentReady}, which issues a real coding agent may be
+ *   given at all.
  * - {@link applyWorkCommand}, which validates a parsed command against the
  *   live office and the project board and mutates the work, or rejects it and
  *   leaves everything untouched.
@@ -53,7 +52,6 @@ import {
   type WorkStatus,
   isCeo,
   isLiveAgent,
-  isOperator,
   isWorkStatus,
   workKey,
 } from "./state.js";
@@ -189,8 +187,6 @@ export interface OfficeActor {
   readonly id: string;
   readonly kind: OccupantKind;
   readonly isCeo: boolean;
-  /** Whether they proved the operator passphrase; see {@link mayCommandRealAgents}. */
-  readonly isOperator: boolean;
   /** A live agent's `canTakeIssues`; absent for anyone else. */
   readonly canTakeIssues?: boolean;
 }
@@ -202,7 +198,7 @@ export interface OfficeActor {
  * to offer it read the role the same way.
  */
 export function actorOf(occupant: Occupant): OfficeActor {
-  const actor = { id: occupant.id, kind: occupant.kind, isCeo: isCeo(occupant), isOperator: isOperator(occupant) };
+  const actor = { id: occupant.id, kind: occupant.kind, isCeo: isCeo(occupant) };
   return isLiveAgent(occupant) ? { ...actor, canTakeIssues: occupant.canTakeIssues } : actor;
 }
 
@@ -269,47 +265,6 @@ export function mayActOnWork(query: WorkPermissionQuery): boolean {
         query.work !== undefined &&
         query.work.assigneeId === query.actor.id
       );
-  }
-}
-
-/**
- * Whether an actor may give an order that reaches a real coding agent: the CEO,
- * and only once they have proved the operator passphrase.
- *
- * The project board's work is the CEO's alone, by {@link mayActOnWork}. A real
- * agent's work is code run and pushed on the runner's host, and the CEO is
- * just whoever joined first, so it takes the passphrase as well. The server
- * asks this only when an operator passphrase is configured (the replicated
- * `operatorRequired`); without one, an office trusts its CEO, which the boot
- * rule allows only where the operator said so. The client asks it to disable
- * what the server would refuse, and to say why.
- */
-export function mayCommandRealAgents(actor: OfficeActor): boolean {
-  return actor.isCeo && actor.isOperator;
-}
-
-/**
- * Whether a command puts a real coding agent to work: handing it an issue,
- * sending its review back for rework, or having it start again. Each one
- * starts or prompts an agent on the runner, which spends money and runs code,
- * so each takes {@link mayCommandRealAgents} where the office asks for it.
- * Taking work back or approving it only stops an agent, and does not.
- *
- * Every issue assignee is a real coding agent, see {@link isIssueAssignee},
- * so this reads the command and the work, never who the assignee is.
- */
-export function commandsRealAgent(command: WorkCommand, work: WorkData | undefined): boolean {
-  switch (command.action) {
-    case WORK_ACTION.assign:
-      return true;
-    case WORK_ACTION.moveStatus:
-      return (
-        work !== undefined &&
-        ((work.status === WORK_STATUS.review && command.payload.status === WORK_STATUS.in_progress) ||
-          (work.status === WORK_STATUS.in_progress && command.payload.status === WORK_STATUS.assigned))
-      );
-    default:
-      return false;
   }
 }
 
@@ -383,8 +338,6 @@ export const WORK_REJECTION = {
   unknownAssignee: "unknown-assignee",
   /** A hand-in with no deliverable attached, or an attachment with no text. */
   missingArtifact: "missing-artifact",
-  /** It would put a real coding agent to work, and the CEO has not proved the operator passphrase. */
-  notOperator: "not-operator",
   /** The issue does not carry the label that makes it a real coding agent's to take. */
   notEligible: "not-eligible",
 } as const;
@@ -446,12 +399,6 @@ export interface WorkCommandContext {
   /** Defaults to {@link mayActOnWork}. */
   readonly permit?: WorkPermission;
   /**
-   * Whether putting a real coding agent to work takes a verified operator, the
-   * replicated `operatorRequired`; see {@link commandsRealAgent}. Absent, it
-   * does not.
-   */
-  readonly operatorRequired?: boolean;
-  /**
    * The label an issue needs before it is given to an agent, the replicated
    * `agentIssueLabel`; see {@link isAgentReady}. Absent or `""`, none.
    */
@@ -487,9 +434,6 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
     if (!permit({ actor: context.actor, action: WORK_ACTION.assign, ...(work === undefined ? {} : { work }) })) {
       return reject(WORK_REJECTION.forbidden);
     }
-    if (needsOperator(command, work, context)) {
-      return reject(WORK_REJECTION.notOperator);
-    }
     return assignWork(work, command.payload, context);
   }
 
@@ -498,9 +442,6 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
   }
   if (!permit({ actor: context.actor, action: command.action, work })) {
     return reject(WORK_REJECTION.forbidden);
-  }
-  if (needsOperator(command, work, context)) {
-    return reject(WORK_REJECTION.notOperator);
   }
 
   switch (command.action) {
@@ -517,11 +458,6 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
     case WORK_ACTION.note:
       return noteOnWork(work, command.payload, context);
   }
-}
-
-/** Whether the CEO asking still has to prove the operator passphrase first. */
-function needsOperator(command: WorkCommand, work: WorkData | undefined, context: WorkCommandContext): boolean {
-  return context.operatorRequired === true && commandsRealAgent(command, work) && !mayCommandRealAgents(context.actor);
 }
 
 /**

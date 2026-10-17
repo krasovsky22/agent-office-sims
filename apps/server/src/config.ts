@@ -8,11 +8,7 @@
  * joins looks like a client bug.
  */
 
-import {
-  MAX_OPERATOR_PASSPHRASE_LENGTH,
-  MIN_OPERATOR_PASSPHRASE_LENGTH,
-  readAgentIssueLabel,
-} from "@sim/shared";
+import { readAgentIssueLabel } from "@sim/shared";
 
 const DEFAULT_PORT = 2567;
 
@@ -107,18 +103,6 @@ export interface RunnerConfig {
   readonly issueLabel: string;
 }
 
-/** Who may command the real coding agents. */
-export interface OperatorConfig {
-  /**
-   * The passphrase a player proves to become operator, or `undefined` for an
-   * office that trusts its CEO. Server-side only: it is compared in constant
-   * time and never logged, replicated or sent to a browser.
-   */
-  readonly passphrase: string | undefined;
-  /** Whether a runner may start with no passphrase; local development only. */
-  readonly trustCeo: boolean;
-}
-
 export interface ServerConfig {
   readonly port: number;
   /** Origins permitted to matchmake and open a socket, already normalized. */
@@ -126,21 +110,16 @@ export interface ServerConfig {
   readonly projectBoard: ProjectBoardConfig;
   readonly liveAgents: LiveAgentsConfig;
   readonly runner: RunnerConfig;
-  readonly operator: OperatorConfig;
   readonly manager: ManagerConfig;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const runner = readRunnerConfig(env);
-  const operator = readOperatorConfig(env);
-  requireOperatorForRunner(runner, operator);
   return {
     port: readPort(env),
     allowedOrigins: readAllowedOrigins(env),
     projectBoard: readProjectBoardConfig(env),
     liveAgents: readLiveAgentsConfig(env),
-    runner,
-    operator,
+    runner: readRunnerConfig(env),
     manager: readManagerConfig(env),
   };
 }
@@ -273,53 +252,6 @@ export function readRunnerConfig(env: NodeJS.ProcessEnv = process.env): RunnerCo
     );
   }
   return { secret, issueLabel: readAgentIssueLabel(env["REAL_AGENT_ISSUE_LABEL"]) };
-}
-
-/**
- * Reads who may command the real coding agents.
- *
- * - `OPERATOR_PASSPHRASE`: optional, {@link MIN_OPERATOR_PASSPHRASE_LENGTH} to
- *   {@link MAX_OPERATOR_PASSPHRASE_LENGTH} characters. With it, only a CEO who
- *   has proved it may send work to a live agent.
- * - `REAL_AGENTS_TRUST_CEO`: `on` or `off`, defaulting to off. See
- *   {@link requireOperatorForRunner}.
- */
-export function readOperatorConfig(env: NodeJS.ProcessEnv = process.env): OperatorConfig {
-  const raw = env["OPERATOR_PASSPHRASE"]?.trim() ?? "";
-  const passphrase = raw === "" ? undefined : raw;
-  if (
-    passphrase !== undefined &&
-    (passphrase.length < MIN_OPERATOR_PASSPHRASE_LENGTH || passphrase.length > MAX_OPERATOR_PASSPHRASE_LENGTH)
-  ) {
-    // The value itself stays out of the message, which lands in a platform log.
-    throw new Error(
-      `OPERATOR_PASSPHRASE must be ${MIN_OPERATOR_PASSPHRASE_LENGTH} to ${MAX_OPERATOR_PASSPHRASE_LENGTH} characters, got ${passphrase.length}`,
-    );
-  }
-
-  const rawTrust = env["REAL_AGENTS_TRUST_CEO"]?.trim().toLowerCase() ?? "";
-  if (rawTrust !== "" && rawTrust !== "on" && rawTrust !== "off") {
-    throw new Error(`REAL_AGENTS_TRUST_CEO must be on or off, got "${env["REAL_AGENTS_TRUST_CEO"]}"`);
-  }
-  return { passphrase, trustCeo: rawTrust === "on" };
-}
-
-/**
- * Refuses a runner with nobody to answer to.
- *
- * A runner turns the CEO's word into code run and pushed on its host, and the
- * CEO is whoever joined first. Without a passphrase that is anyone who can
- * open the page, so a server with `RUNNER_SECRET` and no `OPERATOR_PASSPHRASE`
- * does not start unless `REAL_AGENTS_TRUST_CEO=on` says, for local
- * development, that anyone who can open the page is trusted.
- */
-export function requireOperatorForRunner(runner: RunnerConfig, operator: OperatorConfig): void {
-  if (runner.secret !== undefined && operator.passphrase === undefined && !operator.trustCeo) {
-    throw new Error(
-      "RUNNER_SECRET is set but OPERATOR_PASSPHRASE is not: set a passphrase so only a verified operator " +
-        "commands the runner's agents, or set REAL_AGENTS_TRUST_CEO=on to trust the CEO (local development only)",
-    );
-  }
 }
 
 /**

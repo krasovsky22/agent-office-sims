@@ -2,8 +2,8 @@
  * The room's handler for the CEO's prompts to the coding agents.
  *
  * Thin, like the manager's: it parses the untrusted payload, resolves the
- * sender, asks the one gate, `agentPromptRefusal` in `@sim/shared` (the CEO,
- * verified as operator where the server asks for it), and hands the prompt to
+ * sender, asks the one gate, `agentPromptRefusal` in `@sim/shared` (only the
+ * CEO), and hands the prompt to
  * `../agents/agentPrompts.ts`, which queues it for the agent's runner. A
  * refusal is answered to the sender alone, with its reason.
  *
@@ -48,7 +48,7 @@ export function registerAgentPromptHandlers(
     if (message === undefined || sender === undefined) {
       return;
     }
-    const refusal = agentPromptRefusal(actorOf(sender), host.state.operatorRequired);
+    const refusal = agentPromptRefusal(actorOf(sender));
     if (refusal !== undefined) {
       refuse(client, message.agentId, refusal);
       return;

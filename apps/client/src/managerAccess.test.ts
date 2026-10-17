@@ -10,17 +10,17 @@ import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
 
 describe("managerAccessFor", () => {
   it("lets the CEO instruct the manager", () => {
-    expect(managerAccessFor({ id: "a", kind: OCCUPANT_KIND.human, isCeo: true, isOperator: false }, "Dana")).toMatchObject({
+    expect(managerAccessFor({ id: "a", kind: OCCUPANT_KIND.human, isCeo: true }, "Dana")).toMatchObject({
       mayInstruct: true,
     });
   });
 
   it("tells anyone else who can, and that they can still read along", () => {
-    expect(managerAccessFor({ id: "b", kind: OCCUPANT_KIND.human, isCeo: false, isOperator: false }, "Dana")).toEqual({
+    expect(managerAccessFor({ id: "b", kind: OCCUPANT_KIND.human, isCeo: false }, "Dana")).toEqual({
       mayInstruct: false,
       summary: "Only the CEO, Dana, can instruct Firstmate. You can read the conversation.",
     });
-    expect(managerAccessFor({ id: "b", kind: OCCUPANT_KIND.human, isCeo: false, isOperator: false }, undefined).summary).toBe(
+    expect(managerAccessFor({ id: "b", kind: OCCUPANT_KIND.human, isCeo: false }, undefined).summary).toBe(
       "Only the CEO can instruct Firstmate. You can read the conversation.",
     );
   });

@@ -4,8 +4,7 @@
  *
  * A prompt is code-steering input to a process that runs commands on the
  * runner's host, so it is held to the same rule as handing that agent work:
- * the CEO, and, where the server has an operator passphrase, only once they
- * have proved it ({@link mayCommandRealAgents}). The server asks
+ * only the CEO. The server asks
  * {@link agentPromptRefusal} on every prompt before anything is queued; the
  * client asks it only to disable the panel's composer and say why.
  *
@@ -14,14 +13,12 @@
  * never queued behind the agent's turn.
  */
 
-import { type OfficeActor, mayCommandRealAgents } from "./work.js";
+import type { OfficeActor } from "./work.js";
 
 /** Why a prompt for a coding agent was not typed into its terminal. Refusal changes nothing. */
 export const AGENT_PROMPT_REJECTION = {
   /** Only the CEO prompts the coding agents. */
   forbidden: "forbidden",
-  /** The CEO has not proved the operator passphrase on a server that asks for it. */
-  notOperator: "not-operator",
   /** Not a runner's coding agent in the office, or no longer here. */
   noAgent: "no-agent",
   /** Its runner could not be given the prompt: gone silent, or too much waiting for it. */
@@ -41,17 +38,8 @@ export type AgentPromptRejection = (typeof AGENT_PROMPT_REJECTION)[keyof typeof 
 /**
  * Whether an actor may prompt a coding agent, and if not, why. **The one gate.**
  *
- * @param operatorRequired the replicated `operatorRequired`: whether this
- * server has an operator passphrase. Without one an office trusts its CEO, as
- * it does for handing out work.
  * @returns `undefined` when they may, else the rejection to send them.
  */
-export function agentPromptRefusal(actor: OfficeActor, operatorRequired: boolean): AgentPromptRejection | undefined {
-  if (!actor.isCeo) {
-    return AGENT_PROMPT_REJECTION.forbidden;
-  }
-  if (operatorRequired && !mayCommandRealAgents(actor)) {
-    return AGENT_PROMPT_REJECTION.notOperator;
-  }
-  return undefined;
+export function agentPromptRefusal(actor: OfficeActor): AgentPromptRejection | undefined {
+  return actor.isCeo ? undefined : AGENT_PROMPT_REJECTION.forbidden;
 }

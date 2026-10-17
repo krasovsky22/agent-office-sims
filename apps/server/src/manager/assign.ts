@@ -11,15 +11,13 @@
  * - **To one of the runners' coding agents**, a GitHub issue goes through
  *   `applyWorkCommand`, with the CEO who gave the instruction as the actor:
  *   the manager acts on the CEO's behalf and with exactly the CEO's authority,
- *   so the work's one gate decides — the operator, the eligibility label —
+ *   so the work's one gate decides — the CEO role, the eligibility label —
  *   and an assignment the CEO could not make is not made. Once made, the
  *   runner starts the agent (`../agents/runnerWork.ts`).
  * - **To one of the orchestrator's live agents**, an issue or pull request
  *   goes through its queue (`./liveAssignments.ts`); the manager decides and
  *   the orchestrator carries the work to the real agent. Pull requests only go
- *   this way. A real agent runs code on a real machine, so where the office
- *   has an operator passphrase this takes a CEO who has proved it, by
- *   `mayCommandRealAgents`.
+ *   this way.
  *
  * Nothing is written to GitHub.
  *
@@ -45,7 +43,6 @@ import {
   WORK_REJECTION,
   type WorkRejection,
   actorOf,
-  mayCommandRealAgents,
   sanitizeManagerText,
 } from "@sim/shared";
 
@@ -79,8 +76,6 @@ const REFUSAL_TEXT: Readonly<Record<WorkRejection, string>> = {
   [WORK_REJECTION.illegalTransition]: "it is finished, and finished work keeps who did it",
   [WORK_REJECTION.unknownAssignee]: "that agent can no longer take issues",
   [WORK_REJECTION.missingArtifact]: "it has no deliverable",
-  [WORK_REJECTION.notOperator]:
-    "only a verified operator can send work to live coding agents; verify with the operator passphrase first",
   [WORK_REJECTION.notEligible]: "it does not carry the label that marks it ready for the coding agents",
 };
 
@@ -204,9 +199,6 @@ function queueForLiveAgent(
     return work.kind === "pull"
       ? `✗ ${label}: pull requests go to live coding agents, and no agent orchestrator is connected.`
       : `✗ ${label}: no agent orchestrator is connected, so I can't hand GitHub work to live agents.`;
-  }
-  if (context.work.state.operatorRequired && !mayCommandRealAgents(actorOf(context.ceo))) {
-    return `✗ ${label}: only a verified operator can send work to live coding agents; verify with the operator passphrase first.`;
   }
   const agent = named ?? freeLiveAgent(context.view, load);
   if (agent === undefined) {
