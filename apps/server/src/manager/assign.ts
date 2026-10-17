@@ -30,10 +30,10 @@
  * so a backlog spreads. Nobody in particular leaves an issue with the
  * orchestrator's agent already working it, and with no coding agent free, or
  * one the work's gates refuse, falls back to an idle agent of the
- * orchestrator's; otherwise the CEO is told plainly why not. A runner's slot works one issue at a time, so a named coding
- * agent with a different issue in hand, or one from this same plan, is
- * refused. What a coding agent may spend is still decided by the work's gates
- * and the runner, not here.
+ * orchestrator's; otherwise the CEO is told plainly why not. A runner's slot
+ * works one issue at a time, so a named coding agent with a different issue
+ * in hand, or one from this same plan, is refused. What a coding agent may
+ * spend is still decided by the work's gates and the runner, not here.
  *
  * Synchronous: the manager calls this between ticks, once the model's answer
  * is in, against the office as it is at that moment.
@@ -180,7 +180,12 @@ function assignIssue(
     payload: { issueNumber: issue.number, assigneeId: agent.id },
   });
   if (!result.ok) {
-    return otherwise?.() ?? `✗ ${label}: ${REFUSAL_TEXT[result.rejection]}.`;
+    const refusal = REFUSAL_TEXT[result.rejection];
+    const fallback = otherwise?.();
+    if (fallback === undefined) {
+      return `✗ ${label}: ${refusal}.`;
+    }
+    return fallback.startsWith("✗") && !fallback.includes(refusal) ? `${fallback} No coding agent could take it either: ${refusal}.` : fallback;
   }
   load.set(agent.id, (load.get(agent.id) ?? 0) + 1);
   const from = current?.assignee === undefined ? "" : ` (from ${current.assignee})`;

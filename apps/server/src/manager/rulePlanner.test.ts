@@ -434,6 +434,13 @@ describe("planFromRules: the runners' coding agents", () => {
       expect(ask("assign the desk ticket", JUMP_VIEW)).toEqual({ reply: REPHRASE_TEXT, assignments: [], tokensUsed: 0 });
     });
 
+    it.each(["assign #12 and the jumping ticket", "put someone on jumping and #12", "assign the jumping ticket and issue 12"])(
+      "asks to rephrase %s rather than drop the numbered issue",
+      (message) => {
+        expect(ask(message, JUMP_VIEW)).toEqual({ reply: REPHRASE_TEXT, assignments: [], tokensUsed: 0 });
+      },
+    );
+
     it("answers a question that starts like an instruction, and assigns nothing", () => {
       expect(ask("get the status of #62", JUMP_VIEW)).toMatchObject({
         assignments: [],

@@ -319,6 +319,10 @@ describe("carryOut: issues for the runners' coding agents", () => {
     expect(state.work.size).toBe(0);
     expect(queue?.collect()).toEqual([expect.objectContaining({ agentId: "crew-1", item: expect.objectContaining({ number: 10 }) })]);
 
+    expect(carryOut([{ work: "#11", agent: "" }], context(undefined, "put someone on #11"))).toEqual([
+      "✗ #11 “Write the onboarding email”: every live agent is busy or already has something next; name one and I'll queue it anyway. No coding agent could take it either: it does not carry the label that marks it ready for the coding agents.",
+    ]);
+
     const alone = office({ takers: ["Slot 1"], orchestrator: false });
     alone.state.agentIssueLabel = "agent-ready";
     expect(carryOut([{ work: "#10", agent: "" }], alone.context(undefined, "assign #10"))).toEqual([

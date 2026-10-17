@@ -256,8 +256,8 @@ function readAgent(words: readonly string[], view: OfficeView): { readonly agent
 /**
  * The WORK slot, when these words are exactly one: work references joined by
  * "the", "and", commas and possessives such as "Bo's", exactly one issue's
- * full title, or words only one open issue's title has. `null` when they are
- * not.
+ * full title, or words only one open issue's title has, with no work
+ * reference among them. `null` when they are not.
  */
 function readWork(words: readonly string[], view: OfficeView): WorkSlot | null {
   const plain = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -267,6 +267,9 @@ function readWork(words: readonly string[], view: OfficeView): WorkSlot | null {
     return { work: [{ kind: "issue", issue: titled }], unknown: [] };
   }
 
+  const numbered = words.some(
+    (word, at) => /^#\d+$/.test(word) || ((word === "issue" || word === "pr") && NUMBER.test(words[at + 1] ?? "")),
+  );
   const references: string[] = [];
   for (let at = 0; at < words.length; at += 1) {
     const word = words[at] ?? "";
@@ -279,7 +282,7 @@ function readWork(words: readonly string[], view: OfficeView): WorkSlot | null {
     } else if (WORK_CONNECTORS.has(word)) {
       continue;
     } else if (!(word.endsWith("'s") && resolveAgent(word.slice(0, -2), view) !== undefined)) {
-      return byTitle(words, view);
+      return numbered ? null : byTitle(words, view);
     }
   }
   if (references.length === 0) {
