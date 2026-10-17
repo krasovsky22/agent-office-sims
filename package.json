@@ -1,6 +1,7 @@
 {
   "name": "agent-office-sims",
   "private": true,
+  "license": "MIT",
   "version": "0.1.0",
   "description": "3D multiplayer office simulator prototype",
   "packageManager": "pnpm@10.28.2",
