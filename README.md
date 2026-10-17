@@ -1082,6 +1082,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/spend.ts        the runners' real spend in dollars: the budget refusal and how spend is said
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/operator.ts     the operator passphrase's limits, and why an attempt was refused
+  src/agentPrompt.ts  the CEO's prompts to the coding agents: the one gate, and why a prompt was refused
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
   src/collision.ts    capsule-vs-AABB movement resolution
@@ -1090,7 +1091,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/constants.ts    tick rate, speeds, radii, ranges, expression limits
 apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/workHandlers.ts  the CEO's work commands: assign, release, move
-  src/sim/expression.ts   per-occupant emote, chat and manager-message budgets
+  src/sim/expression.ts   per-occupant emote, chat, manager-message and agent-prompt budgets
   src/sim/clock.ts        the in-game clock, stepped by the simulation tick
   src/sim/roles.ts        who holds the CEO role, and who inherits it
   src/github/             the project board's feed: fetch, bucket, poll
@@ -1098,6 +1099,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/manager/            the AI manager: its view of the office, rule and model planners, call budget, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/rooms/operatorHandlers.ts  verifying as operator, and the CEO role it takes
+  src/rooms/agentPromptHandlers.ts  the CEO's prompts to a coding agent, and the refusals sent back
   src/sim/operator.ts     the passphrase check, in constant time, and the attempt allowances
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
 apps/runner/       @sim/runner   the agent runner: slots, agents, their screens, and the sync with the server
@@ -1108,7 +1110,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/budget.ts           the day's spend, and the daily budget that refuses new starts
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
-  src/agents/mock.ts      the mock agent: scripted progress, a commit and a wait on a person, then failed or a fake pull request it reworks on a prompt
+  src/agents/mock.ts      the mock agent: scripted progress, a commit and a wait on a person, then failed, a question it waits on an answer to, or a fake pull request it reworks on a prompt
   src/github.ts           the issue's label check, and finding or opening a task's pull request
   src/githubApp.ts        the runner's GitHub App: minting installation tokens and keeping them fresh for gh and git
   src/terminal.ts         each slot's headless terminal, read off as screen frames
@@ -1138,6 +1140,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/ui/ProjectBoardPanel.tsx  the project board's close-up, with the agents' work and the CEO's controls
   src/managerAccess.ts    what the local player may say to the manager, and why
   src/operatorAccess.ts   whether the local player's word reaches the live agents, and why
+  src/agentPromptAccess.ts  whether the local player may prompt a coding agent, and why a prompt was refused
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to
   src/ui/AgentTerminalPanel.tsx  a working agent's terminal at full size, opened behind its chair
