@@ -44,6 +44,7 @@ import {
   LiveAgent,
   type LiveAgentStatus,
   OCCUPANT_RADIUS,
+  SIDEWALK_ROOM_ID,
   type Occupant,
   type OfficeLayout,
   type Vec2,
@@ -587,7 +588,9 @@ export class LiveAgentCrew {
       }
     }
     const here = nearestWaypoint(body.occupant, this.host.layout)?.id;
-    const elsewhere = waypoints.filter((node) => node.id !== here);
+    const elsewhere = waypoints.filter(
+      (node) => node.id !== here && roomAt(this.host.layout, node)?.id !== SIDEWALK_ROOM_ID,
+    );
     return elsewhere[Math.floor(this.host.random() * elsewhere.length)] ?? body.occupant;
   }
 

@@ -24,6 +24,7 @@ import {
   OFFICE_LAYOUT,
   type Occupant,
   PULL_REQUESTS_STICKER_BOARD_ID,
+  SIDEWALK_ROOM_ID,
   TICK_INTERVAL_MS,
   WORK_STATUS,
   type WorkStatus,
@@ -310,6 +311,16 @@ describe("an idle agent", () => {
       return rooms.size >= 3;
     });
     expect(rooms.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it("stays indoors, never wandering out of the main entrance onto the pavement", () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const office = createOffice(seed);
+      office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+      const body = agent(office, "alpha");
+      const outside = runUntil(office, 600, () => roomAt(OFFICE_LAYOUT, body)?.id === SIDEWALK_ROOM_ID);
+      expect(outside, `seed ${seed}`).toBeUndefined();
+    }
   });
 
   it("goes back to a chair when it picks up a task", () => {
