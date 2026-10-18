@@ -48,7 +48,7 @@ import type { TerminalLinks } from "../agentTerminal.js";
 import { KEYBOARD_OWNER_ATTRIBUTE, isTypingTarget } from "../keys.js";
 import type { TerminalScreen } from "../net/screens.js";
 import { SCREEN_PLACEHOLDER, paintScreen } from "../scene/agentScreen.js";
-import { TERMINAL_FONT_PX, paintTerminal, wheelRows } from "../terminalView.js";
+import { TERMINAL_FONT_PX, type TerminalScroll, paintTerminal, scrollTerminal, wheelRows } from "../terminalView.js";
 import type { RosterEntry } from "./Hud.js";
 
 export interface AgentTerminalActions {
@@ -122,16 +122,8 @@ const PAD_KEYS: ReadonlyArray<readonly [AgentKey, string]> = [
 /** The version painted while the canvas shows its placeholder. */
 const PLACEHOLDER_VERSION = -1;
 
-/** Where the CEO has scrolled the terminal to. */
-interface TerminalScroll {
-  /**
-   * The first row shown, counted as the screen's `historyAdded` counts, so
-   * new rows arriving under it do not move it; `undefined` follows the agent
-   * live. A trackpad scrolls by parts of a row, which add up here.
-   */
-  top: number | undefined;
-  /** {@link top} at the newest rows, as last painted. */
-  bottom: number;
+/** Where the CEO has scrolled the terminal to, and what painting it last found. */
+interface PanelScroll extends TerminalScroll {
   /** The screen's `historyAdded` when last painted, which starts again when the scrollback is emptied. */
   added: number;
   /** Rows the canvas had room for when last painted, which a page scrolls by. */
@@ -149,9 +141,12 @@ interface TerminalScroll {
  */
 function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["screenOf"]) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const scrollRef = useRef<TerminalScroll>({
-    top: undefined,
-    bottom: 0,
+  const scrollRef = useRef<PanelScroll>({
+    following: true,
+    top: 0,
+    liveTop: 0,
+    oldest: 0,
+    carry: 0,
     added: 0,
     pageRows: 1,
     lineHeightPx: TERMINAL_FONT_PX,
@@ -164,7 +159,8 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
       return;
     }
     const scroll = scrollRef.current;
-    scroll.top = undefined;
+    scroll.following = true;
+    scroll.carry = 0;
     scroll.added = screenOf(agentId)?.historyAdded ?? 0;
     let paintedVersion = Number.NaN;
     let paintedTop: number | undefined = Number.NaN;
@@ -178,11 +174,12 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
       // The rows are counted afresh once the scrollback is emptied, so the row scrolled to is gone.
       const added = screen?.historyAdded ?? 0;
       if (added < scroll.added) {
-        scroll.top = undefined;
+        scrollTerminal(scroll, Number.NEGATIVE_INFINITY);
       }
       scroll.added = added;
       const version = screen?.version ?? PLACEHOLDER_VERSION;
-      if (version === paintedVersion && scroll.top === paintedTop && width === canvas.width && height === canvas.height) {
+      const top = scroll.following ? undefined : scroll.top;
+      if (version === paintedVersion && top === paintedTop && width === canvas.width && height === canvas.height) {
         return;
       }
       canvas.width = width;
@@ -191,24 +188,21 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
       if (screen === undefined) {
         paintScreen(ctx, width, height, undefined, SCREEN_PLACEHOLDER, MAX_SCREEN_ROWS);
       } else {
-        const layout = paintTerminal(ctx, width, height, scale, screen, scroll.top);
-        scroll.top = layout.top;
-        scroll.bottom = layout.bottom;
+        const layout = paintTerminal(ctx, width, height, scale, screen, top);
+        scroll.following = layout.top === undefined;
+        scroll.top = layout.top ?? layout.bottom;
+        scroll.liveTop = layout.bottom;
+        scroll.oldest = layout.oldest;
         scroll.pageRows = layout.visibleRows;
         scroll.lineHeightPx = layout.lineHeightPx;
       }
-      paintedTop = scroll.top;
+      paintedTop = scroll.following ? undefined : scroll.top;
     };
     paint();
     return () => cancelAnimationFrame(request);
   }, [agentId, screenOf]);
 
-  // Painting holds the scroll to what there is, so this need not.
-  const scrollBack = (rows: number) => {
-    const scroll = scrollRef.current;
-    const top = (scroll.top ?? scroll.bottom) - rows;
-    scroll.top = Math.round(top) >= scroll.bottom ? undefined : top;
-  };
+  const scrollBack = (rows: number) => scrollTerminal(scrollRef.current, rows);
 
   // The keys a terminal scrolls with, from anywhere in the panel; `Home` and
   // `End` only outside the prompt box, where they move the caret.

@@ -66,11 +66,65 @@ export interface TerminalViewport {
   readonly bottom: number;
 }
 
-/** @param top the row to show first, which need not be whole; `undefined` for the newest. */
+/** @param top the row to show first; `undefined` for the newest. */
 export function terminalViewport(total: number, visible: number, top: number | undefined): TerminalViewport {
   const bottom = Math.max(0, total - visible);
-  const held = top === undefined || Math.round(top) >= bottom ? undefined : Math.max(0, top);
-  return { first: held === undefined ? bottom : Math.round(held), top: held, bottom };
+  const held = top === undefined || top >= bottom ? undefined : Math.max(0, top);
+  return { first: held ?? bottom, top: held, bottom };
+}
+
+/**
+ * Where the CEO has scrolled a terminal to, its rows counted as the screen's
+ * `historyAdded` counts, so a row keeps its number as rows arrive under it
+ * and the oldest are let go.
+ */
+export interface TerminalScroll {
+  /** Whether the view follows the newest rows. */
+  following: boolean;
+  /** First row shown while not {@link following}. */
+  top: number;
+  /** First row shown at the newest rows, as last painted. */
+  liveTop: number;
+  /** Oldest row there is, as last painted. */
+  oldest: number;
+  /**
+   * Part of a row scrolled by and not yet shown: a trackpad scrolls by
+   * small parts of a row, which add up here until they make a whole one.
+   */
+  carry: number;
+}
+
+/**
+ * Scrolls the view back by `rows`, towards the newest for negative ones: to
+ * the oldest row for `Infinity`, and back to following the newest for
+ * `-Infinity` or any scroll that reaches them.
+ */
+export function scrollTerminal(scroll: TerminalScroll, rows: number): void {
+  if (rows === Number.NEGATIVE_INFINITY) {
+    scroll.following = true;
+    scroll.carry = 0;
+    return;
+  }
+  let whole: number;
+  if (rows === Number.POSITIVE_INFINITY) {
+    scroll.carry = 0;
+    whole = (scroll.following ? scroll.liveTop : scroll.top) - scroll.oldest;
+  } else {
+    scroll.carry += rows;
+    if (scroll.following) {
+      scroll.carry = Math.max(0, scroll.carry);
+    }
+    whole = Math.trunc(scroll.carry);
+    scroll.carry -= whole;
+  }
+  if (whole === 0) {
+    return;
+  }
+  scroll.top = Math.max(scroll.oldest, (scroll.following ? scroll.liveTop : scroll.top) - whole);
+  scroll.following = scroll.top >= scroll.liveTop;
+  if (scroll.following) {
+    scroll.carry = 0;
+  }
 }
 
 /**
@@ -99,6 +153,8 @@ export interface TerminalLayout {
   readonly top: number | undefined;
   /** First row shown at the newest rows, counted the same way. */
   readonly bottom: number;
+  /** Oldest row there is, counted the same way. */
+  readonly oldest: number;
 }
 
 /**
@@ -167,5 +223,6 @@ export function paintTerminal(
     lineHeightPx: lineH / scale,
     top: view.top === undefined ? undefined : view.top + dropped,
     bottom: view.bottom + dropped,
+    oldest: dropped,
   };
 }

@@ -14,6 +14,8 @@ import {
   screenRowsShown,
   terminalRow,
   terminalViewport,
+  type TerminalScroll,
+  scrollTerminal,
   wheelRows,
 } from "./terminalView.js";
 
@@ -78,13 +80,50 @@ describe("terminalViewport", () => {
     expect(terminalViewport(10, 30, 5)).toEqual({ first: 0, top: undefined, bottom: 0 });
   });
 
-  it("keeps a scroll by part of a row, so a trackpad's small steps add up", () => {
-    expect(terminalViewport(100, 30, 59.7)).toEqual({ first: 60, top: 59.7, bottom: 70 });
-    expect(terminalViewport(100, 30, 69.4)).toEqual({ first: 69, top: 69.4, bottom: 70 });
+});
+
+describe("scrollTerminal", () => {
+  const live = (): TerminalScroll => ({ following: true, top: 0, liveTop: 170, oldest: 20, carry: 0 });
+
+  it("adds up a trackpad's small steps back from the newest rows until they make a row", () => {
+    const scroll = live();
+    scrollTerminal(scroll, 0.3);
+    scrollTerminal(scroll, 0.3);
+    scrollTerminal(scroll, 0.3);
+    expect(scroll.following).toBe(true);
+    scrollTerminal(scroll, 0.3);
+    expect(scroll).toMatchObject({ following: false, top: 169 });
+    expect(scroll.carry).toBeCloseTo(0.2);
   });
 
-  it("follows the newest rows once a scroll down shows them, part of a row short or not", () => {
-    expect(terminalViewport(100, 30, 69.6)).toEqual({ first: 70, top: undefined, bottom: 70 });
+  it("follows the newest rows again once small steps down reach them", () => {
+    const scroll = live();
+    scrollTerminal(scroll, 2);
+    for (let step = 0; step < 6; step += 1) {
+      scrollTerminal(scroll, -0.3);
+    }
+    expect(scroll).toMatchObject({ following: false, top: 169 });
+    for (let step = 0; step < 4; step += 1) {
+      scrollTerminal(scroll, -0.3);
+    }
+    expect(scroll).toMatchObject({ following: true, carry: 0 });
+
+    // Scrolling down while following stores nothing to undo first.
+    scrollTerminal(scroll, -5);
+    scrollTerminal(scroll, 1);
+    expect(scroll).toMatchObject({ following: false, top: 169 });
+  });
+
+  it("goes to the oldest row and back to the newest", () => {
+    const scroll = live();
+    scrollTerminal(scroll, Number.POSITIVE_INFINITY);
+    expect(scroll).toMatchObject({ following: false, top: 20 });
+    scrollTerminal(scroll, 1000);
+    expect(scroll).toMatchObject({ following: false, top: 20 });
+    scrollTerminal(scroll, -1);
+    expect(scroll.top).toBe(21);
+    scrollTerminal(scroll, Number.NEGATIVE_INFINITY);
+    expect(scroll.following).toBe(true);
   });
 });
 
