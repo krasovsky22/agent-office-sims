@@ -19,6 +19,11 @@
  * Each sync also carries what the runner's agents have spent today against its
  * budget; the rooms show every runner's together, through {@link RunnerSpendSource}.
  *
+ * Each reply also says whether a standup is on in any room
+ * ({@link RunnerStandupHold}), so the runner pauses its agents for it, and
+ * says so again on every reply until it ends: a runner that restarts in the
+ * middle of one is told on its first sync.
+ *
  * Events travel the other way. A runner reports each one until a sync
  * carrying it is answered, so the same event can arrive twice; it is passed on
  * once, by id. Each room opens its own inbox and drains it on its tick, so a
@@ -70,7 +75,12 @@ import type { StandingMirror } from "./standingMirror.js";
 
 /** What came of one sync. */
 export type RunnerSyncOutcome =
-  | { readonly kind: "accepted"; readonly commands: readonly RunnerCommand[] }
+  | {
+      readonly kind: "accepted";
+      readonly commands: readonly RunnerCommand[];
+      /** A standup is on: the runner's agents pause for it. */
+      readonly standup: boolean;
+    }
   /** The runner works on a repository other than the project board's. */
   | { readonly kind: "wrong-repo" }
   /** Taking this runner's slots would put more than {@link MAX_RUNNER_SLOTS} on the floor. */
@@ -130,6 +140,24 @@ export function isRunnerSpendSource(value: unknown): value is RunnerSpendSource 
     typeof value === "object" &&
     value !== null &&
     typeof (value as Partial<Record<keyof RunnerSpendSource, unknown>>).spend === "function"
+  );
+}
+
+/** Where a room says it holds a standup, so the runners pause their agents for it. */
+export interface RunnerStandupHold {
+  /** `on` while the room `origin` holds a standup; the runners hear it on their next sync. */
+  holdForStandup(origin: string, on: boolean): void;
+}
+
+/**
+ * Whether a room option is the standup hold the server handed over, rather
+ * than whatever a client put in its join options under the same name.
+ */
+export function isRunnerStandupHold(value: unknown): value is RunnerStandupHold {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Partial<Record<keyof RunnerStandupHold, unknown>>).holdForStandup === "function"
   );
 }
 
@@ -250,8 +278,10 @@ function sameRecords(a: readonly LiveAgentRecord[], b: readonly LiveAgentRecord[
   });
 }
 
-export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpendSource {
+export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpendSource, RunnerStandupHold {
   private readonly runners = new Map<string, Runner>();
+  /** The rooms holding a standup. */
+  private readonly standups = new Set<string>();
   private readonly listeners = new Set<() => void>();
   private readonly inboxes = new Set<Inbox>();
   private readonly now: () => number;
@@ -280,6 +310,19 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
 
   public spend(): RunnerSpendTotal {
     return this.spendTotal;
+  }
+
+  public holdForStandup(origin: string, on: boolean): void {
+    if (on) {
+      this.standups.add(origin);
+    } else {
+      this.standups.delete(origin);
+    }
+  }
+
+  /** Whether any room holds a standup. */
+  public get standup(): boolean {
+    return this.standups.size > 0;
   }
 
   /**
@@ -347,7 +390,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
       runner.records = records;
       this.changed();
     }
-    return { kind: "accepted", commands: [...runner.outbox.values()] };
+    return { kind: "accepted", commands: [...runner.outbox.values()], standup: this.standup };
   }
 
   /**

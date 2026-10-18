@@ -30,6 +30,8 @@ export interface SyncReply {
   readonly commands: readonly RunnerCommand[];
   /** Ids of commands the runner could not read, to ack so the server stops sending them. */
   readonly unreadable: readonly string[];
+  /** A standup is on in the office: the agents pause for it. Absent means none. */
+  readonly standup?: boolean;
 }
 
 /** A sync the server refused or never answered. */
@@ -88,7 +90,8 @@ export function createSyncClient(options: SyncClientOptions): SyncClient {
     if (!isRecord(body) || body["ok"] !== true || !Array.isArray(body["commands"])) {
       throw new SyncError("the reply is not a sync reply", response.status);
     }
-    return readCommands(body["commands"]);
+    const reply = readCommands(body["commands"]);
+    return body["standup"] === true ? { ...reply, standup: true } : reply;
   };
 }
 
@@ -153,7 +156,10 @@ function readDraft(raw: Record<string, unknown>, slotId: string): RunnerCommandD
       if (typeof text !== "string" || typeof requestedBy !== "string") {
         return undefined;
       }
-      return raw["fromCeo"] === true ? { kind, slotId, text, requestedBy, fromCeo: true } : { kind, slotId, text, requestedBy };
+      if (raw["fromCeo"] !== true) {
+        return { kind, slotId, text, requestedBy };
+      }
+      return raw["queue"] === true ? { kind, slotId, text, requestedBy, fromCeo: true, queue: true } : { kind, slotId, text, requestedBy, fromCeo: true };
     }
     case RUNNER_COMMAND_KIND.key: {
       const { key, requestedBy } = raw;

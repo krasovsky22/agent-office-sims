@@ -224,6 +224,15 @@ export const STANDING_BURST_ALLOWANCE = 4;
 export const STANDING_REFILL_PER_SECOND = 0.2;
 
 /**
+ * Standups the CEO may call or end back to back before the server starts
+ * dropping the commands: each walks every agent across the office.
+ */
+export const STANDUP_CALL_BURST_ALLOWANCE = 4;
+
+/** Rate at which that allowance is restored, in calls/second. */
+export const STANDUP_CALL_REFILL_PER_SECOND = 0.2;
+
+/**
  * How long the server holds a dropped player's place, in seconds.
  *
  * A socket that closes without the player leaving — a network blip, a laptop

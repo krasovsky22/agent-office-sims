@@ -44,6 +44,17 @@
  * sync carrying the report is answered. A key the CEO pressed on the choice
  * screen the agent waits on (a permission, a setup or trust screen) is
  * pressed only while it waits on a person, and is reported the same way.
+ *
+ * While a standup is on in the office (the server says so on every sync,
+ * {@link SlotPool.setStandup}), the agents pause at a safe point: an agent
+ * that can pause, as the mock can, stops before its next step, and one that
+ * cannot, a real agent, finishes the turn it is in and is given no new one by
+ * the slot. The task timeout is held throughout, and nothing in progress is
+ * stopped or lost. A direction the CEO gave at the standup is typed at once if
+ * the agent waits at its prompt; otherwise the slot keeps it, reports it
+ * `queued`, and types it the next time the agent is at its prompt with the
+ * standup over, reporting it `delivered`, or `unavailable` if the work ends
+ * first.
  */
 
 import { randomUUID } from "node:crypto";
@@ -168,6 +179,8 @@ interface Slot {
   /** A standing task's run, which holds the slot instead of an issue until an issue's start takes it back. */
   standing: StandingOnSlot | undefined;
   readonly screen: ScreenMirror;
+  /** Standup directions kept for when its agent is next at its prompt, oldest first. */
+  readonly kept: PromptCommand[];
 }
 
 interface ActiveRun {
@@ -228,6 +241,8 @@ export class SlotPool {
   private readonly redactor: Redactor;
   private readonly github: TaskGithub;
   private readonly ledger: SpendLedger;
+  /** A standup is on in the office, as the server last said. */
+  private standup = false;
 
   public constructor(private readonly options: SlotPoolOptions) {
     this.redactor = options.redactor ?? createRedactor([]);
@@ -251,6 +266,7 @@ export class SlotPool {
         run: undefined,
         standing: undefined,
         screen,
+        kept: [],
       };
     });
   }
@@ -358,19 +374,51 @@ export class SlotPool {
     return this.promptOutcomes;
   }
 
-  /** Forgets the events, and the prompt outcomes by their command's id, that a sync has delivered. */
-  public delivered(ids: ReadonlySet<string>): void {
+  /**
+   * Forgets the events, by id, that a sync has delivered, and the prompt
+   * outcomes it carried: `outcomes` themselves when given, since a kept
+   * direction is reported twice under one id, else every one by its command's id.
+   */
+  public delivered(ids: ReadonlySet<string>, outcomes?: readonly RunnerPromptOutcome[]): void {
     for (let index = this.events.length - 1; index >= 0; index -= 1) {
       const event = this.events[index];
       if (event !== undefined && ids.has(event.id)) {
         this.events.splice(index, 1);
       }
     }
+    const carried = outcomes === undefined ? undefined : new Set(outcomes);
     for (let index = this.promptOutcomes.length - 1; index >= 0; index -= 1) {
       const outcome = this.promptOutcomes[index];
-      if (outcome !== undefined && ids.has(outcome.commandId)) {
+      if (outcome !== undefined && (carried === undefined ? ids.has(outcome.commandId) : carried.has(outcome))) {
         this.promptOutcomes.splice(index, 1);
       }
+    }
+  }
+
+  /**
+   * Whether a standup is on in the office. On, every agent pauses at a safe
+   * point and its task timeout is held; off, they carry on from where they
+   * were, and each slot types the first direction it kept once its agent is
+   * at its prompt.
+   */
+  public setStandup(on: boolean): void {
+    if (on === this.standup) {
+      return;
+    }
+    this.standup = on;
+    this.log(on ? "a standup is on in the office: the agents pause at a safe point" : "the standup is over: the agents carry on");
+    for (const slot of this.slots) {
+      const run = slot.run;
+      if (run === undefined || !run.live) {
+        continue;
+      }
+      if (on) {
+        run.agentRun.pause?.();
+      } else {
+        run.agentRun.resume?.();
+      }
+      this.holdTimeout(slot, run, this.waiting(slot));
+      this.deliverKept(slot);
     }
   }
 
@@ -495,10 +543,16 @@ export class SlotPool {
 
   /**
    * (Re)starts the task timeout: it measures the agent's work, from a start or
-   * a prompt, or carries on with `ms` of it left once a wait is over.
+   * a prompt, or carries on with `ms` of it left once a wait is over. During a
+   * standup it is set and held at once.
    */
   private arm(slot: Slot, run: ActiveRun, ms = this.options.taskTimeoutMs): void {
     clearTimeout(run.timeout);
+    if (this.standup) {
+      run.timeout = undefined;
+      run.heldMs = ms;
+      return;
+    }
     run.heldMs = undefined;
     run.deadline = Date.now() + ms;
     const minutes = Math.round(this.options.taskTimeoutMs / 60_000);
@@ -511,9 +565,9 @@ export class SlotPool {
   }
 
   /**
-   * Holds the task timeout while the agent waits on a person, and lets it run
-   * on, from where it was, once the agent is back at its own work. Handed-in
-   * work has no timeout to hold or let run.
+   * Holds the task timeout while the agent waits on a person or a standup is
+   * on, and lets it run on, from where it was, once the agent is back at its
+   * own work. Handed-in work has no timeout to hold or let run.
    */
   private holdTimeout(slot: Slot, run: ActiveRun, waiting: boolean): void {
     if (waiting && run.timeout !== undefined) {
@@ -537,7 +591,7 @@ export class SlotPool {
       run.started = true;
       this.emit(slot, RUNNER_EVENT_KIND.started, run.issueNumber, undefined, "");
     }
-    this.holdTimeout(slot, run, status === RUNNER_SLOT_STATUS.needsInput);
+    this.holdTimeout(slot, run, status === RUNNER_SLOT_STATUS.needsInput || this.standup);
     const was = slot.status;
     slot.status = status;
     slot.activity = fitBytes(this.redactor.redactText(activity), MAX_TITLE_LENGTH);
@@ -592,17 +646,53 @@ export class SlotPool {
 
   /**
    * A prompt the CEO typed: given only while the agent waits at its prompt,
-   * and reported either way.
+   * and reported either way. A standup's direction for an agent with work in
+   * hand that is not at its prompt is kept for when it next is instead.
    */
   private promptFromCeo(slot: Slot, command: PromptCommand): void {
     const outcome = this.promptable(slot);
     if (outcome === RUNNER_PROMPT_OUTCOME.delivered) {
-      this.log(`${slot.id} prompted by ${command.requestedBy}`);
+      this.log(`${slot.id} prompted by ${command.requestedBy}${command.queue === true ? " at the standup" : ""}`);
       this.prompt(slot, command.text);
+    } else if (command.queue === true && slot.run?.live === true) {
+      slot.kept.push(command);
+      this.log(`direction for ${slot.id} from ${command.requestedBy} kept for when its agent is next at its prompt: ${outcome}`);
+      this.reportOutcome(slot, command.id, RUNNER_PROMPT_OUTCOME.queued);
+      return;
     } else {
       this.log(`prompt for ${slot.id} from ${command.requestedBy} not typed: ${outcome}`);
     }
     this.reportOutcome(slot, command.id, outcome);
+  }
+
+  /**
+   * Types the oldest direction the slot kept, once its agent waits at its
+   * prompt with no standup on; one at a time, since typing one starts a turn.
+   * A slot whose work has ended reports every one it kept unavailable.
+   */
+  private deliverKept(slot: Slot): void {
+    const run = slot.run;
+    if (run === undefined || !run.live) {
+      for (const command of slot.kept.splice(0)) {
+        this.log(`direction for ${slot.id} from ${command.requestedBy} not typed: its work ended`);
+        this.reportOutcome(slot, command.id, RUNNER_PROMPT_OUTCOME.unavailable);
+      }
+      return;
+    }
+    if (this.standup || slot.kept.length === 0 || this.promptable(slot) !== RUNNER_PROMPT_OUTCOME.delivered) {
+      return;
+    }
+    const command = slot.kept.shift();
+    if (command !== undefined) {
+      this.log(`${slot.id} given the direction ${command.requestedBy} gave at the standup`);
+      this.prompt(slot, command.text);
+      this.reportOutcome(slot, command.id, RUNNER_PROMPT_OUTCOME.delivered);
+    }
+  }
+
+  /** Whether the slot's task timeout should be held: its agent waits on a person, or a standup is on. */
+  private waiting(slot: Slot): boolean {
+    return slot.status === RUNNER_SLOT_STATUS.needsInput || this.standup;
   }
 
   /**
@@ -782,14 +872,19 @@ export class SlotPool {
         run.missing = false;
         report(RUNNER_SLOT_STATUS.working, activity);
       },
-      needsInput: (reason) => report(RUNNER_SLOT_STATUS.needsInput, reason),
+      needsInput: (reason) => {
+        report(RUNNER_SLOT_STATUS.needsInput, reason);
+        // A wait a prompt answers, as the mock's, is a prompt the agent is at.
+        this.deliverKept(slot);
+      },
       turnDone: () => {
         // A turn said to have ended twice (a hook, then the screen) keeps saying what the first found.
         if (run.missing || run.checking) {
           return;
         }
         report(RUNNER_SLOT_STATUS.idle, TURN_DONE);
-        void this.afterTurn(slot, run);
+        // Once the slot has looked for its pull request, the agent is at its prompt.
+        void this.afterTurn(slot, run).then(() => this.deliverKept(slot));
       },
       output: (data) => {
         if (run.live) {
@@ -844,6 +939,9 @@ export class SlotPool {
     );
     if (run.live) {
       run.agentRun = agentRun;
+      if (this.standup) {
+        agentRun.pause?.();
+      }
     } else {
       // It ended while starting, before its slot had it to stop.
       agentRun.stop();
@@ -871,6 +969,7 @@ export class SlotPool {
     slot.activity = "";
     slot.pr = undefined;
     this.emit(slot, kind, run.issueNumber, pr, message);
+    this.deliverKept(slot);
     // The message can quote the agent's last line, so it is masked as its event's is.
     const said = this.redactor.redactText(message);
     this.log(`${slot.id} ${kind} on #${run.issueNumber}${said === "" ? "" : `: ${said}`} (${formatUsd(run.spentUsd)} spent)`);

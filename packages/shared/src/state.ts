@@ -30,7 +30,7 @@
  * accessors exactly as a tracked write should.
  */
 
-import { MapSchema, Schema, defineTypes } from "@colyseus/schema";
+import { ArraySchema, MapSchema, Schema, defineTypes } from "@colyseus/schema";
 
 import { STARTING_MINUTE_OF_DAY } from "./clock.js";
 
@@ -475,6 +475,141 @@ defineTypes(StandingTask, {
   runningAgentId: "string",
 });
 
+/**
+ * One agent's update at a standup: what it has worked on so far and what
+ * holds it up, as the office read it off the agent's real state when its turn
+ * came. Every string is the server's own words over sanitised fields.
+ */
+export class StandupUpdate extends Schema {
+  /** The agent's occupant key. */
+  declare public agentId: string;
+  /** By name, since the agent may leave before the standup ends. */
+  declare public agentName: string;
+  /** Its issue, how far it got and its pull request, in a line. */
+  declare public workedOn: string;
+  /** What holds it up, `""` for nothing. */
+  declare public blockers: string;
+  /** It waited on a person when it spoke: a permission, a question, a sign-in. */
+  declare public needsYou: boolean;
+  /** It waited on a person when it spoke, and has carried on since. */
+  declare public resolved: boolean;
+  /** Epoch milliseconds. */
+  declare public at: number;
+
+  public constructor() {
+    super();
+    this.agentId = "";
+    this.agentName = "";
+    this.workedOn = "";
+    this.blockers = "";
+    this.needsYou = false;
+    this.resolved = false;
+    this.at = 0;
+  }
+}
+
+defineTypes(StandupUpdate, {
+  agentId: "string",
+  agentName: "string",
+  workedOn: "string",
+  blockers: "string",
+  needsYou: "boolean",
+  resolved: "boolean",
+  at: "number",
+});
+
+/**
+ * A direction the CEO gave one agent at a standup, and what came of it; one
+ * given to everyone is one of these per agent, each marked `everyone`. The
+ * statuses are `STANDUP_DIRECTION_STATUS` in `standup.ts`.
+ */
+export class StandupDirection extends Schema {
+  /** Increasing within a room. */
+  declare public id: number;
+  declare public agentId: string;
+  declare public agentName: string;
+  declare public authorName: string;
+  /** Sanitised as a prompt is: printable text and newlines. */
+  declare public text: string;
+  declare public everyone: boolean;
+  declare public status: string;
+  /** Why it was not typed, for a direction that failed; `""` otherwise. */
+  declare public reason: string;
+  /** Epoch milliseconds. */
+  declare public at: number;
+
+  public constructor() {
+    super();
+    this.id = 0;
+    this.agentId = "";
+    this.agentName = "";
+    this.authorName = "";
+    this.text = "";
+    this.everyone = false;
+    this.status = "";
+    this.reason = "";
+    this.at = 0;
+  }
+}
+
+defineTypes(StandupDirection, {
+  id: "uint32",
+  agentId: "string",
+  agentName: "string",
+  authorName: "string",
+  text: "string",
+  everyone: "boolean",
+  status: "string",
+  reason: "string",
+  at: "number",
+});
+
+/**
+ * The office's standup: whether one is on, who called it, the order the
+ * agents speak in, what each said, and the CEO's directions. State rather
+ * than a broadcast, because a standup lasts minutes and a tab that joins or
+ * reloads in the middle of one must see it as everyone else does. The record
+ * of the last one stays after it ends, until the next is called, so a
+ * direction queued for after it can still be seen to arrive.
+ */
+export class Standup extends Schema {
+  declare public active: boolean;
+  /** The CEO who called it, by name. */
+  declare public calledBy: string;
+  /** Epoch milliseconds; `0` before the first standup. */
+  declare public startedAt: number;
+  declare public endedAt: number;
+  /** Agent occupant keys, in the order they give their updates. */
+  declare public order: ArraySchema<string>;
+  /** Whose turn it is to speak, `""` before the first and after the last. */
+  declare public speakerId: string;
+  declare public updates: ArraySchema<StandupUpdate>;
+  declare public directions: ArraySchema<StandupDirection>;
+
+  public constructor() {
+    super();
+    this.active = false;
+    this.calledBy = "";
+    this.startedAt = 0;
+    this.endedAt = 0;
+    this.order = new ArraySchema<string>();
+    this.speakerId = "";
+    this.updates = new ArraySchema<StandupUpdate>();
+    this.directions = new ArraySchema<StandupDirection>();
+  }
+}
+
+defineTypes(Standup, {
+  active: "boolean",
+  calledBy: "string",
+  startedAt: "number",
+  endedAt: "number",
+  order: ["string"],
+  speakerId: "string",
+  updates: [StandupUpdate],
+  directions: [StandupDirection],
+});
+
 export class OfficeState extends Schema {
   declare public occupants: MapSchema<Occupant>;
   /** The agents' work on the project board's issues, keyed by {@link workKey}. */
@@ -508,6 +643,8 @@ export class OfficeState extends Schema {
   declare public budgetUsd: number;
   /** Whether any runner reporting has spent its own budget and refuses new starts. */
   declare public budgetSpent: boolean;
+  /** The standup, on or the last one held; see `./standup.ts`. */
+  declare public standup: Standup;
 
   public constructor() {
     super();
@@ -522,6 +659,7 @@ export class OfficeState extends Schema {
     this.budgeted = false;
     this.budgetUsd = 0;
     this.budgetSpent = false;
+    this.standup = new Standup();
   }
 }
 
@@ -537,6 +675,7 @@ defineTypes(OfficeState, {
   budgeted: "boolean",
   budgetUsd: "float64",
   budgetSpent: "boolean",
+  standup: Standup,
 });
 
 const TAU = Math.PI * 2;

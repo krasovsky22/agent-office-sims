@@ -80,6 +80,12 @@ describe("createSyncClient", () => {
     expect(reply.unreadable).toEqual([]);
   });
 
+  it("says a standup is on only when the server says so", async () => {
+    expect((await answering(200, { ok: true, commands: [], standup: true }).client(SYNC)).standup).toBe(true);
+    expect((await answering(200, { ok: true, commands: [], standup: "yes" }).client(SYNC)).standup).toBeUndefined();
+    expect((await answering(200, { ok: true, commands: [] }).client(SYNC)).standup).toBeUndefined();
+  });
+
   it("turns each refusal into an error carrying the status and the server's reason", async () => {
     for (const [status, error] of [
       [401, "unauthorized"],
@@ -138,6 +144,17 @@ describe("readCommands", () => {
     ]);
     expect(commands).toEqual([
       { id: "command-1", slotId: "slot-1", kind: "prompt", text: "yes[201~\nok", requestedBy: "Dana", fromCeo: true },
+      { id: "command-2", slotId: "slot-1", kind: "prompt", text: "rework", requestedBy: "Dana" },
+    ]);
+  });
+
+  it("keeps a standup direction's mark to keep it for later, only on the CEO's prompt", () => {
+    const { commands } = readCommands([
+      { id: "command-1", slotId: "slot-1", kind: "prompt", text: "Open the PR.", requestedBy: "Dana", fromCeo: true, queue: true },
+      { id: "command-2", slotId: "slot-1", kind: "prompt", text: "rework", requestedBy: "Dana", queue: true },
+    ]);
+    expect(commands).toEqual([
+      { id: "command-1", slotId: "slot-1", kind: "prompt", text: "Open the PR.", requestedBy: "Dana", fromCeo: true, queue: true },
       { id: "command-2", slotId: "slot-1", kind: "prompt", text: "rework", requestedBy: "Dana" },
     ]);
   });

@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { type ManagerPlan, type ManagerRequest, createManagerAdvisor } from "./advisor.js";
 import { CallBudget } from "./budget.js";
 import { type SendMessage, createModelPlanner, readReply, systemPrompt, userPrompt } from "./modelPlanner.js";
-import type { OfficeView } from "./officeView.js";
+import { NO_STANDUP_VIEW, type OfficeView } from "./officeView.js";
 import { ADVICE_FAILURE, PlannerError } from "./plannerError.js";
 
 type ModelMessage = Anthropic.Message;
@@ -28,6 +28,7 @@ const VIEW: OfficeView = {
   project: undefined,
   orchestrator: true,
   standing: [],
+  standup: NO_STANDUP_VIEW,
 };
 
 const REQUEST: ManagerRequest = {
@@ -113,6 +114,19 @@ describe("readReply", () => {
       { work: "#12", agent: "agent-1" },
       { work: "#39", agent: "" },
     ]);
+  });
+
+  it("reads a standup to call or end, and leaves the standup alone for anything else", () => {
+    const plan = (standup: unknown) => readReply(reply(JSON.stringify({ reply: "Right.", assignments: [], standup }))).standup;
+    expect(plan("start")).toBe("start");
+    expect(plan("end")).toBe("end");
+    expect(plan("none")).toBeUndefined();
+    expect(plan("reboot")).toBeUndefined();
+    expect(plan(undefined)).toBeUndefined();
+  });
+
+  it("is asked for a standup field, and told what a standup is", () => {
+    expect(systemPrompt()).toContain("You can call a standup and end it");
   });
 
   it.each([

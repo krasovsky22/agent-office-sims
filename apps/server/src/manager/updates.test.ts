@@ -8,13 +8,13 @@ import { WORK_STATUS, type WorkStatus } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import { LIVE_ASSIGNMENT_STATUS, type LiveAssignment, type LiveAssignmentStatus } from "./liveAssignments.js";
-import type { LiveAgentView, OfficeView, WorkView } from "./officeView.js";
+import { type LiveAgentView, NO_STANDUP_VIEW, type OfficeView, type WorkView } from "./officeView.js";
 import { describeChanges, observe } from "./updates.js";
 
 const ISSUE_33 = { title: "Live agents", url: "https://github.com/o/r/issues/33", reference: "#33" };
 
 function view(liveAgents: readonly LiveAgentView[], work: readonly WorkView[] = []): OfficeView {
-  return { ceo: "Dana", liveAgents, issueAgents: [], work, project: undefined, orchestrator: true, standing: [] };
+  return { ceo: "Dana", liveAgents, issueAgents: [], work, project: undefined, orchestrator: true, standing: [], standup: NO_STANDUP_VIEW };
 }
 
 function work(status: WorkStatus, extra: Partial<WorkView> = {}): WorkView {

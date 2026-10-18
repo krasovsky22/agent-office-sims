@@ -29,6 +29,10 @@
  *   changed", "pause the pull request watch", "what are you watching?":
  *   standing tasks, read by `./standingPlan.ts` and carried out, like an
  *   assignment, afterwards and through the office's own gate.
+ * - **"Call a standup"**, "let's have a standup", "end the standup", "the
+ *   standup's over": a plan to call or end one, carried out afterwards through
+ *   the standup's own gate; "how did the standup go?" says what each agent
+ *   said at the last one.
  *
  * Anything else gets a short list of what it can do. Every word of every
  * answer comes from the {@link OfficeView} it is handed.
@@ -36,7 +40,7 @@
 
 import { LIVE_AGENT_STATUS, WORK_STATUS, type WorkStatus } from "@sim/shared";
 
-import { ANY_CODING_AGENT, type ManagerPlan, type ManagerRequest } from "./advisor.js";
+import { ANY_CODING_AGENT, type ManagerPlan, type ManagerRequest, type PlannedStandup } from "./advisor.js";
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, WorkView } from "./officeView.js";
 import { type WorkRef, findAgents, findIssueByTitle, findUnknownWork, findWork, resolveAgent } from "./resolve.js";
 import { readStandingInstruction, standingSummary } from "./standingPlan.js";
@@ -85,6 +89,13 @@ export const REPHRASE_TEXT =
 /** "who should I give #39 to?" asks for advice rather than an assignment. */
 const ASKING_ADVICE = /\b(should i|who should|who would|who could|who can)\b/i;
 const GREETING = /^\s*(hi|hello|hey|morning|good (morning|afternoon|evening)|help|\?)\b/i;
+const STANDUP_WORD = /\bstand[- ]?ups?\b/;
+/** The whole message: "end the standup", "finish standup", "the standup's over". */
+const STANDUP_END =
+  /^(?:(?:end|finish|stop|close|wrap up|conclude|dismiss) (?:the |this |our )?stand[- ]?up|(?:the |this |our )?stand[- ]?up(?:'s| is) (?:over|done|finished))$/;
+/** The whole message: "call a standup", "let's have a standup", "time for standup", or just "standup". */
+const STANDUP_START =
+  /^(?:(?:call|start|hold|run|begin|kick off|have|let's have|let's do|let us have|time for|gather everyone for) )?(?:a |the |our )?stand[- ]?up$/;
 const PULL_WORDS = /\b(prs?|pull requests?|checks?|ci)\b/i;
 const BOARD_WORDS =
   /\b(board|issues?|tickets?|backlog|open|review|queue|blocked|stuck|done|approve|github|repo|repository|labels?)\b/i;
@@ -108,6 +119,7 @@ export const HELP_TEXT = [
   "- “Hand out the backlog”",
   "- “Watch for new pull requests”, or “Every weekday at 9, summarise what changed yesterday”",
   "- “What are you watching?”, “Pause the pull request watch”",
+  "- “Call a standup” or “End the standup”",
 ].join("\n");
 
 /** One planner attempt: never throws, never waits. */
@@ -116,6 +128,12 @@ export function planFromRules(request: ManagerRequest): ManagerPlan {
 }
 
 function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUsed"> {
+  const standup = readStandup(message);
+  if (standup !== undefined) {
+    return standup === "start"
+      ? { reply: "Calling a standup: everyone to my desk, and each of them gives an update in turn.", assignments: [], standup }
+      : { reply: "Ending the standup.", assignments: [], standup };
+  }
   const standing = standingAnswer(message, view);
   if (standing !== undefined) {
     return standing;
@@ -165,6 +183,10 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     }
     return { reply: lines.join("\n"), assignments: [] };
   }
+  const said = wordsOf(message).join(" ");
+  if (STANDUP_WORD.test(said) && QUESTION_START.test(said)) {
+    return { reply: standupSummary(view), assignments: [] };
+  }
   if (agents.length > 0) {
     return { reply: agents.slice(0, LIST_LIMIT).map((agent) => describeAgent(agent, view)).join("\n"), assignments: [] };
   }
@@ -204,6 +226,31 @@ function standingAnswer(message: string, view: OfficeView): Omit<ManagerPlan, "t
   return instruction.kind === "unclear"
     ? { reply: instruction.reply, assignments: [] }
     : { reply: "Here's how that went:", assignments: [], standing: instruction.standing };
+}
+
+/** Whether the whole message tells the manager to call or end a standup; one that only mentions it does neither. */
+function readStandup(message: string): PlannedStandup | undefined {
+  const said = wordsOf(message).join(" ");
+  if (STANDUP_END.test(said)) {
+    return "end";
+  }
+  return STANDUP_START.test(said) ? "start" : undefined;
+}
+
+/** The standup that is on, or the last one held: who called it, and what each agent said. */
+function standupSummary(view: OfficeView): string {
+  const { standup } = view;
+  if (standup.calledBy === "") {
+    return "There hasn't been a standup yet. Say “call a standup” and I'll gather everyone at my desk.";
+  }
+  const heading = standup.active
+    ? `A standup is on, called by ${standup.calledBy}: ${standup.updates.length} of ${standup.order.length} updates so far.`
+    : `No standup is on. At the last one, called by ${standup.calledBy}:`;
+  const lines = standup.updates.map(
+    (update) =>
+      `- ${update.agent}: ${update.workedOn}. ${update.blockers === "" ? "No blockers." : `Blocker: ${update.blockers}${update.resolved ? " (since resolved)" : ""}.`}`,
+  );
+  return [heading, ...(lines.length === 0 && !standup.active ? ["- Nobody gave an update."] : lines)].join("\n");
 }
 
 /** The backlog: open issues GitHub shows nobody on, and nobody in the office is either. */

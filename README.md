@@ -58,6 +58,12 @@ It posts updates of its own to the same conversation when a coding agent starts
 on its issue, waits on a person, opens its pull request (with the link) or
 cannot carry on (with the runner's reason), and when one of the orchestrator's
 agents starts or stops. Everyone can read the conversation; only the CEO can instruct it.
+The CEO can also call a standup, from the HUD or by telling the AI Manager
+"call a standup": every agent walks to the manager's desk, each gives an update
+in turn on what it has worked on and what blocks it, read off its real state,
+the CEO answers blockers and gives directions, and when the CEO ends it everyone
+goes back to their desks and their work, which the standup never stops; see
+[The standup](#the-standup).
 
 ## Running it
 
@@ -142,6 +148,13 @@ waits at its prompt after a turn, is refused, and only the CEO is told why,
 under the pad. Keys are limited to eight in a burst, two more a second, and
 nobody else's tab is told of them: the terminal is the record.
 
+Under the AI Manager in the roster, the CEO's `Call a standup` button calls a
+standup; everyone else's is disabled and says only the CEO can. While one is
+on, its panel is docked over the foot of the office in every tab, and moves
+to the right edge while the AI Manager's conversation, the board close-up or an
+agent's terminal is open, so neither covers the other; see
+[The standup](#the-standup).
+
 At the manager's desk in the lobby, `E` opens the conversation with the AI Manager
 and puts the keyboard in its message box: `Enter` sends, `Esc` closes, and
 stepping away closes it too. Only the CEO's messages are taken; anyone else's
@@ -225,6 +238,74 @@ Until then its nameplate and roster line say `next #39`; its own task still
 comes only from its reports. The manager says in the conversation when the
 orchestrator picks an assignment up, and when the agent starts on it or does not.
 
+### The standup
+
+A standup gathers every live agent on the floor in the manager's room, the
+lobby, for an update each, and is the CEO's alone to call, run and end: the
+rule is `mayRunStandup` in `packages/shared/src/standup.ts`, which the server
+checks on every command and the HUD asks only to disable its controls and say
+why. The CEO calls one with the roster's `Call a standup` button, or by telling
+the AI Manager "call a standup", "let's have a standup" or "standup", and ends it
+with the panel's `End standup` button, or "end the standup" or "the standup's
+over". Anyone else's command is refused with that reason; one while a standup
+is already on, with none on, or with no agents on the floor is refused too.
+The AI Manager adds a line saying how it went, `✓ Standup called: 2 agents on
+the way to my desk.`, as it does for an assignment, and answers "how did the
+standup go?" with what each agent said at the last one.
+
+- **Gather.** Every agent, working or not, gets up from its chair and walks to
+  a place of its own in rows in front of the manager's desk, facing the
+  manager, with the aisle up the middle to the desk left clear for the CEO.
+  The places are derived from the layout, like the seats
+  (`standupSpots`), and an agent that comes onto the floor meanwhile joins in.
+  Nobody chats while it is on. Nothing is done to the agents' work: no issue's
+  work moves, and no agent is stopped or started again.
+- **Pause.** The runner hears a standup is on in its sync reply and pauses its
+  agents at a safe point: the mock before its next step, saying
+  `Paused for the standup.` on its screen; a real agent, which cannot pause in
+  the middle of a turn, finishes the turn it is in and is given no new one by
+  the slot. The task timeout is held while it lasts.
+- **Updates.** Once everyone has arrived, or after 20 seconds for a slow
+  walker, the agents speak one at a time, every four seconds, in the order they
+  came into the office, one that arrived meanwhile last. Each update is read off
+  the agent's real state as its turn comes: for a runner's coding agent its
+  issue and how far it got (`#39 “Night shift”, in progress, last step Bash:
+  pnpm test`), its pull request once it opened one (or a simulated one, said
+  as such), and its blockers: what it waits on a person for (`waiting on you:
+  Permission: Bash pnpm test`), a review waiting on the CEO, or why work
+  handed to it never started; for an orchestrator's agent, its task and what it
+  is doing. It is said in a speech bubble over the agent, so it lands in the
+  office chat too, kept in the standup panel, and posted to the AI Manager's
+  conversation, which sums the round up once everyone has spoken, naming who
+  waits on the CEO.
+- **Resolve and direct.** The panel lists every agent in turn order with its
+  update; `Terminal` opens a runner's agent's terminal in the panel, and while
+  it needs someone the CEO answers its choice screen there with the same key
+  pad as at its desk. An update that waited on a person is marked
+  `— resolved` once the agent carries on, and the AI Manager says it is
+  unblocked. The direction box sends one agent, or everyone, a prompt of
+  printable text and newlines, at most 2,000 characters, held to the same rules
+  as the terminal panel's. A runner's coding agent at its prompt has it typed
+  at once; one in the middle of a turn, or at a choice screen, has its runner
+  keep it and type it the next time the agent waits at its prompt with the
+  standup over, one at a time; and a mock waiting on its permission takes it as
+  the answer, as it does any prompt. An orchestrator's agent takes no prompts
+  from the office, so its direction is only noted. Each direction's record
+  says which: `typed into its terminal`, `kept for when it is next at its
+  prompt, after the standup`, then `typed after the standup`, or why it was
+  not typed, its agent's work having ended first, say.
+- **Finish.** Ending it walks every working agent back to the chair it got up
+  from, or the nearest free one if someone has taken it meanwhile, and sends
+  idle ones wandering again; the runner lets its agents carry on from where
+  they paused and types the directions it kept as each comes to its prompt.
+
+The standup is replicated state (`Standup` in `packages/shared/src/state.ts`),
+so every tab shows the same meeting, and one that joins or reloads in the
+middle of it sees it as everyone else does. The record of the last one stays
+until the next is called, so a direction kept for after it is seen to arrive.
+Calling and ending are limited to four in a burst, one more every five seconds,
+and directions as prompts are.
+
 ### The runner link
 
 An agent runner is the separate process that owns real coding agents, kept out
@@ -251,7 +332,9 @@ optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`).
 `started`, `pr-opened`, `failed` or `finished`, with an optional `pr` and
 `message`; `prompts` says what came of the CEO's prompts, at most 8, each a
 `commandId`, its `slotId` and an `outcome`, `delivered`, `busy`, `needs-input`,
-`unavailable` or, for a key, `not-waiting`; `acked` holds at most 32 ids. A `pr` with `"simulated":true`
+`unavailable` or, for a key, `not-waiting`, or, for a standup's direction the
+runner keeps for later, `queued` and then `delivered` under the same command
+once it is typed; `acked` holds at most 32 ids. A `pr` with `"simulated":true`
 is the mock agent's stand-in, with no `url`: nothing was opened on GitHub, and
 the office never links it or shows its number. Strings are measured in bytes: the
 UTF-8 of the string as `JSON.stringify` writes it, escapes included and quotes
@@ -323,7 +406,10 @@ yet: `start` (`issueNumber`, `title`, `url`, `note`, `requestedBy`), `stop`
 slot moved on ends nothing else) or `prompt` (`text`, `requestedBy`, and
 `fromCeo: true` on one the CEO typed in the terminal panel, which the runner
 types only while its agent waits at its prompt and reports in `prompts`;
-the office's own rework prompt is given whatever the agent is doing) or `key`
+`queue: true` as well on a direction the CEO gave at a standup, which the
+runner keeps, rather than refuses, until its agent is next at its prompt with
+the standup over; the office's own rework prompt is given whatever the agent
+is doing) or `key`
 (`key`, one of `up`, `down`, `enter`, `escape` or `1`–`9`, and `requestedBy`:
 a key the CEO pressed in the terminal panel, which the runner presses only
 while its agent waits on a person and reports in `prompts` as it does a
@@ -332,8 +418,11 @@ prompt), each with an `id` and a `slotId`. A command comes back in every reply u
 repeat by its id. The one exception is a CEO's prompt or key the runner has not
 answered within 30 seconds: the server withdraws it if it is not yet acked,
 tells the CEO it went unanswered, and it never comes back, so a prompt the CEO
-was told is lost is not typed later. Ids are random, so a restarted server
-never reuses one.
+was told is lost is not typed later; a standup's direction the runner said it
+keeps is waited on for as long as its agent is on the floor. Ids are random, so
+a restarted server never reuses one. While a standup is on in any room, every
+reply also carries `"standup": true`, and the runner pauses its agents for it
+until a reply leaves it out; see [The standup](#the-standup).
 
 The route is refused as the report route is: `405` for anything but `POST`,
 `401` without the secret, `413` over 16 KB, `429` past about ten syncs a
@@ -1179,13 +1268,41 @@ Then confirm all twenty-two:
     live room and the runner's own scheduler, and
     `apps/runner/src/standing/scheduler.test.ts` the baseline, the skips,
     preemption, the caps and a restart.
-22. **`pnpm typecheck` passes** across the whole repository.
+22. **The CEO runs a standup, the same in both tabs.** Run the server with
+    `RUNNER_SECRET` and the runner with `RUNNER_MOCK_OUTCOME=question`, as in
+    step 19, and assign `Mock 1` one labelled issue and `Mock 2` another a few
+    seconds later. Once `Mock 1`'s beacon lights on
+    `Permission: Bash pnpm test`, Milo's roster shows `Call a standup`
+    disabled, `Only the CEO calls a standup`; Dana clicks it. Both mocks get up
+    and walk to the lobby, where they stand in rows facing the AI Manager, and
+    the standup panel opens in both tabs. Once they have arrived each gives its
+    update in turn, in a bubble, in the panel and in the AI Manager's
+    conversation: `Mock 1`'s issue in progress with
+    `Blocker: waiting on you: Permission: Bash pnpm test`, `Mock 2`'s issue in
+    progress with its last step and no blockers, whose terminal now reads
+    `Paused for the standup.`; then the AI Manager says it is everyone's update
+    and that `Mock 1` waits on Dana. Dana opens `Mock 1`'s `Terminal` in the
+    panel and clicks `Enter · confirm`: its update reads `— resolved` and its
+    beacon goes out in both tabs. She picks `Mock 2`, writes `Skip the server
+    part and open the PR.` and sends it: its record reads `kept for when it is
+    next at its prompt, after the standup`. Milo's panel shows all of it with
+    its controls disabled, and still does after he reloads his tab. Dana walks
+    to the manager's desk and says `end the standup`: the panel closes, the
+    AI Manager says `✓ Standup over`, `Mock 1` walks back to the chair it left,
+    and `Mock 2` carries on from its paused step and, once it waits on its
+    permission, is typed the direction. Asked `what happened at the standup?`,
+    the AI Manager lists each agent's update and blocker, the resolved one
+    marked `since resolved`. Nothing was lost: both issues' cards
+    are where they were. `apps/server/src/rooms/standupHandlers.test.ts`
+    checks the gate, the late joiner and the direction's round trip against a
+    live room.
+23. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the server's mirror, gate, announcements and the AI Manager's words for them, and their round trip from the AI Manager to the runner and back
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the standup's gate, places, turns, updates, directions and blockers, in a live room too, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the server's mirror, gate, announcements and the AI Manager's words for them, and their round trip from the AI Manager to the runner and back
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -1352,6 +1469,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/stickerNotes.ts the sticker boards' notes: which issues have one, where each is, and which an agent fetches or pins
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/agentPrompt.ts  the CEO's prompts and choice-screen keys to the coding agents: the one gate, the keys, and why one was refused
+  src/standup.ts      the standup: the CEO-only gate, why a command was refused, the places in the manager's room, what came of a direction
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
   src/collision.ts    capsule-vs-AABB movement resolution
@@ -1373,16 +1491,18 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/agents/standingControl.ts  creating and managing standing tasks through the one gate
   src/agents/standingAnnouncer.ts  what the AI Manager says of each standing run
   src/manager/standingPlan.ts    the AI Manager's words for standing tasks, schedules read into cron
+  src/rooms/standupHandlers.ts  the CEO's standup commands: call, end, direct, and the refusals sent back
+  src/sim/standup.ts      the standup: gathering, the turns and each update read off an agent's real state, directions, blockers, the end
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk, and carry the sticky notes between boards and desk
 apps/runner/       @sim/runner   the agent runner: slots, agents, their screens, and the sync with the server
   src/config.ts           its RUNNER_* variables, refused at boot when wrong
   src/syncLoop.ts         the sync about once a second: acks, events, backoff
   src/syncClient.ts       one sync over HTTP, and reading back its commands
-  src/slots.ts            the slot pool: commands to agent runs, runs to status and events
+  src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it
   src/budget.ts           the day's spend, and the daily budget that refuses new starts
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
-  src/agents/mock.ts      the mock agent: scripted progress, a commit and a permission menu that keys or a prompt answer, then failed, a question it waits on an answer to, or a simulated pull request it reworks on a prompt
+  src/agents/mock.ts      the mock agent: scripted progress, a commit and a permission menu that keys or a prompt answer, then failed, a question it waits on an answer to, or a simulated pull request it reworks on a prompt; it pauses between steps for a standup
   src/github.ts           the issue's label check, and finding or opening a task's pull request
   src/githubApp.ts        the runner's GitHub App: minting installation tokens and keeping them fresh for gh and git
   src/githubPersonal.ts   RUNNER_GITHUB_AUTH=personal: a person's token handed to gh and git instead of the App's
@@ -1429,6 +1549,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to
   src/ui/AgentTerminalPanel.tsx  a working agent's terminal at full size, opened behind its chair
+  src/standupAccess.ts    what the local player may do at a standup, and how its refusals, phase and directions read
+  src/ui/StandupPanel.tsx the standup while one is on: the updates in turn, terminals and key pads, directions, and ending it
   src/terminalView.ts     the panel's terminal: scrollback and screen in small text, and scrolling it
   src/assets/office-kit/ the vendored models, and their licence
 ```

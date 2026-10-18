@@ -58,7 +58,7 @@ const START = {
 describe("RunnerLink slots", () => {
   it("puts a runner's slots on the floor as idle live agents, under ids no reported agent can have", () => {
     const { link, notifications } = setup();
-    expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [] });
+    expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [], standup: false });
     expect(link.current()).toEqual([
       { id: "runner:runner-1:slot-1", name: "Claude 1", status: "idle", task: undefined, canTakeIssues: true, activity: "" },
       { id: "runner:runner-1:slot-2", name: "Claude 2", status: "idle", task: undefined, canTakeIssues: true, activity: "" },
@@ -181,12 +181,12 @@ describe("RunnerLink commands", () => {
     expect(command).toMatchObject({ id: "command-1", kind: "start", slotId: "slot-1", issueNumber: 39 });
 
     // A reply the runner never got is no loss: the next one carries it again.
-    expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [command] });
-    expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [command] });
+    expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [command], standup: false });
+    expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [command], standup: false });
 
-    expect(link.sync(sync({ acked: ["command-1"] }))).toEqual({ kind: "accepted", commands: [] });
-    expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [] });
-    expect(link.sync(sync({ acked: ["command-1"] }))).toEqual({ kind: "accepted", commands: [] });
+    expect(link.sync(sync({ acked: ["command-1"] }))).toEqual({ kind: "accepted", commands: [], standup: false });
+    expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [], standup: false });
+    expect(link.sync(sync({ acked: ["command-1"] }))).toEqual({ kind: "accepted", commands: [], standup: false });
   });
 
   it("acks commands one by one, oldest first in every reply", () => {
@@ -247,7 +247,7 @@ describe("RunnerLink commands", () => {
     clock.now += TIMEOUT_MS + 1;
     link.sweep();
     expect(link.pending("runner-1")).toEqual([]);
-    expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [] });
+    expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [], standup: false });
   });
 });
 
@@ -321,5 +321,20 @@ describe("RunnerLink events", () => {
     const drained = inbox.drain();
     expect(drained).toHaveLength(256);
     expect(drained.at(-1)?.event.id).toBe("event-399");
+  });
+});
+
+describe("RunnerLink standups", () => {
+  it("tells every runner a standup is on while any room holds one", () => {
+    const { link } = setup();
+    expect(link.sync(sync())).toMatchObject({ kind: "accepted", standup: false });
+    link.holdForStandup("room-1", true);
+    link.holdForStandup("room-2", true);
+    expect(link.sync(sync())).toMatchObject({ kind: "accepted", standup: true });
+    link.holdForStandup("room-1", false);
+    expect(link.sync(sync())).toMatchObject({ kind: "accepted", standup: true });
+    link.holdForStandup("room-2", false);
+    link.holdForStandup("room-2", false);
+    expect(link.sync(sync())).toMatchObject({ kind: "accepted", standup: false });
   });
 });

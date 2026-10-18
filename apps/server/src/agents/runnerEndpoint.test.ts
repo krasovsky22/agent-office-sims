@@ -124,6 +124,14 @@ describe(`POST ${RUNNER_SYNC_PATH}`, () => {
     ]);
   });
 
+  it("says a standup is on in every reply while a room holds one, and nothing once none does", async () => {
+    link.holdForStandup("room-1", true);
+    expect(await (await post(SYNC)).json()).toEqual({ ok: true, commands: [], standup: true });
+    expect(await (await post(SYNC)).json()).toEqual({ ok: true, commands: [], standup: true });
+    link.holdForStandup("room-1", false);
+    expect(await (await post(SYNC)).json()).toEqual({ ok: true, commands: [] });
+  });
+
   it.each([
     ["no Authorization header", {}],
     ["the wrong secret", { Authorization: "Bearer not-the-secret" }],

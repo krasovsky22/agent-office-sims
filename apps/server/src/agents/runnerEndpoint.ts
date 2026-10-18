@@ -5,7 +5,8 @@
  * JSON body — `{ "runnerId", "repo", "acked": [ids], "slots": [...], "events": [...] }`,
  * the shape `RunnerSync` in `@sim/shared` — answered with
  * `{ "ok": true, "commands": [...] }`: every command queued for that runner it
- * has not yet acked. See `./runnerLink.ts` for what a sync does.
+ * has not yet acked, with `"standup": true` while a standup is on. See
+ * `./runnerLink.ts` for what a sync does.
  *
  * HTTP rather than a socket because Colyseus' transport takes every WebSocket
  * upgrade on the shared server. The route is refused the way the
@@ -107,7 +108,7 @@ export function createRunnerEndpoint(options: RunnerEndpointOptions): RouteHandl
           reply(res, 409, { error: "the office is full" });
           return;
         case "accepted":
-          reply(res, 200, { ok: true, commands: outcome.commands });
+          reply(res, 200, outcome.standup ? { ok: true, commands: outcome.commands, standup: true } : { ok: true, commands: outcome.commands });
       }
     });
   };

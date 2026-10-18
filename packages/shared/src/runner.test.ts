@@ -251,6 +251,12 @@ describe("toRunnerCommand", () => {
     );
   });
 
+  it("keeps a standup direction for later only when it is the CEO's", () => {
+    const draft = { kind: "prompt", slotId: "slot-1", text: "Open the PR.", requestedBy: "Dana", queue: true } as const;
+    expect(toRunnerCommand("command-8", { ...draft, fromCeo: true })).toMatchObject({ fromCeo: true, queue: true });
+    expect(toRunnerCommand("command-9", draft)).not.toHaveProperty("queue");
+  });
+
   it("builds a key command for a key the CEO may press", () => {
     expect(toRunnerCommand("command-7", { kind: "key", slotId: "slot-1", key: "down", requestedBy: "Dana\u0007" })).toEqual({
       id: "command-7",

@@ -61,6 +61,11 @@
  * conversation so far; the manager in `manager/officeManager.ts` answers on its
  * own loop, and the tick never waits on it.
  *
+ * Nor is the standup, beyond its handlers and its step on the tick: the
+ * meeting in `sim/standup.ts` gathers the crew in the manager's room, takes
+ * the agents' updates in turn and passes the CEO's directions on as prompts,
+ * and tells the runners a standup is on so they pause their agents for it.
+ *
  * Nor are the runner slots' terminal screens, beyond passing them on: the
  * store in `agents/screens.ts` hands the room each batch of frames it accepts,
  * which goes straight out to every client, and the room sends each joining
@@ -110,8 +115,10 @@ import {
   type RunnerEventInbox,
   type RunnerEventSource,
   type RunnerSpendSource,
+  type RunnerStandupHold,
   isRunnerEventSource,
   isRunnerSpendSource,
+  isRunnerStandupHold,
 } from "../agents/runnerLink.js";
 import { type RunnerCommands, RunnerWork, isRunnerCommands } from "../agents/runnerWork.js";
 import { type ScreenSource, isScreenSource } from "../agents/screens.js";
@@ -135,6 +142,7 @@ import {
 import { LiveAgentCrew } from "../sim/liveAgents.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
+import { StandupMeeting } from "../sim/standup.js";
 import { registerAgentPromptHandlers } from "./agentPromptHandlers.js";
 import { registerManagerHandlers } from "./managerHandlers.js";
 import { registerStandingHandlers } from "./standingHandlers.js";
@@ -143,6 +151,7 @@ import {
   relayProjectBoard,
   sendProjectBoard,
 } from "./projectBoardDelivery.js";
+import { registerStandupHandlers } from "./standupHandlers.js";
 import { type WorkHost, registerWorkHandlers } from "./workHandlers.js";
 
 /**
@@ -199,6 +208,8 @@ export interface OfficeRoomOptions {
   readonly screens?: ScreenSource;
   /** Every runner's standing tasks, mirrored; absent when no runner is configured. */
   readonly standing?: StandingMirror;
+  /** Where a standup is said to be on, so the runners pause their agents; absent when no runner is configured. */
+  readonly runnerStandup?: RunnerStandupHold;
 }
 
 /** Reads the eligibility label off the room's options, bounded for the same reason as the grace period. */
@@ -280,6 +291,10 @@ export class OfficeRoom extends Room<OfficeState> {
   /** The CEO's say over the standing tasks, for the roster's buttons and the manager alike. */
   private standingControl: StandingControl | undefined;
   private standingAnnouncer: StandingAnnouncer | undefined;
+
+  /** The CEO's standup; assigned in `onCreate`. */
+  private standup!: StandupMeeting;
+  private runnerStandup: RunnerStandupHold | undefined;
 
   public override onCreate(options?: unknown): void {
     this.state = new OfficeState();
@@ -400,12 +415,39 @@ export class OfficeRoom extends Room<OfficeState> {
         this.broadcast(SERVER_MESSAGE.agentPrompted, entry);
       },
       log: recordOfficeEvent,
+      directed: (commandId, outcome) => {
+        this.standup.settle(commandId, outcome);
+      },
     });
     registerAgentPromptHandlers(this, {
       state: this.state,
       prompts: this.agentPrompts,
       allow: (client) => this.spend(client, CLIENT_MESSAGE.agentPrompt),
       allowKey: (client) => this.spend(client, CLIENT_MESSAGE.agentKey),
+    });
+    const runnerStandup = roomOptions?.runnerStandup;
+    if (isRunnerStandupHold(runnerStandup)) {
+      this.runnerStandup = runnerStandup;
+    }
+    this.standup = new StandupMeeting({
+      state: this.state,
+      layout: OFFICE_LAYOUT,
+      crew: this.crew,
+      now: () => Date.now(),
+      clock: () => this.clock.currentTime,
+      prompts: runnerCommands === undefined ? undefined : this.agentPrompts,
+      say: (occupantId, text) => {
+        this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
+      },
+      report: (text) => this.manager?.report(text),
+      hold: (on) => this.runnerStandup?.holdForStandup(this.roomId, on),
+      log: recordOfficeEvent,
+    });
+    registerStandupHandlers(this, {
+      state: this.state,
+      standup: this.standup,
+      allowCall: (client) => this.spend(client, CLIENT_MESSAGE.standupStart),
+      allowDirection: (client) => this.spend(client, CLIENT_MESSAGE.standupDirect),
     });
     this.openManagersDesk(workHost, roomOptions);
 
@@ -529,6 +571,8 @@ export class OfficeRoom extends Room<OfficeState> {
     this.stopWatchingLiveAgents?.();
     this.runnerEvents?.close();
     this.stopRelayingScreens?.();
+    // A room closing mid-standup must not leave the runners' agents paused.
+    this.runnerStandup?.holdForStandup(this.roomId, false);
   }
 
   /**
@@ -576,6 +620,7 @@ export class OfficeRoom extends Room<OfficeState> {
       this.crew.sync(this.liveAgents.current(), now);
     }
     this.crew.step(now, Math.min(Math.max(deltaMs, 0), MAX_AGENT_STEP_MS) / 1000);
+    this.standup.step();
     // Drained every tick so a room's inbox never holds more than a tick's
     // worth, after the crew has seated any slot the same sync brought, so
     // each event finds the agent it is about.
@@ -684,6 +729,7 @@ export class OfficeRoom extends Room<OfficeState> {
       publish: (entry) => {
         this.broadcast(SERVER_MESSAGE.managerEntry, entry satisfies ManagerEntry);
       },
+      standup: (action, ceo) => this.standup.forManager(action, ceo),
     });
     registerManagerHandlers(this, {
       state: this.state,

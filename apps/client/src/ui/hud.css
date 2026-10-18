@@ -985,3 +985,132 @@
   min-width: 2.2em;
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
+
+/* The CEO's standup button, under the manager the agents gather around. The
+   roster does not take pointer events, so this opts back in. */
+.hud__standup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 6px;
+  pointer-events: auto;
+}
+
+/* The standup: docked over the foot of the office rather than over all of it,
+   so the agents gathering in the manager's room stay in view above it. Its
+   list of updates scrolls on its own. */
+.standup {
+  top: auto;
+  max-height: min(58vh, 640px);
+  width: min(820px, calc(100vw - 32px));
+}
+
+/* Beside another close-up (the manager's conversation, the board, a terminal)
+   the standup docks to the right edge at full height and the other panel moves
+   left, so both stay in view and clickable. */
+.hud--standup-docked {
+  --standup-dock: min(400px, 36vw);
+}
+
+.hud--standup-docked .board {
+  box-sizing: border-box;
+}
+
+.hud--standup-docked .standup {
+  top: 16px;
+  left: auto;
+  right: 16px;
+  transform: none;
+  max-height: none;
+  width: var(--standup-dock);
+}
+
+.hud--standup-docked .board:not(.standup) {
+  left: 16px;
+  transform: none;
+  max-width: calc(100vw - 48px - var(--standup-dock));
+}
+
+.standup__agents {
+  flex: 1 1 auto;
+  min-height: 3em;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.standup__agent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.standup__agent--speaking {
+  border-left: 2px solid rgba(156, 207, 255, 0.8);
+  background: rgba(156, 207, 255, 0.08);
+}
+
+.standup__who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.standup__watch {
+  margin-left: auto;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.standup__said,
+.standup__blocker {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.standup__said--waiting {
+  color: #9aa0aa;
+  font-style: italic;
+}
+
+.standup__blocker {
+  color: #ffd27f;
+}
+
+.standup__resolved {
+  color: #8fe3a6;
+}
+
+/* An agent's terminal at the standup: tall enough to read a choice screen. */
+.standup__screen {
+  flex: none;
+  height: 220px;
+}
+
+.standup__directions {
+  flex: none;
+  max-height: 8em;
+}
+
+.standup__composer {
+  align-items: stretch;
+}
+
+.standup__target {
+  flex: none;
+  width: auto;
+  max-width: 11em;
+}

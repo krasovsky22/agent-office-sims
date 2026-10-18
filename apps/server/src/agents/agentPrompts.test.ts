@@ -21,7 +21,7 @@ import {
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { AgentPrompts } from "./agentPrompts.js";
+import { AgentPrompts, type DirectionOutcome } from "./agentPrompts.js";
 import { RunnerLink, runnerSlotAgentId } from "./runnerLink.js";
 
 const REPO = "krasovsky22/agent-office-sims";
@@ -52,6 +52,7 @@ function setup(options: { runner?: boolean } = {}) {
   }
   const refused: Array<{ sessionId: string; event: AgentPromptRejectedEvent }> = [];
   const published: AgentPromptEntry[] = [];
+  const directed: Array<{ commandId: string; outcome: DirectionOutcome }> = [];
   const prompts = new AgentPrompts({
     state,
     runner: options.runner === false ? undefined : link,
@@ -59,6 +60,7 @@ function setup(options: { runner?: boolean } = {}) {
     refuse: (sessionId, event) => refused.push({ sessionId, event }),
     publish: (entry) => published.push(entry),
     answerTimeoutMs: 30_000,
+    directed: (commandId, outcome) => directed.push({ commandId, outcome }),
   });
   /** One sync from the runner `box`, with one working slot, carrying prompt outcomes and acks. */
   const sync = (outcomes: RunnerPromptOutcome[] = [], acked: string[] = [], runnerId = "box") => {
@@ -79,6 +81,8 @@ function setup(options: { runner?: boolean } = {}) {
     prompts,
     refused,
     published,
+    directed,
+    state,
     sync,
     report,
     tick: (ms: number) => {
@@ -250,5 +254,78 @@ describe("AgentPrompts", () => {
       { sessionId: CEO, event: { agentId: SLOT_1, rejection: AGENT_PROMPT_REJECTION.unanswered, key: "enter" } },
     ]);
     expect(sync()).toEqual([]);
+  });
+
+  describe("a standup's direction", () => {
+    it("goes to the runner as the CEO's prompt to keep for later, and its fate goes to the standup, not the CEO's panel", () => {
+      const { prompts, sync, report, published, refused, directed } = setup();
+      sync();
+      expect(prompts.submitDirection(CEO, SLOT_1, "Open the PR.")).toEqual({ commandId: "command-1" });
+      expect(sync()).toEqual([
+        { id: "command-1", slotId: "slot-1", kind: "prompt", text: "Open the PR.", requestedBy: "Dana", fromCeo: true, queue: true },
+      ]);
+
+      sync([report("command-1", RUNNER_PROMPT_OUTCOME.queued)], ["command-1"]);
+      sync([report("command-1", RUNNER_PROMPT_OUTCOME.queued)]);
+      expect(directed).toEqual([{ commandId: "command-1", outcome: { kind: "queued" } }]);
+
+      sync([report("command-1", RUNNER_PROMPT_OUTCOME.delivered)]);
+      expect(directed.at(-1)).toEqual({ commandId: "command-1", outcome: { kind: "typed" } });
+      // Typed, it is in the agent's terminal record like any prompt.
+      expect(published.map((entry) => entry.text)).toEqual(["Open the PR."]);
+      expect(refused).toEqual([]);
+    });
+
+    it("says why one was not typed to the standup alone", () => {
+      const { prompts, sync, report, refused, directed } = setup();
+      sync();
+      prompts.submitDirection(CEO, SLOT_1, "Open the PR.");
+      sync([report("command-1", RUNNER_PROMPT_OUTCOME.unavailable)]);
+      expect(directed).toEqual([
+        { commandId: "command-1", outcome: { kind: "failed", rejection: AGENT_PROMPT_REJECTION.unavailable } },
+      ]);
+      expect(refused).toEqual([]);
+      expect(prompts.submitDirection(CEO, REPORTED, "Go.")).toBe(AGENT_PROMPT_REJECTION.noAgent);
+    });
+
+    it("is waited on for as long as its agent is here once kept, and given up on when it leaves", () => {
+      const { prompts, sync, report, tick, directed, state } = setup();
+      sync();
+      prompts.submitDirection(CEO, SLOT_1, "Open the PR.");
+      sync([report("command-1", RUNNER_PROMPT_OUTCOME.queued)], ["command-1"]);
+      tick(10 * 60_000);
+      prompts.expire();
+      expect(directed.map((entry) => entry.outcome.kind)).toEqual(["queued"]);
+
+      state.occupants.delete(SLOT_1);
+      prompts.expire();
+      expect(directed.at(-1)).toEqual({
+        commandId: "command-1",
+        outcome: { kind: "failed", rejection: AGENT_PROMPT_REJECTION.unanswered },
+      });
+    });
+
+    it("is given up on like a prompt when its runner never answers at all", () => {
+      const { prompts, sync, tick, directed, refused } = setup();
+      sync();
+      prompts.submitDirection(CEO, SLOT_1, "Open the PR.");
+      tick(30_000);
+      prompts.expire();
+      expect(directed).toEqual([
+        { commandId: "command-1", outcome: { kind: "failed", rejection: AGENT_PROMPT_REJECTION.unanswered } },
+      ]);
+      expect(refused).toEqual([]);
+      expect(sync()).toEqual([]);
+    });
+
+    it("never keeps a prompt from the terminal panel waiting on a later answer", () => {
+      const { prompts, sync, report, tick, refused } = setup();
+      sync();
+      prompts.submit(CEO, { agentId: SLOT_1, text: "go on" });
+      sync([report("command-1", RUNNER_PROMPT_OUTCOME.queued)]);
+      tick(30_000);
+      prompts.expire();
+      expect(refused).toEqual([{ sessionId: CEO, event: { agentId: SLOT_1, rejection: AGENT_PROMPT_REJECTION.unanswered } }]);
+    });
   });
 });

@@ -55,12 +55,17 @@ export type PlannedStanding =
   | { readonly action: "schedule"; readonly cron: string; readonly instruction: string }
   | { readonly action: "pause" | "resume" | "remove" | "check-now"; readonly task: string };
 
+/** What a plan asks of the standup: call one, or end the one that is on. */
+export type PlannedStandup = "start" | "end";
+
 export interface ManagerPlan {
   /** What the manager says, before the outcome of any assignment is added. */
   readonly reply: string;
   readonly assignments: readonly PlannedAssignment[];
   /** Standing tasks to set up, pause, resume, remove or check; none when left out. */
   readonly standing?: readonly PlannedStanding[];
+  /** Absent for a plan that leaves the standup alone. */
+  readonly standup?: PlannedStandup | undefined;
   /** Model tokens spent; `0` for the rules. */
   readonly tokensUsed: number;
 }

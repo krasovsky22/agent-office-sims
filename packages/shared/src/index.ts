@@ -20,3 +20,4 @@ export * from "./spend.js";
 export * from "./stickerNotes.js";
 export * from "./cron.js";
 export * from "./standing.js";
+export * from "./standup.js";

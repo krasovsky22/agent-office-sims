@@ -39,6 +39,7 @@ import { createRoot } from "react-dom/client";
 import * as THREE from "three";
 
 import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
+import { standupAccessFor, standupRejectionText } from "./standupAccess.js";
 import { boardAccessFor, rejectionText } from "./boardAccess.js";
 import { DayClock } from "./dayClock.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
@@ -272,6 +273,9 @@ function start(): void {
   let nextChatId = 1;
   let nextRefusalId = 1;
   let noticeTimer: number | undefined;
+  let standupNoticeTimer: number | undefined;
+  // The agent whose key pad in the standup panel was last pressed, for a key the limiter dropped.
+  let lastKeyAgentId = "";
 
   /** Shows a line to this player only, and takes it down again shortly. */
   const showNotice = (text: string) => {
@@ -282,6 +286,18 @@ function start(): void {
     noticeTimer = window.setTimeout(() => {
       noticeTimer = undefined;
       publishHud({ notice: undefined });
+    }, NOTICE_DURATION_MS);
+  };
+
+  /** Shows a line in the standup panel, to this player only, and takes it down again shortly. */
+  const showStandupNotice = (text: string) => {
+    if (standupNoticeTimer !== undefined) {
+      window.clearTimeout(standupNoticeTimer);
+    }
+    publishHud({ standupNotice: text });
+    standupNoticeTimer = window.setTimeout(() => {
+      standupNoticeTimer = undefined;
+      publishHud({ standupNotice: undefined });
     }, NOTICE_DURATION_MS);
   };
 
@@ -404,6 +420,7 @@ function start(): void {
         managerAccess: local === undefined ? undefined : managerAccessFor(local, ceo?.name),
         agentPromptAccess: local === undefined ? undefined : agentPromptAccessFor(local, ceo?.name),
         standingAccess: local === undefined ? undefined : standingAccessFor(local, ceo?.name),
+        standupAccess: local === undefined ? undefined : standupAccessFor(local, ceo?.name),
       });
       refreshStickerNotes();
     },
@@ -443,11 +460,19 @@ function start(): void {
         publishHud({
           agentPromptRefusal: {
             id: nextRefusalId++,
-            agentId: hud.terminalAgentId ?? "",
+            agentId: hud.terminalAgentId ?? lastKeyAgentId,
             text: "Too many keys — that one was not pressed. Check the terminal, then go on.",
             forKey: true,
           },
         });
+        return;
+      }
+      if (event.command === CLIENT_MESSAGE.standupDirect || event.command === CLIENT_MESSAGE.standupStart) {
+        showStandupNotice(
+          event.command === CLIENT_MESSAGE.standupDirect
+            ? "Too many directions — that one was dropped. Wait a few seconds and send it again."
+            : "Too many standups called or ended — that one was dropped. Wait a few seconds.",
+        );
         return;
       }
       showNotice(
@@ -552,7 +577,22 @@ function start(): void {
           ? agentPromptRejectionText(event.rejection, agentName)
           : agentKeyRejectionText(event.rejection, agentName, event.key);
       publishHud({ agentPromptRefusal: { id: nextRefusalId++, agentId: event.agentId, text, forKey: event.key !== undefined } });
-      if (hud.terminalAgentId !== event.agentId) {
+      // The standup panel says it under the agent's key pad, as the terminal panel does.
+      if (hud.terminalAgentId !== event.agentId && !hud.standup.active) {
+        showNotice(text);
+      }
+    },
+
+    onStandupChanged: (standup) => {
+      publishHud({ standup });
+    },
+
+    // In the standup panel while one is on, where the command came from; as a notice otherwise.
+    onStandupRejected: (event) => {
+      const text = standupRejectionText(event);
+      if (hud.standup.active) {
+        showStandupNotice(text);
+      } else {
         showNotice(text);
       }
     },
@@ -593,6 +633,16 @@ function start(): void {
           close: () => {
             readingBoard = "";
           },
+        },
+        standup: {
+          start: () => room.sendStandupStart(),
+          end: () => room.sendStandupEnd(),
+          direct: (agentId, text) => room.sendStandupDirection(agentId, text),
+          key: (agentId, key) => {
+            lastKeyAgentId = agentId;
+            return room.sendAgentKey(agentId, key);
+          },
+          screenOf: (agentId) => room.screenOf(agentId),
         },
       },
     }),
