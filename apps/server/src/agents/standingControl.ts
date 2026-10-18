@@ -59,7 +59,7 @@ export interface StandingCommands {
 /** A new standing task, as the CEO asked for it. */
 export type StandingRequest =
   | { readonly kind: typeof STANDING_KIND.prReview }
-  | { readonly kind: typeof STANDING_KIND.schedule; readonly cron: string; readonly instruction: string; readonly name?: string };
+  | { readonly kind: typeof STANDING_KIND.schedule; readonly cron: string; readonly instruction: string };
 
 export type StandingResult =
   | { readonly ok: true; readonly text: string; readonly taskId: string }
@@ -204,7 +204,7 @@ export class StandingControl {
     if (instruction === "" || schedule === undefined) {
       return undefined;
     }
-    const named = sanitizeStandingName(request.name ?? "") || sanitizeStandingName(instruction);
+    const named = sanitizeStandingName(instruction);
     const name = named.charAt(0).toUpperCase() + named.slice(1);
     // The instruction is the job, so the CEO's note is not said twice.
     return { ...base, note: "", kind: STANDING_KIND.schedule, name, cron: schedule.expression, instruction };
