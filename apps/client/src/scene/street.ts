@@ -26,7 +26,7 @@ import {
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-import { type BuildingSpec, type BuildingStyle, skylineOf } from "./skyline.js";
+import { type BuildingSpec, type BuildingStyle, seededRandom, skylineOf } from "./skyline.js";
 import {
   CROSSING_HALF_WIDTH,
   type Car,
@@ -245,17 +245,6 @@ function buildingGeometry(building: BuildingSpec): THREE.BufferGeometry {
   }
   geometry.setAttribute("color", new THREE.BufferAttribute(colours, 3));
   return geometry;
-}
-
-function seededRandom(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 /** The buildings, merged into one mesh per style, plus the water tanks on the walk-ups. */

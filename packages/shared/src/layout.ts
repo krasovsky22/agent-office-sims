@@ -840,9 +840,11 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     },
   ],
   // A two-way avenue, two lanes each way, driving on the right: the near lanes
-  // run south past the windows and the far ones north.
+  // run south past the windows and the far ones north. It runs on well past
+  // where the client's fog has swallowed it, so nobody on the pavement sees
+  // where it ends or where the cars wrap round.
   street: {
-    road: rect(15.8, -70, 26.2, 70),
+    road: rect(15.8, -280, 26.2, 280),
     lanes: [
       { x: 17.1, direction: 1 },
       { x: 19.7, direction: 1 },

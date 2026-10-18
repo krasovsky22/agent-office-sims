@@ -15,6 +15,8 @@
 
 import type { StreetSpec } from "@sim/shared";
 
+import { seededRandom } from "./skyline.js";
+
 /** The yellow of a New York cab. */
 export const CAB_YELLOW = 0xf2c200;
 
@@ -24,7 +26,8 @@ const CAR_COLOURS = [0x1d2b44, 0xd7d9dc, 0x2b2b2e, 0x8a1c1c, 0x4f5d6b, 0x0f3d2e,
 /** Share of the cars that are cabs. */
 const CAB_SHARE = 0.4;
 
-const CARS_PER_LANE = 5;
+/** Distance along a lane from one car to the next, as they are first spread out. */
+const CAR_SPACING = 28;
 
 /** Cruising speeds, metres a second: a city avenue, not a highway. */
 const MIN_CRUISE = 8;
@@ -102,18 +105,6 @@ export interface CarPose {
   readonly yaw: number;
 }
 
-/** A small seeded generator, so the street is the same street every load. */
-function seededRandom(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 function laneLength(street: StreetSpec): number {
   return street.road.maxZ - street.road.minZ;
 }
@@ -132,8 +123,9 @@ export function createTraffic(street: StreetSpec, seed = 115): Traffic {
   const length = laneLength(street);
   const cars: Car[] = [];
   street.lanes.forEach((_, lane) => {
-    for (let index = 0; index < CARS_PER_LANE; index += 1) {
-      const spacing = length / CARS_PER_LANE;
+    const count = Math.max(1, Math.round(length / CAR_SPACING));
+    for (let index = 0; index < count; index += 1) {
+      const spacing = length / count;
       const cab = random() < CAB_SHARE;
       const colour = CAR_COLOURS[Math.floor(random() * CAR_COLOURS.length)] ?? CAR_COLOURS[0];
       cars.push({

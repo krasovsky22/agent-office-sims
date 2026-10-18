@@ -44,7 +44,8 @@ const SKYLINE_SETBACK = 32;
 /** Reach of the skyline row along the street, beyond the drawn road. */
 const SKYLINE_OVERHANG = 30;
 
-function seededRandom(seed: number): () => number {
+/** A small seeded generator, so the city is the same city every load. */
+export function seededRandom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
     state = (state + 0x6d2b79f5) >>> 0;

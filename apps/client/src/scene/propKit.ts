@@ -301,7 +301,7 @@ export function screenFaceOf(kit: PropKit): ScreenFace | undefined {
  *
  * All eleven at once and all-or-nothing: the caller shows one loading state and then
  * furnishes the office in a single frame, rather than watching it assemble. The
- * whole kit is 125 KB of untextured geometry, so there is nothing to gain from
+ * whole kit is 131 KB of untextured geometry, so there is nothing to gain from
  * streaming it and a half-built office to lose.
  *
  * Rejects if any model fails, which is the signal to fall back to grey boxes.
