@@ -44,7 +44,7 @@ const SUBMIT_DELAY_MS = 120;
 /** After a hook, before its transcript is read: a burst of hooks is one read, of what they all logged. */
 const DEFAULT_SPEND_SCAN_MS = 1000;
 
-/** What it needs to act on GitHub as the runner's App. */
+/** What it needs to act on GitHub as the runner's App or the person's login it was given. */
 export interface AgentGithubEnv {
   /** Set on top of its environment. */
   readonly env: Readonly<Record<string, string>>;
@@ -64,7 +64,7 @@ export interface PtyAgentOptions<P> {
   readonly stopGraceMs?: number;
   readonly bootHintMs?: number;
   readonly spendScanMs?: number;
-  /** The runner's GitHub App, the agent's identity on GitHub. */
+  /** The agent's identity on GitHub: the runner's GitHub App or a person's login. */
   readonly github?: AgentGithubEnv;
 }
 

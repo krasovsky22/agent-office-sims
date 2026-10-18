@@ -1,7 +1,7 @@
 /**
- * The runner's GitHub identity: a GitHub App installed on the one repository
- * it works on, whose short-lived installation tokens are what its agents push
- * and open pull requests with.
+ * The runner's default GitHub identity: a GitHub App installed on the one
+ * repository it works on, whose short-lived installation tokens are what its
+ * agents push and open pull requests with.
  *
  * An App rather than a person's token because the runner runs unattended and
  * its agents run whatever their task leads them to: the App can only do what
