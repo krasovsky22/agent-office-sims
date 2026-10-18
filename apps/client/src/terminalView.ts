@@ -53,20 +53,24 @@ export function terminalRow(screen: TerminalScreen, index: number): readonly Scr
   return index < scrolled ? screen.history[index] : screen.lines[index - scrolled];
 }
 
-/** Which rows a view of `visible` rows shows, of `total`, scrolled back `offset` rows from the bottom. */
+/** Which rows a view of `visible` rows shows, of `total`, from row `top` down. */
 export interface TerminalViewport {
   /** First row shown. */
   readonly first: number;
-  /** How far back the view is scrolled, held to what there is to scroll through. */
-  readonly offset: number;
-  /** Furthest back the view can scroll. */
-  readonly maxOffset: number;
+  /**
+   * The row asked for first, held to what there is to scroll through, and
+   * `undefined` at the newest rows, which the view then follows.
+   */
+  readonly top: number | undefined;
+  /** First row shown at the newest rows. */
+  readonly bottom: number;
 }
 
-export function terminalViewport(total: number, visible: number, offset: number): TerminalViewport {
-  const maxOffset = Math.max(0, total - visible);
-  const held = Math.max(0, Math.min(maxOffset, Math.round(offset)));
-  return { first: maxOffset - held, offset: held, maxOffset };
+/** @param top the row to show first, which need not be whole; `undefined` for the newest. */
+export function terminalViewport(total: number, visible: number, top: number | undefined): TerminalViewport {
+  const bottom = Math.max(0, total - visible);
+  const held = top === undefined || top >= bottom ? undefined : Math.max(0, top);
+  return { first: held === undefined ? bottom : Math.round(held), top: held, bottom };
 }
 
 /**
@@ -87,13 +91,20 @@ export interface TerminalLayout {
   readonly visibleRows: number;
   /** A row's height, in CSS pixels. */
   readonly lineHeightPx: number;
-  /** The scroll actually painted, once held to what there is. */
-  readonly offset: number;
+  /**
+   * The first row asked for, once held to what there is, counted as the
+   * screen's `historyAdded` counts so it stays on the same row as rows
+   * arrive and the oldest are let go; `undefined` follows the newest.
+   */
+  readonly top: number | undefined;
+  /** First row shown at the newest rows, counted the same way. */
+  readonly bottom: number;
 }
 
 /**
  * Paints `screen` onto a canvas `w` by `h` device pixels, `scale` of them to
- * a CSS pixel, scrolled back `offset` rows from the newest.
+ * a CSS pixel, from row `top` down, counted as the screen's `historyAdded`
+ * counts, or its newest rows for `undefined`.
  *
  * The text is {@link TERMINAL_FONT_PX}, smaller only if the terminal's full
  * width would not fit otherwise. While there is more than fits, a scrollbar
@@ -105,7 +116,7 @@ export function paintTerminal(
   h: number,
   scale: number,
   screen: TerminalScreen,
-  offset: number,
+  top: number | undefined,
 ): TerminalLayout {
   ctx.fillStyle = TERM_THEME.background;
   ctx.fillRect(0, 0, w, h);
@@ -116,7 +127,8 @@ export function paintTerminal(
   const lineH = fontSize * LINE_HEIGHT;
   const visibleRows = Math.max(1, Math.floor((h - pad * 2) / lineH));
   const total = screen.history.length + screenRowsShown(screen);
-  const view = terminalViewport(total, visibleRows, offset);
+  const dropped = screen.historyAdded - screen.history.length;
+  const view = terminalViewport(total, visibleRows, top === undefined ? undefined : top - dropped);
 
   ctx.textBaseline = "top";
   for (let y = 0; y < visibleRows && view.first + y < total; y += 1) {
@@ -126,18 +138,19 @@ export function paintTerminal(
     }
   }
 
-  if (view.maxOffset > 0) {
+  if (view.bottom > 0) {
     const trackH = h - pad * 2;
     const thumbH = Math.max(trackH * (visibleRows / total), 16 * scale);
-    const thumbTop = pad + (trackH - thumbH) * (view.first / view.maxOffset);
+    const thumbTop = pad + (trackH - thumbH) * (view.first / view.bottom);
     ctx.globalAlpha = 0.35;
     ctx.fillStyle = TERM_THEME.brightBlack;
     ctx.fillRect(w - bar - 2 * scale, thumbTop, bar, thumbH);
     ctx.globalAlpha = 1;
   }
 
-  if (view.offset > 0) {
-    const note = `${view.offset} ${view.offset === 1 ? "line" : "lines"} below · scroll down or End to follow`;
+  const below = view.bottom - view.first;
+  if (below > 0) {
+    const note = `${below} ${below === 1 ? "line" : "lines"} below · scroll down or End to follow`;
     ctx.font = `400 ${fontSize}px ui-monospace, Menlo, Consolas, monospace`;
     const noteW = note.length * fontSize * CHAR_WIDTH + pad * 2;
     const noteH = lineH + pad;
@@ -149,5 +162,10 @@ export function paintTerminal(
     ctx.fillText(note, noteLeft + pad, noteTop + (noteH - fontSize) / 2);
   }
 
-  return { visibleRows, lineHeightPx: lineH / scale, offset: view.offset };
+  return {
+    visibleRows,
+    lineHeightPx: lineH / scale,
+    top: view.top === undefined ? undefined : view.top + dropped,
+    bottom: view.bottom + dropped,
+  };
 }

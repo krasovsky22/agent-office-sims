@@ -16,7 +16,8 @@
  * clearing the scrollback, or resetting the terminal for a new run, starts
  * the history afresh. History that goes out in a frame that is then lost is
  * not sent again: unlike the screen, it is a record to read back, not the
- * state anything depends on.
+ * state anything depends on. That the scrollback was cleared is said again,
+ * though, or the office would keep the last run's history for good.
  *
  * Every frame passes through the runner's {@link Redactor} on its way out, so
  * no secret the runner holds is ever in one.
@@ -64,8 +65,10 @@ export class ScreenMirror {
   private keyframeAt: number;
   /** On the last row sent as history; none until a row is, or since the scrollback was cleared. */
   private historyMark: Marker | undefined;
-  /** The scrollback was cleared since the last frame. */
+  /** The scrollback was cleared since the last frame that reached the server. */
   private historyCleared = false;
+  /** The last frame said the scrollback was cleared. */
+  private clearedInLast = false;
 
   public constructor(now: number, cols = SCREEN_COLS, rows = SCREEN_ROWS) {
     this.term = new xterm.Terminal({ cols, rows, scrollback: SCROLLBACK, allowProposedApi: true });
@@ -112,6 +115,15 @@ export class ScreenMirror {
     this.dirty = true;
   }
 
+  /**
+   * Makes the next frame a whole screen, the last one never having reached
+   * the server, and says again that the scrollback was cleared if it did.
+   */
+  public lost(): void {
+    this.historyCleared ||= this.clearedInLast;
+    this.sendWhole();
+  }
+
   /** The frame to send now, or `undefined` when nothing changed. */
   public flush(now: number, redactor: Redactor): ScreenFrame | undefined {
     // Diffs can be lost, so send the whole screen now and then.
@@ -130,6 +142,7 @@ export class ScreenMirror {
     const unsent = !normal ? buf.baseY : mark === undefined || mark.isDisposed ? 0 : mark.line + 1;
     const historyFrom = Math.max(unsent, buf.baseY - MAX_SCREEN_HISTORY_PER_FRAME);
     const frame = snapshotScreen(this.term, this.lastLines, redactor, historyFrom, this.historyCleared);
+    this.clearedInLast = frame?.historyCleared === true;
     this.historyCleared = false;
     if (normal && historyFrom < buf.baseY) {
       mark?.dispose();

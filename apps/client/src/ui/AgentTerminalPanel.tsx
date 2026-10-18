@@ -124,10 +124,16 @@ const PLACEHOLDER_VERSION = -1;
 
 /** Where the CEO has scrolled the terminal to. */
 interface TerminalScroll {
-  /** Rows back from the newest; `0` follows the agent live. */
-  offset: number;
-  /** The screen's `historyAdded` when {@link offset} was last kept in step with it. */
-  anchor: number;
+  /**
+   * The first row shown, counted as the screen's `historyAdded` counts, so
+   * new rows arriving under it do not move it; `undefined` follows the agent
+   * live. A trackpad scrolls by parts of a row, which add up here.
+   */
+  top: number | undefined;
+  /** {@link top} at the newest rows, as last painted. */
+  bottom: number;
+  /** The screen's `historyAdded` when last painted, which starts again when the scrollback is emptied. */
+  added: number;
   /** Rows the canvas had room for when last painted, which a page scrolls by. */
   pageRows: number;
   lineHeightPx: number;
@@ -143,7 +149,13 @@ interface TerminalScroll {
  */
 function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["screenOf"]) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const scrollRef = useRef<TerminalScroll>({ offset: 0, anchor: 0, pageRows: 1, lineHeightPx: TERMINAL_FONT_PX });
+  const scrollRef = useRef<TerminalScroll>({
+    top: undefined,
+    bottom: 0,
+    added: 0,
+    pageRows: 1,
+    lineHeightPx: TERMINAL_FONT_PX,
+  });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -152,10 +164,10 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
       return;
     }
     const scroll = scrollRef.current;
-    scroll.offset = 0;
-    scroll.anchor = screenOf(agentId)?.historyAdded ?? 0;
+    scroll.top = undefined;
+    scroll.added = screenOf(agentId)?.historyAdded ?? 0;
     let paintedVersion = Number.NaN;
-    let paintedOffset = Number.NaN;
+    let paintedTop: number | undefined = Number.NaN;
     let request = 0;
     const paint = () => {
       request = requestAnimationFrame(paint);
@@ -163,14 +175,14 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
       const width = Math.max(1, Math.round(canvas.clientWidth * scale));
       const height = Math.max(1, Math.round(canvas.clientHeight * scale));
       const screen = screenOf(agentId);
-      // Scrolled back, the view stays on what it shows as rows arrive under it.
+      // The rows are counted afresh once the scrollback is emptied, so the row scrolled to is gone.
       const added = screen?.historyAdded ?? 0;
-      if (scroll.offset > 0) {
-        scroll.offset = added < scroll.anchor ? 0 : scroll.offset + added - scroll.anchor;
+      if (added < scroll.added) {
+        scroll.top = undefined;
       }
-      scroll.anchor = added;
+      scroll.added = added;
       const version = screen?.version ?? PLACEHOLDER_VERSION;
-      if (version === paintedVersion && scroll.offset === paintedOffset && width === canvas.width && height === canvas.height) {
+      if (version === paintedVersion && scroll.top === paintedTop && width === canvas.width && height === canvas.height) {
         return;
       }
       canvas.width = width;
@@ -179,21 +191,23 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
       if (screen === undefined) {
         paintScreen(ctx, width, height, undefined, SCREEN_PLACEHOLDER, MAX_SCREEN_ROWS);
       } else {
-        const layout = paintTerminal(ctx, width, height, scale, screen, scroll.offset);
-        scroll.offset = layout.offset;
+        const layout = paintTerminal(ctx, width, height, scale, screen, scroll.top);
+        scroll.top = layout.top;
+        scroll.bottom = layout.bottom;
         scroll.pageRows = layout.visibleRows;
         scroll.lineHeightPx = layout.lineHeightPx;
       }
-      paintedOffset = scroll.offset;
+      paintedTop = scroll.top;
     };
     paint();
     return () => cancelAnimationFrame(request);
   }, [agentId, screenOf]);
 
-  // Painting holds the offset to what there is, so this need not.
+  // Painting holds the scroll to what there is, so this need not.
   const scrollBack = (rows: number) => {
     const scroll = scrollRef.current;
-    scroll.offset = rows === Number.NEGATIVE_INFINITY ? 0 : Math.max(0, scroll.offset + rows);
+    const top = (scroll.top ?? scroll.bottom) - rows;
+    scroll.top = top >= scroll.bottom ? undefined : top;
   };
 
   // The keys a terminal scrolls with, from anywhere in the panel; `Home` and

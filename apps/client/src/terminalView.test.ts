@@ -70,12 +70,17 @@ describe("terminalRow", () => {
 
 describe("terminalViewport", () => {
   it("shows the newest rows unscrolled, and holds a scroll to what there is", () => {
-    expect(terminalViewport(100, 30, 0)).toEqual({ first: 70, offset: 0, maxOffset: 70 });
-    expect(terminalViewport(100, 30, 10)).toEqual({ first: 60, offset: 10, maxOffset: 70 });
-    expect(terminalViewport(100, 30, 500)).toEqual({ first: 0, offset: 70, maxOffset: 70 });
-    expect(terminalViewport(100, 30, Number.POSITIVE_INFINITY)).toEqual({ first: 0, offset: 70, maxOffset: 70 });
-    expect(terminalViewport(100, 30, -4)).toEqual({ first: 70, offset: 0, maxOffset: 70 });
-    expect(terminalViewport(10, 30, 5)).toEqual({ first: 0, offset: 0, maxOffset: 0 });
+    expect(terminalViewport(100, 30, undefined)).toEqual({ first: 70, top: undefined, bottom: 70 });
+    expect(terminalViewport(100, 30, 60)).toEqual({ first: 60, top: 60, bottom: 70 });
+    expect(terminalViewport(100, 30, -500)).toEqual({ first: 0, top: 0, bottom: 70 });
+    expect(terminalViewport(100, 30, Number.NEGATIVE_INFINITY)).toEqual({ first: 0, top: 0, bottom: 70 });
+    expect(terminalViewport(100, 30, 74)).toEqual({ first: 70, top: undefined, bottom: 70 });
+    expect(terminalViewport(10, 30, 5)).toEqual({ first: 0, top: undefined, bottom: 0 });
+  });
+
+  it("keeps a scroll by part of a row, so a trackpad's small steps add up", () => {
+    expect(terminalViewport(100, 30, 59.7)).toEqual({ first: 60, top: 59.7, bottom: 70 });
+    expect(terminalViewport(100, 30, 69.8)).toEqual({ first: 70, top: 69.8, bottom: 70 });
   });
 });
 
@@ -94,10 +99,10 @@ describe("paintTerminal", () => {
 
   it("paints the newest rows at the panel's small size, as many as fit", () => {
     const ctx = fakeContext();
-    const layout = paintTerminal(ctx, 1000, 400, 1, screen, 0);
+    const layout = paintTerminal(ctx, 1000, 400, 1, screen, undefined);
     expect(ctx.font).toContain(`${TERMINAL_FONT_PX}px`);
     expect(layout.visibleRows).toBe(Math.floor((400 - 16) / (TERMINAL_FONT_PX * 1.25)));
-    expect(layout.offset).toBe(0);
+    expect(layout.top).toBeUndefined();
     const texts = ctx.texts.map((drawn) => drawn.text);
     expect(texts.at(-1)).toBe("● Working");
     expect(texts).toHaveLength(layout.visibleRows);
@@ -105,22 +110,43 @@ describe("paintTerminal", () => {
   });
 
   it("paints older rows scrolled back, says how far, and holds the scroll to the oldest", () => {
+    const { bottom, visibleRows } = paintTerminal(fakeContext(), 1000, 400, 1, screen, undefined);
+    expect(bottom).toBe(202 - visibleRows);
     const back = fakeContext();
-    paintTerminal(back, 1000, 400, 1, screen, 50);
+    paintTerminal(back, 1000, 400, 1, screen, bottom - 50);
     expect(back.texts.map((drawn) => drawn.text)).toContain("history 151");
     expect(back.texts.map((drawn) => drawn.text)).not.toContain("● Working");
     expect(back.texts.at(-1)?.text).toMatch(/^50 lines below/);
 
     const oldest = fakeContext();
-    const layout = paintTerminal(oldest, 1000, 400, 1, screen, 10_000);
-    expect(layout.offset).toBe(202 - layout.visibleRows);
+    const layout = paintTerminal(oldest, 1000, 400, 1, screen, Number.NEGATIVE_INFINITY);
+    expect(layout.top).toBe(0);
     expect(oldest.texts[0]?.text).toBe("history 0");
+  });
+
+  it("stays on the rows it shows as the screen grows and the oldest rows are let go", () => {
+    const top = 120;
+    const before = fakeContext();
+    paintTerminal(before, 1000, 400, 1, screen, top);
+    expect(before.texts[0]?.text).toBe("history 120");
+
+    // A line printed below without scrolling: the screen shows one more row.
+    const grown = screenOf({ 0: plain("$ claude"), 1: plain("● Working"), 2: plain("● Done") }, history, [0, 2]);
+    const after = fakeContext();
+    expect(paintTerminal(after, 1000, 400, 1, grown, top).top).toBe(top);
+    expect(after.texts[0]?.text).toBe("history 120");
+
+    // Ten more rows scrolled off, and the ten oldest let go.
+    const scrolled = { ...grown, history: [...history.slice(10), ...history.slice(0, 10)], historyAdded: 210 };
+    const later = fakeContext();
+    expect(paintTerminal(later, 1000, 400, 1, scrolled, top).top).toBe(top);
+    expect(later.texts[0]?.text).toBe("history 120");
   });
 
   it("paints a short terminal from the top, with nothing to scroll", () => {
     const ctx = fakeContext();
     const layout = paintTerminal(ctx, 2000, 400, 2, screenOf({ 0: plain("$ ls") }), 5);
-    expect(layout.offset).toBe(0);
+    expect(layout.top).toBeUndefined();
     // At twice the pixels: below the padding, centred in its line.
     const fontSize = TERMINAL_FONT_PX * 2;
     expect(ctx.texts).toEqual([{ text: "$ ls", y: 16 + (fontSize * 1.25 - fontSize) / 2 }]);
@@ -128,7 +154,7 @@ describe("paintTerminal", () => {
 
   it("shrinks the text only when the terminal's full width would not fit", () => {
     const ctx = fakeContext();
-    paintTerminal(ctx, 500, 400, 1, screen, 0);
+    paintTerminal(ctx, 500, 400, 1, screen, undefined);
     const size = Number(/ ([\d.]+)px/.exec(ctx.font)?.[1]);
     expect(size).toBeLessThan(TERMINAL_FONT_PX);
     expect(size * 0.6 * 100).toBeLessThanOrEqual(500 - 16 - 5);
