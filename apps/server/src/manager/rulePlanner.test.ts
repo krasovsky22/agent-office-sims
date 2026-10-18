@@ -523,6 +523,18 @@ describe("planFromRules: standups", () => {
     },
   );
 
+  it.each([
+    "have Claude 1 do #39 after standup",
+    "start #39 before the standup",
+    "close #39 and end standup",
+    "assign #39 after the standup",
+    "what's the status of #39 after the standup?",
+  ])("neither calls, ends nor summarises one for work that only mentions it: %j", (message) => {
+    const plan = ask(message);
+    expect(plan.standup).toBeUndefined();
+    expect(plan.reply).not.toMatch(/standup/i);
+  });
+
   it("says what each agent said at the last one, and whether its blocker was resolved", () => {
     expect(ask("how did the standup go?").reply).toBe(
       "There hasn't been a standup yet. Say “call a standup” and I'll gather everyone at my desk.",

@@ -90,10 +90,12 @@ export const REPHRASE_TEXT =
 const ASKING_ADVICE = /\b(should i|who should|who would|who could|who can)\b/i;
 const GREETING = /^\s*(hi|hello|hey|morning|good (morning|afternoon|evening)|help|\?)\b/i;
 const STANDUP_WORD = /\bstand[- ]?ups?\b/;
-/** "end the standup", "finish standup", "the standup's over". */
-const STANDUP_END = /^(?:end|finish|stop|close|wrap up|conclude|dismiss)\b|\b(?:is|'s) (?:over|done|finished)$/;
-/** "call a standup", "let's have a standup", "time for standup", or just "standup". */
-const STANDUP_START = /^(?:call|start|hold|run|begin|kick off|have|let's have|let's do|let us have|time for|gather everyone for)\b|^(?:a |the )?stand[- ]?up$/;
+/** The whole message: "end the standup", "finish standup", "the standup's over". */
+const STANDUP_END =
+  /^(?:(?:end|finish|stop|close|wrap up|conclude|dismiss) (?:the |this |our )?stand[- ]?up|(?:the |this |our )?stand[- ]?up(?:'s| is) (?:over|done|finished))$/;
+/** The whole message: "call a standup", "let's have a standup", "time for standup", or just "standup". */
+const STANDUP_START =
+  /^(?:(?:call|start|hold|run|begin|kick off|have|let's have|let's do|let us have|time for|gather everyone for) )?(?:a |the |our )?stand[- ]?up$/;
 const PULL_WORDS = /\b(prs?|pull requests?|checks?|ci)\b/i;
 const BOARD_WORDS =
   /\b(board|issues?|tickets?|backlog|open|review|queue|blocked|stuck|done|approve|github|repo|repository|labels?)\b/i;
@@ -131,9 +133,6 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     return standup === "start"
       ? { reply: "Calling a standup: everyone to my desk, and each of them gives an update in turn.", assignments: [], standup }
       : { reply: "Ending the standup.", assignments: [], standup };
-  }
-  if (STANDUP_WORD.test(message.toLowerCase())) {
-    return { reply: standupSummary(view), assignments: [] };
   }
   const standing = standingAnswer(message, view);
   if (standing !== undefined) {
@@ -184,6 +183,10 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     }
     return { reply: lines.join("\n"), assignments: [] };
   }
+  const said = wordsOf(message).join(" ");
+  if (STANDUP_WORD.test(said) && QUESTION_START.test(said)) {
+    return { reply: standupSummary(view), assignments: [] };
+  }
   if (agents.length > 0) {
     return { reply: agents.slice(0, LIST_LIMIT).map((agent) => describeAgent(agent, view)).join("\n"), assignments: [] };
   }
@@ -225,12 +228,9 @@ function standingAnswer(message: string, view: OfficeView): Omit<ManagerPlan, "t
     : { reply: "Here's how that went:", assignments: [], standing: instruction.standing };
 }
 
-/** Whether a message tells the manager to call or end a standup; a question about one does neither. */
+/** Whether the whole message tells the manager to call or end a standup; one that only mentions it does neither. */
 function readStandup(message: string): PlannedStandup | undefined {
   const said = wordsOf(message).join(" ");
-  if (!STANDUP_WORD.test(said) || QUESTION_START.test(said)) {
-    return undefined;
-  }
   if (STANDUP_END.test(said)) {
     return "end";
   }
