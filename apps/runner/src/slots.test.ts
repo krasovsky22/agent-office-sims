@@ -266,6 +266,56 @@ describe("SlotPool", () => {
     expect(asked).toEqual(["close slot-1 #39"]);
   });
 
+  it("logs a task's lifecycle, and every step it works only to debug", async () => {
+    const log: string[] = [];
+    const debug: string[] = [];
+    const slots = new SlotPool({
+      count: 1,
+      agent: createMockAgent({ outcome: "pr-opened", stepMs: STEP_MS }),
+      workspaces: workspaces(),
+      taskTimeoutMs: TIMEOUT_MS,
+      log: (line) => log.push(line),
+      debug: (line) => debug.push(line),
+    });
+    slots.handle(START);
+    await runScript(slots);
+    slots.handle({ ...START, id: "command-2", issueNumber: 40 });
+    slots.handle({ id: "command-3", slotId: "slot-1", kind: "stop", reason: "" });
+    expect(log).toEqual([
+      "slot-1 starting on #39 for Dana with the Mock agent: simulated work, nothing real is done on the issue",
+      "slot-1 on #39: the Mock agent runs inside the runner",
+      "slot-1 on #39: its agent is up",
+      "slot-1 on #39 is working",
+      `slot-1 on #39 needs a person: ${MOCK_PERMISSION}`,
+      "slot-1 given a prompt by the server on #39",
+      "slot-1 on #39 is working",
+      "slot-1 handed in #39: a simulated pull request; nothing was opened on GitHub",
+      "slot-1 on #39: its agent's turn ended",
+      "start for slot-1 on #40 refused: Mock 1 is busy with #39",
+      `slot-1 failed on #39: Stopped: the server asked (${"$"}${(MOCK_STEP_USD * 4).toFixed(2)} spent)`,
+    ]);
+    expect(debug).toContain("slot-1 checking #39 on GitHub");
+    expect(debug).toContain("slot-1 on #39: Bash: git commit");
+    // The answer's words are the agent's business, not the log's.
+    expect([...log, ...debug].join("\n")).not.toContain("Go ahead.");
+  });
+
+  it("masks the runner's secrets in the reason a task ended", async () => {
+    const log: string[] = [];
+    const slots = new SlotPool({
+      count: 1,
+      agent: { label: "Spy", start: () => ({ stop: () => undefined }) },
+      workspaces: workspaces(),
+      taskTimeoutMs: TIMEOUT_MS,
+      redactor: createRedactor(["hunter2-secret-value"]),
+      log: (line) => log.push(line),
+    });
+    slots.handle(START);
+    await settle();
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "token hunter2-secret-value leaked" });
+    expect(log.at(-1)).toMatch(/^slot-1 failed on #39: Stopped: token \*+ leaked/);
+  });
+
   it("hands in a simulated pull request when the mock is configured to, and keeps the task for review", async () => {
     const log: string[] = [];
     const slots = new SlotPool({
@@ -292,7 +342,7 @@ describe("SlotPool", () => {
       pr,
       message: "",
     });
-    expect(log.at(-1)).toBe("slot-1 handed in #39: a simulated pull request; nothing was opened on GitHub");
+    expect(log).toContain("slot-1 handed in #39: a simulated pull request; nothing was opened on GitHub");
     expect(log.join("\n")).not.toContain("github.com");
     // Handed in, the work waits on review rather than the task timeout, its worktree kept.
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 2);

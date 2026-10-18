@@ -62,6 +62,7 @@ describe("SlotWorktrees", () => {
     expect(path).toBe(join(fixture.dataDir, "worktrees", "issue-39-slot-1"));
     expect(fixture.git(path, "rev-parse", "HEAD")).toBe(merged);
     expect(state()).toEqual({ worktrees: [{ slotId: "slot-1", issueNumber: 39, base: merged }] });
+    expect(logged).toContain(`slot-1 made a worktree for #39 at ${path}, on sims/issue-39-slot-1 from ${merged.slice(0, 12)}`);
   });
 
   it("removes a clean worktree when its task ends", async () => {

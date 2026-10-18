@@ -297,6 +297,8 @@ function startRun<P>(
   });
 
   return {
+    // Its path and pid only: its arguments carry the prompt.
+    process: { command, pid: proc.pid },
     prompt(text) {
       // Again here, at the PTY: no control character, an escape above all, may end the paste early.
       const clean = sanitizePromptText(text);

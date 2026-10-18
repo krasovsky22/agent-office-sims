@@ -22,6 +22,11 @@ export const RUNNER_AGENT_KINDS = ["mock", "claude"] as const;
 
 export type RunnerAgentKind = (typeof RUNNER_AGENT_KINDS)[number];
 
+/** How much the runner logs: `debug` adds every step an agent reports to `info`'s lifecycle lines. */
+export const RUNNER_LOG_LEVELS = ["info", "debug"] as const;
+
+export type RunnerLogLevel = (typeof RUNNER_LOG_LEVELS)[number];
+
 /** Where the runner finds the game server when `RUNNER_SERVER_URL` is unset: `pnpm dev`'s. */
 const DEFAULT_SERVER_URL = "http://localhost:2567";
 
@@ -87,6 +92,8 @@ export interface RunnerConfig {
    * never touches GitHub and needs none.
    */
   readonly githubApp: GithubAppConfig | undefined;
+  /** How much the runner logs. */
+  readonly logLevel: RunnerLogLevel;
 }
 
 /**
@@ -114,6 +121,7 @@ export interface RunnerConfig {
  * - `RUNNER_GITHUB_APP_ID`, `RUNNER_GITHUB_APP_INSTALLATION_ID` and
  *   `RUNNER_GITHUB_APP_PRIVATE_KEY_FILE`: the GitHub App, all three or none;
  *   required for a `claude` agent.
+ * - `RUNNER_LOG_LEVEL`: one of {@link RUNNER_LOG_LEVELS}, defaulting to `info`.
  *
  * @throws an `Error` naming the variable for anything else. The secret itself
  * stays out of every message.
@@ -134,6 +142,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, host: string = 
     runnerId: runnerIdFor(host),
     issueLabel: readAgentIssueLabel(env["REAL_AGENT_ISSUE_LABEL"]),
     githubApp: readGithubApp(env, agent),
+    logLevel: readLogLevel(env),
   };
 }
 
@@ -253,6 +262,18 @@ function readAgent(env: NodeJS.ProcessEnv): RunnerAgentKind {
     throw new Error(`RUNNER_AGENT must be one of ${RUNNER_AGENT_KINDS.join(", ")}, got "${env["RUNNER_AGENT"]}"`);
   }
   return kind;
+}
+
+function readLogLevel(env: NodeJS.ProcessEnv): RunnerLogLevel {
+  const raw = read(env, "RUNNER_LOG_LEVEL").toLowerCase();
+  if (raw === "") {
+    return "info";
+  }
+  const level = RUNNER_LOG_LEVELS.find((candidate) => candidate === raw);
+  if (level === undefined) {
+    throw new Error(`RUNNER_LOG_LEVEL must be one of ${RUNNER_LOG_LEVELS.join(", ")}, got "${env["RUNNER_LOG_LEVEL"]}"`);
+  }
+  return level;
 }
 
 function readMockOutcome(env: NodeJS.ProcessEnv): MockOutcome {

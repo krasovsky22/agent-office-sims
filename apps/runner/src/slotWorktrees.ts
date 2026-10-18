@@ -108,8 +108,9 @@ export class SlotWorktrees implements SlotWorkspaces {
     return this.chain(slotId, async () => {
       const kept = this.find(slotId, issueNumber);
       if (kept !== undefined && existsSync(this.refOf(kept).path)) {
-        this.log(`${slotId} picks up its kept worktree for #${issueNumber}`);
-        return this.refOf(kept).path;
+        const ref = this.refOf(kept);
+        this.log(`${slotId} picks up its kept worktree for #${issueNumber} at ${ref.path}, on ${ref.branch}`);
+        return ref.path;
       }
       if (kept !== undefined) {
         this.forget(kept);
@@ -120,6 +121,7 @@ export class SlotWorktrees implements SlotWorkspaces {
       const made = await worktrees.create(issueNumber, slotId);
       this.records.push({ slotId, issueNumber, base: made.base });
       this.write();
+      this.log(`${slotId} made a worktree for #${issueNumber} at ${made.path}, on ${made.branch} from ${made.base.slice(0, 12)}`);
       return made.path;
     });
   }

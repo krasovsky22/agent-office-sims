@@ -472,6 +472,7 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_GITHUB_APP_ID` | none; required for `claude` | The GitHub App the agents push and open pull requests as; see [The runner's GitHub App](#the-runners-github-app). All three or none; the mock needs none. |
 | `RUNNER_GITHUB_APP_INSTALLATION_ID` | none; required for `claude` | Its installation on the repository. |
 | `RUNNER_GITHUB_APP_PRIVATE_KEY_FILE` | none; required for `claude` | An absolute path to its private key, a `.pem` file readable only by the runner's user. |
+| `RUNNER_LOG_LEVEL` | `info` | How much the runner logs: `info` gives each task's lifecycle (its agent, worktree, process, waits on a person, turns, outcome) and every refusal; `debug` adds each step an agent reports and what it has spent. |
 
 A value it cannot use stops it at boot with the reason, including more slots
 than the server will take. Its id on the floor is the machine's host name, so

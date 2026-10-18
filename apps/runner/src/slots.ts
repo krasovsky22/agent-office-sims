@@ -112,6 +112,8 @@ export interface SlotPoolOptions {
   /** Event ids. Injected so a test can name the events it expects. */
   readonly eventId?: () => string;
   readonly log?: (line: string) => void;
+  /** Every step an agent reports, too noisy for `log`; dropped by default. */
+  readonly debug?: (line: string) => void;
 }
 
 interface Slot {
@@ -179,6 +181,7 @@ export class SlotPool {
   private readonly promptOutcomes: RunnerPromptOutcome[] = [];
   private readonly eventId: () => string;
   private readonly log: (line: string) => void;
+  private readonly debug: (line: string) => void;
   private readonly redactor: Redactor;
   private readonly github: TaskGithub;
   private readonly ledger: SpendLedger;
@@ -189,6 +192,7 @@ export class SlotPool {
     this.github = options.github ?? NO_GITHUB;
     this.eventId = options.eventId ?? (() => `event-${randomUUID()}`);
     this.log = options.log ?? (() => undefined);
+    this.debug = options.debug ?? (() => undefined);
     const now = Date.now();
     this.slots = Array.from({ length: options.count }, (_, index) => {
       const name = fitBytes(`${options.agent.label} ${index + 1}`, MAX_NAME_LENGTH);
@@ -268,6 +272,7 @@ export class SlotPool {
         return;
       case RUNNER_COMMAND_KIND.stop:
         if (slot.run === undefined) {
+          this.debug(`stop for ${slot.id} ignored: it holds no task`);
           return;
         }
         if (command.issueNumber !== undefined && command.issueNumber !== slot.run.issueNumber) {
@@ -281,6 +286,7 @@ export class SlotPool {
         if (command.fromCeo === true) {
           this.promptFromCeo(slot, command);
         } else {
+          this.log(`${slot.id} given a prompt by the server${slot.run === undefined ? "" : ` on #${slot.run.issueNumber}`}`);
           this.prompt(slot, command.text);
         }
         return;
@@ -303,7 +309,9 @@ export class SlotPool {
         return;
       }
       // A slot holds one task until the server stops it, so this one is refused.
-      this.emit(slot, RUNNER_EVENT_KIND.failed, task.issueNumber, undefined, `${slot.name} is busy with #${slot.run.issueNumber}`);
+      const busy = `${slot.name} is busy with #${slot.run.issueNumber}`;
+      this.emit(slot, RUNNER_EVENT_KIND.failed, task.issueNumber, undefined, busy);
+      this.log(`start for ${slot.id} on #${task.issueNumber} refused: ${busy}`);
       return;
     }
     const overBudget = this.ledger.refusal();
@@ -334,7 +342,11 @@ export class SlotPool {
     };
     slot.run = run;
     this.arm(slot, run);
-    this.log(`${slot.id} starting on #${task.issueNumber} for ${task.requestedBy}`);
+    const { agent } = this.options;
+    this.log(
+      `${slot.id} starting on #${task.issueNumber} for ${task.requestedBy} with the ${agent.label} agent` +
+        (agent.simulated === true ? ": simulated work, nothing real is done on the issue" : ""),
+    );
     void this.launch(slot, run, task);
   }
 
@@ -345,6 +357,7 @@ export class SlotPool {
    * start says is a prompt.
    */
   private restate(slot: Slot, run: ActiveRun, task: StartCommand): void {
+    this.log(`${slot.id} told again to start on #${run.issueNumber}, which it already holds; it says again how far it has got`);
     if (run.started) {
       this.emit(slot, RUNNER_EVENT_KIND.started, run.issueNumber, undefined, "");
     }
@@ -388,8 +401,11 @@ export class SlotPool {
     }
   }
 
-  /** Sets a live run's status, saying `started` first if nothing has yet. */
-  private setStatus(slot: Slot, run: ActiveRun, status: RunnerSlotStatus, activity: string): void {
+  /**
+   * Sets a live run's status, saying `started` first if nothing has yet.
+   * `logged` is false for an activity that is a prompt's words, kept out of the log.
+   */
+  private setStatus(slot: Slot, run: ActiveRun, status: RunnerSlotStatus, activity: string, logged = true): void {
     if (!run.live) {
       return;
     }
@@ -398,8 +414,38 @@ export class SlotPool {
       this.emit(slot, RUNNER_EVENT_KIND.started, run.issueNumber, undefined, "");
     }
     this.holdTimeout(slot, run, status === RUNNER_SLOT_STATUS.needsInput);
+    const was = slot.status;
     slot.status = status;
     slot.activity = fitBytes(this.redactor.redactText(activity), MAX_TITLE_LENGTH);
+    this.logStatus(slot, run, was, logged);
+  }
+
+  /** What a status change says in the log: a wait on a person always, every step of the work only at `debug`. */
+  private logStatus(slot: Slot, run: ActiveRun, was: RunnerSlotStatus, logged: boolean): void {
+    const on = `${slot.id} on #${run.issueNumber}`;
+    switch (slot.status) {
+      case RUNNER_SLOT_STATUS.needsInput:
+        this.log(`${on} needs a person: ${slot.activity}`);
+        return;
+      case RUNNER_SLOT_STATUS.working:
+        if (was !== RUNNER_SLOT_STATUS.working) {
+          this.log(`${on} is working`);
+        }
+        if (logged) {
+          this.debug(`${on}: ${slot.activity}`);
+        }
+        return;
+      case RUNNER_SLOT_STATUS.idle:
+        if (slot.activity === TURN_DONE) {
+          this.log(`${on}: its agent's turn ended`);
+        } else if (was !== RUNNER_SLOT_STATUS.idle) {
+          this.log(`${on}: its agent is up`);
+        }
+        return;
+      case RUNNER_SLOT_STATUS.starting:
+      case RUNNER_SLOT_STATUS.exited:
+        return;
+    }
   }
 
   /** Gives the slot's agent another turn: the server sent its work back. */
@@ -416,7 +462,7 @@ export class SlotPool {
     run.handedIn = false;
     run.missing = false;
     this.arm(slot, run);
-    this.setStatus(slot, run, RUNNER_SLOT_STATUS.working, text.split("\n")[0] ?? "");
+    this.setStatus(slot, run, RUNNER_SLOT_STATUS.working, text.split("\n")[0] ?? "", false);
     run.agentRun.prompt(text);
   }
 
@@ -506,6 +552,7 @@ export class SlotPool {
     }
     run.checking = true;
     slot.activity = "Looking for its pull request";
+    this.debug(`${slot.id} on #${run.issueNumber}: looking for its pull request on GitHub`);
     let pr: RunnerPullRequest | undefined;
     let why = NO_PULL_REQUEST;
     try {
@@ -529,6 +576,7 @@ export class SlotPool {
       slot.activity = TURN_DONE;
       return;
     }
+    this.debug(`${slot.id} on #${run.issueNumber} found no pull request: ${this.redactor.redactText(why)}`);
     if (slot.status === RUNNER_SLOT_STATUS.idle) {
       run.missing = true;
       this.setStatus(slot, run, RUNNER_SLOT_STATUS.needsInput, why);
@@ -537,11 +585,13 @@ export class SlotPool {
 
   /** Checks the issue on GitHub, opens the task's worktree, then starts its agent there, unless the work ended meanwhile. */
   private async launch(slot: Slot, run: ActiveRun, task: StartCommand): Promise<void> {
+    this.debug(`${slot.id} checking #${task.issueNumber} on GitHub`);
     const refusal = await this.github.refusal(task.issueNumber);
     if (!run.live) {
       return;
     }
     if (refusal !== undefined) {
+      this.log(`start for ${slot.id} on #${task.issueNumber} refused by its GitHub check`);
       this.end(slot, RUNNER_EVENT_KIND.failed, refusal);
       return;
     }
@@ -603,6 +653,7 @@ export class SlotPool {
         if (Number.isFinite(totalUsd)) {
           this.ledger.add(totalUsd - run.spentUsd);
           run.spentUsd = totalUsd;
+          this.debug(`${slot.id} on #${run.issueNumber} has spent ${formatUsd(totalUsd)}`);
         }
       },
     };
@@ -623,6 +674,12 @@ export class SlotPool {
       this.end(slot, RUNNER_EVENT_KIND.failed, `The agent did not start: ${(error as Error).message}`);
       return;
     }
+    const started = agentRun.process;
+    this.log(
+      started === undefined
+        ? `${slot.id} on #${task.issueNumber}: the ${this.options.agent.label} agent runs inside the runner`
+        : `${slot.id} on #${task.issueNumber}: started ${started.command}, pid ${started.pid}`,
+    );
     if (run.live) {
       run.agentRun = agentRun;
     } else {
@@ -652,7 +709,9 @@ export class SlotPool {
     slot.activity = "";
     slot.pr = undefined;
     this.emit(slot, kind, run.issueNumber, pr, message);
-    this.log(`${slot.id} ${kind} on #${run.issueNumber}${message === "" ? "" : `: ${message}`} (${formatUsd(run.spentUsd)} spent)`);
+    // The message can quote the agent's last line, so it is masked as its event's is.
+    const said = this.redactor.redactText(message);
+    this.log(`${slot.id} ${kind} on #${run.issueNumber}${said === "" ? "" : `: ${said}`} (${formatUsd(run.spentUsd)} spent)`);
     void this.options.workspaces.close(slot.id, run.issueNumber);
   }
 
