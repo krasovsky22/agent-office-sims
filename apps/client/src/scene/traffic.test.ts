@@ -75,6 +75,9 @@ describe("stepTraffic", () => {
   it("never lets two cars in a lane overlap", () => {
     const traffic = createTraffic(street);
     const length = street.road.maxZ - street.road.minZ;
+    // The long street carries dozens of cars a lane, so keep the closest any two
+    // came and assert once; an expect per pair per frame outruns the timeout.
+    let closest = Infinity;
     drive(traffic, 120, () => {
       street.lanes.forEach((_, lane) => {
         const cars = traffic.cars.filter((car) => car.lane === lane).sort((a, b) => a.travelled - b.travelled);
@@ -84,10 +87,11 @@ describe("stepTraffic", () => {
             return;
           }
           const ahead = (leader.travelled - car.travelled + length) % length;
-          expect(ahead - (leader.length + car.length) / 2).toBeGreaterThan(0);
+          closest = Math.min(closest, ahead - (leader.length + car.length) / 2);
         });
       });
     });
+    expect(closest).toBeGreaterThan(0);
   });
 
   it("holds traffic at the stop line on red and clears the crossing", () => {
