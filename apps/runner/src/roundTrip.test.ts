@@ -252,8 +252,11 @@ describe("the mock runner's screens and the server's screen store", () => {
       requestedBy: "Dana",
     });
     await loop.syncOnce();
-    await postUntil(screens, () => storedText("slot-1").includes("  Waiting for an answer…"));
-    link.enqueue("runner-1", { kind: "prompt", slotId: "slot-1", text: "Go ahead.", requestedBy: "Dana" });
+    await postUntil(screens, () => storedText("slot-1").some((row) => row.includes("Enter to confirm")));
+    // The CEO answers its permission menu with keys, which reach it in the order pressed.
+    for (const key of ["down", "up", "enter"] as const) {
+      link.enqueue("runner-1", { kind: "key", slotId: "slot-1", key, requestedBy: "Dana" });
+    }
     await loop.syncOnce();
     await postUntil(screens, () => storedText("slot-1").some((row) => row.startsWith("✓ ")));
     expect(storedText("slot-1")).toEqual([
@@ -263,8 +266,11 @@ describe("the mock runner's screens and the server's screen store", () => {
       "● Edit: .sims-mock/issue-39.md",
       "● Bash: git commit",
       `? ${MOCK_PERMISSION}`,
-      "  Waiting for an answer…",
-      "> Go ahead.",
+      "  Do you want to proceed?",
+      "❯ 1. Yes",
+      "  2. No, and tell the agent what to do differently (esc)",
+      "  ↑/↓ to move · Enter to confirm · Esc to cancel",
+      "  ✓ Yes",
       "● Bash: pnpm test",
       "✓ Handed in a simulated pull request; nothing was opened on GitHub",
     ]);

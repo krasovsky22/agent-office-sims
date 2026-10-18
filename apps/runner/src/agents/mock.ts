@@ -8,8 +8,11 @@
  * the runner's daily budget can be run out and seen to refuse the next start.
  * Partway through it stops to wait on a person, as a real agent does for a
  * permission, so the office's needs-you beacon can be seen without one; like a
- * real agent it waits for as long as nobody answers, and a prompt is the
- * answer that has it carry on. By default the work fails, which is what a real
+ * real agent it waits for as long as nobody answers, on a menu of its own that
+ * the CEO's keys answer as a real agent's permission screen is answered: up and
+ * down between yes and no, a number or Enter to choose, Esc to say no. Yes has
+ * it carry on; no ends its turn with nothing handed in, waiting at its prompt
+ * to be told what to do instead. A prompt answers the wait too, as a yes. By default the work fails, which is what a real
  * agent does most often while this is being built; configured to, it hands in
  * a simulated pull request instead, one it never opens on GitHub and that the
  * office says is simulated wherever it names it, and then waits at its prompt
@@ -29,6 +32,8 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+
+import type { AgentKey } from "@sim/shared";
 
 import { gitError } from "../worktrees.js";
 import type { Agent, AgentReporter, AgentRun, AgentTask } from "./types.js";
@@ -66,6 +71,12 @@ const YELLOW = "\u001b[33m";
 const CYAN = "\u001b[36m";
 const RESET = "\u001b[0m";
 
+/** The choices on its permission menu, in order: the first carries on, the second says no. */
+export const MOCK_PERMISSION_CHOICES = ["Yes", "No, and tell the agent what to do differently (esc)"] as const;
+
+/** What it prints when it is told no, ending its turn. */
+export const MOCK_DECLINED = "Declined. Waiting to be told what to do instead.";
+
 /** The pretend US dollars each step it works costs: twenty cents for a task. */
 export const MOCK_STEP_USD = 0.05;
 
@@ -95,6 +106,13 @@ function reworkScript(task: AgentTask, text: string): readonly Step[] {
     { activity: "Bash: git commit", act: () => commit(task.workdir, `mock: rework #${task.issueNumber}`) },
     { activity: "Bash: git push" },
   ];
+}
+
+/** Its permission menu's lines, `selected` marked with the pointer a real agent's menu has. */
+function menuLines(selected: number): string {
+  return MOCK_PERMISSION_CHOICES.map(
+    (choice, index) => `\u001b[2K${index === selected ? `${CYAN}❯${RESET}` : " "} ${index + 1}. ${choice}\r\n`,
+  ).join("");
 }
 
 /** What the mock does, one step at a time. */
@@ -155,8 +173,10 @@ export function createMockAgent(options: MockAgentOptions): Agent {
       let stopped = false;
       let worked = 0;
       let asked = false;
-      /** It is waiting on a person, with no timer: only a prompt moves it on. */
+      /** It is waiting on a person, with no timer: only a key or a prompt moves it on. */
       let waiting = false;
+      /** The choice its permission menu points at. */
+      let selected = 0;
 
       const next = (): void => {
         const current = steps[step];
@@ -166,8 +186,10 @@ export function createMockAgent(options: MockAgentOptions): Agent {
             // No timer: it waits for as long as nobody answers.
             timer = undefined;
             waiting = true;
+            selected = 0;
             reporter.needsInput(current.activity);
-            reporter.output(`${CYAN}?${RESET} ${current.activity}\r\n${DIM}  Waiting for an answer…${RESET}\r\n`);
+            reporter.output(`${CYAN}?${RESET} ${current.activity}\r\n  Do you want to proceed?\r\n${menuLines(selected)}`);
+            reporter.output(`${DIM}  ↑/↓ to move · Enter to confirm · Esc to cancel${RESET}\r\n`);
             return;
           }
           reporter.progress(current.activity);
@@ -211,8 +233,46 @@ export function createMockAgent(options: MockAgentOptions): Agent {
         next();
       }, stepMs);
 
+      /** Answers its permission menu: the first choice carries on, any other ends its turn. */
+      const choose = (choice: number): void => {
+        waiting = false;
+        if (choice === 0) {
+          reporter.output(`${GREEN}  ✓ ${MOCK_PERMISSION_CHOICES[0]}${RESET}\r\n`);
+          timer = setTimeout(next, stepMs);
+          return;
+        }
+        reporter.output(`${YELLOW}  ✗ ${MOCK_DECLINED}${RESET}\r\n`);
+        reporter.turnDone();
+      };
+
       return {
         promptAnswersWait: true,
+        key(key: AgentKey) {
+          if (stopped || !waiting) {
+            return;
+          }
+          const last = MOCK_PERMISSION_CHOICES.length - 1;
+          switch (key) {
+            case "up":
+            case "down":
+              selected = key === "up" ? Math.max(selected - 1, 0) : Math.min(selected + 1, last);
+              // Back over the hint and the menu, and the menu drawn again over itself.
+              reporter.output(`\u001b[${MOCK_PERMISSION_CHOICES.length + 1}A\r${menuLines(selected)}\u001b[1B\r`);
+              return;
+            case "enter":
+              choose(selected);
+              return;
+            case "escape":
+              choose(last);
+              return;
+            default: {
+              const choice = Number(key) - 1;
+              if (choice <= last) {
+                choose(choice);
+              }
+            }
+          }
+        },
         stop() {
           stopped = true;
           if (timer !== undefined) {

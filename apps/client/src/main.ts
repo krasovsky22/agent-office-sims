@@ -35,7 +35,7 @@ import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import * as THREE from "three";
 
-import { agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
+import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
 import { boardAccessFor, rejectionText } from "./boardAccess.js";
 import { DayClock } from "./dayClock.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
@@ -412,6 +412,17 @@ function start(): void {
         });
         return;
       }
+      if (event.command === CLIENT_MESSAGE.agentKey) {
+        publishHud({
+          agentPromptRefusal: {
+            id: nextRefusalId++,
+            agentId: hud.terminalAgentId ?? "",
+            text: "Too many keys — that one was not pressed. Check the terminal, then go on.",
+            forKey: true,
+          },
+        });
+        return;
+      }
       showNotice(
         event.command === CLIENT_MESSAGE.chat
           ? "Too many messages — that one was dropped."
@@ -494,8 +505,12 @@ function start(): void {
 
     // Shown in the agent's terminal panel, and as a notice for a panel already closed.
     onAgentPromptRejected: (event) => {
-      const text = agentPromptRejectionText(event.rejection, room.occupantName(event.agentId) ?? "The agent");
-      publishHud({ agentPromptRefusal: { id: nextRefusalId++, agentId: event.agentId, text } });
+      const agentName = room.occupantName(event.agentId) ?? "The agent";
+      const text =
+        event.key === undefined
+          ? agentPromptRejectionText(event.rejection, agentName)
+          : agentKeyRejectionText(event.rejection, agentName, event.key);
+      publishHud({ agentPromptRefusal: { id: nextRefusalId++, agentId: event.agentId, text, forKey: event.key !== undefined } });
       if (hud.terminalAgentId !== event.agentId) {
         showNotice(text);
       }
@@ -530,6 +545,7 @@ function start(): void {
         terminal: {
           screenOf: (agentId) => room.screenOf(agentId),
           prompt: (agentId, text) => room.sendAgentPrompt(agentId, text),
+          key: (agentId, key) => room.sendAgentKey(agentId, key),
           close: () => {
             readingBoard = "";
           },

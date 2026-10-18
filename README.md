@@ -112,6 +112,22 @@ panel shows each prompt once it is typed: `Dana → Claude 1: …`. Prompts are
 limited to three in a burst, one more every five seconds, and are not kept
 across a server restart.
 
+An agent that stops on a choice screen in its terminal (a permission prompt
+that offers yes, always or no, the folder-trust screen, Claude's setup screens
+such as `Detected a custom API key … Yes / No`) takes keys, not a prompt.
+While its `Needs you` badge is lit, the CEO's panel adds a key pad over the
+prompt box, `Answer its screen:` with `↑`, `↓`, `1`, `2`, `3`,
+`Enter · confirm` and `Esc · cancel`: each button presses that one key on the
+agent's screen, and the terminal shows what it did. Clicked once, the pad
+holds the keyboard, outlined, and the arrow keys, `Enter` and `1`–`9` go to
+the agent's screen too; `Esc` there hands the keys back to the office, as in
+the prompt box, so cancelling the screen is only ever the pad's `Esc · cancel`
+button. A key goes through the same CEO-only gate as a prompt and is pressed
+only while the agent waits on a person; one sent while it works, or while it
+waits at its prompt after a turn, is refused, and only the CEO is told why,
+under the pad. Keys are limited to eight in a burst, two more a second, and
+nobody else's tab is told of them: the terminal is the record.
+
 At the manager's desk in the lobby, `E` opens the conversation with Firstmate
 and puts the keyboard in its message box: `Enter` sends, `Esc` closes, and
 stepping away closes it too. Only the CEO's messages are taken; anyone else's
@@ -220,8 +236,8 @@ optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`).
 `events` lists what happened since the last answered sync, at most 8, each
 `started`, `pr-opened`, `failed` or `finished`, with an optional `pr` and
 `message`; `prompts` says what came of the CEO's prompts, at most 8, each a
-`commandId`, its `slotId` and an `outcome`, `delivered`, `busy`, `needs-input`
-or `unavailable`; `acked` holds at most 32 ids. A `pr` with `"simulated":true`
+`commandId`, its `slotId` and an `outcome`, `delivered`, `busy`, `needs-input`,
+`unavailable` or, for a key, `not-waiting`; `acked` holds at most 32 ids. A `pr` with `"simulated":true`
 is the mock agent's stand-in, with no `url`: nothing was opened on GitHub, and
 the office never links it or shows its number. Strings are measured in bytes: the
 UTF-8 of the string as `JSON.stringify` writes it, escapes included and quotes
@@ -293,10 +309,13 @@ yet: `start` (`issueNumber`, `title`, `url`, `note`, `requestedBy`), `stop`
 slot moved on ends nothing else) or `prompt` (`text`, `requestedBy`, and
 `fromCeo: true` on one the CEO typed in the terminal panel, which the runner
 types only while its agent waits at its prompt and reports in `prompts`;
-the office's own rework prompt is given whatever the agent is doing), each with
-an `id` and a `slotId`. A command comes back in every reply until a sync lists its id in
+the office's own rework prompt is given whatever the agent is doing) or `key`
+(`key`, one of `up`, `down`, `enter`, `escape` or `1`–`9`, and `requestedBy`:
+a key the CEO pressed in the terminal panel, which the runner presses only
+while its agent waits on a person and reports in `prompts` as it does a
+prompt), each with an `id` and a `slotId`. A command comes back in every reply until a sync lists its id in
 `acked`, and never after, so a lost reply loses nothing and a runner tells a
-repeat by its id. The one exception is a CEO's prompt the runner has not
+repeat by its id. The one exception is a CEO's prompt or key the runner has not
 answered within 30 seconds: the server withdraws it if it is not yet acked,
 tells the CEO it went unanswered, and it never comes back, so a prompt the CEO
 was told is lost is not typed later. Ids are random, so a restarted server
@@ -406,9 +425,14 @@ unreachable or refusing it, and logs each new reason once. On a `start`
 command a mock slot reports `started`, works through a few scripted steps on
 its desk, and stops partway as `needs-input` on `Permission: Bash pnpm test`,
 so its beacon lights. It stays in its chair and waits there for as long as
-nobody answers, as a real agent waits on a permission; the CEO's prompt from
-its terminal panel is the answer, whatever it says, and it carries on, reports
-`failed`, and goes back to idle. With `RUNNER_MOCK_OUTCOME=pr-opened` it
+nobody answers, as a real agent waits on a permission, on a menu of its own,
+`❯ 1. Yes` and `2. No, and tell the agent what to do differently (esc)`, that
+the CEO answers from its terminal panel's key pad as a real permission prompt
+is answered: `↑`/`↓` move the pointer, `Enter` or a number chooses. Yes has it
+carry on, report `failed`, and go back to idle; no, or `Esc`, ends its turn
+with nothing handed in, `Finished without a pull request`, and it waits at
+its prompt until the CEO's prompt tells it what to do instead. A prompt sent
+while the menu is up is taken as yes. With `RUNNER_MOCK_OUTCOME=pr-opened` it
 reports `pr-opened` instead, with a simulated pull request: it opens nothing on
 GitHub, and the board, the manager and the runner's log all call it a
 simulated pull request, with no number and no link. It keeps the issue,
@@ -570,15 +594,19 @@ The events set the slot's status and activity:
 Claude's OSC 9;4 progress reports, when it sends them, also catch a turn that
 ends without a hook. A slot reports `started` once, on the first of these. A
 Claude that sits on a first-run screen instead of starting (not signed in, the
-folder-trust question, a setup prompt) is reported as `needs-input` with the
-reason, as is one still silent 12 seconds after it was started.
+folder-trust question, the custom API key question, a setup prompt) is
+reported as `needs-input` with the reason, as is one still silent 12 seconds
+after it was started.
 
 A Claude whose turn ended on a question, `Finished without a pull request`,
 waits at its prompt for the CEO, who answers it from its terminal panel. One
-stopped at a permission or a question dialog cannot be answered from the
-office, since the Enter after a pasted prompt would choose whatever the dialog
-has selected: a prompt for it is refused, and it waits, the task timeout held,
-until a `stop`. A `stop` or the timeout sends `SIGTERM` to
+stopped at a permission, a question dialog or a setup screen takes keys
+instead: the Enter after a pasted prompt would choose whatever the dialog has
+selected, so a prompt for it is refused, and the CEO answers it with the
+panel's key pad, each key written to Claude's terminal as a keyboard sends
+it, 50 ms apart, and logged by the runner (`slot-1 on #39: Dana pressed
+Down`). Until someone answers, it waits, the task timeout held, or until a
+`stop`. A `stop` or the timeout sends `SIGTERM` to
 Claude's whole process group, which it leads, and `SIGKILL` five seconds later
 to anything still there; what is left in the group when Claude exits is killed
 too.
@@ -744,7 +772,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twenty:
+Then confirm all twenty-one:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -925,8 +953,8 @@ Then confirm all twenty:
     Milo's panel says only the CEO can prompt it and his prompt box is
     disabled. Dana sends `hurry up` while the mock works: it is not
     typed, her panel says `Mock 1 is busy`, her text stays in the box, and
-    Milo's panel shows nothing. Sent while its beacon is lit for the
-    permission step, it is refused as waiting on a permission. Once the mock
+    Milo's panel shows nothing. When its beacon lights for the permission
+    step, Dana answers its menu with `Enter · confirm` as in step 20. Once the mock
     asks its question and waits, its beacon lit with
     `Finished without a pull request`, Dana sends `Yes, the empty case too.`:
     the mock's terminal shows `> Yes, the empty case too.` once, both panels
@@ -935,13 +963,31 @@ Then confirm all twenty:
     checks the gate, the refusals and the two tabs against a live room, and
     `apps/runner/src/agents/ptyAgent.test.ts` that no control character
     reaches the agent's terminal.
-20. **`pnpm typecheck` passes** across the whole repository.
+20. **The CEO answers an agent's choice screen with keys.** As in step 19,
+    with the default `RUNNER_MOCK_OUTCOME`, wait for `Mock 1`'s beacon on
+    `Permission: Bash pnpm test`. Dana's panel shows the key pad, its menu
+    `❯ 1. Yes` / `2. No, …` on the terminal; Milo's panel has no pad. Dana
+    clicks `↓`: the pointer moves to `2.` in both tabs' terminals and the
+    runner logs `slot-1 on #N: Dana pressed Down`. She clicks the pad's
+    background and presses the up arrow, then `Enter`: the pointer goes back
+    to `1.`, the mock prints `✓ Yes`, its beacon goes out, the pad goes, and
+    it carries on. On the next task, `Esc · cancel` at the same menu ends its
+    turn as `Finished without a pull request`: the beacon stays lit, but the
+    mock now waits at its prompt, so `↓` is refused under the pad,
+    `Mock 1 is not waiting on a choice, so Down was not pressed. Send it a
+    prompt instead.`, and the runner logs
+    `key Down for slot-1 from Dana not pressed: not-waiting`; Dana's prompt
+    sets it going again.
+    `apps/runner/src/roundTrip.test.ts` answers the menu with keys through
+    the runner link, and `apps/runner/src/agents/ptyAgent.test.ts` checks the
+    bytes each key writes to a real agent's terminal.
+21. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts to the coding agents, their gate and their delivery, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -1083,7 +1129,7 @@ thing the page talks to is the WebSocket.
   `POST /agents/runner/screens` when `RUNNER_SECRET` is set, the only HTTP the
   server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same twenty things.
+  [The two-tab check](#the-two-tab-check), and confirm the same twenty-one things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -1104,7 +1150,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/screens.ts      the slots' terminal screens: a frame of styled runs, a runner's batch, and its parser
   src/spend.ts        the runners' real spend in dollars: the budget refusal and how spend is said
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
-  src/agentPrompt.ts  the CEO's prompts to the coding agents: the one gate, and why a prompt was refused
+  src/agentPrompt.ts  the CEO's prompts and choice-screen keys to the coding agents: the one gate, the keys, and why one was refused
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
   src/collision.ts    capsule-vs-AABB movement resolution
@@ -1120,7 +1166,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/agents/             the live agents' feeds: the report and assignment routes, the registry, the runner link, the slots' screens, and the loop between the work and the runner's slots
   src/manager/            the AI manager: its view of the office, rule and model planners, call budget, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
-  src/rooms/agentPromptHandlers.ts  the CEO's prompts to a coding agent, and the refusals sent back
+  src/rooms/agentPromptHandlers.ts  the CEO's prompts and keys to a coding agent, and the refusals sent back
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
 apps/runner/       @sim/runner   the agent runner: slots, agents, their screens, and the sync with the server
   src/config.ts           its RUNNER_* variables, refused at boot when wrong
@@ -1130,7 +1176,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/budget.ts           the day's spend, and the daily budget that refuses new starts
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
-  src/agents/mock.ts      the mock agent: scripted progress, a commit and a wait on a person until a prompt answers it, then failed, a question it waits on an answer to, or a simulated pull request it reworks on a prompt
+  src/agents/mock.ts      the mock agent: scripted progress, a commit and a permission menu that keys or a prompt answer, then failed, a question it waits on an answer to, or a simulated pull request it reworks on a prompt
   src/github.ts           the issue's label check, and finding or opening a task's pull request
   src/githubApp.ts        the runner's GitHub App: minting installation tokens and keeping them fresh for gh and git
   src/githubPersonal.ts   RUNNER_GITHUB_AUTH=personal: a person's token handed to gh and git instead of the App's
@@ -1160,7 +1206,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/projectBoard.ts     the project board's columns, filters, and how an issue's work reads
   src/ui/ProjectBoardPanel.tsx  the project board's close-up, with the agents' work and the CEO's controls
   src/managerAccess.ts    what the local player may say to the manager, and why
-  src/agentPromptAccess.ts  whether the local player may prompt a coding agent, and why a prompt was refused
+  src/agentPromptAccess.ts  whether the local player may prompt a coding agent, which keyboard keys its key pad takes, and why a prompt or key was refused
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to
   src/ui/AgentTerminalPanel.tsx  a working agent's terminal at full size, opened behind its chair

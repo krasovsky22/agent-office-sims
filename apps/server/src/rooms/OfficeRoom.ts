@@ -45,8 +45,8 @@
  * turns each change to the work into a command for the runner and each event
  * the runner reports into the agent's own move on the work. What the runners
  * report spending today is copied into the state on the tick, for every
- * client's HUD. The CEO's prompts to those agents go out through
- * `agents/agentPrompts.ts`, and what the runner says came of each comes
+ * client's HUD. The CEO's prompts to those agents, and keys for their choice
+ * screens, go out through `agents/agentPrompts.ts`, and what the runner says came of each comes
  * back on the same tick as its events.
  *
  * Nor is how the AI manager thinks. The room seats it at its desk, hands every
@@ -367,6 +367,7 @@ export class OfficeRoom extends Room<OfficeState> {
       state: this.state,
       prompts: this.agentPrompts,
       allow: (client) => this.spend(client, CLIENT_MESSAGE.agentPrompt),
+      allowKey: (client) => this.spend(client, CLIENT_MESSAGE.agentKey),
     });
     this.openManagersDesk(workHost, roomOptions);
 

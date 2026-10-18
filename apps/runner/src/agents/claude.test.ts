@@ -349,6 +349,12 @@ describe("claudeBlocked", () => {
     expect(claudeBlocked(screen, false)).toBeUndefined();
   });
 
+  it("spots the custom API key screen before it has started", () => {
+    const screen =
+      "Detected a custom API key in your environment\nDo you want to use this API key?\n❯ 1. Yes\n  2. No (recommended)\nEnter to confirm · Esc to cancel";
+    expect(claudeBlocked(screen, true)).toMatch(/setup screen/);
+  });
+
   it("finds nothing on a screen that is working", () => {
     expect(claudeBlocked("✻ Brewing… (esc to interrupt)", true)).toBeUndefined();
   });

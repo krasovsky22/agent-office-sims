@@ -203,6 +203,16 @@ export const AGENT_PROMPT_BURST_ALLOWANCE = 3;
 export const AGENT_PROMPT_REFILL_PER_SECOND = 0.2;
 
 /**
+ * Keys the CEO may press on coding agents' choice screens back to back before
+ * the server starts dropping them. A key starts no turn of its own, and
+ * reaching the third option takes a few, so more than prompts.
+ */
+export const AGENT_KEY_BURST_ALLOWANCE = 8;
+
+/** Rate at which that allowance is restored, in keys/second. */
+export const AGENT_KEY_REFILL_PER_SECOND = 2;
+
+/**
  * How long the server holds a dropped player's place, in seconds.
  *
  * A socket that closes without the player leaving — a network blip, a laptop

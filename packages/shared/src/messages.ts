@@ -16,7 +16,7 @@
  * joiner would receive it as if it were still going on.
  */
 
-import type { AgentPromptRejection } from "./agentPrompt.js";
+import { type AgentKey, type AgentPromptRejection, isAgentKey } from "./agentPrompt.js";
 import {
   MAX_AGENT_PROMPT_LENGTH,
   MAX_CHAT_LENGTH,
@@ -52,6 +52,8 @@ export const CLIENT_MESSAGE = {
   managerSay: "manager:say",
   /** Type a prompt into a coding agent's terminal; only the CEO is listened to. See `agentPrompt.ts`. */
   agentPrompt: "agent:prompt",
+  /** Press a key on the choice screen a coding agent waits on; only the CEO is listened to. See `agentPrompt.ts`. */
+  agentKey: "agent:key",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -197,7 +199,8 @@ export interface ThrottledEvent {
     | typeof CLIENT_MESSAGE.emote
     | typeof CLIENT_MESSAGE.chat
     | typeof CLIENT_MESSAGE.managerSay
-    | typeof CLIENT_MESSAGE.agentPrompt;
+    | typeof CLIENT_MESSAGE.agentPrompt
+    | typeof CLIENT_MESSAGE.agentKey;
 }
 
 /**
@@ -297,10 +300,22 @@ export interface AgentPromptHistoryEvent {
   readonly entries: readonly AgentPromptEntry[];
 }
 
-/** One of this client's prompts was not typed into the agent's terminal, and why. */
+/**
+ * One of this client's prompts was not typed into the agent's terminal, or one
+ * of its keys not pressed there, and why.
+ */
 export interface AgentPromptRejectedEvent {
   readonly agentId: string;
   readonly rejection: AgentPromptRejection;
+  /** Set when it was a key, which one; absent for a prompt. */
+  readonly key?: AgentKey;
+}
+
+/** A key the CEO wants pressed on the choice screen a coding agent waits on. */
+export interface AgentKeyMessage {
+  /** The agent's occupant key. */
+  readonly agentId: string;
+  readonly key: AgentKey;
 }
 
 /** Options a client may supply when joining the office room. */
@@ -660,6 +675,25 @@ export function parseAgentPromptMessage(raw: unknown): AgentPromptMessage | unde
   }
   const text = sanitizePromptText(candidate.text);
   return text === "" ? undefined : { agentId, text };
+}
+
+/**
+ * Validates a raw `agent:key` payload.
+ *
+ * Shape only, as for a prompt: whether the sender may press it is
+ * `agentPromptRefusal`'s call, and whether the agent waits on a choice its
+ * runner's.
+ *
+ * @returns the message, or `undefined` for a malformed one or a key not in `AGENT_KEYS`.
+ */
+export function parseAgentKeyMessage(raw: unknown): AgentKeyMessage | undefined {
+  const candidate = asRecord(raw);
+  const agentId = candidate?.agentId;
+  const key = candidate?.key;
+  if (typeof agentId !== "string" || agentId === "" || agentId.length > MAX_AGENT_KEY_LENGTH || !isAgentKey(key)) {
+    return undefined;
+  }
+  return { agentId, key };
 }
 
 /** Validates a raw `work:assign` payload. */

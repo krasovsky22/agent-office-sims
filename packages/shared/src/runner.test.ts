@@ -248,6 +248,16 @@ describe("toRunnerCommand", () => {
     );
   });
 
+  it("builds a key command for a key the CEO may press", () => {
+    expect(toRunnerCommand("command-7", { kind: "key", slotId: "slot-1", key: "down", requestedBy: "Dana\u0007" })).toEqual({
+      id: "command-7",
+      slotId: "slot-1",
+      kind: "key",
+      key: "down",
+      requestedBy: "Dana",
+    });
+  });
+
   it.each([
     ["a bad slot id", { kind: "stop", slotId: "slot:1", reason: "" }],
     ["a javascript: link", { kind: "start", slotId: "s", issueNumber: 1, title: "t", url: "javascript:x", note: "", requestedBy: "" }],
@@ -255,6 +265,7 @@ describe("toRunnerCommand", () => {
     ["no issue number", { kind: "start", slotId: "s", issueNumber: 0, title: "t", url: ISSUE, note: "", requestedBy: "" }],
     ["an empty prompt", { kind: "prompt", slotId: "s", text: "\n\n", requestedBy: "" }],
     ["a stop for no issue", { kind: "stop", slotId: "s", reason: "", issueNumber: -1 }],
+    ["a key that types text", { kind: "key", slotId: "s", key: "y" as "enter", requestedBy: "" }],
   ] as const)("refuses a command with %s", (_label, draft) => {
     expect(toRunnerCommand("command-1", draft)).toBeUndefined();
   });

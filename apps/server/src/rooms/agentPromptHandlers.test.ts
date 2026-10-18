@@ -13,6 +13,7 @@
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
+  AGENT_KEY_BURST_ALLOWANCE,
   AGENT_PROMPT_BURST_ALLOWANCE,
   AGENT_PROMPT_REJECTION,
   type AgentPromptEntry,
@@ -228,5 +229,52 @@ describe("prompting a coding agent from its terminal panel", () => {
     expect((await commandsAfterAWhile()).map((command) => (command.kind === "prompt" ? command.text : ""))).toEqual(
       Array.from({ length: AGENT_PROMPT_BURST_ALLOWANCE }, (_, index) => `prompt ${index}`),
     );
+  });
+});
+
+describe("answering a coding agent's choice screen from its terminal panel", () => {
+  function press(tab: Tab, key: string, agentId = AGENT): void {
+    tab.room.send(CLIENT_MESSAGE.agentKey, { agentId, key });
+  }
+
+  it("refuses anyone but the CEO, naming the key, with nothing queued", async () => {
+    const { milo } = await openOffice();
+    press(milo, "enter");
+    await settled(() => milo.rejections.length === 1);
+    expect(milo.rejections).toEqual([{ agentId: AGENT, rejection: AGENT_PROMPT_REJECTION.forbidden, key: "enter" }]);
+    expect(await commandsAfterAWhile()).toEqual([]);
+  });
+
+  it("queues the CEO's keys for the runner, ignoring one that is not a key", async () => {
+    const { dana } = await openOffice();
+    press(dana, "down");
+    press(dana, "\u001b[B");
+    press(dana, "enter");
+    const commands = await commandsAfterAWhile();
+    expect(commands).toEqual([
+      expect.objectContaining({ slotId: "slot-1", kind: "key", key: "down", requestedBy: "Dana" }),
+      expect.objectContaining({ slotId: "slot-1", kind: "key", key: "enter", requestedBy: "Dana" }),
+    ]);
+    const [down] = commands;
+    if (down === undefined) {
+      throw new Error("no command");
+    }
+    runnerSync([{ commandId: down.id, slotId: "slot-1", outcome: RUNNER_PROMPT_OUTCOME.notWaiting }]);
+    await settled(() => dana.rejections.length === 1);
+    expect(dana.rejections).toEqual([{ agentId: AGENT, rejection: AGENT_PROMPT_REJECTION.notWaiting, key: "down" }]);
+    expect(dana.typed).toEqual([]);
+  });
+
+  it("rate-limits the CEO's keys on a budget of their own", async () => {
+    const { dana } = await openOffice();
+    for (let index = 0; index <= AGENT_KEY_BURST_ALLOWANCE; index += 1) {
+      press(dana, "down");
+    }
+    await settled(() => dana.throttled.length === 1);
+    expect(dana.throttled).toEqual([{ command: CLIENT_MESSAGE.agentKey }]);
+    expect(await commandsAfterAWhile()).toHaveLength(AGENT_KEY_BURST_ALLOWANCE);
+    // Prompts still have all of theirs.
+    prompt(dana, "go on");
+    expect(await commandsAfterAWhile()).toHaveLength(1);
   });
 });

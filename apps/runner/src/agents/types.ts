@@ -9,7 +9,7 @@
  * its work back with a prompt.
  */
 
-import type { RunnerPullRequest } from "@sim/shared";
+import type { AgentKey, RunnerPullRequest } from "@sim/shared";
 
 /** The issue a start command hands a slot. */
 export interface AgentTask {
@@ -66,6 +66,12 @@ export interface AgentRun {
    * whatever the dialog has selected, whatever the prompt said.
    */
   readonly promptAnswersWait?: boolean;
+  /**
+   * Presses a key on the choice screen it waits on (a permission, a setup or
+   * trust screen), as a person at its terminal would. The slot presses one
+   * only while it waits on a person. Left out by an agent with no screen to press it on.
+   */
+  key?(key: AgentKey): void;
   /** The process it runs as, for the runner's log; left out by an agent that runs inside the runner, as the mock does. */
   readonly process?: { readonly command: string; readonly pid: number };
 }

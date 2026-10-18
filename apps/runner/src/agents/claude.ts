@@ -70,7 +70,7 @@ export const CLAUDE_ALLOWED_COMMANDS: readonly string[] = [
 
 /** First-run screens Claude shows before it can take a prompt. */
 const SETUP_PROMPT =
-  /trust this folder|Do you trust the files|Allow external CLAUDE\.md|Select login method|Choose the text style|Press Enter to continue|Bypass Permissions mode/i;
+  /trust this folder|Do you trust the files|Detected a custom API key|Allow external CLAUDE\.md|Select login method|Choose the text style|Press Enter to continue|Bypass Permissions mode/i;
 const NOT_LOGGED_IN = /Not logged in\s*·\s*Run \/login|Please run \/login/i;
 
 /**
@@ -271,7 +271,7 @@ export function claudeBlocked(screenText: string, early: boolean): string | unde
     return "Claude isn't signed in on the runner's machine: run claude there and /login";
   }
   if (SETUP_PROMPT.test(screenText) && early) {
-    return "Waiting on a setup screen (trust / login) on the runner's machine";
+    return "Waiting on a setup screen (trust / login / API key)";
   }
   return undefined;
 }
@@ -298,7 +298,7 @@ export function claudeAdapter(options: ClaudeOptions = {}): ProviderAdapter<Clau
       return { args };
     },
     // SessionStart fires as soon as Claude can take input: still silent, it is waiting on a person.
-    bootHint: "Waiting on a setup screen (trust / login) on the runner's machine",
+    bootHint: "Waiting on a setup screen (trust / login / API key)",
     hook: { handle: (run, event, payload) => claudeHook(run, event, payload, options.repo) },
     // OSC 9;4 progress, which Claude Code emits: catches a turn cancelled with Esc, which fires no Stop hook.
     screen: { progress: true, blocked: claudeBlocked },
