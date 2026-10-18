@@ -8,6 +8,7 @@
  * full office, not a typo.
  */
 
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -16,6 +17,7 @@ import { MAX_RUNNER_SLOTS, MAX_RUNNER_USD, readAgentIssueLabel } from "@sim/shar
 
 import { MOCK_OUTCOMES, type MockOutcome } from "./agents/mock.js";
 import type { GithubAppConfig } from "./githubApp.js";
+import type { PersonalGithubConfig } from "./githubPersonal.js";
 
 /** The agents a slot can run: `mock` needs no credentials and spends nothing; `claude` is Claude Code. */
 export const RUNNER_AGENT_KINDS = ["mock", "claude"] as const;
@@ -26,6 +28,14 @@ export type RunnerAgentKind = (typeof RUNNER_AGENT_KINDS)[number];
 export const RUNNER_LOG_LEVELS = ["info", "debug"] as const;
 
 export type RunnerLogLevel = (typeof RUNNER_LOG_LEVELS)[number];
+/**
+ * Who a real agent is on GitHub: `app`, the runner's GitHub App, or
+ * `personal`, a person's own login, which the agent then acts as with all of
+ * that account's access.
+ */
+export const RUNNER_GITHUB_AUTHS = ["app", "personal"] as const;
+
+export type RunnerGithubAuth = (typeof RUNNER_GITHUB_AUTHS)[number];
 
 /** Where the runner finds the game server when `RUNNER_SERVER_URL` is unset: `pnpm dev`'s. */
 const DEFAULT_SERVER_URL = "http://localhost:2567";
@@ -87,13 +97,15 @@ export interface RunnerConfig {
   /** The label an issue must carry on GitHub before an agent starts on it. */
   readonly issueLabel: string;
   /**
-   * The GitHub App the agents push and open pull requests as: the only
-   * identity a real agent has on GitHub, so always set for one. The `mock`
-   * never touches GitHub and needs none.
+   * The GitHub App the agents push and open pull requests as, with
+   * `RUNNER_GITHUB_AUTH=app`. A real agent has exactly one of this and
+   * {@link personalGithub}; the `mock` never touches GitHub and has neither.
    */
   readonly githubApp: GithubAppConfig | undefined;
   /** How much the runner logs. */
   readonly logLevel: RunnerLogLevel;
+  /** The person's token the agents push and open pull requests with, with `RUNNER_GITHUB_AUTH=personal`. */
+  readonly personalGithub: PersonalGithubConfig | undefined;
 }
 
 /**
@@ -118,16 +130,27 @@ export interface RunnerConfig {
  *   in a day before the runner refuses new starts; unset, no budget.
  * - `REAL_AGENT_ISSUE_LABEL`: the label an issue needs, as the server reads it,
  *   defaulting to `agent-ready`.
+ * - `RUNNER_GITHUB_AUTH`: one of {@link RUNNER_GITHUB_AUTHS}, defaulting to
+ *   `app`; who a `claude` agent is on GitHub.
  * - `RUNNER_GITHUB_APP_ID`, `RUNNER_GITHUB_APP_INSTALLATION_ID` and
  *   `RUNNER_GITHUB_APP_PRIVATE_KEY_FILE`: the GitHub App, all three or none;
- *   required for a `claude` agent.
+ *   required for a `claude` agent with `app`, ignored with `personal`.
+ * - `RUNNER_GITHUB_TOKEN`: the token a `claude` agent uses with `personal`;
+ *   unset, the machine's own `gh auth token`.
  * - `RUNNER_LOG_LEVEL`: one of {@link RUNNER_LOG_LEVELS}, defaulting to `info`.
  *
+ * @param ghToken the machine's `gh` login token, `undefined` when there is
+ * none; injected so a test never reads the real one.
  * @throws an `Error` naming the variable for anything else. The secret itself
  * stays out of every message.
  */
-export function readConfig(env: NodeJS.ProcessEnv = process.env, host: string = hostname()): RunnerConfig {
+export function readConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  host: string = hostname(),
+  ghToken: () => string | undefined = ghAuthToken,
+): RunnerConfig {
   const agent = readAgent(env);
+  const auth = readGithubAuth(env);
   return {
     serverUrl: readServerUrl(env),
     secret: readSecret(env),
@@ -141,9 +164,54 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, host: string = 
     dailyBudgetUsd: readDailyBudget(env),
     runnerId: runnerIdFor(host),
     issueLabel: readAgentIssueLabel(env["REAL_AGENT_ISSUE_LABEL"]),
-    githubApp: readGithubApp(env, agent),
+    githubApp: auth === "app" ? readGithubApp(env, agent) : undefined,
+    personalGithub: auth === "personal" && agent !== "mock" ? readPersonalGithub(env, ghToken) : undefined,
     logLevel: readLogLevel(env),
   };
+}
+
+function readGithubAuth(env: NodeJS.ProcessEnv): RunnerGithubAuth {
+  const raw = read(env, "RUNNER_GITHUB_AUTH").toLowerCase();
+  if (raw === "") {
+    return "app";
+  }
+  const auth = RUNNER_GITHUB_AUTHS.find((candidate) => candidate === raw);
+  if (auth === undefined) {
+    throw new Error(`RUNNER_GITHUB_AUTH must be one of ${RUNNER_GITHUB_AUTHS.join(", ")}, got "${env["RUNNER_GITHUB_AUTH"]}"`);
+  }
+  return auth;
+}
+
+/**
+ * A person's token, chosen explicitly: the App's settings are ignored even
+ * when set, so which identity the agents have is never a guess. Read now, so
+ * a machine with no login refuses at boot rather than at an agent's push.
+ */
+function readPersonalGithub(env: NodeJS.ProcessEnv, ghToken: () => string | undefined): PersonalGithubConfig {
+  const token = read(env, "RUNNER_GITHUB_TOKEN");
+  if (token !== "") {
+    return { token, source: "RUNNER_GITHUB_TOKEN" };
+  }
+  const machine = ghToken()?.trim() ?? "";
+  if (machine === "") {
+    throw new Error(
+      "RUNNER_GITHUB_AUTH=personal needs a token: set RUNNER_GITHUB_TOKEN, or sign this machine's GitHub CLI in with `gh auth login`",
+    );
+  }
+  return { token: machine, source: "gh auth token" };
+}
+
+/** The token this machine's `gh` is signed in to github.com with; `undefined` when it is not, or there is no `gh`. */
+function ghAuthToken(): string | undefined {
+  try {
+    return execFileSync("gh", ["auth", "token", "--hostname", "github.com"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 15_000,
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 const GITHUB_APP_VARIABLES = ["RUNNER_GITHUB_APP_ID", "RUNNER_GITHUB_APP_INSTALLATION_ID", "RUNNER_GITHUB_APP_PRIVATE_KEY_FILE"] as const;
@@ -162,7 +230,8 @@ function readGithubApp(env: NodeJS.ProcessEnv, agent: RunnerAgentKind): GithubAp
       return undefined;
     }
     throw new Error(
-      `RUNNER_AGENT=${agent} pushes and opens pull requests as the runner's GitHub App, so it needs ${GITHUB_APP_VARIABLES.join(", ")}; see the README's "The runner's GitHub App"`,
+      `RUNNER_AGENT=${agent} pushes and opens pull requests as the runner's GitHub App, so it needs ${GITHUB_APP_VARIABLES.join(", ")}; ` +
+        `see the README's "The runner's GitHub App", or set RUNNER_GITHUB_AUTH=personal to use your own GitHub login instead`,
     );
   }
   if (set.length !== GITHUB_APP_VARIABLES.length || appId === undefined || installationId === undefined || keyFile === undefined) {

@@ -14,8 +14,9 @@
  * the agent pushed without opening one, which the runner opens for it, saying
  * it closes the issue. Never a merge: that is a person's, on GitHub.
  *
- * Every call goes through `gh` and `git` with the environment the runner's
- * GitHub App gives (`./githubApp.ts`).
+ * Every call goes through `gh` and `git` with the environment the agents'
+ * GitHub identity gives: the runner's GitHub App (`./githubApp.ts`) or a
+ * person's token (`./githubPersonal.ts`).
  */
 
 import { execFile } from "node:child_process";

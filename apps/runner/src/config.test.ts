@@ -15,8 +15,9 @@ import { readConfig, runnerIdFor } from "./config.js";
 
 const SECRET = "a-runner-secret-long-enough";
 
-function config(env: NodeJS.ProcessEnv) {
-  return readConfig({ RUNNER_SECRET: SECRET, ...env }, "build-box.local");
+/** No test reads this machine's real `gh` login: the GitHub CLI is signed in to nothing unless a test says so. */
+function config(env: NodeJS.ProcessEnv, ghToken: () => string | undefined = () => undefined) {
+  return readConfig({ RUNNER_SECRET: SECRET, ...env }, "build-box.local", ghToken);
 }
 
 function refusal(env: NodeJS.ProcessEnv): string {
@@ -58,6 +59,7 @@ describe("readConfig", () => {
     expect(read.issueLabel).toBe("agent-ready");
     expect(read.githubApp).toBeUndefined();
     expect(read.logLevel).toBe("info");
+    expect(read.personalGithub).toBeUndefined();
   });
 
   it("reads every variable", () => {
@@ -204,6 +206,57 @@ describe("readConfig's GitHub App", () => {
       expect(() => config(app)).toThrow(/is not a PEM private key/);
       expect(() => config({ ...app, RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: join(keyFile, "missing") })).toThrow(/could not be read/);
     });
+  });
+});
+
+describe("readConfig's personal GitHub login", () => {
+  const TOKEN = "ghp_a-personal-token-long-enough";
+  const APP_ENV = { RUNNER_GITHUB_APP_ID: "123456", RUNNER_GITHUB_APP_INSTALLATION_ID: "7890" };
+
+  it("defaults to the App, which a claude agent then needs, naming the personal option", () => {
+    expect(() => config({ RUNNER_AGENT: "claude", RUNNER_GITHUB_TOKEN: TOKEN }, () => TOKEN)).toThrow(
+      /needs RUNNER_GITHUB_APP_ID.*or set RUNNER_GITHUB_AUTH=personal/,
+    );
+    const read = withKey((keyFile) => config({ ...APP_ENV, RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: keyFile, RUNNER_AGENT: "claude", RUNNER_GITHUB_TOKEN: TOKEN }));
+    expect(read.githubApp?.appId).toBe("123456");
+    expect(read.personalGithub).toBeUndefined();
+  });
+
+  it("takes RUNNER_GITHUB_TOKEN first, without asking gh", () => {
+    const read = config({ RUNNER_AGENT: "claude", RUNNER_GITHUB_AUTH: " Personal ", RUNNER_GITHUB_TOKEN: ` ${TOKEN} ` }, () => {
+      throw new Error("gh was asked");
+    });
+    expect(read.personalGithub).toEqual({ token: TOKEN, source: "RUNNER_GITHUB_TOKEN" });
+    expect(read.githubApp).toBeUndefined();
+  });
+
+  it("falls back to this machine's gh login", () => {
+    const read = config({ RUNNER_AGENT: "claude", RUNNER_GITHUB_AUTH: "personal" }, () => `${TOKEN}\n`);
+    expect(read.personalGithub).toEqual({ token: TOKEN, source: "gh auth token" });
+  });
+
+  it("refuses to start with no token from either", () => {
+    for (const ghToken of [() => undefined, () => "  \n"]) {
+      expect(() => config({ RUNNER_AGENT: "claude", RUNNER_GITHUB_AUTH: "personal" }, ghToken)).toThrow(
+        /RUNNER_GITHUB_AUTH=personal needs a token: set RUNNER_GITHUB_TOKEN, or .*gh auth login/,
+      );
+    }
+  });
+
+  it("wins over the App's settings, even incomplete ones", () => {
+    const read = config({ ...APP_ENV, RUNNER_AGENT: "claude", RUNNER_GITHUB_AUTH: "personal", RUNNER_GITHUB_TOKEN: TOKEN });
+    expect(read.githubApp).toBeUndefined();
+    expect(read.personalGithub?.source).toBe("RUNNER_GITHUB_TOKEN");
+  });
+
+  it("asks for no token for the mock, which never touches GitHub", () => {
+    const read = config({ RUNNER_GITHUB_AUTH: "personal" });
+    expect(read.personalGithub).toBeUndefined();
+    expect(read.githubApp).toBeUndefined();
+  });
+
+  it("refuses an identity it does not know", () => {
+    expect(() => config({ RUNNER_GITHUB_AUTH: "oauth" })).toThrow(/RUNNER_GITHUB_AUTH must be one of app, personal, got "oauth"/);
   });
 });
 

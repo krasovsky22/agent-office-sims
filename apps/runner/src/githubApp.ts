@@ -1,7 +1,7 @@
 /**
- * The runner's GitHub identity: a GitHub App installed on the one repository
- * it works on, whose short-lived installation tokens are what its agents push
- * and open pull requests with.
+ * The runner's default GitHub identity: a GitHub App installed on the one
+ * repository it works on, whose short-lived installation tokens are what its
+ * agents push and open pull requests with.
  *
  * An App rather than a person's token because the runner runs unattended and
  * its agents run whatever their task leads them to: the App can only do what
@@ -98,7 +98,34 @@ export function appCredentialEnv(configDir: string): Record<string, string> {
   };
 }
 
-export class GithubAppCredentials {
+/**
+ * What the runner needs of an agent identity on GitHub, whichever it is: the
+ * App, or a person's token (`./githubPersonal.ts`).
+ */
+export interface GithubCredentials {
+  /** What an agent or a `gh` call needs in its environment to act as this identity. */
+  env(): Record<string, string>;
+  /** Makes sure the config dir holds a usable token; rejects with why when GitHub would not take it. */
+  fresh(): Promise<void>;
+  start(): void;
+  stop(): void;
+}
+
+/**
+ * Writes `token` as `gh`'s login in `configDir`, whole and moved into place,
+ * so a `gh` reading it never sees half a file.
+ */
+export function writeGhHosts(configDir: string, token: string, user: string): void {
+  mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  const hosts = join(configDir, "hosts.yml");
+  const partial = `${hosts}.partial`;
+  writeFileSync(partial, `github.com:\n    oauth_token: ${token}\n    git_protocol: https\n    user: ${user}\n`, {
+    mode: 0o600,
+  });
+  renameSync(partial, hosts);
+}
+
+export class GithubAppCredentials implements GithubCredentials {
   private readonly fetch: FetchLike;
   private readonly now: () => number;
   private readonly log: (line: string) => void;
@@ -175,19 +202,7 @@ export class GithubAppCredentials {
       throw new Error("GitHub's installation token response had no token in it");
     }
     this.options.onToken?.(body.token);
-    this.write(body.token);
+    writeGhHosts(this.options.configDir, body.token, "x-access-token");
     this.expiresAt = expiresAt;
-  }
-
-  /** Written whole and moved into place, so a `gh` reading it never sees half a file. */
-  private write(token: string): void {
-    const { configDir } = this.options;
-    mkdirSync(configDir, { recursive: true, mode: 0o700 });
-    const hosts = join(configDir, "hosts.yml");
-    const partial = `${hosts}.partial`;
-    writeFileSync(partial, `github.com:\n    oauth_token: ${token}\n    git_protocol: https\n    user: x-access-token\n`, {
-      mode: 0o600,
-    });
-    renameSync(partial, hosts);
   }
 }

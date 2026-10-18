@@ -27,7 +27,8 @@ replicated state with its rules enforced on the server, shown on the board's
 cards. The game server never writes to GitHub. The work does: an issue a
 maintainer has labelled `agent-ready`, handed by the CEO to one of the runner's
 coding agents, is worked in a git worktree of its own and handed in as a pull
-request that closes it, which the runner opens as a GitHub App, and which only
+request that closes it, which the runner opens as a GitHub App (or, if its
+operator opts in, as their own GitHub login), and which only
 a person can merge. The coding agents building this
 repository can be on the floor too: an orchestrator or a runner reports each one
 to the server, and it walks in, sits at a free desk and types while it has a
@@ -390,8 +391,9 @@ are masked the same way before they are synced.
 on one issue at a time. The default agent is `mock`, which needs no
 credentials and spends no real money, so the whole loop can be developed and tested
 without a real one; `RUNNER_AGENT=claude` runs Claude Code instead, acting on
-GitHub only as [the runner's GitHub App](#the-runners-github-app), without which
-it refuses to start (see [Claude Code in the runner](#claude-code-in-the-runner)). With `pnpm dev` running and `RUNNER_SECRET` set on the
+GitHub as [the runner's GitHub App](#the-runners-github-app), or as
+[your own GitHub login](#your-own-github-login-instead) if you opt in, and
+refusing to start with neither (see [Claude Code in the runner](#claude-code-in-the-runner)). With `pnpm dev` running and `RUNNER_SECRET` set on the
 server, start it in a second terminal with the same secret:
 
 ```sh
@@ -469,9 +471,11 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it; time it waits on a person does not count. |
 | `RUNNER_DAILY_BUDGET_USD` | none | US dollars, `0` or more, the agents may spend in a day before the runner refuses new starts; see [The runner's budget](#the-runners-budget). Unset, spend is counted and nothing is refused. |
 | `REAL_AGENT_ISSUE_LABEL` | `agent-ready` | The label an issue must carry on GitHub before a real agent starts on it; the server's own setting, the same value on both. |
-| `RUNNER_GITHUB_APP_ID` | none; required for `claude` | The GitHub App the agents push and open pull requests as; see [The runner's GitHub App](#the-runners-github-app). All three or none; the mock needs none. |
-| `RUNNER_GITHUB_APP_INSTALLATION_ID` | none; required for `claude` | Its installation on the repository. |
-| `RUNNER_GITHUB_APP_PRIVATE_KEY_FILE` | none; required for `claude` | An absolute path to its private key, a `.pem` file readable only by the runner's user. |
+| `RUNNER_GITHUB_AUTH` | `app` | Who a `claude` agent is on GitHub: `app`, the runner's GitHub App, or `personal`, your own login, with your full access; see [Your own GitHub login instead](#your-own-github-login-instead). The setting decides, whatever else is set: with `personal` the App's variables are ignored, and with `app` `RUNNER_GITHUB_TOKEN` is. |
+| `RUNNER_GITHUB_APP_ID` | none; required for `claude` with `app` | The GitHub App the agents push and open pull requests as; see [The runner's GitHub App](#the-runners-github-app). All three or none; the mock needs none. |
+| `RUNNER_GITHUB_APP_INSTALLATION_ID` | none; required for `claude` with `app` | Its installation on the repository. |
+| `RUNNER_GITHUB_APP_PRIVATE_KEY_FILE` | none; required for `claude` with `app` | An absolute path to its private key, a `.pem` file readable only by the runner's user. |
+| `RUNNER_GITHUB_TOKEN` | the machine's `gh auth token` | With `personal`, the token the agents push and open pull requests with; unset, the runner's user's own `gh` login. |
 | `RUNNER_LOG_LEVEL` | `info` | How much the runner logs: `info` gives each task's lifecycle (its agent, worktree, process, waits on a person, turns, outcome) and every refusal; `debug` adds each step an agent reports and what it has spent. |
 
 A value it cannot use stops it at boot with the reason, including more slots
@@ -591,15 +595,17 @@ locale (`LANG`, `LANGUAGE`, `LC_*`), `GH_TOKEN`, and Claude's credential
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`); never
 `RUNNER_SECRET` or anything else. `USER` is there because macOS keeps a
 `/login` sign-in in the keychain under the user's name. `GH_TOKEN` and
-`GITHUB_TOKEN` are never passed: Claude gets the App's identity instead, below.
+`GITHUB_TOKEN` are never passed: Claude gets the App's identity instead, or
+the personal one you opted into, below.
 
 To set a host up for it, as the runner's own user:
 
 1. Install Claude Code and sign in once: run `claude`, then `/login`, or set
    `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` in the runner's
    environment.
-2. Set up [the runner's GitHub App](#the-runners-github-app). Without it a
-   `claude` runner refuses to start, naming the three variables it needs.
+2. Set up [the runner's GitHub App](#the-runners-github-app), or opt into
+   [your own GitHub login](#your-own-github-login-instead). With neither a
+   `claude` runner refuses to start, naming the variables it needs.
 3. Start the runner with `RUNNER_AGENT=claude`, and `RUNNER_MODEL` if you
    want a model other than Claude Code's default. It clones the repository
    into `<RUNNER_DATA_DIR>/repo` as it boots.
@@ -618,9 +624,10 @@ runner does not check this itself.
 The agents push and open pull requests as a GitHub App installed on this one
 repository, rather than as a person: it can do only what its installation
 allows, on that repository alone, and each token it hands out lasts an hour.
-It is the only identity a real agent has on GitHub: a runner with
+It is a real agent's identity on GitHub by default: a runner with
 `RUNNER_AGENT=claude` and no App refuses to start, and never falls back to the
-machine's own `gh` login. The mock agent never touches GitHub and needs none.
+machine's own `gh` login unless you choose that by name, as in
+[Your own GitHub login instead](#your-own-github-login-instead). The mock agent never touches GitHub and needs none.
 To set one up, as the repository's owner:
 
 1. **Create the App.** On GitHub, open Settings → Developer settings → GitHub
@@ -680,10 +687,39 @@ masked out of the slots' screens as it is minted. Cloning and fetching still
 use the machine's own access, as above.
 
 To try the whole loop with Claude, label a test issue `agent-ready`, start the
-runner with `RUNNER_AGENT=claude` and the App configured,
+runner with `RUNNER_AGENT=claude` and the App (or a personal login) configured,
 and assign the issue to a `Claude` slot from the board: the card goes to
 `in_progress`, then to `review` with the pull request on it, and merging that
 pull request on GitHub closes the issue and marks the work `done`.
+
+#### Your own GitHub login instead
+
+`RUNNER_GITHUB_AUTH=personal` skips the App: the agents push and open pull
+requests with a person's token, `RUNNER_GITHUB_TOKEN` if it is set, or else
+the runner's user's own `gh` login (`gh auth token`). It is simpler to set up,
+with nothing to create or install, but the trade-off is real: **the agents act
+as you, with your full access**, on every repository and organisation the
+token reaches, not one repository's contents and pull requests, and the token
+does not expire after an hour. Branch protection on `main` still keeps their
+work out of it unless you can bypass it yourself, in which case so can they.
+Use it on a machine of your own for trying the loop, and prefer the App, or a
+fine-grained token limited to this repository, for anything left running.
+
+```sh
+RUNNER_AGENT=claude RUNNER_GITHUB_AUTH=personal pnpm dev:runner
+# or with a token of its own rather than your gh login:
+RUNNER_AGENT=claude RUNNER_GITHUB_AUTH=personal RUNNER_GITHUB_TOKEN=github_pat_... pnpm dev:runner
+```
+
+The setting is explicit and wins: with `personal`, any `RUNNER_GITHUB_APP_*`
+variables are ignored; with `app`, the default, `RUNNER_GITHUB_TOKEN` is. With
+`personal` and no token from either, the runner refuses to start and says so,
+and it refuses a token GitHub will not accept, asking `GET /user` as it boots.
+Its boot log names the login the agents act as and that they have its full
+access. The token is handed over as the App's is, written into
+`<RUNNER_DATA_DIR>/gh/hosts.yml` and read by `gh` and `git` through the same
+environment, with the agent's own `GH_TOKEN` and `GITHUB_TOKEN` scrubbed, and it
+is masked out of the slots' screens and never logged.
 
 ## The two-tab check
 
@@ -891,7 +927,7 @@ Then confirm all twenty:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts to the coding agents, their gate and their delivery, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts to the coding agents, their gate and their delivery, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -1083,6 +1119,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/agents/mock.ts      the mock agent: scripted progress, a commit and a wait on a person until a prompt answers it, then failed, a question it waits on an answer to, or a simulated pull request it reworks on a prompt
   src/github.ts           the issue's label check, and finding or opening a task's pull request
   src/githubApp.ts        the runner's GitHub App: minting installation tokens and keeping them fresh for gh and git
+  src/githubPersonal.ts   RUNNER_GITHUB_AUTH=personal: a person's token handed to gh and git instead of the App's
   src/terminal.ts         each slot's headless terminal, read off as screen frames
   src/redact.ts           the runner's secrets, masked out of every frame, activity line and event message
   src/screenLoop.ts       the screens posted four times a second, fitted to the server's limit
