@@ -335,7 +335,6 @@ function start(): void {
             name: view.name,
             kind: view.kind,
             isCeo: view.isCeo,
-            jobTitle: view.jobTitle,
             isLocal: view.isLocal,
             caption,
             needsInput,
@@ -345,7 +344,7 @@ function start(): void {
           scene.add(avatar.group);
           avatars.set(view.id, avatar);
         } else {
-          existing.setLabel(view.name, view.isCeo, view.agentStatus === undefined ? view.jobTitle : caption);
+          existing.setLabel(view.name, view.isCeo, caption);
           existing.setManagerStatus(view.managerStatus);
           existing.setNeedsInput(needsInput);
         }
@@ -366,7 +365,6 @@ function start(): void {
           name: view.name,
           kind: view.kind,
           isCeo: view.isCeo,
-          jobTitle: view.jobTitle,
           isLocal: view.isLocal,
           caption: captionOf(view),
           needsInput: view.agentStatus === LIVE_AGENT_STATUS.needsInput,

@@ -241,8 +241,6 @@ export interface AvatarOptions {
   readonly name: string;
   readonly kind: OccupantKind;
   readonly isCeo: boolean;
-  /** The manager's job title, shown under its name; `""` for anyone else. */
-  readonly jobTitle: string;
   /** A live coding agent's task, shown under its name; `""` for anyone else. */
   readonly caption: string;
   /** Whether a live coding agent is stuck until a person acts, which shows its beacon. */
@@ -485,7 +483,7 @@ export class Avatar {
     this.isLiveAgent = options.kind === OCCUPANT_KIND.liveAgent;
     this.name = options.name;
     this.isCeo = options.isCeo;
-    this.subtitle = this.isLiveAgent ? options.caption : options.jobTitle;
+    this.subtitle = options.caption;
     this.look = this.isLiveAgent
       ? "liveAgent"
       : isManager

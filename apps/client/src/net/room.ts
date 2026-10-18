@@ -129,15 +129,12 @@ interface PoseSample {
  * read one every frame without allocating. Only the fields the HUD renders
  * trigger an `onOccupantsChanged`; `interactableId` and `animation` change far
  * too often for that and are read from the loop instead.
- *
- * `jobTitle` is the manager's, `""` for anyone else.
  */
 export interface OccupantView {
   readonly id: string;
   name: string;
   kind: OccupantKind;
   isCeo: boolean;
-  jobTitle: string;
   readonly isLocal: boolean;
   /** Interactable this occupant is engaged with, or `""` when free. */
   interactableId: string;
@@ -526,7 +523,6 @@ export class RoomConnection {
         name: occupant.name,
         kind: occupant.kind,
         isCeo: isCeo(occupant),
-        jobTitle: jobTitleOf(occupant),
         isLocal,
         interactableId: occupant.interactableId,
         animation: occupant.animation,
@@ -673,7 +669,6 @@ export class RoomConnection {
     view: OccupantView,
   ): void {
     const ceo = isCeo(occupant);
-    const jobTitle = jobTitleOf(occupant);
     const agent = isLiveAgent(occupant) ? occupant : undefined;
     const agentStatus = agent?.status;
     const taskTitle = agent?.taskTitle ?? "";
@@ -687,7 +682,6 @@ export class RoomConnection {
       view.name !== occupant.name ||
       view.isCeo !== ceo ||
       view.kind !== occupant.kind ||
-      view.jobTitle !== jobTitle ||
       view.agentStatus !== agentStatus ||
       view.taskTitle !== taskTitle ||
       view.taskUrl !== taskUrl ||
@@ -700,7 +694,6 @@ export class RoomConnection {
       view.name = occupant.name;
       view.kind = occupant.kind;
       view.isCeo = ceo;
-      view.jobTitle = jobTitle;
       view.agentStatus = agentStatus;
       view.taskTitle = taskTitle;
       view.taskUrl = taskUrl;
@@ -785,10 +778,6 @@ function describeError(error: unknown): string {
   return described === "" || described.startsWith("[object ") ? "unknown error" : described;
 }
 
-/** The manager's job title, `""` for anyone else. */
-function jobTitleOf(occupant: Occupant): string {
-  return isAiManager(occupant) ? occupant.jobTitle : "";
-}
 
 function copyWork(work: IssueWork): WorkData {
   return {

@@ -98,7 +98,6 @@ export function ManagerPanel({ entries, access, thinking, actions }: ManagerPane
       <header className="board__header">
         <h2 className="board__title">
           {MANAGER_NAME}
-          <span className="board__repo">AI Manager</span>
         </h2>
         <button className="panel__button" type="button" onClick={actions.close}>
           Close
