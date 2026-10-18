@@ -15,10 +15,17 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { MAX_NAME_LENGTH, MAX_TITLE_LENGTH, type RunnerCommand } from "@sim/shared";
+import { type AgentKey, MAX_NAME_LENGTH, MAX_TITLE_LENGTH, type RunnerCommand } from "@sim/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MOCK_PERMISSION, MOCK_QUESTION, MOCK_STEP_USD, type MockOutcome, createMockAgent } from "./agents/mock.js";
+import {
+  MOCK_PERMISSION,
+  MOCK_PERMISSION_CHOICES,
+  MOCK_QUESTION,
+  MOCK_STEP_USD,
+  type MockOutcome,
+  createMockAgent,
+} from "./agents/mock.js";
 import type { Agent, AgentReporter, AgentTask } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
@@ -1004,6 +1011,120 @@ describe("SlotPool prompts from the CEO", () => {
   });
 });
 
+describe("SlotPool keys from the CEO", () => {
+  beforeEach(() => {
+    fixture = gitFixture();
+    asked = [];
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    fixture.cleanup();
+  });
+
+  let nextCommand = 100;
+  function ceoKey(key: AgentKey): RunnerCommand {
+    nextCommand += 1;
+    return { id: `command-${nextCommand}`, slotId: "slot-1", kind: "key", key, requestedBy: "Dana" };
+  }
+
+  /** A terminal agent driven by the test, recording the keys pressed in it. */
+  function keyedAgent(takesKeys = true) {
+    const pressed: AgentKey[] = [];
+    const handle: { reporter?: AgentReporter } = {};
+    const agent: Agent = {
+      label: "Claude",
+      start: (_task, reporter) => {
+        handle.reporter = reporter;
+        return takesKeys ? { stop: () => undefined, key: (key) => pressed.push(key) } : { stop: () => undefined };
+      },
+    };
+    return { agent, pressed, handle };
+  }
+
+  it("presses a key only while the agent waits on a person, says what came of each, and logs each", async () => {
+    const { agent, pressed, handle } = keyedAgent();
+    const lines: string[] = [];
+    const slots = new SlotPool({ count: 1, agent, workspaces: workspaces(), taskTimeoutMs: TIMEOUT_MS, log: (line) => lines.push(line) });
+    const outcomes = () => slots.pendingPromptOutcomes().map((outcome) => outcome.outcome);
+
+    slots.handle(ceoKey("enter"));
+    slots.handle(START);
+    await settle();
+    handle.reporter?.progress("Bash: pnpm test");
+    slots.handle(ceoKey("enter"));
+    handle.reporter?.needsInput("Wants permission: Bash: git push");
+    slots.handle(ceoKey("down"));
+    slots.handle(ceoKey("enter"));
+    expect(pressed).toEqual(["down", "enter"]);
+    expect(outcomes()).toEqual(["unavailable", "not-waiting", "delivered", "delivered"]);
+    expect(lines).toContain("key Enter for slot-1 from Dana not pressed: unavailable");
+    expect(lines).toContain("key Enter for slot-1 from Dana not pressed: not-waiting");
+    expect(lines).toContain("slot-1 on #39: Dana pressed Down");
+    expect(lines).toContain("slot-1 on #39: Dana pressed Enter");
+
+    // A turn that ended with nothing handed in leaves it at its prompt, where a prompt is the answer, not a key.
+    handle.reporter?.turnDone();
+    await settle();
+    expect(slot(slots)).toMatchObject({ status: "needs-input", activity: NO_PULL_REQUEST });
+    slots.handle(ceoKey("escape"));
+    expect(pressed).toHaveLength(2);
+    expect(outcomes().at(-1)).toBe("not-waiting");
+  });
+
+  it("refuses a key for an agent with no screen to press it on", async () => {
+    const { agent, handle } = keyedAgent(false);
+    const slots = pool("failed", agent);
+    slots.handle(START);
+    await settle();
+    handle.reporter?.needsInput("Waiting on a person");
+    slots.handle(ceoKey("enter"));
+    expect(slots.pendingPromptOutcomes().map((outcome) => outcome.outcome)).toEqual(["unavailable"]);
+  });
+
+  it("answers the mock's permission menu with keys: moving to yes and confirming has it carry on and hand in", async () => {
+    const slots = pool("pr-opened");
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(TO_WAIT_MS);
+    expect(slot(slots)).toMatchObject({ status: "needs-input", activity: MOCK_PERMISSION });
+    slots.handle(ceoKey("down"));
+    slots.handle(ceoKey("up"));
+    slots.handle(ceoKey("enter"));
+    expect(slots.pendingPromptOutcomes().map((outcome) => outcome.outcome)).toEqual(["delivered", "delivered", "delivered"]);
+    await vi.advanceTimersByTimeAsync(FROM_ANSWER_MS);
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE, pr: { simulated: true } });
+  });
+
+  it("has the mock told no with Esc end its turn and wait at its prompt for what to do instead", async () => {
+    const slots = pool("pr-opened");
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(TO_WAIT_MS);
+    slots.handle(ceoKey("escape"));
+    await settle();
+    expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: NO_PULL_REQUEST, pr: undefined });
+    slots.handle(ceoKey("enter"));
+    expect(slots.pendingPromptOutcomes().map((outcome) => outcome.outcome)).toEqual(["delivered", "not-waiting"]);
+    // Told what to do instead, it does it, and hands in.
+    slots.handle({ id: "command-told", slotId: "slot-1", kind: "prompt", text: "Skip the tests.", requestedBy: "Dana", fromCeo: true });
+    await vi.advanceTimersByTimeAsync(STEP_MS * 6);
+    expect(slot(slots)).toMatchObject({ status: "idle", activity: TURN_DONE, pr: { simulated: true } });
+  });
+
+  it("has the mock take a number as the choice it names", async () => {
+    const slots = pool("pr-opened");
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(TO_WAIT_MS);
+    // Past its choices: nothing happens.
+    slots.handle(ceoKey("9"));
+    await vi.advanceTimersByTimeAsync(FROM_ANSWER_MS);
+    expect(slot(slots)).toMatchObject({ status: "needs-input", activity: MOCK_PERMISSION });
+    slots.handle(ceoKey("2"));
+    await settle();
+    expect(slot(slots)).toMatchObject({ status: "needs-input", activity: NO_PULL_REQUEST });
+  });
+});
+
 describe("SlotPool screens", () => {
   // Real timers: xterm parses what it is fed on a timer of its own.
   beforeEach(() => {
@@ -1082,12 +1203,35 @@ describe("SlotPool screens", () => {
       "● Edit: .sims-mock/issue-39.md",
       "● Bash: git commit",
       `? ${MOCK_PERMISSION}`,
-      "  Waiting for an answer…",
+      "  Do you want to proceed?",
+      "❯ 1. Yes",
+      "  2. No, and tell the agent what to do differently (esc)",
+      "  ↑/↓ to move · Enter to confirm · Esc to cancel",
       "> Go ahead.",
       "● Bash: pnpm test",
       "✓ Handed in a simulated pull request; nothing was opened on GitHub",
     ]);
     expect(screen.join("\n")).not.toContain("github.com");
+  });
+
+  it("draws the mock's permission menu, and moves its pointer as the CEO presses keys", async () => {
+    const slots = new SlotPool({
+      count: 1,
+      agent: createMockAgent({ outcome: "pr-opened", stepMs: 1 }),
+      workspaces: workspaces(),
+      taskTimeoutMs: TIMEOUT_MS,
+    });
+    slots.handle(START);
+    await vi.waitFor(() => expect(slot(slots)?.activity).toBe(MOCK_PERMISSION), { timeout: 10_000 });
+    expect(await screenText(slots)).toEqual(
+      expect.arrayContaining([`❯ 1. ${MOCK_PERMISSION_CHOICES[0]}`, `  2. ${MOCK_PERMISSION_CHOICES[1]}`]),
+    );
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "key", key: "down", requestedBy: "Dana" });
+    const text = await screenText(slots);
+    expect(text).toEqual(expect.arrayContaining([`  1. ${MOCK_PERMISSION_CHOICES[0]}`, `❯ 2. ${MOCK_PERMISSION_CHOICES[1]}`]));
+    // Drawn over itself: the menu is there once, its hint under it.
+    expect(text.filter((line) => line.includes(MOCK_PERMISSION_CHOICES[0]))).toHaveLength(1);
+    expect(text.at(-1)).toMatch(/Enter to confirm/);
   });
 
   it("prints the mock's question, and the CEO's answer typed to it", async () => {

@@ -4,10 +4,10 @@
  * as a reason rather than a lost message.
  */
 
-import { AGENT_PROMPT_REJECTION, OCCUPANT_KIND, type OfficeActor } from "@sim/shared";
+import { AGENT_KEYS, AGENT_PROMPT_REJECTION, OCCUPANT_KIND, type OfficeActor } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
+import { agentKeyOfKeyboard, agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
 
 const PLAYER: OfficeActor = { id: "a", kind: OCCUPANT_KIND.human, isCeo: false };
 
@@ -37,7 +37,35 @@ describe("agentPromptRejectionText", () => {
       "Claude 1 is busy, so the prompt was not typed. Send it again once its turn is done.",
     );
     expect(agentPromptRejectionText(AGENT_PROMPT_REJECTION.needsInput, "Claude 1")).toBe(
-      "Claude 1 is waiting on a permission, so the prompt was not typed.",
+      "Claude 1 is waiting on a choice on its screen, so the prompt was not typed. Answer it with the keys.",
     );
+  });
+});
+
+describe("agentKeyRejectionText", () => {
+  it("has words for every refusal of every key", () => {
+    for (const rejection of Object.values(AGENT_PROMPT_REJECTION)) {
+      for (const key of AGENT_KEYS) {
+        expect(agentKeyRejectionText(rejection, "Claude 1", key)).not.toBe("");
+      }
+    }
+    expect(agentKeyRejectionText(AGENT_PROMPT_REJECTION.notWaiting, "Claude 1", "escape")).toBe(
+      "Claude 1 is not waiting on a choice, so Esc was not pressed. Send it a prompt instead.",
+    );
+  });
+});
+
+describe("agentKeyOfKeyboard", () => {
+  it("reads the arrows, Enter and the digits as the agent's keys", () => {
+    expect(agentKeyOfKeyboard("ArrowUp")).toBe("up");
+    expect(agentKeyOfKeyboard("ArrowDown")).toBe("down");
+    expect(agentKeyOfKeyboard("Enter")).toBe("enter");
+    expect(agentKeyOfKeyboard("3")).toBe("3");
+  });
+
+  it("leaves Esc, letters and anything else to the panel", () => {
+    for (const key of ["Escape", "0", "y", "ArrowLeft", "Tab", " "]) {
+      expect(agentKeyOfKeyboard(key)).toBeUndefined();
+    }
   });
 });

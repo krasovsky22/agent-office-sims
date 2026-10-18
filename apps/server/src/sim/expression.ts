@@ -1,6 +1,6 @@
 /**
  * Rate limiting for the things an occupant does on purpose: emotes, chat,
- * messages to the AI manager and prompts to the coding agents.
+ * messages to the AI manager, and prompts and keys to the coding agents.
  *
  * Movement is limited by physics — the speed clamp in `movement.ts` bounds how
  * much of it the server will accept. Expression has no physics to lean on, so a
@@ -24,6 +24,8 @@
  */
 
 import {
+  AGENT_KEY_BURST_ALLOWANCE,
+  AGENT_KEY_REFILL_PER_SECOND,
   AGENT_PROMPT_BURST_ALLOWANCE,
   AGENT_PROMPT_REFILL_PER_SECOND,
   CHAT_BURST_ALLOWANCE,
@@ -97,5 +99,6 @@ export function createExpressionBudget(now: number): ExpressionBudget {
     [CLIENT_MESSAGE.chat]: createTokenBucket(CHAT_BURST_ALLOWANCE, CHAT_REFILL_PER_SECOND, now),
     [CLIENT_MESSAGE.managerSay]: createTokenBucket(MANAGER_BURST_ALLOWANCE, MANAGER_REFILL_PER_SECOND, now),
     [CLIENT_MESSAGE.agentPrompt]: createTokenBucket(AGENT_PROMPT_BURST_ALLOWANCE, AGENT_PROMPT_REFILL_PER_SECOND, now),
+    [CLIENT_MESSAGE.agentKey]: createTokenBucket(AGENT_KEY_BURST_ALLOWANCE, AGENT_KEY_REFILL_PER_SECOND, now),
   };
 }

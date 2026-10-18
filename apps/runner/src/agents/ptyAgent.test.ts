@@ -268,6 +268,27 @@ exit 0`,
     expect(readFileSync(join(work.workdir, "typed.txt"), "utf8")).toBe("\u001b[200~yes[201~rm -rf .\u001b[201~");
   });
 
+  it("presses the CEO's keys in its terminal one at a time, in order, as a keyboard sends them", async () => {
+    const command = fakeClaude(
+      "keys.sh",
+      `stty -echo
+hook SessionStart '{"source":"startup"}'
+IFS= read -r line
+printf '%s' "$line" > typed.txt
+exit 0`,
+    );
+    const work = task();
+    const reporter = recorder();
+    const run = agentFor(command).start(work, reporter);
+    await reporter.waitFor(/^started/);
+    for (const key of ["down", "up", "2", "escape", "enter"] as const) {
+      run.key?.(key);
+    }
+    await reporter.waitFor(/^exited/);
+    // Enter is what ends the line it read.
+    expect(readFileSync(join(work.workdir, "typed.txt"), "utf8")).toBe("\u001b[B\u001b[A2\u001b");
+  });
+
   it("follows OSC 9;4 progress: busy is working, idle again is turn done", async () => {
     const command = fakeClaude(
       "progress.sh",
@@ -299,7 +320,7 @@ sleep 30`,
     const run = agentFor(command).start(task(), reporter);
     await reporter.waitFor(/^needs-input/);
     run.stop();
-    expect(reporter.seen).toEqual(["needs-input: Waiting on a setup screen (trust / login) on the runner's machine"]);
+    expect(reporter.seen).toEqual(["needs-input: Waiting on a setup screen (trust / login / API key)"]);
   });
 
   it("takes a CLI silent past its boot hint to be waiting on a person", async () => {
@@ -308,7 +329,7 @@ sleep 30`,
     const run = agentFor(command, { bootHintMs: 200 }).start(task(), reporter);
     await reporter.waitFor(/^needs-input/);
     run.stop();
-    expect(reporter.seen).toEqual(["needs-input: Waiting on a setup screen (trust / login) on the runner's machine"]);
+    expect(reporter.seen).toEqual(["needs-input: Waiting on a setup screen (trust / login / API key)"]);
   });
 
   it("stops its whole process group, and reports nothing after", async () => {

@@ -44,6 +44,8 @@
 import {
   type AgentPromptEntry,
   type AgentPromptHistoryEvent,
+  type AgentKey,
+  type AgentKeyMessage,
   type AgentPromptMessage,
   type AgentPromptRejectedEvent,
   ANIMATION_STATE,
@@ -207,7 +209,7 @@ export interface RoomConnectionEvents {
   onAgentPromptHistory?: (entries: readonly AgentPromptEntry[]) => void;
   /** A prompt was typed into a coding agent's terminal, the local player's own included. */
   onAgentPrompted?: (entry: AgentPromptEntry) => void;
-  /** One of the local client's own prompts was not typed, and why. */
+  /** One of the local client's own prompts was not typed, or keys not pressed, and why. */
   onAgentPromptRejected?: (event: AgentPromptRejectedEvent) => void;
 }
 
@@ -405,6 +407,20 @@ export class RoomConnection {
       return false;
     }
     this.room.send(CLIENT_MESSAGE.agentPrompt, { agentId, text } satisfies AgentPromptMessage);
+    return true;
+  }
+
+  /**
+   * Asks for a key to be pressed on the choice screen a coding agent waits
+   * on. Its terminal is the reply, or a rejection to this client alone.
+   *
+   * @returns whether it went out at all.
+   */
+  public sendAgentKey(agentId: string, key: AgentKey): boolean {
+    if (this.room === undefined) {
+      return false;
+    }
+    this.room.send(CLIENT_MESSAGE.agentKey, { agentId, key } satisfies AgentKeyMessage);
     return true;
   }
 

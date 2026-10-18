@@ -14,6 +14,7 @@ import {
   type RunnerCommand,
   type RunnerCommandDraft,
   type RunnerSync,
+  isAgentKey,
   toRunnerCommand,
 } from "@sim/shared";
 
@@ -137,6 +138,10 @@ function readDraft(raw: Record<string, unknown>, slotId: string): RunnerCommandD
         return undefined;
       }
       return raw["fromCeo"] === true ? { kind, slotId, text, requestedBy, fromCeo: true } : { kind, slotId, text, requestedBy };
+    }
+    case RUNNER_COMMAND_KIND.key: {
+      const { key, requestedBy } = raw;
+      return isAgentKey(key) && typeof requestedBy === "string" ? { kind, slotId, key, requestedBy } : undefined;
     }
     default:
       return undefined;

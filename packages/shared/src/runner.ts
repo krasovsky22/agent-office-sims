@@ -13,6 +13,7 @@
  * Shared because the shape is the contract the runner is written against.
  */
 
+import { type AgentKey, isAgentKey } from "./agentPrompt.js";
 import { MAX_AGENT_PROMPT_LENGTH, MAX_WORK_NOTE_LENGTH } from "./constants.js";
 import { MAX_TASK_URL_LENGTH, parseTaskUrl } from "./liveAgents.js";
 import { MAX_LABEL_LENGTH } from "./projectBoard.js";
@@ -94,11 +95,16 @@ export const RUNNER_COMMAND_KIND = {
   start: "start",
   stop: "stop",
   prompt: "prompt",
+  /** Press a key on the choice screen the slot's agent waits on, for the CEO. */
+  key: "key",
 } as const;
 
 export type RunnerCommandKind = (typeof RUNNER_COMMAND_KIND)[keyof typeof RUNNER_COMMAND_KIND];
 
-/** What came of a prompt the CEO typed in the office: typed into the agent's terminal, or why not. */
+/**
+ * What came of a prompt the CEO typed in the office, or a key the CEO pressed:
+ * typed into the agent's terminal, or why not.
+ */
 export const RUNNER_PROMPT_OUTCOME = {
   delivered: "delivered",
   /** It is in the middle of a turn, or still starting. */
@@ -107,6 +113,8 @@ export const RUNNER_PROMPT_OUTCOME = {
   needsInput: "needs-input",
   /** The slot holds no task, or its agent takes no prompts. */
   unavailable: "unavailable",
+  /** A key, for an agent that waits on no choice screen. */
+  notWaiting: "not-waiting",
 } as const;
 
 export type RunnerPromptOutcomeKind = (typeof RUNNER_PROMPT_OUTCOME)[keyof typeof RUNNER_PROMPT_OUTCOME];
@@ -176,12 +184,12 @@ export interface RunnerSpendReport {
 }
 
 /**
- * What came of one of the CEO's prompts, reported until a sync carrying it is
+ * What came of one of the CEO's prompts or keys, reported until a sync carrying it is
  * answered, as an event is. The server takes the first report of a command
  * and ignores any repeat.
  */
 export interface RunnerPromptOutcome {
-  /** The prompt command's id. */
+  /** The prompt or key command's id. */
   readonly commandId: string;
   readonly slotId: string;
   readonly outcome: RunnerPromptOutcomeKind;
@@ -252,13 +260,27 @@ export interface RunnerPromptCommand {
   readonly fromCeo?: boolean;
 }
 
-export type RunnerCommand = RunnerStartCommand | RunnerStopCommand | RunnerPromptCommand;
+/**
+ * Press one key on the choice screen the slot's agent waits on, for the CEO:
+ * pressed only while the agent waits on a person, and refused otherwise, and
+ * the runner reports which as a {@link RunnerPromptOutcome}, as for a prompt.
+ */
+export interface RunnerKeyCommand {
+  readonly id: string;
+  readonly slotId: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.key;
+  readonly key: AgentKey;
+  readonly requestedBy: string;
+}
+
+export type RunnerCommand = RunnerStartCommand | RunnerStopCommand | RunnerPromptCommand | RunnerKeyCommand;
 
 /** A command before the server has given it an id. */
 export type RunnerCommandDraft =
   | Omit<RunnerStartCommand, "id">
   | Omit<RunnerStopCommand, "id">
-  | Omit<RunnerPromptCommand, "id">;
+  | Omit<RunnerPromptCommand, "id">
+  | Omit<RunnerKeyCommand, "id">;
 
 /** The server's reply to a sync: every command the runner has not yet acked. */
 export interface RunnerSyncReply {
@@ -526,8 +548,8 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
  * Gives a command its id and sanitises every string in it, the same way a
  * sync's are.
  *
- * @returns the command, or `undefined` for a slot id, issue number or link the
- * runner could not act on.
+ * @returns the command, or `undefined` for a slot id, issue number, link or
+ * key the runner could not act on.
  */
 export function toRunnerCommand(id: string, draft: RunnerCommandDraft): RunnerCommand | undefined {
   if (!isItemId(id) || !isRunnerName(draft.slotId)) {
@@ -567,5 +589,9 @@ export function toRunnerCommand(id: string, draft: RunnerCommandDraft): RunnerCo
       const prompt = { id, slotId: draft.slotId, kind: draft.kind, text, requestedBy: sanitizeName(draft.requestedBy) };
       return draft.fromCeo === true ? { ...prompt, fromCeo: true } : prompt;
     }
+    case RUNNER_COMMAND_KIND.key:
+      return isAgentKey(draft.key)
+        ? { id, slotId: draft.slotId, kind: draft.kind, key: draft.key, requestedBy: sanitizeName(draft.requestedBy) }
+        : undefined;
   }
 }

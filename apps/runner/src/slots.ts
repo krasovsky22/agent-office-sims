@@ -41,12 +41,15 @@
  * is. In the middle of a turn, at a real agent's permission or question, or
  * with no task to be at, it is refused instead, never queued behind what the
  * agent is doing, and the slot reports which, by the command's id, until a
- * sync carrying the report is answered.
+ * sync carrying the report is answered. A key the CEO pressed on the choice
+ * screen the agent waits on (a permission, a setup or trust screen) is
+ * pressed only while it waits on a person, and is reported the same way.
  */
 
 import { randomUUID } from "node:crypto";
 
 import {
+  AGENT_KEY_LABEL,
   MAX_NAME_LENGTH,
   MAX_TITLE_LENGTH,
   MAX_WORK_NOTE_LENGTH,
@@ -97,6 +100,7 @@ export interface SlotWorkspaces {
 
 type StartCommand = Extract<RunnerCommand, { kind: typeof RUNNER_COMMAND_KIND.start }>;
 type PromptCommand = Extract<RunnerCommand, { kind: typeof RUNNER_COMMAND_KIND.prompt }>;
+type KeyCommand = Extract<RunnerCommand, { kind: typeof RUNNER_COMMAND_KIND.key }>;
 
 export interface SlotPoolOptions {
   readonly count: number;
@@ -290,6 +294,9 @@ export class SlotPool {
           this.prompt(slot, command.text);
         }
         return;
+      case RUNNER_COMMAND_KIND.key:
+        this.keyFromCeo(slot, command);
+        return;
     }
   }
 
@@ -478,10 +485,48 @@ export class SlotPool {
     } else {
       this.log(`prompt for ${slot.id} from ${command.requestedBy} not typed: ${outcome}`);
     }
-    this.promptOutcomes.push({ commandId: command.id, slotId: slot.id, outcome });
+    this.reportOutcome(slot, command.id, outcome);
+  }
+
+  /**
+   * A key the CEO pressed: pressed only while the agent waits on a person, on
+   * whatever screen it waits at, and reported either way.
+   */
+  private keyFromCeo(slot: Slot, command: KeyCommand): void {
+    const run = slot.run;
+    const outcome = this.keyable(slot);
+    const label = AGENT_KEY_LABEL[command.key];
+    if (outcome === RUNNER_PROMPT_OUTCOME.delivered && run !== undefined) {
+      this.log(`${slot.id} on #${run.issueNumber}: ${command.requestedBy} pressed ${label}`);
+      run.agentRun.key?.(command.key);
+    } else {
+      this.log(`key ${label} for ${slot.id} from ${command.requestedBy} not pressed: ${outcome}`);
+    }
+    this.reportOutcome(slot, command.id, outcome);
+  }
+
+  /** Queues what came of the CEO's prompt or key until a sync carrying it is answered. */
+  private reportOutcome(slot: Slot, commandId: string, outcome: RunnerPromptOutcomeKind): void {
+    this.promptOutcomes.push({ commandId, slotId: slot.id, outcome });
     if (this.promptOutcomes.length > MAX_PENDING_EVENTS) {
       this.promptOutcomes.shift();
     }
+  }
+
+  /**
+   * Whether the slot's agent waits on a person, so a key answers it, and if
+   * not, why. A slot that needs a person only because a turn ended with
+   * nothing handed in has its agent at its prompt, where a prompt is the answer.
+   */
+  private keyable(slot: Slot): RunnerPromptOutcomeKind {
+    const run = slot.run;
+    if (run === undefined || !run.live) {
+      return RUNNER_PROMPT_OUTCOME.unavailable;
+    }
+    if (slot.status !== RUNNER_SLOT_STATUS.needsInput || run.missing) {
+      return RUNNER_PROMPT_OUTCOME.notWaiting;
+    }
+    return run.agentRun.key === undefined ? RUNNER_PROMPT_OUTCOME.unavailable : RUNNER_PROMPT_OUTCOME.delivered;
   }
 
   /**

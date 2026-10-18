@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { AGENT_PROMPT_REJECTION, agentPromptRefusal } from "./agentPrompt.js";
+import { AGENT_KEYS, AGENT_KEY_LABEL, AGENT_PROMPT_REJECTION, agentPromptRefusal, isAgentKey } from "./agentPrompt.js";
 import { OCCUPANT_KIND } from "./state.js";
 import type { OfficeActor } from "./work.js";
 
@@ -23,5 +23,17 @@ describe("agentPromptRefusal", () => {
     expect(agentPromptRefusal(actor({ kind: OCCUPANT_KIND.liveAgent, canTakeIssues: true }))).toBe(
       AGENT_PROMPT_REJECTION.forbidden,
     );
+  });
+});
+
+describe("agent keys", () => {
+  it("names every key, and knows only those", () => {
+    for (const key of AGENT_KEYS) {
+      expect(isAgentKey(key)).toBe(true);
+      expect(AGENT_KEY_LABEL[key]).not.toBe("");
+    }
+    expect(isAgentKey("tab")).toBe(false);
+    expect(isAgentKey("0")).toBe(false);
+    expect(isAgentKey(undefined)).toBe(false);
   });
 });

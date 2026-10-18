@@ -14,14 +14,15 @@
  *
  * It runs as the leader of its own process group, so stopping it, whether
  * asked to or at the task timeout, ends what it started too. A prompt for it
- * is typed into its terminal as a paste and submitted, as a person would.
+ * is typed into its terminal as a paste and submitted, as a person would, and
+ * a key the CEO pressed on a choice screen it waits on is pressed there too.
  */
 
 import { accessSync, constants } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
 
 import * as pty from "@lydell/node-pty";
-import { sanitizePromptText } from "@sim/shared";
+import { type AgentKey, sanitizePromptText } from "@sim/shared";
 
 import { SCREEN_COLS, SCREEN_ROWS } from "../terminal.js";
 import { childEnv } from "./childEnv.js";
@@ -40,6 +41,29 @@ const DEFAULT_BOOT_HINT_MS = 12_000;
 
 /** Between pasting a prompt and pressing Enter, so the CLI has taken the paste in whole. */
 const SUBMIT_DELAY_MS = 120;
+
+/**
+ * Between one key the CEO pressed and the next: keys that land together read
+ * as one, and an Esc followed at once by an arrow's own Esc is not an Esc.
+ */
+const KEY_GAP_MS = 50;
+
+/** What a key is in its terminal, as a person's keyboard sends it. */
+const KEY_BYTES: Readonly<Record<AgentKey, string>> = {
+  up: "\u001b[A",
+  down: "\u001b[B",
+  enter: "\r",
+  escape: "\u001b",
+  "1": "1",
+  "2": "2",
+  "3": "3",
+  "4": "4",
+  "5": "5",
+  "6": "6",
+  "7": "7",
+  "8": "8",
+  "9": "9",
+};
 
 /** After a hook, before its transcript is read: a burst of hooks is one read, of what they all logged. */
 const DEFAULT_SPEND_SCAN_MS = 1000;
@@ -265,6 +289,18 @@ function startRun<P>(
 
   let killTimer: ReturnType<typeof setTimeout> | undefined;
   let submitTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The keys waiting their turn to be pressed, a {@link KEY_GAP_MS} apart. */
+  const keys: string[] = [];
+  let keyTimer: ReturnType<typeof setTimeout> | undefined;
+  const pressNext = (): void => {
+    keyTimer = undefined;
+    const bytes = keys.shift();
+    if (bytes === undefined || ended) {
+      return;
+    }
+    proc.write(bytes);
+    keyTimer = setTimeout(pressNext, KEY_GAP_MS);
+  };
   /** Signals its whole process group, which it leads, as a PTY's process does. Says whether any of it was there. */
   const signalGroup = (name: NodeJS.Signals): boolean => {
     try {
@@ -282,6 +318,7 @@ function startRun<P>(
     clearTimeout(bootHint);
     clearTimeout(killTimer);
     clearTimeout(submitTimer);
+    clearTimeout(keyTimer);
     // Its work is over and its terminal gone: anything it left running in its group goes too.
     signalGroup("SIGKILL");
     // Whatever its last turn logged is paid for, however its work ended.
@@ -314,6 +351,15 @@ function startRun<P>(
         }
       }, SUBMIT_DELAY_MS);
     },
+    key(key) {
+      if (ended) {
+        return;
+      }
+      keys.push(KEY_BYTES[key]);
+      if (keyTimer === undefined) {
+        pressNext();
+      }
+    },
     stop() {
       if (ended) {
         return;
@@ -321,6 +367,7 @@ function startRun<P>(
       ended = true;
       clearTimeout(bootHint);
       clearTimeout(submitTimer);
+      clearTimeout(keyTimer);
       route.dispose();
       if (!signalGroup("SIGTERM")) {
         // Not a group leader after all; its own pid is still its own until it exits.

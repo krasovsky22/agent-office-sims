@@ -27,13 +27,23 @@
  * then: one the agent was too busy for is still there to send again, with the
  * reason beside it. `Enter` sends, `Shift+Enter` starts a new line, and `Esc`
  * gives the keyboard back to the office, where a second `Esc` closes the panel.
+ *
+ * While the agent needs a person, the CEO also gets a key pad: a choice
+ * screen (a permission, a setup or trust screen) takes keys, not a prompt, so
+ * its buttons press up, down, a number, Enter or Esc on the agent's screen,
+ * one key each. With the pad focused, the arrows, Enter and the digits are
+ * pressed on the agent's screen too; `Esc` there gives the keyboard back to the
+ * office, as in the prompt box, so cancelling the screen is the pad's own Esc
+ * button, never a slip of the key that closes the panel. The terminal shows
+ * what each key did; a key that was not pressed says why under the pad.
  */
 
-import { MAX_AGENT_PROMPT_LENGTH, MAX_SCREEN_ROWS, type AgentPromptEntry } from "@sim/shared";
+import { AGENT_KEY_LABEL, type AgentKey, MAX_AGENT_PROMPT_LENGTH, MAX_SCREEN_ROWS, type AgentPromptEntry } from "@sim/shared";
 import { useEffect, useRef, useState } from "react";
 
-import type { AgentPromptAccess } from "../agentPromptAccess.js";
+import { type AgentPromptAccess, agentKeyOfKeyboard } from "../agentPromptAccess.js";
 import type { TerminalLinks } from "../agentTerminal.js";
+import { KEYBOARD_OWNER_ATTRIBUTE } from "../keys.js";
 import type { TerminalScreen } from "../net/screens.js";
 import { SCREEN_PLACEHOLDER, paintScreen } from "../scene/agentScreen.js";
 import type { RosterEntry } from "./Hud.js";
@@ -46,6 +56,8 @@ export interface AgentTerminalActions {
    * sanitizes it and decides. Says whether it went out at all.
    */
   readonly prompt: (agentId: string, text: string) => boolean;
+  /** Asks for a key to be pressed on the choice screen the agent waits on; says whether it went out at all. */
+  readonly key: (agentId: string, key: AgentKey) => boolean;
   /** Closes the panel; the caller unmounts it. */
   readonly close: () => void;
 }
@@ -55,6 +67,8 @@ export interface AgentPromptRefusal {
   readonly id: number;
   readonly agentId: string;
   readonly text: string;
+  /** It was about a key, not a prompt: it settles no prompt on its way. */
+  readonly forKey?: boolean;
 }
 
 interface AgentTerminalPanelProps {
@@ -90,6 +104,17 @@ interface Sending {
 function timeOf(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
+/** The key pad's buttons, in order, with what each reads as. */
+const PAD_KEYS: ReadonlyArray<readonly [AgentKey, string]> = [
+  ["up", "↑"],
+  ["down", "↓"],
+  ["1", "1"],
+  ["2", "2"],
+  ["3", "3"],
+  ["enter", "Enter · confirm"],
+  ["escape", "Esc · cancel"],
+];
 
 /** The version painted while the canvas shows its placeholder. */
 const PLACEHOLDER_VERSION = -1;
@@ -166,7 +191,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
       setDraft("");
       setSending(undefined);
       setSeenRefusalId(refusal?.id ?? 0);
-    } else if (refusal !== undefined && refusal.agentId === agentId && refusal.id !== sending.refusalId) {
+    } else if (refusal !== undefined && refusal.agentId === agentId && refusal.id !== sending.refusalId && refusal.forKey !== true) {
       setSending(undefined);
     }
   }, [prompts, refusal, sending, localId, agentId]);
@@ -186,6 +211,15 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
       log.scrollTop = log.scrollHeight;
     }
   }, [latestEntryId]);
+
+  const press = (key: AgentKey) => {
+    if (mayPrompt && actions.key(agentId, key)) {
+      // What was said about the last key is old news once another is on its way.
+      if (refusal?.forKey === true) {
+        setSeenRefusalId(refusal.id);
+      }
+    }
+  };
 
   const submit = () => {
     const text = draft.trim();
@@ -256,6 +290,48 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
         </ol>
       )}
 
+      {mayPrompt && agent?.needsInput === true ? (
+        <div
+          className="terminal__keys"
+          role="group"
+          aria-label={`Answer ${name}'s screen with keys`}
+          tabIndex={0}
+          {...{ [KEYBOARD_OWNER_ATTRIBUTE]: "" }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              // Back to the office, where Esc closes the panel; the Esc button cancels the screen.
+              event.preventDefault();
+              event.currentTarget.blur();
+              return;
+            }
+            const key = agentKeyOfKeyboard(event.key);
+            if (key !== undefined && !event.altKey && !event.ctrlKey && !event.metaKey) {
+              // Not a click on whichever button has the focus: the key is the agent's.
+              event.preventDefault();
+              press(key);
+            }
+          }}
+        >
+          <span className="terminal__keys-label">Answer its screen:</span>
+          {PAD_KEYS.map(([key, text]) => (
+            <button
+              className="hud__send terminal__key"
+              type="button"
+              key={key}
+              aria-label={`Press ${AGENT_KEY_LABEL[key]}`}
+              onClick={() => press(key)}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {myRefusal?.forKey === true ? (
+        <p className="hud__notice" role="alert">
+          {myRefusal.text}
+        </p>
+      ) : null}
+
       {access === undefined ? null : (
         <p className={mayPrompt ? "hud__role" : "hud__role hud__role--readonly"} role="note">
           {access.summary}
@@ -296,7 +372,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
           {sending === undefined ? "Send" : "Sending…"}
         </button>
       </form>
-      {myRefusal === undefined || sending !== undefined ? null : (
+      {myRefusal === undefined || myRefusal.forKey === true || sending !== undefined ? null : (
         <p className="hud__notice" role="alert">
           {myRefusal.text}
         </p>
@@ -304,6 +380,13 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
 
       <p className="board__hint">
         <span className="hud__keys">E</span> or <span className="hud__keys">Esc</span> to close
+        {mayPrompt && agent?.needsInput === true ? (
+          <>
+            ; click the key pad to answer its screen with <span className="hud__keys">↑</span>{" "}
+            <span className="hud__keys">↓</span>, <span className="hud__keys">1</span>–<span className="hud__keys">9</span> and{" "}
+            <span className="hud__keys">Enter</span>
+          </>
+        ) : null}
         {mayPrompt ? (
           <>
             ; in the prompt box <span className="hud__keys">Enter</span> sends,{" "}

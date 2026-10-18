@@ -10,10 +10,12 @@
 
 import { describe, expect, it } from "vitest";
 
+import { AGENT_KEYS } from "./agentPrompt.js";
 import { MAX_AGENT_PROMPT_LENGTH, MAX_CHAT_LENGTH } from "./constants.js";
 import {
   EMOTE,
   EMOTES,
+  parseAgentKeyMessage,
   parseAgentPromptMessage,
   parseChatMessage,
   parseEmoteMessage,
@@ -217,6 +219,32 @@ describe("parseAgentPromptMessage", () => {
   for (const [label, raw] of rejected) {
     it(`rejects ${label}`, () => {
       expect(parseAgentPromptMessage(raw)).toBeUndefined();
+    });
+  }
+});
+
+describe("parseAgentKeyMessage", () => {
+  const agentId = "agent:runner:host-1:slot-1";
+
+  for (const key of AGENT_KEYS) {
+    it(`accepts ${key}`, () => {
+      expect(parseAgentKeyMessage({ agentId, key })).toEqual({ agentId, key });
+    });
+  }
+
+  const rejected: readonly [string, unknown][] = [
+    ["a key that types text", { agentId, key: "y" }],
+    ["a raw escape sequence", { agentId, key: "\u001b[A" }],
+    ["a digit past the choices", { agentId, key: "0" }],
+    ["a key that is not a string", { agentId, key: 1 }],
+    ["no key", { agentId }],
+    ["no agent", { key: "enter" }],
+    ["an agent id past any occupant key", { agentId: "a".repeat(97), key: "enter" }],
+    ["null", null],
+  ];
+  for (const [label, raw] of rejected) {
+    it(`rejects ${label}`, () => {
+      expect(parseAgentKeyMessage(raw)).toBeUndefined();
     });
   }
 });

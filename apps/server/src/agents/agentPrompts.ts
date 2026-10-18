@@ -13,6 +13,11 @@
  * told that too, so no prompt is left looking sent; one it has not yet picked
  * up is taken back, so it cannot be typed after the CEO was told it was lost.
  *
+ * A key the CEO pressed on the agent's choice screen travels the same way, as
+ * a `key` command: the runner presses it only while the agent waits on a
+ * person. One pressed is not announced, since the agent's terminal shows what
+ * it did; one refused is told to the CEO who pressed it, as a prompt's is.
+ *
  * The command reaches the runner exactly once, by the runner link's ids; the
  * runner's report of it is taken once here, by the same id, and forgotten.
  *
@@ -22,6 +27,8 @@
 
 import {
   AGENT_PROMPT_REJECTION,
+  type AgentKey,
+  type AgentKeyMessage,
   type AgentPromptEntry,
   type AgentPromptMessage,
   type AgentPromptRejectedEvent,
@@ -39,8 +46,11 @@ import { type RunnerCommands, slotOf } from "./runnerWork.js";
 /** How long a runner has to say what came of a prompt. It syncs about once a second. */
 const DEFAULT_ANSWER_TIMEOUT_MS = 30_000;
 
-/** Prompts one room keeps waiting on at once; one more is refused as if the runner were offline. */
-const MAX_PENDING = 16;
+/**
+ * Prompts and keys one room keeps waiting on at once; one more is refused as
+ * if the runner were offline. Keys come a few at a time, to reach an option.
+ */
+const MAX_PENDING = 32;
 
 /** Typed prompts a room remembers, for a client that joins later. */
 const HISTORY_LIMIT = 20;
@@ -49,6 +59,7 @@ const REFUSAL: Readonly<Record<Exclude<RunnerPromptOutcomeKind, "delivered">, Ag
   [RUNNER_PROMPT_OUTCOME.busy]: AGENT_PROMPT_REJECTION.busy,
   [RUNNER_PROMPT_OUTCOME.needsInput]: AGENT_PROMPT_REJECTION.needsInput,
   [RUNNER_PROMPT_OUTCOME.unavailable]: AGENT_PROMPT_REJECTION.unavailable,
+  [RUNNER_PROMPT_OUTCOME.notWaiting]: AGENT_PROMPT_REJECTION.notWaiting,
 };
 
 export interface AgentPromptsOptions {
@@ -72,8 +83,19 @@ interface Pending {
   readonly senderName: string;
   readonly agentId: string;
   readonly agentName: string;
+  /** `""` for a key. */
   readonly text: string;
+  /** Set for a key, which one; absent for a prompt. */
+  readonly key?: AgentKey;
   readonly sentAt: number;
+}
+
+/** Who a prompt or key is for, once it is known to be one of a runner's agents. */
+interface Target {
+  readonly runnerId: string;
+  readonly slotId: string;
+  readonly senderName: string;
+  readonly agentName: string;
 }
 
 export class AgentPrompts {
@@ -94,8 +116,75 @@ export class AgentPrompts {
    * @returns `undefined` once it is on its way, else why it cannot be.
    */
   public submit(senderId: string, message: AgentPromptMessage): AgentPromptRejection | undefined {
-    const agent = this.options.state.occupants.get(message.agentId);
-    const slot = slotOf(message.agentId);
+    const target = this.target(senderId, message.agentId);
+    if (typeof target === "string") {
+      return target;
+    }
+    const command = this.options.runner?.enqueue(target.runnerId, {
+      kind: RUNNER_COMMAND_KIND.prompt,
+      slotId: target.slotId,
+      text: message.text,
+      requestedBy: target.senderName,
+      fromCeo: true,
+    });
+    this.options.log?.(command === undefined ? "agent-prompt-refused" : "agent-prompt", {
+      agent: message.agentId,
+      by: target.senderName,
+    });
+    if (command === undefined || command.kind !== RUNNER_COMMAND_KIND.prompt) {
+      return AGENT_PROMPT_REJECTION.offline;
+    }
+    this.pending.set(command.id, {
+      ...target,
+      senderId,
+      agentId: message.agentId,
+      // As the runner was given it, which is what was typed.
+      text: command.text,
+      sentAt: this.options.now(),
+    });
+    return undefined;
+  }
+
+  /**
+   * Queues a key the gate has let through for the agent's runner, to press on
+   * the choice screen its agent waits on.
+   *
+   * @returns `undefined` once it is on its way, else why it cannot be.
+   */
+  public submitKey(senderId: string, message: AgentKeyMessage): AgentPromptRejection | undefined {
+    const target = this.target(senderId, message.agentId);
+    if (typeof target === "string") {
+      return target;
+    }
+    const command = this.options.runner?.enqueue(target.runnerId, {
+      kind: RUNNER_COMMAND_KIND.key,
+      slotId: target.slotId,
+      key: message.key,
+      requestedBy: target.senderName,
+    });
+    this.options.log?.(command === undefined ? "agent-key-refused" : "agent-key", {
+      agent: message.agentId,
+      by: target.senderName,
+      key: message.key,
+    });
+    if (command === undefined || command.kind !== RUNNER_COMMAND_KIND.key) {
+      return AGENT_PROMPT_REJECTION.offline;
+    }
+    this.pending.set(command.id, {
+      ...target,
+      senderId,
+      agentId: message.agentId,
+      text: "",
+      key: command.key,
+      sentAt: this.options.now(),
+    });
+    return undefined;
+  }
+
+  /** The runner's agent a prompt or key is for, and who sent it, or why it cannot go to it. */
+  private target(senderId: string, agentId: string): Target | AgentPromptRejection {
+    const agent = this.options.state.occupants.get(agentId);
+    const slot = slotOf(agentId);
     const sender = this.options.state.occupants.get(senderId);
     if (agent === undefined || !isLiveAgent(agent) || slot === undefined || sender === undefined) {
       return AGENT_PROMPT_REJECTION.noAgent;
@@ -106,32 +195,7 @@ export class AgentPrompts {
     if (this.pending.size >= MAX_PENDING) {
       return AGENT_PROMPT_REJECTION.offline;
     }
-    const command = this.options.runner.enqueue(slot.runnerId, {
-      kind: RUNNER_COMMAND_KIND.prompt,
-      slotId: slot.slotId,
-      text: message.text,
-      requestedBy: sender.name,
-      fromCeo: true,
-    });
-    this.options.log?.(command === undefined ? "agent-prompt-refused" : "agent-prompt", {
-      agent: message.agentId,
-      by: sender.name,
-    });
-    if (command === undefined || command.kind !== RUNNER_COMMAND_KIND.prompt) {
-      return AGENT_PROMPT_REJECTION.offline;
-    }
-    this.pending.set(command.id, {
-      runnerId: slot.runnerId,
-      slotId: slot.slotId,
-      senderId,
-      senderName: sender.name,
-      agentId: message.agentId,
-      agentName: agent.name,
-      // As the runner was given it, which is what was typed.
-      text: command.text,
-      sentAt: this.options.now(),
-    });
-    return undefined;
+    return { runnerId: slot.runnerId, slotId: slot.slotId, senderName: sender.name, agentName: agent.name };
   }
 
   /**
@@ -166,6 +230,10 @@ export class AgentPrompts {
   }
 
   private delivered(prompt: Pending): void {
+    if (prompt.key !== undefined) {
+      this.options.log?.("agent-key-pressed", { agent: prompt.agentId, by: prompt.senderName, key: prompt.key });
+      return;
+    }
     const entry: AgentPromptEntry = {
       id: this.nextId,
       agentId: prompt.agentId,
@@ -185,7 +253,17 @@ export class AgentPrompts {
   }
 
   private refused(prompt: Pending, rejection: AgentPromptRejection): void {
-    this.options.log?.("agent-prompt-not-typed", { agent: prompt.agentId, by: prompt.senderName, why: rejection });
-    this.options.refuse(prompt.senderId, { agentId: prompt.agentId, rejection });
+    if (prompt.key === undefined) {
+      this.options.log?.("agent-prompt-not-typed", { agent: prompt.agentId, by: prompt.senderName, why: rejection });
+      this.options.refuse(prompt.senderId, { agentId: prompt.agentId, rejection });
+      return;
+    }
+    this.options.log?.("agent-key-not-pressed", {
+      agent: prompt.agentId,
+      by: prompt.senderName,
+      key: prompt.key,
+      why: rejection,
+    });
+    this.options.refuse(prompt.senderId, { agentId: prompt.agentId, rejection, key: prompt.key });
   }
 }

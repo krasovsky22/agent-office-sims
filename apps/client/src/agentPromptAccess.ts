@@ -6,10 +6,19 @@
  * rule the server enforces, and this module only asks it about the local
  * player, so the panel's composer is enabled exactly when the server would
  * take the prompt, and everyone else is told why. Like `managerAccess.ts` for
- * the manager's composer.
+ * the manager's composer. The keys the CEO presses on an agent's choice
+ * screen are held to the same rule, and have words of their own here.
  */
 
-import { AGENT_PROMPT_REJECTION, type AgentPromptRejection, type OfficeActor, agentPromptRefusal } from "@sim/shared";
+import {
+  AGENT_KEY_LABEL,
+  AGENT_PROMPT_REJECTION,
+  type AgentKey,
+  type AgentPromptRejection,
+  type OfficeActor,
+  agentPromptRefusal,
+  isAgentKey,
+} from "@sim/shared";
 
 /** The local player's standing with the coding agents' terminals. */
 export interface AgentPromptAccess {
@@ -50,10 +59,51 @@ export function agentPromptRejectionText(rejection: AgentPromptRejection, agentN
     case AGENT_PROMPT_REJECTION.busy:
       return `${agentName} is busy, so the prompt was not typed. Send it again once its turn is done.`;
     case AGENT_PROMPT_REJECTION.needsInput:
-      return `${agentName} is waiting on a permission, so the prompt was not typed.`;
+      return `${agentName} is waiting on a choice on its screen, so the prompt was not typed. Answer it with the keys.`;
     case AGENT_PROMPT_REJECTION.unavailable:
       return `${agentName} is not at its prompt: it has no task, or takes no prompts.`;
     case AGENT_PROMPT_REJECTION.unanswered:
       return `${agentName}'s runner never said whether it took the prompt; check its terminal before sending it again.`;
+    case AGENT_PROMPT_REJECTION.notWaiting:
+      return `${agentName} is not waiting on a choice, so the prompt was not typed.`;
+  }
+}
+
+/** What to tell the player when a key they pressed was not pressed on the agent's screen. */
+export function agentKeyRejectionText(rejection: AgentPromptRejection, agentName: string, key: AgentKey): string {
+  const label = AGENT_KEY_LABEL[key];
+  switch (rejection) {
+    case AGENT_PROMPT_REJECTION.forbidden:
+      return "Only the CEO can answer a coding agent's screen.";
+    case AGENT_PROMPT_REJECTION.noAgent:
+      return `${agentName} does not take keys from the office.`;
+    case AGENT_PROMPT_REJECTION.offline:
+      return `${agentName}'s runner could not take ${label}; it may be offline. Try again shortly.`;
+    case AGENT_PROMPT_REJECTION.busy:
+    case AGENT_PROMPT_REJECTION.needsInput:
+    case AGENT_PROMPT_REJECTION.notWaiting:
+      return `${agentName} is not waiting on a choice, so ${label} was not pressed. Send it a prompt instead.`;
+    case AGENT_PROMPT_REJECTION.unavailable:
+      return `${agentName} has no screen to answer: it has no task, or takes no keys.`;
+    case AGENT_PROMPT_REJECTION.unanswered:
+      return `${agentName}'s runner never said whether it pressed ${label}; check its terminal before pressing anything else.`;
+  }
+}
+
+/**
+ * The agent key a key on the player's keyboard stands for, in the terminal
+ * panel's key pad: the arrows, Enter and the digits. Esc is not one, since it
+ * gives the keyboard back to the office there; the pad's Esc button presses it.
+ */
+export function agentKeyOfKeyboard(key: string): AgentKey | undefined {
+  switch (key) {
+    case "ArrowUp":
+      return "up";
+    case "ArrowDown":
+      return "down";
+    case "Enter":
+      return "enter";
+    default:
+      return /^[1-9]$/.test(key) && isAgentKey(key) ? key : undefined;
   }
 }

@@ -205,4 +205,50 @@ describe("AgentPrompts", () => {
     expect(refused).toEqual([{ sessionId: CEO, event: { agentId: SLOT_1, rejection: AGENT_PROMPT_REJECTION.unanswered } }]);
     expect(sync()).toEqual([]);
   });
+
+  it("queues the CEO's keys for the slot's runner in the order pressed", () => {
+    const { prompts, sync } = setup();
+    sync();
+    expect(prompts.submitKey(CEO, { agentId: SLOT_1, key: "down" })).toBeUndefined();
+    expect(prompts.submitKey(CEO, { agentId: SLOT_1, key: "enter" })).toBeUndefined();
+    expect(sync()).toEqual([
+      { id: "command-1", slotId: "slot-1", kind: "key", key: "down", requestedBy: "Dana" },
+      { id: "command-2", slotId: "slot-1", kind: "key", key: "enter", requestedBy: "Dana" },
+    ]);
+  });
+
+  it("announces no key pressed, and adds none to the prompts' history", () => {
+    const { prompts, sync, report, published, refused } = setup();
+    sync();
+    prompts.submitKey(CEO, { agentId: SLOT_1, key: "1" });
+    sync([report("command-1", RUNNER_PROMPT_OUTCOME.delivered)]);
+    expect(published).toEqual([]);
+    expect(prompts.history()).toEqual([]);
+    expect(refused).toEqual([]);
+  });
+
+  it.each([
+    [RUNNER_PROMPT_OUTCOME.notWaiting, AGENT_PROMPT_REJECTION.notWaiting],
+    [RUNNER_PROMPT_OUTCOME.unavailable, AGENT_PROMPT_REJECTION.unavailable],
+  ] as const)("tells only the sender a key refused as %s was not pressed, and which", (outcome, rejection) => {
+    const { prompts, sync, report, refused } = setup();
+    sync();
+    prompts.submitKey(CEO, { agentId: SLOT_1, key: "escape" });
+    sync([report("command-1", outcome)]);
+    expect(refused).toEqual([{ sessionId: CEO, event: { agentId: SLOT_1, rejection, key: "escape" } }]);
+  });
+
+  it("refuses a key for anyone but a runner's agent, and gives up on one its runner never answers", () => {
+    const { prompts, sync, tick, refused, link } = setup();
+    sync();
+    expect(prompts.submitKey(CEO, { agentId: REPORTED, key: "enter" })).toBe(AGENT_PROMPT_REJECTION.noAgent);
+    expect(link.pending("box")).toEqual([]);
+    prompts.submitKey(CEO, { agentId: SLOT_1, key: "enter" });
+    tick(30_000);
+    prompts.expire();
+    expect(refused).toEqual([
+      { sessionId: CEO, event: { agentId: SLOT_1, rejection: AGENT_PROMPT_REJECTION.unanswered, key: "enter" } },
+    ]);
+    expect(sync()).toEqual([]);
+  });
 });

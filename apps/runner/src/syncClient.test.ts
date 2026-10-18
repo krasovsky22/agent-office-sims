@@ -142,6 +142,15 @@ describe("readCommands", () => {
     ]);
   });
 
+  it("reads a key the CEO pressed, and sets aside one that is not a key", () => {
+    const reply = readCommands([
+      { id: "command-1", slotId: "slot-1", kind: "key", key: "down", requestedBy: "Dana" },
+      { id: "command-2", slotId: "slot-1", kind: "key", key: "\u001b[B", requestedBy: "Dana" },
+    ]);
+    expect(reply.commands).toEqual([{ id: "command-1", slotId: "slot-1", kind: "key", key: "down", requestedBy: "Dana" }]);
+    expect(reply.unreadable).toEqual(["command-2"]);
+  });
+
   it("sets aside a command it cannot read, by id, so it can be acked", () => {
     const reply = readCommands([
       { id: "command-1", slotId: "slot-1", kind: "dance" },

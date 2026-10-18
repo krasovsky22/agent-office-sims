@@ -909,3 +909,33 @@
   margin-left: 8px;
   vertical-align: middle;
 }
+
+/* The CEO's keys for the choice screen an agent waits on. Focused, it takes
+   the arrows, Enter and the digits, so it says so with an outline. */
+.terminal__keys {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 196, 92, 0.35);
+  border-radius: 6px;
+}
+
+.terminal__keys:focus-within {
+  outline: 2px solid rgba(255, 196, 92, 0.8);
+  outline-offset: 1px;
+}
+
+.terminal__keys-label {
+  margin-right: 4px;
+  font-size: 13px;
+  color: #ffd27f;
+}
+
+.terminal__key {
+  min-width: 2.2em;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
