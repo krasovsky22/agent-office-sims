@@ -106,6 +106,25 @@ describe("ScreenLoop", () => {
     expect(logged.at(-1)).toBe("screens reach the server again after 1 failed post");
   });
 
+  it("says again that the scrollback was cleared when the frame that said so was lost", async () => {
+    const { clock, mirrors, posts, loop } = await setup([{ resend: [] }, new SyncError("could not reach the server")]);
+    await loop.flushOnce();
+    mirrors.get("slot-1")?.reset();
+    await mirrors.get("slot-1")?.written();
+    expect(await loop.flushOnce()).toBe(false);
+    expect(posts[1]?.screens[0]?.frame.historyCleared).toBe(true);
+
+    clock.now += 1000;
+    expect(await loop.flushOnce()).toBe(true);
+    expect(kinds(posts[2])).toEqual([["slot-1", true]]);
+    expect(posts[2]?.screens[0]?.frame.historyCleared).toBe(true);
+
+    mirrors.get("slot-1")?.write("next");
+    await mirrors.get("slot-1")?.written();
+    await loop.flushOnce();
+    expect(posts[3]?.screens[0]?.frame.historyCleared).toBeUndefined();
+  });
+
   it("holds off for a second when rate-limited", async () => {
     const { clock, posts, loop } = await setup([new SyncError("screens refused with HTTP 429: too many screens", 429)]);
     await loop.flushOnce();
@@ -151,6 +170,22 @@ describe("ScreenLoop", () => {
     expect(kinds(posts[2])).toEqual([["slot-1", true]]);
     await loop.flushOnce();
     expect(posts).toHaveLength(3);
+  });
+
+  it("keeps sending diffs after a frame gave up only some of its history", async () => {
+    const mirror = new ScreenMirror(0, 200, 3);
+    const { posts, loop } = denseSetup(new Map([["slot-1", mirror]]));
+    await loop.flushOnce();
+    mirror.write(`${DENSE}\r\nplain one\r\nplain two\r\nplain three`);
+    await mirror.written();
+    await loop.flushOnce();
+    expect(kinds(posts[1])).toEqual([["slot-1", false]]);
+    expect(posts[1]?.screens[0]?.frame.history?.[0]).toEqual([["x".repeat(200), -1, -1, 0]]);
+
+    mirror.write(" more");
+    await mirror.written();
+    await loop.flushOnce();
+    expect(kinds(posts[2])).toEqual([["slot-1", false]]);
   });
 
   it("posts an oversized screen beside the other slots, without sending it again every tick", async () => {
@@ -208,6 +243,30 @@ describe("fitBatch", () => {
     expect(JSON.stringify({ runnerId: "runner-1", screens: [fitted] }).length).toBeLessThanOrEqual(MAX_RUNNER_SCREENS_BYTES);
     expect(fitted?.frame.lines[0]).toEqual([["x".repeat(200), -1, -1, 0]]);
     expect(fitted?.frame.cursor).toEqual([0, 0]);
+  });
+
+  it("fits a frame's history with the rest of it, keeping every row", () => {
+    const history = Array.from({ length: 100 }, () => heavyRow());
+    const [fitted] = fitBatch("runner-1", [{ slotId: "slot-1", frame: { ...frame({ 0: heavyRow() }), history, historyCleared: true } }]);
+    expect(Buffer.byteLength(JSON.stringify({ runnerId: "runner-1", screens: [fitted] }))).toBeLessThanOrEqual(
+      MAX_RUNNER_SCREENS_BYTES,
+    );
+    expect(fitted?.frame.history).toHaveLength(100);
+    expect(fitted?.frame.history?.[0]?.[0]?.[1]).toBe(-1);
+    expect(fitted?.frame.historyCleared).toBe(true);
+  });
+
+  it("gives up a frame's oldest history before the screen's colours", () => {
+    const history = Array.from({ length: 100 }, (_, row) => [[`row ${row} `.repeat(20), -1, -1, 0]] as [string, number, number, number][]);
+    const screen: SlotScreen = { slotId: "slot-1", frame: { ...frame({ 0: heavyRow(), 1: heavyRow() }), history } };
+    const maxBytes = 16_000;
+    const [fitted] = fitBatch("runner-1", [screen], maxBytes);
+    expect(Buffer.byteLength(JSON.stringify({ runnerId: "runner-1", screens: [fitted] }))).toBeLessThanOrEqual(maxBytes);
+    expect(fitted?.frame.lines).toEqual(screen.frame.lines);
+    const kept = fitted?.frame.history ?? [];
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept.length).toBeLessThan(100);
+    expect(kept.at(-1)).toEqual(history.at(-1));
   });
 
   it("cuts a frame's text when even its plain text is too big", () => {

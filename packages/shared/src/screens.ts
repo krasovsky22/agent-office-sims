@@ -5,7 +5,9 @@
  *
  * A runner mirrors each slot's terminal and sends the rows that changed as
  * styled runs of text, never terminal bytes, so nothing downstream of the
- * runner interprets an escape sequence. The game server only validates,
+ * runner interprets an escape sequence. Rows that scroll off the top of the
+ * screen go along once, as history, so a reader can scroll back through more
+ * than the screen holds. The game server only validates,
  * stores and relays frames. A frame still arrives over HTTP from a process
  * nobody in the office controls, so {@link parseScreenFrames} proves its shape,
  * caps its size, checks every colour and strips control characters from every
@@ -41,6 +43,11 @@ export const SCREEN_FLAG_DIM = 4;
  *
  * A diff carries only the rows that changed since the frame before it. A
  * `full` frame carries the whole screen, and a row it leaves out is blank.
+ *
+ * Either kind may carry history: the rows that scrolled off the top since the
+ * frame before, which no later frame repeats. A screen's scrollback is every
+ * frame's history in turn, so `full` says nothing about it; only
+ * `historyCleared` starts it afresh.
  */
 export interface ScreenFrame {
   readonly cols: number;
@@ -50,6 +57,10 @@ export interface ScreenFrame {
   readonly full: boolean;
   /** `[x, y]`, in cells from the top left. */
   readonly cursor: readonly [x: number, y: number];
+  /** Rows that scrolled off the top since the frame before, oldest first; none when absent. */
+  readonly history?: readonly (readonly ScreenRun[])[];
+  /** The scrollback before this frame's `history` is gone: the terminal cleared it, or a new run began. */
+  readonly historyCleared?: boolean;
 }
 
 /** One slot's frame, in a runner's batch. */
@@ -106,6 +117,20 @@ export const MAX_SCREEN_COLS = 200;
 
 /** Tallest screen carried. */
 export const MAX_SCREEN_ROWS = 60;
+
+/**
+ * Most history rows one frame from a runner carries. A runner looks at its
+ * screens a few times a second, so only a flood of output scrolls this many
+ * rows between two looks, and the oldest of those are the ones let go.
+ */
+export const MAX_SCREEN_HISTORY_PER_FRAME = 100;
+
+/**
+ * Most scrollback rows kept for a screen, by the server and by every client;
+ * the oldest go first. A dozen or so screens of an agent's recent work,
+ * small enough to hand a joining client every screen's whole.
+ */
+export const MAX_SCREEN_HISTORY = 500;
 
 /**
  * UTF-16 code units a row's text may hold for each of its columns. A cell
@@ -185,7 +210,8 @@ function parseRow(raw: unknown, cols: number): ScreenRun[] | undefined {
  * malformed one: a size past {@link MAX_SCREEN_COLS} or {@link MAX_SCREEN_ROWS},
  * a row outside the screen, more runs in a row than it has columns, a row's
  * text past {@link MAX_SCREEN_TEXT_PER_COL}, a colour or flag that is not one,
- * or a cursor off the screen.
+ * a cursor off the screen, or more history than
+ * {@link MAX_SCREEN_HISTORY_PER_FRAME} rows, each held to a row's limits.
  */
 export function parseScreenFrame(raw: unknown): ScreenFrame | undefined {
   const candidate = asRecord(raw);
@@ -220,7 +246,49 @@ export function parseScreenFrame(raw: unknown): ScreenFrame | undefined {
     }
     lines[index] = row;
   }
-  return { cols, rows, lines, full, cursor: [x, y] };
+  const frame: ScreenFrame = { cols, rows, lines, full, cursor: [x, y] };
+  const { history: rawHistory, historyCleared } = candidate;
+  if (historyCleared !== undefined && typeof historyCleared !== "boolean") {
+    return undefined;
+  }
+  if (rawHistory === undefined) {
+    return historyCleared === true ? { ...frame, historyCleared } : frame;
+  }
+  if (!Array.isArray(rawHistory) || rawHistory.length > MAX_SCREEN_HISTORY_PER_FRAME) {
+    return undefined;
+  }
+  const history: ScreenRun[][] = [];
+  for (const rawRow of rawHistory) {
+    const row = parseRow(rawRow, cols);
+    if (row === undefined) {
+      return undefined;
+    }
+    history.push(row);
+  }
+  return historyCleared === true ? { ...frame, history, historyCleared } : { ...frame, history };
+}
+
+/**
+ * Adds a frame's history to a screen's scrollback, in place: after emptying
+ * it, if the frame says the terminal cleared its own, and keeping only the
+ * newest {@link MAX_SCREEN_HISTORY} rows. The server and every client keep a
+ * screen's scrollback this one way, so they all hold the same rows.
+ *
+ * @returns how many rows the frame added.
+ */
+export function appendScreenHistory(
+  scrollback: (readonly ScreenRun[])[],
+  frame: Pick<ScreenFrame, "history" | "historyCleared">,
+): number {
+  if (frame.historyCleared === true) {
+    scrollback.length = 0;
+  }
+  const added = frame.history ?? [];
+  scrollback.push(...added);
+  if (scrollback.length > MAX_SCREEN_HISTORY) {
+    scrollback.splice(0, scrollback.length - MAX_SCREEN_HISTORY);
+  }
+  return added.length;
 }
 
 /**

@@ -10,11 +10,21 @@
  * a frame may have been lost, so a server or client that missed a diff is
  * never wrong for long.
  *
+ * The rows that scroll off the top of the screen go out once, as the next
+ * frame's history, so the office can scroll back through what the agent did.
+ * A marker on the last row sent says where the next history starts, and
+ * clearing the scrollback, or resetting the terminal for a new run, starts
+ * the history afresh. History that goes out in a frame that is then lost is
+ * not sent again: unlike the screen, it is a record to read back, not the
+ * state anything depends on. That the scrollback was cleared is said again,
+ * though, or the office would keep the last run's history for good.
+ *
  * Every frame passes through the runner's {@link Redactor} on its way out, so
  * no secret the runner holds is ever in one.
  */
 
 import {
+  MAX_SCREEN_HISTORY_PER_FRAME,
   MAX_SCREEN_TEXT_PER_COL,
   SCREEN_DEFAULT_COLOR,
   SCREEN_FLAG_BOLD,
@@ -29,6 +39,9 @@ import xterm from "@xterm/headless";
 import type { MutableRun, Redactor } from "./redact.js";
 
 export type HeadlessTerminal = InstanceType<typeof xterm.Terminal>;
+type BufferLine = NonNullable<ReturnType<HeadlessTerminal["buffer"]["active"]["getLine"]>>;
+type BufferCell = ReturnType<HeadlessTerminal["buffer"]["active"]["getNullCell"]>;
+type Marker = NonNullable<ReturnType<HeadlessTerminal["registerMarker"]>>;
 
 /** The size every slot's terminal is made at, and its agent's terminal with it. */
 export const SCREEN_COLS = 100;
@@ -38,10 +51,11 @@ export const SCREEN_ROWS = 30;
 export const KEYFRAME_MS = 8000;
 
 /**
- * Rows kept above the screen. Nothing reads them but the redactor, which
- * needs the start of a line wrapped in from above the top edge.
+ * Rows kept above the screen: those not yet sent as history, which a frame
+ * carries no more of than this, and the start of a line wrapped in from above
+ * the top edge, which the redactor needs.
  */
-const SCROLLBACK = 100;
+const SCROLLBACK = MAX_SCREEN_HISTORY_PER_FRAME;
 
 export class ScreenMirror {
   public readonly term: HeadlessTerminal;
@@ -49,10 +63,27 @@ export class ScreenMirror {
   private lastLines: string[] = [];
   private dirty = true;
   private keyframeAt: number;
+  /** On the last row sent as history; none until a row is, or since the scrollback was cleared. */
+  private historyMark: Marker | undefined;
+  /** The scrollback was cleared since the last frame that reached the server. */
+  private historyCleared = false;
+  /** The last frame said the scrollback was cleared. */
+  private clearedInLast = false;
 
   public constructor(now: number, cols = SCREEN_COLS, rows = SCREEN_ROWS) {
     this.term = new xterm.Terminal({ cols, rows, scrollback: SCROLLBACK, allowProposedApi: true });
     this.keyframeAt = now;
+    // Heard as they are parsed, ahead of xterm's own handling, which still runs.
+    this.term.parser.registerCsiHandler({ final: "J" }, (params) => {
+      if (params[0] === 3) {
+        this.clearHistory();
+      }
+      return false;
+    });
+    this.term.parser.registerEscHandler({ final: "c" }, () => {
+      this.clearHistory();
+      return false;
+    });
   }
 
   /** Feeds the terminal what the agent printed. */
@@ -84,6 +115,15 @@ export class ScreenMirror {
     this.dirty = true;
   }
 
+  /**
+   * Makes the next frame a whole screen, the last one never having reached
+   * the server, and says again that the scrollback was cleared if it did.
+   */
+  public lost(): void {
+    this.historyCleared ||= this.clearedInLast;
+    this.sendWhole();
+  }
+
   /** The frame to send now, or `undefined` when nothing changed. */
   public flush(now: number, redactor: Redactor): ScreenFrame | undefined {
     // Diffs can be lost, so send the whole screen now and then.
@@ -95,7 +135,27 @@ export class ScreenMirror {
       return undefined;
     }
     this.dirty = false;
-    return snapshotScreen(this.term, this.lastLines, redactor);
+    const buf = this.term.buffer.active;
+    // The alternate screen has no scrollback; the normal one's waits under the mark.
+    const normal = buf.type === "normal";
+    const mark = this.historyMark;
+    const unsent = !normal ? buf.baseY : mark === undefined || mark.isDisposed ? 0 : mark.line + 1;
+    const historyFrom = Math.max(unsent, buf.baseY - MAX_SCREEN_HISTORY_PER_FRAME);
+    const frame = snapshotScreen(this.term, this.lastLines, redactor, historyFrom, this.historyCleared);
+    this.clearedInLast = frame?.historyCleared === true;
+    this.historyCleared = false;
+    if (normal && historyFrom < buf.baseY) {
+      mark?.dispose();
+      // A marker is placed relative to the cursor; this one on the row just above the screen.
+      this.historyMark = this.term.registerMarker(-1 - buf.cursorY);
+    }
+    return frame;
+  }
+
+  private clearHistory(): void {
+    this.historyMark?.dispose();
+    this.historyMark = undefined;
+    this.historyCleared = true;
   }
 }
 
@@ -117,57 +177,41 @@ export function flushScreens(
 
 /**
  * The rows of the screen that changed since `last` (all of them when its
- * size changed or `last` is empty), or `undefined` when none did. Updates
- * `last` to the screen as sent.
+ * size changed or `last` is empty), and the scrollback's rows from
+ * `historyFrom` up to the screen as history, or `undefined` when there is
+ * nothing to say. Updates `last` to the screen as sent.
+ *
+ * @param historyFrom the buffer row the history starts at; the screen's top row for none.
+ * @param historyCleared whether the scrollback was cleared since the last frame.
  */
-export function snapshotScreen(term: HeadlessTerminal, last: string[], redactor: Redactor): ScreenFrame | undefined {
+export function snapshotScreen(
+  term: HeadlessTerminal,
+  last: string[],
+  redactor: Redactor,
+  historyFrom = term.buffer.active.viewportY,
+  historyCleared = false,
+): ScreenFrame | undefined {
   const buf = term.buffer.active;
   const cols = term.cols;
   const rows = term.rows;
   const full = last.length !== rows;
-  const screen: MutableRun[][] = [];
+  const top = buf.viewportY;
+  const from = Math.min(historyFrom, top);
+  // History and screen are redacted as one, so a secret wrapped across the screen's top edge is still found.
+  const all: MutableRun[][] = [];
   const wrapped: boolean[] = [];
   const cell = buf.getNullCell();
-  for (let y = 0; y < rows; y++) {
-    const line = buf.getLine(buf.viewportY + y);
-    const runs: MutableRun[] = [];
+  for (let y = from; y < top + rows; y++) {
+    const line = buf.getLine(y);
     wrapped.push(line?.isWrapped ?? false);
-    if (line) {
-      let cur: MutableRun | null = null;
-      for (let x = 0; x < cols; x++) {
-        line.getCell(x, cell);
-        const width = cell.getWidth();
-        if (width === 0) continue;
-        const ch = cell.getChars() || " ";
-        const fg = cell.isFgDefault() ? SCREEN_DEFAULT_COLOR : cell.isFgRGB() ? SCREEN_RGB_FLAG | cell.getFgColor() : cell.getFgColor();
-        const bg = cell.isBgDefault() ? SCREEN_DEFAULT_COLOR : cell.isBgRGB() ? SCREEN_RGB_FLAG | cell.getBgColor() : cell.getBgColor();
-        const flags =
-          (cell.isBold() ? SCREEN_FLAG_BOLD : 0) | (cell.isInverse() ? SCREEN_FLAG_INVERSE : 0) | (cell.isDim() ? SCREEN_FLAG_DIM : 0);
-        if (cur && cur[1] === fg && cur[2] === bg && cur[3] === flags) cur[0] += ch;
-        else {
-          cur = [ch, fg, bg, flags];
-          runs.push(cur);
-        }
-      }
-    }
-    // Trim trailing default-styled whitespace to keep frames small.
-    while (runs.length) {
-      const r = runs[runs.length - 1];
-      if (r === undefined || r[2] !== SCREEN_DEFAULT_COLOR || r[3] & SCREEN_FLAG_INVERSE) break;
-      const trimmed = r[0].replace(/\s+$/, "");
-      if (trimmed) {
-        r[0] = trimmed;
-        break;
-      }
-      runs.pop();
-    }
-    fitRow(runs, cols * MAX_SCREEN_TEXT_PER_COL);
-    screen.push(runs);
+    all.push(line === undefined ? [] : rowRuns(line, cols, cell));
   }
-  redactor.redact(screen, wrapped, wrapped[0] === true ? textAbove(term, redactor.longest) : "");
+  redactor.redact(all, wrapped, wrapped[0] === true ? textAbove(term, from, redactor.longest) : "");
+  const history = all.slice(0, top - from);
+  const screen = all.slice(top - from);
 
   const lines: Record<number, MutableRun[]> = {};
-  let changed = false;
+  let changed = history.length > 0 || historyCleared;
   screen.forEach((runs, y) => {
     const key = JSON.stringify(runs);
     if (full || last[y] !== key) {
@@ -178,18 +222,56 @@ export function snapshotScreen(term: HeadlessTerminal, last: string[], redactor:
   });
   last.length = rows;
   if (!changed) return undefined;
-  return { cols, rows, lines, full, cursor: [buf.cursorX, buf.cursorY] };
+  const frame: ScreenFrame = { cols, rows, lines, full, cursor: [buf.cursorX, buf.cursorY] };
+  if (history.length === 0) {
+    return historyCleared ? { ...frame, historyCleared } : frame;
+  }
+  return historyCleared ? { ...frame, history, historyCleared } : { ...frame, history };
+}
+
+/** One buffer row as styled runs, trailing blanks trimmed and cut to what the contract allows. */
+function rowRuns(line: BufferLine, cols: number, cell: BufferCell): MutableRun[] {
+  const runs: MutableRun[] = [];
+  let cur: MutableRun | null = null;
+  for (let x = 0; x < cols; x++) {
+    line.getCell(x, cell);
+    const width = cell.getWidth();
+    if (width === 0) continue;
+    const ch = cell.getChars() || " ";
+    const fg = cell.isFgDefault() ? SCREEN_DEFAULT_COLOR : cell.isFgRGB() ? SCREEN_RGB_FLAG | cell.getFgColor() : cell.getFgColor();
+    const bg = cell.isBgDefault() ? SCREEN_DEFAULT_COLOR : cell.isBgRGB() ? SCREEN_RGB_FLAG | cell.getBgColor() : cell.getBgColor();
+    const flags =
+      (cell.isBold() ? SCREEN_FLAG_BOLD : 0) | (cell.isInverse() ? SCREEN_FLAG_INVERSE : 0) | (cell.isDim() ? SCREEN_FLAG_DIM : 0);
+    if (cur && cur[1] === fg && cur[2] === bg && cur[3] === flags) cur[0] += ch;
+    else {
+      cur = [ch, fg, bg, flags];
+      runs.push(cur);
+    }
+  }
+  // Trim trailing default-styled whitespace to keep frames small.
+  while (runs.length) {
+    const r = runs[runs.length - 1];
+    if (r === undefined || r[2] !== SCREEN_DEFAULT_COLOR || r[3] & SCREEN_FLAG_INVERSE) break;
+    const trimmed = r[0].replace(/\s+$/, "");
+    if (trimmed) {
+      r[0] = trimmed;
+      break;
+    }
+    runs.pop();
+  }
+  fitRow(runs, cols * MAX_SCREEN_TEXT_PER_COL);
+  return runs;
 }
 
 /**
- * The start of the line the screen's first row wraps on from, enough of it
- * to hold the longest secret.
+ * The start of the line buffer row `row` wraps on from, enough of it to hold
+ * the longest secret.
  */
-function textAbove(term: HeadlessTerminal, longest: number): string {
+function textAbove(term: HeadlessTerminal, row: number, longest: number): string {
   const buf = term.buffer.active;
   const most = Math.ceil(longest / term.cols) + 1;
   let text = "";
-  for (let y = buf.viewportY - 1, taken = 0; y >= 0 && taken < most; y -= 1, taken += 1) {
+  for (let y = row - 1, taken = 0; y >= 0 && taken < most; y -= 1, taken += 1) {
     const line = buf.getLine(y);
     if (line === undefined) {
       break;

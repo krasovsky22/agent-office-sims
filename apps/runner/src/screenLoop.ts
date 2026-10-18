@@ -11,16 +11,17 @@
  * then. Refusals and an unreachable server back off, the way syncs do.
  *
  * Each post is fitted to the server's {@link MAX_RUNNER_SCREENS_BYTES}, and
- * every changed screen gets its share of it: a frame too big for its share is
- * sent without its colours, and cut to fit if that is still too much. A whole
- * screen sent that way stays so until the next keyframe rather than being
- * sent again every quarter second.
+ * every changed screen gets its share of it. A frame too big for its share
+ * gives up its history first, which is only a record to read back: its
+ * colours, then as many of its oldest rows as it takes. Only then is the
+ * screen sent without its colours, and cut to fit if that is still too much.
+ * A whole screen sent that way stays so until the next keyframe rather than
+ * being sent again every quarter second.
  */
 
 import {
   MAX_RUNNER_SCREENS_BYTES,
   SCREEN_DEFAULT_COLOR,
-  type ScreenFrame,
   type ScreenRun,
   type SlotScreen,
 } from "@sim/shared";
@@ -83,7 +84,9 @@ export class ScreenLoop {
     const screens = fitBatch(this.options.runnerId, changed);
     for (const screen of changed) {
       const sent = screens.find((fitted) => fitted.slotId === screen.slotId);
-      if (sent === undefined || (sent !== screen && !screen.frame.full)) {
+      if (sent === undefined) {
+        mirrors.get(screen.slotId)?.lost();
+      } else if (sent.frame.lines !== screen.frame.lines && !screen.frame.full) {
         mirrors.get(screen.slotId)?.sendWhole();
       }
     }
@@ -91,11 +94,11 @@ export class ScreenLoop {
     try {
       const reply = await this.options.client({ runnerId: this.options.runnerId, screens });
       for (const slotId of reply.resend) {
-        mirrors.get(slotId)?.sendWhole();
+        mirrors.get(slotId)?.lost();
       }
     } catch (error) {
       for (const { slotId } of screens) {
-        mirrors.get(slotId)?.sendWhole();
+        mirrors.get(slotId)?.lost();
       }
       this.failed(error);
       return false;
@@ -181,23 +184,51 @@ export function fitBatch(runnerId: string, changed: readonly SlotScreen[], maxBy
   return fitted.filter((screen) => screen !== undefined);
 }
 
-/** A screen as it is if it fits in `maxBytes`, else without colours, else cut too. */
+/** A row's text alone, in the terminal's default colours, cut to `keep` of its length. */
+function plainRow(text: string, keep: number): ScreenRun[] {
+  const cut = text.slice(0, Math.floor(text.length * keep));
+  return cut === "" ? [] : [[cut, SCREEN_DEFAULT_COLOR, SCREEN_DEFAULT_COLOR, 0]];
+}
+
+/**
+ * A screen as it is if it fits in `maxBytes`; else with its history plain and
+ * only as much of its newest as fits; else, without any, the screen plain,
+ * and cut too.
+ */
 function fitScreen(screen: SlotScreen, maxBytes: number): SlotScreen {
   if (jsonBytes(screen) <= maxBytes) {
     return screen;
   }
-  const plain = Object.entries(screen.frame.lines).map(
-    ([row, runs]) => [row, runs.map((run) => run[0]).join("")] as const,
-  );
+  const textOf = (runs: readonly ScreenRun[]) => runs.map((run) => run[0]).join("");
+  const { history, ...rest } = screen.frame;
+  const plainHistory = history?.map((runs) => plainRow(textOf(runs), 1)) ?? [];
+  const withHistory = (rows: number): SlotScreen => ({
+    slotId: screen.slotId,
+    frame: rows === 0 ? rest : { ...rest, history: plainHistory.slice(-rows) },
+  });
+  // The most rows of history that fit, found by halving.
+  let low = 0;
+  let high = plainHistory.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (jsonBytes(withHistory(mid)) <= maxBytes) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  const kept = withHistory(low);
+  if (jsonBytes(kept) <= maxBytes) {
+    return kept;
+  }
+  const plain = Object.entries(rest.lines).map(([row, runs]) => [row, textOf(runs)] as const);
   let keep = 1;
   for (;;) {
     const lines: Record<number, ScreenRun[]> = {};
     for (const [row, text] of plain) {
-      const cut = text.slice(0, Math.floor(text.length * keep));
-      lines[Number(row)] = cut === "" ? [] : [[cut, SCREEN_DEFAULT_COLOR, SCREEN_DEFAULT_COLOR, 0]];
+      lines[Number(row)] = plainRow(text, keep);
     }
-    const frame: ScreenFrame = { ...screen.frame, lines };
-    const fitted = { slotId: screen.slotId, frame };
+    const fitted = { slotId: screen.slotId, frame: { ...rest, lines } };
     const bytes = jsonBytes(fitted);
     if (bytes <= maxBytes || keep === 0) {
       return fitted;

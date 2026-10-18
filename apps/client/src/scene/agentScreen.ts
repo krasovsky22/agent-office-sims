@@ -96,8 +96,8 @@ function runLength(runs: readonly ScreenRun[] | undefined): number {
 }
 
 /** A monospace cell's width, and a line's height, in font sizes. */
-const CHAR_WIDTH = 0.6;
-const LINE_HEIGHT = 1.25;
+export const CHAR_WIDTH = 0.6;
+export const LINE_HEIGHT = 1.25;
 /** Fewest rows and columns a zoomed window shows, so a near-empty screen is not drawn huge. */
 const MIN_ZOOM_ROWS = 12;
 const MIN_ZOOM_COLS = 56;
@@ -190,34 +190,42 @@ export function paintScreen(
   ctx.textBaseline = "top";
   for (let y = 0; y < win.rows; y += 1) {
     const runs = screen.lines[win.top + y];
-    if (runs === undefined) {
-      continue;
+    if (runs !== undefined) {
+      paintRow(ctx, runs, left, top + (win.top + y - win.first) * lineH, fontSize);
     }
-    let x = 0;
-    const py = top + (win.top + y - win.first) * lineH;
-    for (const [text, fgc, bgc, flags] of runs) {
-      const len = [...text].length;
-      let fg = screenColor(fgc, TERM_THEME.foreground);
-      let bg = bgc === SCREEN_DEFAULT_COLOR ? undefined : screenColor(bgc, TERM_THEME.background);
-      if ((flags & SCREEN_FLAG_INVERSE) !== 0) {
-        const swapped = fg;
-        fg = bg ?? TERM_THEME.background;
-        bg = swapped;
-      }
-      const px = left + x * charW;
-      if (bg !== undefined) {
-        ctx.fillStyle = bg;
-        ctx.fillRect(px, py, len * charW + 0.5, lineH + 0.5);
-      }
-      if (text.trim() !== "") {
-        ctx.font = `${(flags & SCREEN_FLAG_BOLD) !== 0 ? 700 : 400} ${fontSize}px ui-monospace, Menlo, Consolas, monospace`;
-        ctx.globalAlpha = (flags & SCREEN_FLAG_DIM) !== 0 ? 0.55 : 1;
-        ctx.fillStyle = fg;
-        ctx.fillText(text, px, py + (lineH - fontSize) / 2);
-        ctx.globalAlpha = 1;
-      }
-      x += len;
+  }
+}
+
+/**
+ * Paints one row's runs from `left`, with the row's top at `top`, at
+ * `fontSize`; the caller sets `textBaseline` to `"top"`.
+ */
+export function paintRow(ctx: ScreenContext, runs: readonly ScreenRun[], left: number, top: number, fontSize: number): void {
+  const charW = fontSize * CHAR_WIDTH;
+  const lineH = fontSize * LINE_HEIGHT;
+  let x = 0;
+  for (const [text, fgc, bgc, flags] of runs) {
+    const len = [...text].length;
+    let fg = screenColor(fgc, TERM_THEME.foreground);
+    let bg = bgc === SCREEN_DEFAULT_COLOR ? undefined : screenColor(bgc, TERM_THEME.background);
+    if ((flags & SCREEN_FLAG_INVERSE) !== 0) {
+      const swapped = fg;
+      fg = bg ?? TERM_THEME.background;
+      bg = swapped;
     }
+    const px = left + x * charW;
+    if (bg !== undefined) {
+      ctx.fillStyle = bg;
+      ctx.fillRect(px, top, len * charW + 0.5, lineH + 0.5);
+    }
+    if (text.trim() !== "") {
+      ctx.font = `${(flags & SCREEN_FLAG_BOLD) !== 0 ? 700 : 400} ${fontSize}px ui-monospace, Menlo, Consolas, monospace`;
+      ctx.globalAlpha = (flags & SCREEN_FLAG_DIM) !== 0 ? 0.55 : 1;
+      ctx.fillStyle = fg;
+      ctx.fillText(text, px, top + (lineH - fontSize) / 2);
+      ctx.globalAlpha = 1;
+    }
+    x += len;
   }
 }
 

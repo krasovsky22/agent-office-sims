@@ -86,6 +86,7 @@ const DIFF: ScreenFrame = {
   lines: { 2: [["● Bash: pnpm test", 6, -1, 0]] },
   full: false,
   cursor: [0, 3],
+  history: [[["$ claude", -1, -1, 0]]],
 };
 
 beforeAll(async () => {
@@ -272,7 +273,7 @@ describe("screens in a live room", () => {
     const second = await tab((client) => client.joinById<OfficeState>(first.room.roomId, { name: "Milo" }));
     try {
       const occupantId = "agent:runner:runner-1:slot-1";
-      const whole: ScreenFramesEvent = { screens: [{ occupantId, frame: FULL }] };
+      const whole: ScreenFramesEvent = { screens: [{ occupantId, frame: { ...FULL, history: [], historyCleared: true } }] };
       for (const { received } of [first, second]) {
         await settled(() => received.length === 1);
         expect(received).toEqual([whole]);
@@ -285,7 +286,7 @@ describe("screens in a live room", () => {
       expect(first.received).toEqual([whole, { screens: [{ occupantId, frame: DIFF }] }]);
       expect(second.received).toEqual(first.received);
 
-      // A third tab walks in after the diff, and gets the screen with it applied.
+      // A third tab walks in after the diff, and gets the screen with it applied, its history as the scrollback.
       const third = await tab((client) => client.joinById<OfficeState>(first.room.roomId, { name: "Ines" }));
       try {
         await settled(() => third.received.length === 1);
@@ -293,6 +294,8 @@ describe("screens in a live room", () => {
           ...FULL,
           lines: { ...FULL.lines, 2: DIFF.lines[2] },
           cursor: DIFF.cursor,
+          history: DIFF.history,
+          historyCleared: true,
         });
       } finally {
         await third.room.leave();
@@ -323,7 +326,14 @@ describe("screens in a live room", () => {
           screens: [
             {
               occupantId: "agent:runner:runner-1:slot-1",
-              frame: { ...FULL, lines: { ...FULL.lines, 2: DIFF.lines[2] }, cursor: DIFF.cursor },
+              frame: {
+                ...FULL,
+                lines: { ...FULL.lines, 2: DIFF.lines[2] },
+                cursor: DIFF.cursor,
+                // The server's screens outlive a test, so earlier diffs' history may be there too.
+                history: expect.arrayContaining([...(DIFF.history ?? [])]) as unknown,
+                historyCleared: true,
+              },
             },
           ],
         },
