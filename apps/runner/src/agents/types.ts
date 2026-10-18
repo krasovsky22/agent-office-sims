@@ -66,10 +66,14 @@ export interface AgentRun {
    * whatever the dialog has selected, whatever the prompt said.
    */
   readonly promptAnswersWait?: boolean;
+  /** The process it runs as, for the runner's log; left out by an agent that runs inside the runner, as the mock does. */
+  readonly process?: { readonly command: string; readonly pid: number };
 }
 
 export interface Agent {
   /** Names the slots, e.g. `Mock` for `Mock 1`; short, since a name is at most 18 bytes. */
   readonly label: string;
+  /** It only pretends to work, as the mock does: nothing it does reaches GitHub, so the runner's log says so of every task. */
+  readonly simulated?: boolean;
   start(task: AgentTask, reporter: AgentReporter): AgentRun;
 }

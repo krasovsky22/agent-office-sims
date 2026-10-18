@@ -147,6 +147,7 @@ export function createMockAgent(options: MockAgentOptions): Agent {
   const stepMs = options.stepMs ?? DEFAULT_STEP_MS;
   return {
     label: "Mock",
+    simulated: true,
     start(task: AgentTask, reporter: AgentReporter): AgentRun {
       let steps = script(task);
       let step = 0;

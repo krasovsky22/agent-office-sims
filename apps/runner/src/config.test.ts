@@ -57,6 +57,7 @@ describe("readConfig", () => {
     expect(read.runnerId).toBe("build-box");
     expect(read.issueLabel).toBe("agent-ready");
     expect(read.githubApp).toBeUndefined();
+    expect(read.logLevel).toBe("info");
   });
 
   it("reads every variable", () => {
@@ -74,8 +75,10 @@ describe("readConfig", () => {
         RUNNER_GITHUB_APP_ID: "123456",
         RUNNER_GITHUB_APP_INSTALLATION_ID: "7890",
         RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: keyFile,
+        RUNNER_LOG_LEVEL: "Debug",
       }),
     );
+    expect(read.logLevel).toBe("debug");
     expect(read.serverUrl.href).toBe("https://office-server.example/");
     expect(read.repo).toBe("someone/something.else");
     expect(read.dataDir).toBe("/srv/runner");
@@ -136,6 +139,10 @@ describe("readConfig", () => {
   it("refuses an agent it cannot run, and a mock outcome it does not know", () => {
     expect(() => config({ RUNNER_AGENT: "codex" })).toThrow(/RUNNER_AGENT must be one of mock, claude, got "codex"/);
     expect(() => config({ RUNNER_MOCK_OUTCOME: "merged" })).toThrow(/RUNNER_MOCK_OUTCOME must be one of failed, pr-opened/);
+  });
+
+  it("refuses a log level it does not know", () => {
+    expect(() => config({ RUNNER_LOG_LEVEL: "trace" })).toThrow(/RUNNER_LOG_LEVEL must be one of info, debug, got "trace"/);
   });
 
   it("refuses a model name that is not one", () => {

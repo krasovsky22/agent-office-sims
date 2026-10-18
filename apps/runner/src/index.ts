@@ -58,6 +58,9 @@ try {
 }
 /* eslint-enable no-console */
 
+/** Every step an agent reports: only with `RUNNER_LOG_LEVEL=debug`. */
+const debug = config.logLevel === "debug" ? (line: string) => log(`debug: ${line}`) : () => undefined;
+
 /** Longest a shutdown waits for worktrees being made or removed to finish. */
 const SHUTDOWN_GRACE_MS = 10_000;
 
@@ -143,6 +146,7 @@ const pool = new SlotPool({
   redactor,
   ledger: new SpendLedger({ budgetUsd: config.dailyBudgetUsd }),
   log,
+  debug,
 });
 const loop = new SyncLoop({
   runnerId: config.runnerId,
@@ -184,8 +188,23 @@ log(
     ? "no daily budget (RUNNER_DAILY_BUDGET_USD is not set): spend is counted, and nothing is refused"
     : `new starts are refused once the agents have spent ${formatUsd(config.dailyBudgetUsd)} today`,
 );
-if (config.agent !== "mock") {
+if (config.agent === "mock") {
+  // The default, and easy to take for real work: a task "handed in" here was never worked.
+  for (const line of [
+    "=".repeat(72),
+    "WARNING: this runner runs the MOCK agent (RUNNER_AGENT is not claude).",
+    `No real coding happens: it plays a script, and any pull request it hands in is simulated (RUNNER_MOCK_OUTCOME=${config.mockOutcome}).`,
+    "For real work set RUNNER_AGENT=claude and the RUNNER_GITHUB_APP_* variables; see the README.",
+    "=".repeat(72),
+  ]) {
+    log(line);
+  }
+} else {
+  log(`agents run ${config.agent} with ${config.model === undefined ? "its default model" : `model ${config.model}`}`);
   log(`issues need the "${config.issueLabel}" label; agents push and open pull requests as GitHub App ${config.githubApp?.appId ?? ""}`);
+}
+if (config.logLevel === "debug") {
+  log("logging every step the agents report (RUNNER_LOG_LEVEL=debug)");
 }
 credentials?.start();
 await workspaces.reattach();
