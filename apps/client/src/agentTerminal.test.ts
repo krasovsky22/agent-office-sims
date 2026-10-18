@@ -52,6 +52,15 @@ describe("terminalLinks", () => {
     });
   });
 
+  it("links the pull request an agent reviews for a standing task", () => {
+    const pull = `https://github.com/${REPO}/pull/112`;
+    expect(terminalLinks(AGENT, pull, [], snapshot())).toEqual({
+      issue: undefined,
+      pullRequests: [{ label: "PR #112", href: pull }],
+      simulatedPullRequest: false,
+    });
+  });
+
   it("links the pull request the agent handed in, without the sentence around it", () => {
     const artifact = `PR #94: Terminal panel, https://github.com/${REPO}/pull/94.`;
     expect(terminalLinks(AGENT, ISSUE_URL, [work(artifact)], undefined).pullRequests).toEqual([

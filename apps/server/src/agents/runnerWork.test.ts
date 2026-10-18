@@ -14,7 +14,9 @@ import {
   type ProjectBoardSnapshot,
   type RunnerCommand,
   type RunnerEvent,
+  type RunnerWorkEvent,
   type RunnerSync,
+  isRunnerSlotCommand,
   WORK_ACTION,
   WORK_REJECTION,
   WORK_STATUS,
@@ -124,12 +126,12 @@ function setup() {
       snapshot = next;
     },
     /** The commands waiting for the runner, without their ids. */
-    pending: () => link.pending("box").map(({ id: _id, ...command }) => command),
+    pending: () => link.pending("box").filter(isRunnerSlotCommand).map(({ id: _id, ...command }) => command),
     ack: () => syncSlots({}, [], link.pending("box").map((command: RunnerCommand) => command.id)),
   };
 }
 
-function event(kind: RunnerEvent["kind"], issueNumber: number, extra: Partial<RunnerEvent> = {}): RunnerEvent {
+function event(kind: RunnerWorkEvent["kind"], issueNumber: number, extra: Partial<RunnerWorkEvent> = {}): RunnerWorkEvent {
   return { id: `event-${kind}-${issueNumber}-${Math.random()}`, kind, slotId: "slot-1", issueNumber, pr: undefined, message: "", ...extra };
 }
 

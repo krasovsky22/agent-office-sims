@@ -213,6 +213,17 @@ export const AGENT_KEY_BURST_ALLOWANCE = 8;
 export const AGENT_KEY_REFILL_PER_SECOND = 2;
 
 /**
+ * Standing task commands (pause, resume, remove, check now) the CEO may send
+ * back to back, all four together, before the server starts dropping them.
+ * Each one waits in its runner's command queue, which issue work shares, and
+ * a check asks GitHub, so a handful.
+ */
+export const STANDING_BURST_ALLOWANCE = 4;
+
+/** Rate at which that allowance is restored, in commands/second: one every five seconds. */
+export const STANDING_REFILL_PER_SECOND = 0.2;
+
+/**
  * How long the server holds a dropped player's place, in seconds.
  *
  * A socket that closes without the player leaving — a network blip, a laptop

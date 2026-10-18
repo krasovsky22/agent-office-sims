@@ -58,9 +58,9 @@ import {
   RUNNER_PROMPT_OUTCOME,
   RUNNER_REFUSAL,
   RUNNER_SLOT_STATUS,
-  type RunnerCommand,
-  type RunnerEvent,
-  type RunnerEventKind,
+  type RunnerSlotCommand,
+  type RunnerSlotStanding,
+  type RunnerWorkEventKind,
   type RunnerPromptOutcome,
   type RunnerPromptOutcomeKind,
   type RunnerPullRequest,
@@ -68,6 +68,7 @@ import {
   type RunnerSlotReport,
   type RunnerSlotStatus,
   type RunnerSpendReport,
+  type RunnerWorkEvent,
   formatUsd,
 } from "@sim/shared";
 
@@ -98,9 +99,45 @@ export interface SlotWorkspaces {
   close(slotId: string, issueNumber: number): Promise<void>;
 }
 
-type StartCommand = Extract<RunnerCommand, { kind: typeof RUNNER_COMMAND_KIND.start }>;
-type PromptCommand = Extract<RunnerCommand, { kind: typeof RUNNER_COMMAND_KIND.prompt }>;
-type KeyCommand = Extract<RunnerCommand, { kind: typeof RUNNER_COMMAND_KIND.key }>;
+type StartCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.start }>;
+type PromptCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.prompt }>;
+type KeyCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.key }>;
+
+/** Why a standing run gave its slot up before it finished. */
+export const STANDING_SLOT_END = {
+  /** An issue's start arrived for the slot: issue work always comes first. */
+  preempted: "preempted",
+  /** The runner is shutting down. */
+  shutdown: "shutdown",
+} as const;
+
+export type StandingSlotEnd = (typeof STANDING_SLOT_END)[keyof typeof STANDING_SLOT_END];
+
+/**
+ * What a standing task's run, `./standing/`, has of the slot it runs on: its
+ * screen, its activity line and the runner's books. Its `signal` aborts, with
+ * a {@link StandingSlotEnd} as the reason, when the slot is taken back.
+ */
+export interface StandingSlotLease {
+  readonly slotId: string;
+  /** The slot's name, `Claude 2`, which a posted review and the AI Manager's line name. */
+  readonly slotName: string;
+  readonly signal: AbortSignal;
+  /** Written to the slot's screen. */
+  output(data: string): void;
+  /** One line of what it is doing now; masked and cut to the contract's budget. */
+  activity(text: string): void;
+  /** What the run has cost so far, all of it rather than since last said; booked in the runner's ledger. */
+  spent(totalUsd: number): void;
+  /** The run is over: the slot is free. Idempotent. */
+  release(): void;
+}
+
+interface StandingOnSlot {
+  readonly report: RunnerSlotStanding;
+  readonly controller: AbortController;
+  spentUsd: number;
+}
 
 export interface SlotPoolOptions {
   readonly count: number;
@@ -128,6 +165,8 @@ interface Slot {
   activity: string;
   pr: RunnerPullRequest | undefined;
   run: ActiveRun | undefined;
+  /** A standing task's run, which holds the slot instead of an issue until an issue's start takes it back. */
+  standing: StandingOnSlot | undefined;
   readonly screen: ScreenMirror;
 }
 
@@ -181,7 +220,7 @@ export function fitBytes(value: string, maxBytes: number): string {
 
 export class SlotPool {
   private readonly slots: Slot[];
-  private readonly events: RunnerEvent[] = [];
+  private readonly events: RunnerWorkEvent[] = [];
   private readonly promptOutcomes: RunnerPromptOutcome[] = [];
   private readonly eventId: () => string;
   private readonly log: (line: string) => void;
@@ -210,6 +249,7 @@ export class SlotPool {
         activity: "",
         pr: undefined,
         run: undefined,
+        standing: undefined,
         screen,
       };
     });
@@ -229,7 +269,78 @@ export class SlotPool {
       issueNumber: slot.issueNumber,
       activity: slot.activity,
       pr: slot.pr,
+      ...(slot.standing === undefined ? {} : { standing: slot.standing.report }),
     }));
+  }
+
+  /** The slots free for a standing run: holding no run of any kind. */
+  public freeForStanding(): readonly string[] {
+    return this.slots.filter((slot) => slot.run === undefined && slot.standing === undefined).map((slot) => slot.id);
+  }
+
+  /**
+   * Hands a free slot to a standing task's run, which shows as working on
+   * its screen and activity until it releases the slot. An issue's start for
+   * the slot takes it back at once, aborting the lease's signal.
+   *
+   * @returns the lease, or `undefined` when the slot holds a run already.
+   */
+  public leaseForStanding(slotId: string, standing: RunnerSlotStanding, activity: string): StandingSlotLease | undefined {
+    const slot = this.slots.find((candidate) => candidate.id === slotId);
+    if (slot === undefined || slot.run !== undefined || slot.standing !== undefined) {
+      return undefined;
+    }
+    const held: StandingOnSlot = { report: standing, controller: new AbortController(), spentUsd: 0 };
+    slot.standing = held;
+    slot.status = RUNNER_SLOT_STATUS.working;
+    slot.issueNumber = undefined;
+    slot.pr = undefined;
+    slot.screen.reset();
+    slot.activity = fitBytes(this.redactor.redactText(activity), MAX_TITLE_LENGTH);
+    const live = (): boolean => slot.standing === held && !held.controller.signal.aborted;
+    return {
+      slotId: slot.id,
+      slotName: slot.name,
+      signal: held.controller.signal,
+      output: (data) => {
+        if (live()) {
+          slot.screen.write(data);
+        }
+      },
+      activity: (text) => {
+        if (live()) {
+          slot.activity = fitBytes(this.redactor.redactText(text), MAX_TITLE_LENGTH);
+        }
+      },
+      // Booked whether or not the slot was taken back: a cut-short run's spend is still spent.
+      spent: (totalUsd) => {
+        if (Number.isFinite(totalUsd) && totalUsd > held.spentUsd) {
+          this.ledger.add(totalUsd - held.spentUsd);
+          held.spentUsd = totalUsd;
+        }
+      },
+      release: () => {
+        if (slot.standing === held) {
+          this.freeStanding(slot);
+        }
+      },
+    };
+  }
+
+  /** Takes a slot back from its standing run, saying why to the run, and leaves it idle. */
+  private endStanding(slot: Slot, why: StandingSlotEnd): void {
+    const held = slot.standing;
+    if (held === undefined) {
+      return;
+    }
+    this.freeStanding(slot);
+    held.controller.abort(why);
+  }
+
+  private freeStanding(slot: Slot): void {
+    slot.standing = undefined;
+    slot.status = RUNNER_SLOT_STATUS.idle;
+    slot.activity = "";
   }
 
   /** Today's spend against the budget, as the sync reports it. */
@@ -238,7 +349,7 @@ export class SlotPool {
   }
 
   /** The events not yet delivered, oldest first. */
-  public pendingEvents(): readonly RunnerEvent[] {
+  public pendingEvents(): readonly RunnerWorkEvent[] {
     return this.events;
   }
 
@@ -263,8 +374,8 @@ export class SlotPool {
     }
   }
 
-  /** Carries out one command from the server. */
-  public handle(command: RunnerCommand): void {
+  /** Carries out one command from the server for one of the slots. */
+  public handle(command: RunnerSlotCommand): void {
     const slot = this.slots.find((candidate) => candidate.id === command.slotId);
     if (slot === undefined) {
       this.log(`command ${command.id} names no slot of ours (${command.slotId}); ignored`);
@@ -306,10 +417,16 @@ export class SlotPool {
       if (slot.run !== undefined) {
         this.end(slot, RUNNER_EVENT_KIND.failed, "Stopped: the runner shut down");
       }
+      this.endStanding(slot, STANDING_SLOT_END.shutdown);
     }
   }
 
   private start(slot: Slot, task: StartCommand): void {
+    if (slot.standing !== undefined) {
+      // Issue work always comes first: the standing run gives way, and runs again later on a free slot.
+      this.log(`${slot.id} gives its standing run for ${slot.standing.report.taskId} up to #${task.issueNumber}`);
+      this.endStanding(slot, STANDING_SLOT_END.preempted);
+    }
     if (slot.run !== undefined) {
       if (slot.run.issueNumber === task.issueNumber) {
         this.restate(slot, slot.run, task);
@@ -736,7 +853,7 @@ export class SlotPool {
   /** Ends a slot's run, says how, and leaves the slot free for the next start, `idle` unless its agent `exited`. */
   private end(
     slot: Slot,
-    kind: RunnerEventKind,
+    kind: RunnerWorkEventKind,
     message: string,
     pr?: RunnerPullRequest,
     status: RunnerSlotStatus = RUNNER_SLOT_STATUS.idle,
@@ -762,7 +879,7 @@ export class SlotPool {
 
   private emit(
     slot: Slot,
-    kind: RunnerEventKind,
+    kind: RunnerWorkEventKind,
     issueNumber: number,
     pr: RunnerPullRequest | undefined,
     message: string,

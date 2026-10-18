@@ -23,7 +23,9 @@
  * wraps, and its collection route is attached with the report route. The runner link is made
  * here too, with its sync route only when `RUNNER_SECRET` is set, and the rooms
  * read its slots and the orchestrator's agents as one feed. The slots' screen
- * store and its route come with the link, since a screen belongs to a slot.
+ * store and its route come with the link, since a screen belongs to a slot,
+ * and so does the mirror of every runner's standing tasks, made once so a room
+ * opened later shows them at once.
  */
 
 import { Server } from "@colyseus/core";
@@ -48,6 +50,7 @@ import { type LiveAgentSource, LiveAgentRegistry } from "./agents/registry.js";
 import { createRunnerEndpoint } from "./agents/runnerEndpoint.js";
 import { RunnerLink } from "./agents/runnerLink.js";
 import { ScreenStore } from "./agents/screens.js";
+import { StandingMirror } from "./agents/standingMirror.js";
 import { createScreensEndpoint } from "./agents/screensEndpoint.js";
 import { readConfig } from "./config.js";
 import { createGithubLoader } from "./github/client.js";
@@ -95,12 +98,16 @@ if (liveAgentRegistry !== undefined && liveAssignments !== undefined && liveAgen
 
 // Slots leave after the same silence as a reported agent: both are live agents
 // on the floor, and the operator sets one timeout for them.
+const standingMirror = runner.secret === undefined ? undefined : new StandingMirror();
 const runnerLink =
   runner.secret === undefined
     ? undefined
     : new RunnerLink({
         repository: projectBoard.repository,
         timeoutMs: liveAgents.timeoutMs,
+        ...(standingMirror === undefined ? {} : { standing: standingMirror }),
+        // A slot reviewing a pull request is titled from the board, which lists the open ones.
+        pullTitle: (number) => projectFeed.current()?.pullRequests.find((pull) => pull.number === number)?.title,
       });
 // The slots' terminal screens, kept while the link reports each slot.
 const screens = runnerLink === undefined ? undefined : new ScreenStore({ slots: runnerLink });
@@ -140,6 +147,7 @@ server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink, runnerCommands: runnerLink, runnerSpend: runnerLink }),
   agentIssueLabel: runner.issueLabel,
   ...(screens === undefined ? {} : { screens }),
+  ...(standingMirror === undefined ? {} : { standing: standingMirror }),
 } satisfies OfficeRoomOptions);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

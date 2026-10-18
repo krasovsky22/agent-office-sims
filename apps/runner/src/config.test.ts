@@ -172,6 +172,20 @@ describe("readConfig", () => {
     }
   });
 
+  it("takes standing tasks' own budget, never above the runner's, and how many run at once", () => {
+    expect(config({}).standingDailyBudgetUsd).toBeUndefined();
+    expect(config({}).standingMaxConcurrent).toBe(1);
+    const read = config({ RUNNER_DAILY_BUDGET_USD: "10", RUNNER_STANDING_DAILY_BUDGET_USD: "2.50", RUNNER_STANDING_MAX_CONCURRENT: "2" });
+    expect(read.standingDailyBudgetUsd).toBe(2.5);
+    expect(read.standingMaxConcurrent).toBe(2);
+    expect(config({ RUNNER_STANDING_DAILY_BUDGET_USD: "3" }).standingDailyBudgetUsd).toBe(3);
+    expect(() => config({ RUNNER_DAILY_BUDGET_USD: "2", RUNNER_STANDING_DAILY_BUDGET_USD: "3" })).toThrow(
+      /RUNNER_STANDING_DAILY_BUDGET_USD \(3\) must not be more than RUNNER_DAILY_BUDGET_USD \(2\)/,
+    );
+    expect(() => config({ RUNNER_STANDING_DAILY_BUDGET_USD: "-1" })).toThrow(/RUNNER_STANDING_DAILY_BUDGET_USD must be an amount/);
+    expect(() => config({ RUNNER_STANDING_MAX_CONCURRENT: "3" })).toThrow(/RUNNER_STANDING_MAX_CONCURRENT must be a whole number from 1 to RUNNER_MAX_AGENTS \(2\)/);
+  });
+
   it("refuses a task timeout that is not whole minutes", () => {
     for (const raw of ["0", "1.5", "-5", "soon"]) {
       expect(() => config({ RUNNER_TASK_TIMEOUT_MINUTES: raw })).toThrow(/RUNNER_TASK_TIMEOUT_MINUTES must be a whole number/);

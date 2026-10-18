@@ -396,10 +396,91 @@ export function workKey(issueNumber: number): string {
   return String(issueNumber);
 }
 
+/**
+ * One standing task, as its runner last reported it: a recurring job an
+ * office agent does, such as watching for new pull requests (see
+ * `standing.ts`). The runner owns it; this is the office's copy, refreshed
+ * from every sync, so a room opened later, or a server restarted, shows it
+ * within one sync. Keyed in {@link OfficeState.standing} by its id.
+ *
+ * Times are epoch milliseconds, `0` for never; amounts are US dollars.
+ */
+export class StandingTask extends Schema {
+  declare public id: string;
+  /** The runner holding it, which every command about it goes to. */
+  declare public runnerId: string;
+  /** A `StandingKind`. */
+  declare public kind: string;
+  declare public name: string;
+  /** A `StandingStatus`. */
+  declare public status: string;
+  /** Its trigger in a few words: `every 2 min`, `weekdays 09:00`. */
+  declare public trigger: string;
+  declare public lastCheckAt: number;
+  declare public nextCheckAt: number;
+  /** Events waiting for a slot. */
+  declare public queued: number;
+  declare public handledToday: number;
+  declare public spentTodayUsd: number;
+  declare public dailyUsd: number;
+  /** `""` when its last check and run went well. */
+  declare public lastError: string;
+  /** The newest run's `StandingOutcome`, `""` before the first. */
+  declare public lastOutcome: string;
+  declare public lastRunAt: number;
+  /** The pull request the newest run was about, `0` for none. */
+  declare public lastRunPr: number;
+  /** Occupant key of the coding agent running it now, `""` while none is. */
+  declare public runningAgentId: string;
+
+  public constructor() {
+    super();
+    this.id = "";
+    this.runnerId = "";
+    this.kind = "";
+    this.name = "";
+    this.status = "";
+    this.trigger = "";
+    this.lastCheckAt = 0;
+    this.nextCheckAt = 0;
+    this.queued = 0;
+    this.handledToday = 0;
+    this.spentTodayUsd = 0;
+    this.dailyUsd = 0;
+    this.lastError = "";
+    this.lastOutcome = "";
+    this.lastRunAt = 0;
+    this.lastRunPr = 0;
+    this.runningAgentId = "";
+  }
+}
+
+defineTypes(StandingTask, {
+  id: "string",
+  runnerId: "string",
+  kind: "string",
+  name: "string",
+  status: "string",
+  trigger: "string",
+  lastCheckAt: "number",
+  nextCheckAt: "number",
+  queued: "uint32",
+  handledToday: "uint32",
+  spentTodayUsd: "float64",
+  dailyUsd: "float64",
+  lastError: "string",
+  lastOutcome: "string",
+  lastRunAt: "number",
+  lastRunPr: "uint32",
+  runningAgentId: "string",
+});
+
 export class OfficeState extends Schema {
   declare public occupants: MapSchema<Occupant>;
   /** The agents' work on the project board's issues, keyed by {@link workKey}. */
   declare public work: MapSchema<IssueWork>;
+  /** The runners' standing tasks, keyed by id. */
+  declare public standing: MapSchema<StandingTask>;
   /**
    * Minutes since midnight on the in-game clock, 0 to 1439, which the lighting
    * reads. Only the server writes it, at whole-minute resolution; the server
@@ -432,6 +513,7 @@ export class OfficeState extends Schema {
     super();
     this.occupants = new MapSchema<Occupant>();
     this.work = new MapSchema<IssueWork>();
+    this.standing = new MapSchema<StandingTask>();
     this.minuteOfDay = STARTING_MINUTE_OF_DAY;
     this.tick = 0;
     this.agentIssueLabel = "";
@@ -446,6 +528,7 @@ export class OfficeState extends Schema {
 defineTypes(OfficeState, {
   occupants: { map: Occupant },
   work: { map: IssueWork },
+  standing: { map: StandingTask },
   minuteOfDay: "uint16",
   tick: "uint32",
   agentIssueLabel: "string",

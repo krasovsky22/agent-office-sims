@@ -107,6 +107,8 @@ export interface GithubCredentials {
   env(): Record<string, string>;
   /** Makes sure the config dir holds a usable token; rejects with why when GitHub would not take it. */
   fresh(): Promise<void>;
+  /** The token itself, once {@link fresh} has one, for the runner's own calls to GitHub's API; never an agent's. */
+  token(): string | undefined;
   start(): void;
   stop(): void;
 }
@@ -130,6 +132,7 @@ export class GithubAppCredentials implements GithubCredentials {
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private expiresAt = 0;
+  private current: string | undefined;
   private minting: Promise<void> | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
 
@@ -142,6 +145,10 @@ export class GithubAppCredentials implements GithubCredentials {
   /** What an agent or a `gh` call needs in its environment to act as the App. */
   public env(): Record<string, string> {
     return appCredentialEnv(this.options.configDir);
+  }
+
+  public token(): string | undefined {
+    return this.current;
   }
 
   /**
@@ -203,6 +210,7 @@ export class GithubAppCredentials implements GithubCredentials {
     }
     this.options.onToken?.(body.token);
     writeGhHosts(this.options.configDir, body.token, "x-access-token");
+    this.current = body.token;
     this.expiresAt = expiresAt;
   }
 }

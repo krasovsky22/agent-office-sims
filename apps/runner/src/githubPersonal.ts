@@ -73,6 +73,10 @@ export class PersonalGithubCredentials implements GithubCredentials {
     return this.checked;
   }
 
+  public token(): string | undefined {
+    return this.options.personal.token;
+  }
+
   public start(): void {}
 
   public stop(): void {}

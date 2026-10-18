@@ -20,6 +20,7 @@ import { MAX_LABEL_LENGTH } from "./projectBoard.js";
 import {
   MAX_NAME_LENGTH,
   MAX_TITLE_LENGTH,
+  sanitizeManagerReply,
   sanitizeManagerText,
   sanitizeName,
   sanitizePromptText,
@@ -27,9 +28,37 @@ import {
   sanitizeWorkNote,
 } from "./messages.js";
 import { MAX_RUNNER_USD } from "./spend.js";
+import {
+  MAX_STANDING_ERROR_BYTES,
+  MAX_STANDING_MESSAGE_BYTES,
+  MAX_STANDING_NAME_BYTES,
+  MAX_STANDING_RECENT,
+  MAX_STANDING_TASKS,
+  MAX_STANDING_TRIGGER_BYTES,
+  STANDING_OFF,
+  type StandingOff,
+  type StandingOutcome,
+  type StandingRunSummary,
+  type StandingTaskReport,
+  type StandingTaskSpec,
+  isStandingKind,
+  isStandingOutcome,
+  isStandingStatus,
+  isStandingTaskId,
+  parseStandingTaskSpec,
+  sanitizeStandingName,
+} from "./standing.js";
 
 /** The route a runner syncs through, on the game server. */
 export const RUNNER_SYNC_PATH = "/agents/runner/sync";
+
+/**
+ * The most a sync body may be, in bytes. The parser refuses any list past its
+ * cap and any string past its budget in UTF-8 bytes as `JSON.stringify`
+ * writes it, so a sync it would take, every list full and every string at its
+ * budget, fits inside this whatever characters it holds; a test holds it to that.
+ */
+export const MAX_RUNNER_SYNC_BYTES = 16 * 1024;
 
 /**
  * The label a maintainer puts on an issue to make it a real coding agent's to
@@ -70,15 +99,25 @@ export const RUNNER_SLOT_STATUS = {
 
 export type RunnerSlotStatus = (typeof RUNNER_SLOT_STATUS)[keyof typeof RUNNER_SLOT_STATUS];
 
-/** What happened to a slot's work, once. */
+/** What happened to a slot's work, or to a standing task, once. */
 export const RUNNER_EVENT_KIND = {
   started: "started",
   prOpened: "pr-opened",
   failed: "failed",
   finished: "finished",
+  /** A standing task ran, or looked at something and left it; see {@link RunnerStandingRunEvent}. */
+  standingRun: "standing-run",
+  /** The runner would not take a standing task's definition; see {@link RunnerStandingRefusedEvent}. */
+  standingRefused: "standing-refused",
 } as const;
 
 export type RunnerEventKind = (typeof RUNNER_EVENT_KIND)[keyof typeof RUNNER_EVENT_KIND];
+
+/** The kinds of event about a slot's work on an issue. */
+export type RunnerWorkEventKind = Exclude<
+  RunnerEventKind,
+  typeof RUNNER_EVENT_KIND.standingRun | typeof RUNNER_EVENT_KIND.standingRefused
+>;
 
 /**
  * Why a runner turned a start down, when the office should know more than its
@@ -90,16 +129,43 @@ export const RUNNER_REFUSAL = {
 
 export type RunnerRefusal = (typeof RUNNER_REFUSAL)[keyof typeof RUNNER_REFUSAL];
 
-/** What the server may ask of a slot. */
+/** What the server may ask of a slot, or of the runner's standing tasks. */
 export const RUNNER_COMMAND_KIND = {
   start: "start",
   stop: "stop",
   prompt: "prompt",
   /** Press a key on the choice screen the slot's agent waits on, for the CEO. */
   key: "key",
+  /** Take a standing task's definition, new or edited. */
+  standingSet: "standing-set",
+  standingPause: "standing-pause",
+  standingResume: "standing-resume",
+  /** Delete a standing task, stopping any run of it. */
+  standingRemove: "standing-remove",
+  /** Check a standing task's trigger now: poll GitHub, or run a schedule once. */
+  standingCheckNow: "standing-check-now",
 } as const;
 
 export type RunnerCommandKind = (typeof RUNNER_COMMAND_KIND)[keyof typeof RUNNER_COMMAND_KIND];
+
+/** The commands that address a standing task by id rather than a slot. */
+export type RunnerStandingTaskCommandKind =
+  | typeof RUNNER_COMMAND_KIND.standingPause
+  | typeof RUNNER_COMMAND_KIND.standingResume
+  | typeof RUNNER_COMMAND_KIND.standingRemove
+  | typeof RUNNER_COMMAND_KIND.standingCheckNow;
+
+const STANDING_TASK_COMMANDS: ReadonlySet<string> = new Set([
+  RUNNER_COMMAND_KIND.standingPause,
+  RUNNER_COMMAND_KIND.standingResume,
+  RUNNER_COMMAND_KIND.standingRemove,
+  RUNNER_COMMAND_KIND.standingCheckNow,
+]);
+
+/** Whether a command kind addresses a standing task by id. */
+export function isStandingTaskCommandKind(kind: unknown): kind is RunnerStandingTaskCommandKind {
+  return typeof kind === "string" && STANDING_TASK_COMMANDS.has(kind);
+}
 
 /**
  * What came of a prompt the CEO typed in the office, or a key the CEO pressed:
@@ -162,6 +228,16 @@ export function pullRequestOfArtifact(
   return match === null ? undefined : { number: Number(match[1]), title: match[2] ?? "", url: match[3] ?? "" };
 }
 
+/**
+ * A standing task's run a slot is on: no issue, and given way the moment an
+ * issue's start arrives for the slot.
+ */
+export interface RunnerSlotStanding {
+  readonly taskId: string;
+  /** The pull request it reviews, for a `pr-review` task's run. */
+  readonly pr: number | undefined;
+}
+
 /** One slot, as the runner reports it on every sync. */
 export interface RunnerSlotReport {
   readonly id: string;
@@ -172,13 +248,15 @@ export interface RunnerSlotReport {
   /** What the agent is doing right now, e.g. `Bash: pnpm test`; `""` when unknown. */
   readonly activity: string;
   readonly pr: RunnerPullRequest | undefined;
+  /** Set while the slot is on a standing task's run, which it holds instead of an issue. */
+  readonly standing?: RunnerSlotStanding | undefined;
 }
 
 /** Something that happened in a slot, reported until a sync carrying it succeeds. */
-export interface RunnerEvent {
+export interface RunnerWorkEvent {
   /** The runner's own id for it; the server ignores one it has already taken. */
   readonly id: string;
-  readonly kind: RunnerEventKind;
+  readonly kind: RunnerWorkEventKind;
   readonly slotId: string;
   readonly issueNumber: number;
   readonly pr: RunnerPullRequest | undefined;
@@ -186,6 +264,49 @@ export interface RunnerEvent {
   readonly message: string;
   /** Set on a `failed` start the runner refused for a reason the office explains. */
   readonly refusal?: RunnerRefusal | undefined;
+}
+
+/**
+ * One run of a standing task, or one event it looked at and left: what came
+ * of it, which slot did it, and what it cost.
+ *
+ * A pull request is named by its number and title alone; its link, and the
+ * review comment's, are the project board's repository's, so the server
+ * builds them rather than taking a URL here.
+ */
+export interface RunnerStandingRunEvent {
+  readonly id: string;
+  readonly kind: typeof RUNNER_EVENT_KIND.standingRun;
+  readonly taskId: string;
+  /** The slot that ran it; `undefined` for an event no run was started for. */
+  readonly slotId: string | undefined;
+  /** The pull request, for a `pr-review` task. */
+  readonly pr: { readonly number: number; readonly title: string } | undefined;
+  readonly outcome: StandingOutcome;
+  /** The review comment's id on GitHub, once one is posted. */
+  readonly commentId: number | undefined;
+  /** What the run cost, in US dollars. */
+  readonly costUsd: number;
+  /** A scheduled run's result, or why a run failed or was skipped; `""` for nothing. */
+  readonly message: string;
+  /** For a `failed` run: it will not be tried again. */
+  readonly final: boolean;
+}
+
+/** The runner would not take a standing task's definition, and why. */
+export interface RunnerStandingRefusedEvent {
+  readonly id: string;
+  readonly kind: typeof RUNNER_EVENT_KIND.standingRefused;
+  readonly taskId: string;
+  readonly name: string;
+  readonly message: string;
+}
+
+export type RunnerEvent = RunnerWorkEvent | RunnerStandingRunEvent | RunnerStandingRefusedEvent;
+
+/** Whether an event is about a slot's work on an issue, rather than a standing task. */
+export function isRunnerWorkEvent(event: RunnerEvent): event is RunnerWorkEvent {
+  return event.kind !== RUNNER_EVENT_KIND.standingRun && event.kind !== RUNNER_EVENT_KIND.standingRefused;
 }
 
 /** What a runner's agents have spent today, in US dollars, against its daily budget. */
@@ -226,6 +347,10 @@ export interface RunnerSync {
   readonly spend?: RunnerSpendReport | undefined;
   /** What came of the CEO's prompts since the last successful sync; none when left out. */
   readonly prompts?: readonly RunnerPromptOutcome[];
+  /** Every standing task the runner holds; none when left out. */
+  readonly standing?: readonly StandingTaskReport[];
+  /** Why the runner takes no standing tasks at all; left out by one that takes them. */
+  readonly standingOff?: StandingOff | undefined;
 }
 
 /** Put an agent to work on an issue. */
@@ -285,14 +410,54 @@ export interface RunnerKeyCommand {
   readonly requestedBy: string;
 }
 
-export type RunnerCommand = RunnerStartCommand | RunnerStopCommand | RunnerPromptCommand | RunnerKeyCommand;
+/** Take a standing task's definition: a new task, or a newer version of one it holds. */
+export interface RunnerStandingSetCommand {
+  readonly id: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.standingSet;
+  readonly spec: StandingTaskSpec;
+  readonly requestedBy: string;
+}
 
-/** A command before the server has given it an id. */
-export type RunnerCommandDraft =
+/** Pause, resume, remove or check one of the runner's standing tasks. */
+export interface RunnerStandingTaskCommand {
+  readonly id: string;
+  readonly kind: RunnerStandingTaskCommandKind;
+  readonly taskId: string;
+  readonly requestedBy: string;
+}
+
+/** The commands for one of a runner's slots. */
+export type RunnerSlotCommand = RunnerStartCommand | RunnerStopCommand | RunnerPromptCommand | RunnerKeyCommand;
+
+/** The commands for the runner's standing tasks, which address no slot. */
+export type RunnerStandingCommand = RunnerStandingSetCommand | RunnerStandingTaskCommand;
+
+export type RunnerCommand = RunnerSlotCommand | RunnerStandingCommand;
+
+/** Whether a command is for one of the runner's slots, rather than its standing tasks. */
+export function isRunnerSlotCommand<T extends { readonly kind: RunnerCommandKind }>(
+  command: T,
+): command is Extract<T, { readonly slotId: string }> {
+  return (
+    command.kind === RUNNER_COMMAND_KIND.start ||
+    command.kind === RUNNER_COMMAND_KIND.stop ||
+    command.kind === RUNNER_COMMAND_KIND.prompt ||
+    command.kind === RUNNER_COMMAND_KIND.key
+  );
+}
+
+/** A slot's command before the server has given it an id. */
+export type RunnerSlotCommandDraft =
   | Omit<RunnerStartCommand, "id">
   | Omit<RunnerStopCommand, "id">
   | Omit<RunnerPromptCommand, "id">
   | Omit<RunnerKeyCommand, "id">;
+
+/** A command before the server has given it an id. */
+export type RunnerCommandDraft =
+  | RunnerSlotCommandDraft
+  | Omit<RunnerStandingSetCommand, "id">
+  | Omit<RunnerStandingTaskCommand, "id">;
 
 /** The server's reply to a sync: every command the runner has not yet acked. */
 export interface RunnerSyncReply {
@@ -333,7 +498,13 @@ const REPOSITORY = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 const MAX_ISSUE_NUMBER = 0xffffffff;
 
 const SLOT_STATUSES: ReadonlySet<string> = new Set(Object.values(RUNNER_SLOT_STATUS));
-const EVENT_KINDS: ReadonlySet<string> = new Set(Object.values(RUNNER_EVENT_KIND));
+const EVENT_KINDS: ReadonlySet<string> = new Set([
+  RUNNER_EVENT_KIND.started,
+  RUNNER_EVENT_KIND.prOpened,
+  RUNNER_EVENT_KIND.failed,
+  RUNNER_EVENT_KIND.finished,
+]);
+const STANDING_OFFS: ReadonlySet<string> = new Set(Object.values(STANDING_OFF));
 const REFUSALS: ReadonlySet<string> = new Set(Object.values(RUNNER_REFUSAL));
 const PROMPT_OUTCOMES: ReadonlySet<string> = new Set(Object.values(RUNNER_PROMPT_OUTCOME));
 
@@ -358,7 +529,23 @@ function isSlotStatus(value: unknown): value is RunnerSlotStatus {
   return typeof value === "string" && SLOT_STATUSES.has(value);
 }
 
-function isEventKind(value: unknown): value is RunnerEventKind {
+/** Epoch milliseconds before the year 2286, which keeps one to thirteen digits. */
+const MAX_TIMESTAMP = 9_999_999_999_999;
+
+function isTimestamp(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MAX_TIMESTAMP;
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MAX_ISSUE_NUMBER;
+}
+
+/** A GitHub comment's id: positive and whole, larger than an issue's can be. */
+function isCommentId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function isEventKind(value: unknown): value is RunnerWorkEventKind {
   return typeof value === "string" && EVENT_KINDS.has(value);
 }
 
@@ -467,7 +654,12 @@ function parseSlot(raw: unknown): RunnerSlotReport | undefined {
   const pr = parsePullRequest(candidate["pr"]);
   const name = parseText(candidate["name"], MAX_NAME_LENGTH, sanitizeName);
   const activity = parseText(candidate["activity"], MAX_TITLE_LENGTH, sanitizeTitle);
-  if (pr === null || name === undefined || activity === undefined) {
+  const standing = parseSlotStanding(candidate["standing"]);
+  // A standing run holds the slot instead of an issue, never beside one.
+  if (pr === null || name === undefined || activity === undefined || standing === null) {
+    return undefined;
+  }
+  if (standing !== undefined && (issueNumber !== undefined && issueNumber !== null || pr !== undefined)) {
     return undefined;
   }
   return {
@@ -477,13 +669,36 @@ function parseSlot(raw: unknown): RunnerSlotReport | undefined {
     issueNumber: isIssueNumber(issueNumber) ? issueNumber : undefined,
     activity,
     pr,
+    standing,
   };
+}
+
+/** `undefined` for a slot on no standing run, `null` for one that says it is and is not readable. */
+function parseSlotStanding(raw: unknown): RunnerSlotStanding | undefined | null {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  const candidate = asRecord(raw);
+  if (candidate === undefined || !isStandingTaskId(candidate["taskId"])) {
+    return null;
+  }
+  const pr = candidate["pr"] ?? undefined;
+  if (pr !== undefined && !isIssueNumber(pr)) {
+    return null;
+  }
+  return { taskId: candidate["taskId"], pr: isIssueNumber(pr) ? pr : undefined };
 }
 
 function parseEvent(raw: unknown): RunnerEvent | undefined {
   const candidate = asRecord(raw);
   if (candidate === undefined) {
     return undefined;
+  }
+  if (candidate["kind"] === RUNNER_EVENT_KIND.standingRun) {
+    return parseStandingRunEvent(candidate);
+  }
+  if (candidate["kind"] === RUNNER_EVENT_KIND.standingRefused) {
+    return parseStandingRefusedEvent(candidate);
   }
   const { id, kind, slotId, issueNumber } = candidate;
   if (!isItemId(id) || !isEventKind(kind) || !isRunnerName(slotId) || !isIssueNumber(issueNumber)) {
@@ -496,6 +711,124 @@ function parseEvent(raw: unknown): RunnerEvent | undefined {
     return undefined;
   }
   return { id, kind, slotId, issueNumber, pr, message, refusal: isRefusal(refusal) ? refusal : undefined };
+}
+
+function parseStandingRunEvent(candidate: Record<string, unknown>): RunnerStandingRunEvent | undefined {
+  const { id, taskId, outcome, costUsd, final } = candidate;
+  const slotId = candidate["slotId"] ?? undefined;
+  const commentId = candidate["commentId"] ?? undefined;
+  if (
+    !isItemId(id) ||
+    !isStandingTaskId(taskId) ||
+    !isStandingOutcome(outcome) ||
+    !isUsd(costUsd) ||
+    typeof final !== "boolean" ||
+    (slotId !== undefined && !isRunnerName(slotId)) ||
+    (commentId !== undefined && !isCommentId(commentId))
+  ) {
+    return undefined;
+  }
+  let pr: RunnerStandingRunEvent["pr"];
+  const rawPr = candidate["pr"] ?? undefined;
+  if (rawPr !== undefined) {
+    const record = asRecord(rawPr);
+    const title = record === undefined ? undefined : parseText(record["title"], MAX_TITLE_LENGTH, sanitizeTitle);
+    if (record === undefined || !isIssueNumber(record["number"]) || title === undefined) {
+      return undefined;
+    }
+    pr = { number: record["number"], title };
+  }
+  const message = parseText(candidate["message"], MAX_STANDING_MESSAGE_BYTES, sanitizeStandingMessage);
+  if (message === undefined) {
+    return undefined;
+  }
+  return {
+    id,
+    kind: RUNNER_EVENT_KIND.standingRun,
+    taskId,
+    slotId: isRunnerName(slotId) ? slotId : undefined,
+    pr,
+    outcome,
+    commentId: isCommentId(commentId) ? commentId : undefined,
+    costUsd,
+    message,
+    final,
+  };
+}
+
+function parseStandingRefusedEvent(candidate: Record<string, unknown>): RunnerStandingRefusedEvent | undefined {
+  const { id, taskId } = candidate;
+  const name = parseText(candidate["name"], MAX_STANDING_NAME_BYTES, sanitizeStandingName);
+  const message = parseText(candidate["message"], MAX_WORK_NOTE_LENGTH, sanitizeWorkNote);
+  if (!isItemId(id) || !isStandingTaskId(taskId) || name === undefined || message === undefined) {
+    return undefined;
+  }
+  return { id, kind: RUNNER_EVENT_KIND.standingRefused, taskId, name, message };
+}
+
+/**
+ * A standing run's result or reason, as the AI Manager posts it: its line
+ * breaks kept, as a reply's are, and nothing else that is not text.
+ */
+export function sanitizeStandingMessage(raw: unknown): string {
+  return sanitizeManagerReply(raw);
+}
+
+function parseRunSummary(raw: unknown): StandingRunSummary | undefined {
+  const candidate = asRecord(raw);
+  if (candidate === undefined || !isTimestamp(candidate["at"]) || !isStandingOutcome(candidate["outcome"])) {
+    return undefined;
+  }
+  const pr = candidate["pr"] ?? undefined;
+  if (pr !== undefined && !isIssueNumber(pr)) {
+    return undefined;
+  }
+  return { at: candidate["at"], outcome: candidate["outcome"], pr: isIssueNumber(pr) ? pr : undefined };
+}
+
+function parseStandingReport(raw: unknown): StandingTaskReport | undefined {
+  const candidate = asRecord(raw);
+  if (candidate === undefined) {
+    return undefined;
+  }
+  const { id, kind, status, queued, handledToday, spentTodayUsd, dailyUsd } = candidate;
+  const lastCheckAt = candidate["lastCheckAt"] ?? undefined;
+  const nextCheckAt = candidate["nextCheckAt"] ?? undefined;
+  if (
+    !isStandingTaskId(id) ||
+    !isStandingKind(kind) ||
+    !isStandingStatus(status) ||
+    !isCount(queued) ||
+    !isCount(handledToday) ||
+    !isUsd(spentTodayUsd) ||
+    !isUsd(dailyUsd) ||
+    (lastCheckAt !== undefined && !isTimestamp(lastCheckAt)) ||
+    (nextCheckAt !== undefined && !isTimestamp(nextCheckAt))
+  ) {
+    return undefined;
+  }
+  const name = parseText(candidate["name"], MAX_STANDING_NAME_BYTES, sanitizeStandingName);
+  const trigger = parseText(candidate["trigger"], MAX_STANDING_TRIGGER_BYTES, sanitizeTitle);
+  const lastError = parseText(candidate["lastError"], MAX_STANDING_ERROR_BYTES, sanitizeTitle);
+  const recent = parseList(candidate["recent"], MAX_STANDING_RECENT, parseRunSummary);
+  if (name === undefined || name === "" || trigger === undefined || lastError === undefined || recent === undefined) {
+    return undefined;
+  }
+  return {
+    id,
+    kind,
+    name,
+    status,
+    trigger,
+    lastCheckAt: isTimestamp(lastCheckAt) ? lastCheckAt : undefined,
+    nextCheckAt: isTimestamp(nextCheckAt) ? nextCheckAt : undefined,
+    queued,
+    handledToday,
+    spentTodayUsd,
+    dailyUsd,
+    lastError,
+    recent,
+  };
 }
 
 /** `undefined` for an absent report, `null` for one that is present and unacceptable. */
@@ -547,13 +880,33 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
   const events = parseList(candidate["events"], MAX_RUNNER_EVENTS, parseEvent);
   const spend = parseSpend(candidate["spend"]);
   const prompts = parseList(candidate["prompts"], MAX_RUNNER_PROMPT_OUTCOMES, parsePromptOutcome);
-  if (acked === undefined || slots === undefined || events === undefined || spend === null || prompts === undefined) {
+  const standing = parseList(candidate["standing"], MAX_STANDING_TASKS, parseStandingReport);
+  const standingOff = candidate["standingOff"] ?? undefined;
+  if (
+    acked === undefined ||
+    slots === undefined ||
+    events === undefined ||
+    spend === null ||
+    prompts === undefined ||
+    standing === undefined ||
+    (standingOff !== undefined && (typeof standingOff !== "string" || !STANDING_OFFS.has(standingOff)))
+  ) {
     return undefined;
   }
-  if (new Set(slots.map((slot) => slot.id)).size !== slots.length) {
+  if (new Set(slots.map((slot) => slot.id)).size !== slots.length || new Set(standing.map((task) => task.id)).size !== standing.length) {
     return undefined;
   }
-  return { runnerId, repo, acked, slots, events, spend, prompts };
+  return {
+    runnerId,
+    repo,
+    acked,
+    slots,
+    events,
+    spend,
+    prompts,
+    standing,
+    standingOff: standingOff === undefined ? undefined : (standingOff as StandingOff),
+  };
 }
 
 /**
@@ -564,9 +917,27 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
  * key the runner could not act on.
  */
 export function toRunnerCommand(id: string, draft: RunnerCommandDraft): RunnerCommand | undefined {
-  if (!isItemId(id) || !isRunnerName(draft.slotId)) {
+  if (!isItemId(id)) {
     return undefined;
   }
+  if (draft.kind === RUNNER_COMMAND_KIND.standingSet) {
+    const spec = parseStandingTaskSpec(draft.spec);
+    return spec === undefined ? undefined : { id, kind: draft.kind, spec, requestedBy: sanitizeName(draft.requestedBy) };
+  }
+  if (isStandingTaskCommandKind(draft.kind)) {
+    const task = draft as Omit<RunnerStandingTaskCommand, "id">;
+    return isStandingTaskId(task.taskId)
+      ? { id, kind: task.kind, taskId: task.taskId, requestedBy: sanitizeName(task.requestedBy) }
+      : undefined;
+  }
+  const slotDraft = draft as RunnerSlotCommandDraft;
+  if (!isRunnerName(slotDraft.slotId)) {
+    return undefined;
+  }
+  return toSlotCommand(id, slotDraft);
+}
+
+function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCommand | undefined {
   switch (draft.kind) {
     case RUNNER_COMMAND_KIND.start: {
       const url = parseTaskUrl(draft.url);

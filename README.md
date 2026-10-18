@@ -515,6 +515,8 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
 | `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it; time it waits on a person does not count. |
 | `RUNNER_DAILY_BUDGET_USD` | none | US dollars, `0` or more, the agents may spend in a day before the runner refuses new starts; see [The runner's budget](#the-runners-budget). Unset, spend is counted and nothing is refused. |
+| `RUNNER_STANDING_DAILY_BUDGET_USD` | none | US dollars, `0` or more, all [standing tasks](#standing-tasks) together may spend in a day. For `RUNNER_AGENT=claude` it is also the opt-in: unset, the runner takes no standing tasks. Refused at boot when above `RUNNER_DAILY_BUDGET_USD`, so issue work always keeps the difference. |
+| `RUNNER_STANDING_MAX_CONCURRENT` | `1` | Standing runs at once across every task, from 1 to `RUNNER_MAX_AGENTS`. |
 | `REAL_AGENT_ISSUE_LABEL` | `agent-ready` | The label an issue must carry on GitHub before a real agent starts on it; the server's own setting, the same value on both. |
 | `RUNNER_GITHUB_AUTH` | `app` | Who a `claude` agent is on GitHub: `app`, the runner's GitHub App, or `personal`, your own login, with your full access; see [Your own GitHub login instead](#your-own-github-login-instead). The setting decides, whatever else is set: with `personal` the App's variables are ignored, and with `app` `RUNNER_GITHUB_TOKEN` is. |
 | `RUNNER_GITHUB_APP_ID` | none; required for `claude` with `app` | The GitHub App the agents push and open pull requests as; see [The runner's GitHub App](#the-runners-github-app). All three or none; the mock needs none. |
@@ -549,8 +551,10 @@ transcript, and the runner reads what each assistant message there used,
 subagents included, and prices it per model, snapping to Claude Code's own
 tally once a session ends. Each task's cost is logged as it ends, and what the
 agents have spent today goes to the server on every sync. A day is the
-runner's machine's local day, kept in memory only: a restarted runner starts
-the day at nothing.
+runner's machine's local day, kept in memory for issue work: a restarted
+runner starts its issue work's day at nothing. What standing tasks spent is
+kept on disk, in `standing.json`, and booked again as the runner starts, so a
+restart never gives standing tasks a fresh day; see [Standing tasks](#standing-tasks).
 
 Once today's spend reaches `RUNNER_DAILY_BUDGET_USD`, the runner refuses every
 new start, reported to the server as a failed start that gives the budget and
@@ -783,6 +787,134 @@ access. The token is handed over as the App's is, written into
 environment, with the agent's own `GH_TOKEN` and `GITHUB_TOKEN` scrubbed, and it
 is masked out of the slots' screens and never logged.
 
+#### Standing tasks
+
+A standing task is work an office agent does again and again, rather than
+once to a pull request. There are two kinds:
+
+- **Watch for new pull requests.** The runner polls the repository's open
+  pull requests every two minutes, and each new one, not a draft, from the
+  repository's owner, members and collaborators or from the runner's own
+  agents, gets one read-only review, which the runner posts as a comment.
+- **A scheduled job.** On a cron schedule, on the runner's machine's clock,
+  the runner starts a run with the CEO's instruction ("summarise what changed
+  on `main` yesterday"), and the AI Manager posts what it found.
+
+Only the CEO sets them up and manages them, in the AI Manager's conversation
+or from the roster. To the AI Manager, say `watch for new pull requests` (or
+`review new pull requests`), or a schedule and what to do: `every weekday at
+9, summarise what changed yesterday`, `every 30 minutes check the open issues
+for anything urgent`, `summarise open PRs every day at 17:30`, or
+`on cron 0 9 * * 1-5 …` for any five-field schedule; `pause the pull request watch`,
+`resume the PR watch`, `stop watching pull requests`, `remove the morning
+summary`, `run the morning summary now`, and `what are you watching?`. A
+schedule firing more often than every five minutes is refused. Every tab's
+roster lists the tasks under **Standing tasks**, below the agents' spend, as
+`Watch for new pull requests · active`, with the trigger, the last check, the
+last outcome, today's spend against its cap and anything waiting for a slot,
+and `Pause` (or `Resume`), `Check now` and `Remove` buttons that only the
+CEO's tab can use; everyone else's are disabled and say why. One gate decides
+all of it, `mayManageStandingTasks` in `packages/shared/src/standing.ts`, and
+a refusal is sent back to the sender.
+
+**What runs.** The runner owns each task once it has it, and every run is a
+fresh, short, headless agent run (`claude -p --output-format stream-json`)
+in a scratch worktree of the default branch, which is removed afterwards
+whatever happened. Nothing waits on a person: in `dontAsk` a tool a run may
+not use is refused, not asked about. Each run shows on a free slot, which sits
+down and types; its terminal shows one line a step, and the floor and the
+terminal panel name and link the pull request it reviews.
+
+- A **review** is read-only whatever `RUNNER_AGENT_PERMISSIONS` says, since
+  the code it reads is a stranger's: `--restricted --strict-mcp-config
+  --tools Read,Grep,Glob --permission-mode dontAsk`, with deny rules in its
+  own `--settings` for good measure, so it has no shell, no way to write and
+  no network, and the project's own settings and MCP servers are ignored.
+  It never checks the pull request out: the runner writes it into
+  `.sims-review/` (`pr.json`, `pr.diff` and the changed files' head copies,
+  capped in count and size) for the agent to read, so a pull request adding
+  `.claude/settings.json` or `.mcp.json` runs nothing. The agent has no
+  GitHub identity at all; the runner reads the pull request and posts the
+  review with `gh pr comment --body-file`, its mentions neutralised, under an
+  attribution line and a hidden marker,
+  `<!-- sims-standing:<task>:pr-<n> -->`, which it looks for first, so a run
+  cut short after posting never posts twice. It never runs `gh pr review`, so
+  a review never approves or requests changes and never counts towards a
+  required approval. The App's **Pull requests: Read and write** covers the
+  comment.
+- A **scheduled job** follows `RUNNER_AGENT_PERMISSIONS`, as issue work
+  does, since its instruction is the CEO's own. With `allowlist`, the
+  default, it gets the review's read-only tools and a shell held to commands
+  that only read (`SCHEDULE_ALLOWED_COMMANDS` in
+  `apps/runner/src/standing/claude.ts`: `gh issue list`, `gh pr list`,
+  `gh pr view`, `git log` and the like), with the agents' GitHub identity for
+  them; anything else is refused. With `all` it runs in `bypassPermissions`
+  like the issue agents then do, anything unprompted, still in a scratch
+  worktree nothing is kept of. Either way it is told to report and never to
+  push, open or merge anything, and its final message is what the AI Manager
+  posts.
+
+**The caps.** Each task has its own: $0.50 and 10 minutes a run
+(`--max-budget-usd`, and the runner stops the run's process group at its
+minutes, or once its own estimate passes the cap by a quarter), $2.00 a day,
+and 6 runs an hour; a task that reaches its runs an hour starts nothing more
+that day, so a burst of pull requests cannot run up the day. A run stopped by
+a cap is reported `failed` and tried again later, up to three attempts in
+all; a task past a cap shows `over budget` and starts nothing more that day.
+All standing tasks together are held to `RUNNER_STANDING_DAILY_BUDGET_USD`,
+and everything to the runner's own `RUNNER_DAILY_BUDGET_USD`, in whose ledger
+standing spend is booked too. A `claude` runner takes no standing task at all
+until its operator sets `RUNNER_STANDING_DAILY_BUDGET_USD`: it says so on
+every sync, the AI Manager says why when asked for one, and the runner itself
+refuses one anyway. The runner holds a task's caps to the standing budget
+whatever the server sent, and holds at most four tasks, one of them a pull
+request watch.
+
+**Issue work comes first.** A standing run only takes a slot holding no run
+of any kind, at most `RUNNER_STANDING_MAX_CONCURRENT` at once and one per
+task. An issue's start for a slot on a standing run takes the slot back at
+once: the run is stopped and reported `preempted`, its pull request is queued
+again without counting an attempt, and it runs later on a free slot.
+
+**What the office says.** The AI Manager posts each run: `Claude 2 reviewed
+PR #112 “…”: <the comment's link>`, a scheduled run's result, a simulated
+review or run that says nothing was posted or done, a pull request skipped as
+an outside contributor's, a run preempted by issue work, a task that has
+spent its budget, and a failure once, after its last attempt. A pull request
+open when the watch is set up is left alone, never reviewed, and a draft
+waits until it is ready for review. A pause stops its checks and firings (a
+run under way finishes), a resume starts them again, `Check now` looks at
+GitHub or runs a schedule at once, and a remove deletes the task and stops a
+run of it under way. The server never writes to GitHub, starts a process or
+holds a credential for any of this: it mirrors what every runner reports, so
+a room opened later, or a restarted server, shows the tasks within a sync,
+and a runner that goes silent takes its tasks off the roster with its slots.
+
+**The mock.** With the default `RUNNER_AGENT=mock`, standing tasks need no
+opt-in: a run is a script of steps on the slot's screen, five pretend cents
+a step, that posts nothing and is announced as simulated. Its pull request
+watch reads the repository's real open pull requests anonymously, at most
+every five minutes, which only a public repository answers.
+
+**What is kept.** `<RUNNER_DATA_DIR>/standing.json`, private to the runner's
+user and written whole, holds each task's definition, its ledger (each pull
+request or firing it saw: `baseline`, `queued`, `running`, `done`, `failed`
+or `skipped`, with its attempts and its comment) and what it and all standing
+tasks spent today. A restarted runner keeps its tasks and its day: a pull
+request already reviewed is not reviewed again, and a run the restart cut
+short is tried again. To discard them all, stop the runner and delete the
+file; the tasks leave the roster within a sync of its restart. Scratch
+worktrees a crash left under `<RUNNER_DATA_DIR>/standing-runs/` are removed
+at the next boot.
+
+Not yet: reviewing a pull request again after new pushes, a "reviewed" chip
+on the board's cards, a form to edit a task's filters and caps, nudges from
+the server's own board poll or a GitHub webhook, a digest of runs while the
+office stood empty, other GitHub events, and config as code. Email and other
+private sources wait for a signed-in CEO, a result channel only the CEO
+reads and terminals that are not broadcast, since everyone in the office
+reads the conversation and every agent's screen.
+
 ## The two-tab check
 
 This is what "it works" means for this milestone. With `pnpm dev` running, open
@@ -792,7 +924,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twenty-one:
+Then confirm all twenty-two:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -1001,13 +1133,45 @@ Then confirm all twenty-one:
     `apps/runner/src/roundTrip.test.ts` answers the menu with keys through
     the runner link, and `apps/runner/src/agents/ptyAgent.test.ts` checks the
     bytes each key writes to a real agent's terminal.
-21. **`pnpm typecheck` passes** across the whole repository.
+21. **A standing task watches for new pull requests, for the CEO alone.**
+    Run the server with `RUNNER_SECRET` and the mock runner as in step 17,
+    with this repository public. Dana tells the AI Manager
+    `watch for new pull requests`: it answers that the task is set up, and
+    within a couple of seconds both tabs' rosters show **Standing tasks** with
+    `Watch for new pull requests · active`, `every 5 min · checked just now`
+    (the mock's anonymous look is held to every five minutes). Milo's
+    `Pause` button is disabled and says only the CEO can; his
+    `stop watching pull requests` to the AI Manager is refused with the same
+    reason, and nothing changes. The pull requests open then are never
+    reviewed. Open a new, non-draft pull request on GitHub as the owner and
+    have Dana press `Check now`: a free mock slot sits and types, its terminal
+    shows `Read: .sims-review/pr.diff` and the rest of its steps, the floor
+    names `Review PR #<n>: <title>`, and the AI Manager posts
+    `Mock 1 did a simulated review of PR #<n> “<title>” … nothing was posted
+    on GitHub.`; the row reads `Last: simulated PR #<n>` and `$0.20 of $2.00
+    today` in both tabs, and nothing appears on the pull request. A draft
+    waits until it is marked ready. Assign an `agent-ready` issue to the slot
+    while it reviews: it starts the issue at once, the AI Manager says the
+    review gave way to issue work, and it runs again on the other slot.
+    `Pause` makes the row `paused` in both tabs and its checks stop; `Resume`
+    starts them again. Restart the runner: the row is back within a sync, its
+    day's spend kept, and the pull request is not reviewed again. Restart the
+    server, or close both tabs and open them again: the row is back within a
+    sync. `Remove`, or `stop watching pull requests` from Dana, takes it off
+    both rosters. With `RUNNER_AGENT=claude` and no
+    `RUNNER_STANDING_DAILY_BUDGET_USD`, the AI Manager answers that the
+    runner takes no standing tasks and why.
+    `apps/server/src/manager/standingRoundTrip.test.ts` plays this against a
+    live room and the runner's own scheduler, and
+    `apps/runner/src/standing/scheduler.test.ts` the baseline, the skips,
+    preemption, the caps and a restart.
+22. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the server's mirror, gate, announcements and the AI Manager's words for them, and their round trip from the AI Manager to the runner and back
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -1149,7 +1313,7 @@ thing the page talks to is the WebSocket.
   `POST /agents/runner/screens` when `RUNNER_SECRET` is set, the only HTTP the
   server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same twenty-one things.
+  [The two-tab check](#the-two-tab-check), and confirm the same twenty-two things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -1169,6 +1333,8 @@ packages/shared/   @sim/shared   the contract both sides import
   src/runner.ts       the runner link's wire contract: a sync, its slots and events, and the commands
   src/screens.ts      the slots' terminal screens: a frame of styled runs, a runner's batch, and its parser
   src/spend.ts        the runners' real spend in dollars: the budget refusal and how spend is said
+  src/standing.ts     standing tasks: their definitions, caps, reports, and the CEO-only rule
+  src/cron.ts         the five-field cron schedules scheduled tasks fire on, and how one reads
   src/stickerNotes.ts the sticker boards' notes: which issues have one, where each is, and which an agent fetches or pins
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/agentPrompt.ts  the CEO's prompts and choice-screen keys to the coding agents: the one gate, the keys, and why one was refused
@@ -1188,6 +1354,11 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/manager/            the AI manager: its view of the office, rule and model planners, call budget, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/rooms/agentPromptHandlers.ts  the CEO's prompts and keys to a coding agent, and the refusals sent back
+  src/rooms/standingHandlers.ts  the CEO's standing task buttons, and the refusals sent back
+  src/agents/standingMirror.ts   every runner's standing tasks, mirrored for the rooms
+  src/agents/standingControl.ts  creating and managing standing tasks through the one gate
+  src/agents/standingAnnouncer.ts  what the AI Manager says of each standing run
+  src/manager/standingPlan.ts    the AI Manager's words for standing tasks, schedules read into cron
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk, and carry the sticky notes between boards and desk
 apps/runner/       @sim/runner   the agent runner: slots, agents, their screens, and the sync with the server
   src/config.ts           its RUNNER_* variables, refused at boot when wrong
@@ -1213,6 +1384,13 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/agents/childEnv.ts  the allowlist of the runner's environment an agent starts with
   src/agents/prompt.ts    the first prompt an agent gets for an issue
   src/agents/screen.ts    OSC 9;4 progress and plain text, read off a terminal's output
+  src/standing/scheduler.ts  standing tasks: triggers, the ledger, caps, preemption, and the runs they start
+  src/standing/store.ts   standing.json: definitions, ledgers and the day's spend, kept across restarts
+  src/standing/pulls.ts   the open pull requests, polled with an ETag
+  src/standing/headless.ts  one headless Claude Code run, streamed to the slot's screen and capped
+  src/standing/claude.ts  Claude Code's standing runs: the read-only review and the scheduled job
+  src/standing/review.ts  the review's GitHub side: .sims-review, the marker, the comment
+  src/standing/mock.ts    the mock's scripted standing runs, which post nothing
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do about the project board's work, and why
   src/dayClock.ts         the replicated clock, run on smoothly between patches
@@ -1229,6 +1407,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/projectBoard.ts     the project board's columns, filters, and how an issue's work reads
   src/ui/ProjectBoardPanel.tsx  the project board's close-up, with the agents' work and the CEO's controls
   src/managerAccess.ts    what the local player may say to the manager, and why
+  src/standingAccess.ts   how a standing task reads in the roster, and whether its buttons are the local player's
   src/agentPromptAccess.ts  whether the local player may prompt a coding agent, which keyboard keys its key pad takes, and why a prompt or key was refused
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to

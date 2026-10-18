@@ -18,7 +18,7 @@
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 
-import { LIVE_AGENT_STATUS, RUNNER_SCREENS_PATH, RUNNER_SYNC_PATH, type ScreenFramesEvent } from "@sim/shared";
+import { LIVE_AGENT_STATUS, RUNNER_SCREENS_PATH, RUNNER_SYNC_PATH, type ScreenFramesEvent, isRunnerWorkEvent } from "@sim/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createHealthServer } from "../../server/src/http.js";
@@ -180,12 +180,13 @@ describe("the mock runner and the server's runner link", () => {
       events.push(...inbox.drain());
       return events.some((record) => record.event.kind === "pr-opened");
     });
-    expect(events.map((record) => [record.event.kind, record.event.slotId, record.event.issueNumber])).toEqual([
+    const work = events.map((record) => record.event).filter(isRunnerWorkEvent);
+    expect(work.map((event) => [event.kind, event.slotId, event.issueNumber])).toEqual([
       ["started", "slot-1", 39],
       ["pr-opened", "slot-1", 39],
     ]);
     // Simulated: nothing on GitHub, so nothing to link.
-    expect(events[1]?.event.pr).toEqual({ number: 1_000_039, title: "[mock] Night shift", url: "", simulated: true });
+    expect(work[1]?.pr).toEqual({ number: 1_000_039, title: "[mock] Night shift", url: "", simulated: true });
     // Its commit is in its own worktree, kept since nothing pushed it.
     await workspaces.settled();
     expect(workspaces.current().map((record) => [record.slotId, record.issueNumber])).toEqual([["slot-1", 39]]);

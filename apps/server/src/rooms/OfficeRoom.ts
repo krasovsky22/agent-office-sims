@@ -49,6 +49,13 @@
  * screens, go out through `agents/agentPrompts.ts`, and what the runner says came of each comes
  * back on the same tick as its events.
  *
+ * The runners' standing tasks arrive as a source handed over at definition
+ * time too: a process-wide mirror (`agents/standingMirror.ts`) the tick
+ * copies into the state whenever it changes, so every tab's roster lists
+ * them. The roster's buttons for them go through `standingHandlers.ts`, and
+ * the AI Manager announces what each of their runs came to
+ * (`agents/standingAnnouncer.ts`), from the same events the work's come in.
+ *
  * Nor is how the AI manager thinks. The room seats it at its desk, hands every
  * message to it through `managerHandlers.ts`, and sends each joining client the
  * conversation so far; the manager in `manager/officeManager.ts` answers on its
@@ -108,6 +115,9 @@ import {
 } from "../agents/runnerLink.js";
 import { type RunnerCommands, RunnerWork, isRunnerCommands } from "../agents/runnerWork.js";
 import { type ScreenSource, isScreenSource } from "../agents/screens.js";
+import { StandingAnnouncer } from "../agents/standingAnnouncer.js";
+import { StandingControl } from "../agents/standingControl.js";
+import { type StandingMirror, copyStandingTasks, isStandingSource } from "../agents/standingMirror.js";
 import type { ProjectBoardSource } from "../github/feed.js";
 import { type SimClock, createSimClock, stepClock } from "../sim/clock.js";
 import { type ManagerAdvisor, isManagerAdvisor } from "../manager/advisor.js";
@@ -127,6 +137,7 @@ import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
 import { registerAgentPromptHandlers } from "./agentPromptHandlers.js";
 import { registerManagerHandlers } from "./managerHandlers.js";
+import { registerStandingHandlers } from "./standingHandlers.js";
 import {
   isProjectBoardSource,
   relayProjectBoard,
@@ -186,6 +197,8 @@ export interface OfficeRoomOptions {
   readonly agentIssueLabel?: string;
   /** The runner slots' terminal screens; absent when no runner is configured. */
   readonly screens?: ScreenSource;
+  /** Every runner's standing tasks, mirrored; absent when no runner is configured. */
+  readonly standing?: StandingMirror;
 }
 
 /** Reads the eligibility label off the room's options, bounded for the same reason as the grace period. */
@@ -260,6 +273,13 @@ export class OfficeRoom extends Room<OfficeState> {
 
   /** The AI manager's mind; unset in a room given no advisor. */
   private manager: OfficeManager | undefined;
+
+  /** The runners' standing tasks, copied into the state when they change; unset in a room given no runner. */
+  private standing: StandingMirror | undefined;
+  private standingVersion = -1;
+  /** The CEO's say over the standing tasks, for the roster's buttons and the manager alike. */
+  private standingControl: StandingControl | undefined;
+  private standingAnnouncer: StandingAnnouncer | undefined;
 
   public override onCreate(options?: unknown): void {
     this.state = new OfficeState();
@@ -351,6 +371,24 @@ export class OfficeRoom extends Room<OfficeState> {
       });
     }
     registerWorkHandlers(this, workHost);
+    const standing = roomOptions?.standing;
+    if (isStandingSource(standing) && runnerCommands !== undefined) {
+      this.standing = standing;
+      this.standingControl = new StandingControl({ directory: standing, commands: runnerCommands });
+      this.standingAnnouncer = new StandingAnnouncer({
+        // GitHub answers an issue's link for a pull request's number by going to the pull request.
+        pullUrl: (number) => runnerCommands.issueUrl(number).replace(/\/issues\/(\d+)$/, "/pull/$1"),
+        taskName: (taskId) => standing.standingTasks().find((record) => record.report.id === taskId)?.report.name,
+        occupantName: (occupantId) => this.state.occupants.get(occupantId)?.name,
+        announce: (text) => this.manager?.report(text),
+        refused: (taskId) => standing.refused(taskId),
+      });
+      registerStandingHandlers(this, {
+        state: this.state,
+        control: this.standingControl,
+        allow: (client, command) => this.spend(client, command),
+      });
+    }
     this.agentPrompts = new AgentPrompts({
       state: this.state,
       runner: runnerCommands,
@@ -544,6 +582,11 @@ export class OfficeRoom extends Room<OfficeState> {
     const events = this.runnerEvents?.drain();
     if (events !== undefined && events.length > 0) {
       this.runnerWork?.receive(events);
+      this.standingAnnouncer?.receive(events);
+    }
+    if (this.standing !== undefined && this.standing.standingVersion() !== this.standingVersion) {
+      this.standingVersion = this.standing.standingVersion();
+      copyStandingTasks(this.state.standing, this.standing.standingTasks());
     }
     const prompts = this.runnerEvents?.drainPrompts();
     if (prompts !== undefined && prompts.length > 0) {
@@ -636,6 +679,7 @@ export class OfficeRoom extends Room<OfficeState> {
       liveAgents: assignments,
       floor: this.liveAgents,
       assignments,
+      ...(this.standingControl === undefined ? {} : { standing: this.standingControl }),
       origin: this.roomId,
       publish: (entry) => {
         this.broadcast(SERVER_MESSAGE.managerEntry, entry satisfies ManagerEntry);

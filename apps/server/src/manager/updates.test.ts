@@ -14,7 +14,7 @@ import { describeChanges, observe } from "./updates.js";
 const ISSUE_33 = { title: "Live agents", url: "https://github.com/o/r/issues/33", reference: "#33" };
 
 function view(liveAgents: readonly LiveAgentView[], work: readonly WorkView[] = []): OfficeView {
-  return { ceo: "Dana", liveAgents, issueAgents: [], work, project: undefined, orchestrator: true };
+  return { ceo: "Dana", liveAgents, issueAgents: [], work, project: undefined, orchestrator: true, standing: [] };
 }
 
 function work(status: WorkStatus, extra: Partial<WorkView> = {}): WorkView {

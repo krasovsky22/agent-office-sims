@@ -212,6 +212,61 @@
   color: #f3b3a8;
 }
 
+/* A standing task's row: its name and status, then a few dim lines, then the CEO's buttons. */
+.hud__standing {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+}
+
+.hud__standing-title {
+  color: #e9ecf1;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.hud__standing-line {
+  color: #9aa0aa;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.hud__standing--alert .hud__standing-title {
+  color: #f3b3a8;
+}
+
+/* The roster lets drags through to the scene; only these buttons take the pointer. */
+.hud__standing-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+  pointer-events: auto;
+}
+
+.hud__standing-button {
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e9ecf1;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.hud__standing-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.hud__standing-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .hud__status--failed {
   color: #f08a7a;
 }
