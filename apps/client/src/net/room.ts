@@ -152,6 +152,8 @@ export interface OccupantView {
   assignedUrl: string;
   /** Whether a live agent can be given issue work; `false` for anyone else. */
   canTakeIssues: boolean;
+  /** The issue whose sticky note a live agent has in hand, `0` when none and for anyone else. */
+  carriedIssue: number;
   /** The AI manager's status, or `undefined` for anyone else. */
   managerStatus: ManagerStatus | undefined;
 }
@@ -533,6 +535,7 @@ export class RoomConnection {
         assignedTitle: isLiveAgent(occupant) ? occupant.assignedTitle : "",
         assignedUrl: isLiveAgent(occupant) ? occupant.assignedUrl : "",
         canTakeIssues: isLiveAgent(occupant) && occupant.canTakeIssues,
+        carriedIssue: isLiveAgent(occupant) ? occupant.carriedIssue : 0,
         managerStatus: isAiManager(occupant) ? occupant.status : undefined,
       };
       this.views.set(sessionId, view);
@@ -677,6 +680,7 @@ export class RoomConnection {
     const assignedTitle = agent?.assignedTitle ?? "";
     const assignedUrl = agent?.assignedUrl ?? "";
     const canTakeIssues = agent?.canTakeIssues ?? false;
+    const carriedIssue = agent?.carriedIssue ?? 0;
     const managerStatus = isAiManager(occupant) ? occupant.status : undefined;
     if (
       view.name !== occupant.name ||
@@ -689,6 +693,7 @@ export class RoomConnection {
       view.assignedTitle !== assignedTitle ||
       view.assignedUrl !== assignedUrl ||
       view.canTakeIssues !== canTakeIssues ||
+      view.carriedIssue !== carriedIssue ||
       view.managerStatus !== managerStatus
     ) {
       view.name = occupant.name;
@@ -701,6 +706,7 @@ export class RoomConnection {
       view.assignedTitle = assignedTitle;
       view.assignedUrl = assignedUrl;
       view.canTakeIssues = canTakeIssues;
+      view.carriedIssue = carriedIssue;
       view.managerStatus = managerStatus;
       this.events.onOccupantsChanged?.();
     }

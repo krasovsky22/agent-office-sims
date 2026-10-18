@@ -235,6 +235,13 @@ export class LiveAgent extends Occupant {
    * by whoever reported it.
    */
   declare public activity: string;
+  /**
+   * The issue whose sticky note this agent has in hand, taken off the issues
+   * sticker board and not yet pinned anywhere, or `0`. Replicated because it
+   * is the one part of a note's place the work does not say; see
+   * `stickerNotes.ts`. Only the server's crew writes it.
+   */
+  declare public carriedIssue: number;
 
   public constructor() {
     super();
@@ -246,6 +253,7 @@ export class LiveAgent extends Occupant {
     this.assignedUrl = "";
     this.canTakeIssues = false;
     this.activity = "";
+    this.carriedIssue = 0;
   }
 }
 
@@ -257,6 +265,7 @@ defineTypes(LiveAgent, {
   assignedUrl: "string",
   canTakeIssues: "boolean",
   activity: "string",
+  carriedIssue: "uint32",
 });
 
 /**

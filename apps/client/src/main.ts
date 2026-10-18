@@ -21,7 +21,9 @@ import {
   OFFICE_PROPS,
   type OfficeLayout,
   PROJECT_BOARD_ID,
+  type ProjectBoardSnapshot,
   STARTING_MINUTE_OF_DAY,
+  type WorkData,
   authorizeInteract,
   describeLiveAgentTask,
   heldAnimationFor,
@@ -29,6 +31,7 @@ import {
   nearestInteractable,
   promptFor,
   sanitizeName,
+  stickerNotes,
   taskReference,
 } from "@sim/shared";
 import { createElement } from "react";
@@ -50,6 +53,7 @@ import { buildLighting } from "./scene/lighting.js";
 import { buildOffice } from "./scene/office.js";
 import { loadPropKit, screenFaceOf, screenMaterialOf } from "./scene/propKit.js";
 import { buildProps } from "./scene/props.js";
+import { StickerBoards } from "./scene/stickerBoards.js";
 import {
   Hud,
   type ChatLogEntry,
@@ -225,6 +229,10 @@ function start(): void {
     boardSpec === undefined
       ? undefined
       : buildWallBoard(scene, boardSpec, renderer.capabilities.getMaxAnisotropy());
+  const stickerBoards = new StickerBoards(scene, OFFICE_LAYOUT, renderer.capabilities.getMaxAnisotropy());
+  // What the sticker boards' notes are worked out from, besides who carries what.
+  let boardSnapshot: ProjectBoardSnapshot | undefined;
+  let officeWork: readonly WorkData[] = [];
 
   const camera = createCamera(canvas, OFFICE_LAYOUT);
   const controller = new PlayerController(camera, canvas);
@@ -314,6 +322,20 @@ function start(): void {
   };
   void furnish();
 
+  // Recomputed from replicated state whenever any of it changes; the boards
+  // repaint only when the notes come out different.
+  const refreshStickerNotes = () => {
+    const carriers = room
+      .occupants()
+      .filter((view) => view.agentStatus !== undefined)
+      .map((view) => ({ id: view.id, carriedIssue: view.carriedIssue }));
+    stickerBoards.show(
+      stickerNotes(boardSnapshot, officeWork, carriers, room.agentIssueLabel()),
+      (id) => room.occupantName(id),
+      performance.now(),
+    );
+  };
+
   const room: RoomConnection = new RoomConnection({
     onStatusChanged: (status, detail) => {
       publishHud(detail === undefined ? { status } : { status, detail });
@@ -377,6 +399,7 @@ function start(): void {
         managerAccess: local === undefined ? undefined : managerAccessFor(local, ceo?.name),
         agentPromptAccess: local === undefined ? undefined : agentPromptAccessFor(local, ceo?.name),
       });
+      refreshStickerNotes();
     },
 
     // Expression events arrive for everyone, the local player included, so
@@ -455,6 +478,8 @@ function start(): void {
     onProjectBoard: (snapshot) => {
       wallBoard?.show(snapshot);
       publishHud({ projectBoard: snapshot });
+      boardSnapshot = snapshot;
+      refreshStickerNotes();
     },
 
     // The lighting runs the clock on between patches; React never hears of it.
@@ -464,6 +489,8 @@ function start(): void {
 
     onWorkChanged: (work) => {
       publishHud({ work });
+      officeWork = work;
+      refreshStickerNotes();
     },
 
     onSpendChanged: (runnerSpend) => {
@@ -709,7 +736,8 @@ function start(): void {
         room.sendInteract(target.id);
       }
     }
-    const closeUp = readingBoard === PROJECT_BOARD_ID;
+    // The sticker boards are the project board's too, and open the same close-up.
+    const closeUp = interactableById(OFFICE_LAYOUT, readingBoard)?.kind === INTERACTION_KIND.board;
     if (closeUp !== hud.boardCloseUp) {
       publishHud({ boardCloseUp: closeUp });
     }
@@ -766,6 +794,9 @@ function start(): void {
       // the body; all that is left is retiring whatever has expired.
       avatar.updateExpressions(nowMs);
     }
+
+    // Carried sticky notes follow their agents, after the agents have moved.
+    stickerBoards.update(nowMs, (id) => avatars.get(id));
 
     // Every seated live agent's terminal on its own desk's monitor, and none
     // for an agent that has stood up or gone.

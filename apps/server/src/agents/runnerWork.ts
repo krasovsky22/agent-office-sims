@@ -125,17 +125,6 @@ export function pullRequestArtifact(pr: RunnerPullRequest): string {
   return pr.title === "" ? `PR #${pr.number}: ${pr.url}` : `PR #${pr.number}: ${pr.title}, ${pr.url}`;
 }
 
-/**
- * The pull request a deliverable written by {@link pullRequestArtifact} names,
- * so the manager can link it; `undefined` for any other deliverable.
- */
-export function pullRequestOfArtifact(
-  artifact: string,
-): { readonly number: number; readonly title: string; readonly url: string } | undefined {
-  const match = /^PR #(\d+): (?:(.*), )?(https:\/\/\S+)$/.exec(artifact);
-  return match === null ? undefined : { number: Number(match[1]), title: match[2] ?? "", url: match[3] ?? "" };
-}
-
 const LIVE_AGENT_PREFIX = liveAgentKey("");
 
 /** The slot an occupant key names, for a runner's live agent. */

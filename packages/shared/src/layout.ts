@@ -346,6 +346,15 @@ export const OPEN_FLOOR_ROOM_ID = "open-floor";
 /** The open floor's wall board that shows this repository's own GitHub issues and pull requests. */
 export const PROJECT_BOARD_ID = "project-board";
 
+/**
+ * The open floor's sticker board of issues an agent can pick up, one sticky
+ * note each; an agent starting one walks here and takes its note.
+ */
+export const ISSUES_STICKER_BOARD_ID = "issues-sticker-board";
+
+/** The sticker board an agent pins an issue's note on once it has handed in its pull request. */
+export const PULL_REQUESTS_STICKER_BOARD_ID = "pull-requests-sticker-board";
+
 /** The AI manager's desk in the lobby, where it sits for good. */
 export const MANAGER_DESK_ID = "desk-manager";
 
@@ -551,6 +560,31 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       height: 2.6,
       elevation: 0.3,
     },
+    // The two sticker boards, one on each partition stretch outside the
+    // doorways, so issues are picked up at the west end of the floor and the
+    // pull requests pinned at the east. Kept clear of the door frames and of the
+    // open floor's plant in its north-east corner, with the reading spot in
+    // front of each a clear walk from the doorway's waypoint.
+    {
+      id: ISSUES_STICKER_BOARD_ID,
+      roomId: "open-floor",
+      x: -8.9,
+      z: -2.4,
+      yaw: Math.PI,
+      width: 3.6,
+      height: 2.1,
+      elevation: 0.45,
+    },
+    {
+      id: PULL_REQUESTS_STICKER_BOARD_ID,
+      roomId: "open-floor",
+      x: 8.9,
+      z: -2.4,
+      yaw: Math.PI,
+      width: 3.6,
+      height: 2.1,
+      elevation: 0.45,
+    },
   ],
   rooms: [
     { id: "ceo-office", name: "CEO Office", bounds: rect(-11.7, -11.7, -6, -5) },
@@ -622,16 +656,27 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { id: "wp-corridor-lobby", x: 9, z: -3.7, links: ["wp-corridor-east-door", "wp-lobby-door"] },
 
     // Open floor: a spine along the north edge, then one node per aisle end.
-    { id: "wp-floor-west-door", x: -6, z: -1.6, links: ["wp-corridor-west-door", "wp-floor-north"] },
+    {
+      id: "wp-floor-west-door",
+      x: -6,
+      z: -1.6,
+      links: ["wp-corridor-west-door", "wp-floor-north", "wp-floor-north-west"],
+    },
     {
       id: "wp-floor-north",
       x: 0,
       z: -1.6,
       links: ["wp-floor-west-door", "wp-floor-east-door", "wp-floor-aisle-north"],
     },
-    { id: "wp-floor-east-door", x: 6, z: -1.6, links: ["wp-corridor-east-door", "wp-floor-north"] },
+    { id: "wp-floor-east-door", x: 6, z: -1.6, links: ["wp-corridor-east-door", "wp-floor-north", "wp-floor-north-east"] },
 
-    { id: "wp-floor-aisle-north-west", x: -7.2, z: 2.5, links: ["wp-floor-aisle-north"] },
+    // In front of each sticker board, and down the aisle end beside it to the
+    // desk rows, so an agent fetching or pinning a note walks straight between
+    // the board and its desk rather than round through the middle of the floor.
+    { id: "wp-floor-north-west", x: -7.2, z: -1.6, links: ["wp-floor-west-door", "wp-floor-aisle-north-west"] },
+    { id: "wp-floor-north-east", x: 7.2, z: -1.6, links: ["wp-floor-east-door", "wp-floor-aisle-north-east"] },
+
+    { id: "wp-floor-aisle-north-west", x: -7.2, z: 2.5, links: ["wp-floor-aisle-north", "wp-floor-north-west"] },
     {
       id: "wp-floor-aisle-north",
       x: 0,
@@ -643,7 +688,7 @@ export const OFFICE_LAYOUT: OfficeLayout = {
         "wp-floor-aisle-south",
       ],
     },
-    { id: "wp-floor-aisle-north-east", x: 7.2, z: 2.5, links: ["wp-floor-aisle-north"] },
+    { id: "wp-floor-aisle-north-east", x: 7.2, z: 2.5, links: ["wp-floor-aisle-north", "wp-floor-north-east"] },
 
     { id: "wp-floor-aisle-south-west", x: -7.2, z: 6.5, links: ["wp-floor-aisle-south"] },
     {

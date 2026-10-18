@@ -30,11 +30,11 @@ import {
   isIssueAssignee,
   isLiveAgent,
   isSimulatedPullRequestArtifact,
+  pullRequestOfArtifact,
   taskReference,
 } from "@sim/shared";
 
 import type { LiveAgentRecord } from "../agents/registry.js";
-import { pullRequestOfArtifact } from "../agents/runnerWork.js";
 
 /** A link with the short handle a person would say: `#33`, `PR #40`, or `""`. */
 export interface LinkView {

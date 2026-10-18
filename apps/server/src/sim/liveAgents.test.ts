@@ -4,7 +4,9 @@
  * Each acceptance claim about the world side is checked here without a socket:
  * a working agent reaches a free chair and sits in it, never one somebody else
  * holds; an idle one stands up and wanders between rooms; two idle ones that
- * meet trade lines; one that leaves frees its chair. Time is passed in, and
+ * meet trade lines; one that leaves frees its chair; one that starts an issue
+ * fetches its sticky note first, and one that hands it in pins the note on the
+ * pull requests board. Time is passed in, and
  * the wandering is driven by a seeded random source, so every run walks the
  * same route.
  */
@@ -14,12 +16,14 @@ import {
   ANIMATION_STATE,
   HumanPlayer,
   INTERACTION_KIND,
+  ISSUES_STICKER_BOARD_ID,
   IssueWork,
   LIVE_AGENT_STATUS,
   LiveAgent,
   OCCUPANT_RADIUS,
   OFFICE_LAYOUT,
   type Occupant,
+  PULL_REQUESTS_STICKER_BOARD_ID,
   TICK_INTERVAL_MS,
   WORK_STATUS,
   type WorkStatus,
@@ -39,6 +43,7 @@ import {
   LINE_GAP_MS,
   LiveAgentCrew,
   MEET_DISTANCE,
+  NOTE_HANDLING_MS,
 } from "./liveAgents.js";
 
 const STEP_SECONDS = TICK_INTERVAL_MS / 1000;
@@ -498,5 +503,125 @@ describe("labels", () => {
 
     office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working, "Night shift")], office.now);
     expect(body).toMatchObject({ assignedTitle: "", assignedUrl: "" });
+  });
+});
+
+describe("sticky notes", () => {
+  const ISSUE = 33;
+
+  function startedWork(office: Office, assignee = "alpha"): IssueWork {
+    const work = new IssueWork();
+    work.issueNumber = ISSUE;
+    work.title = "Sticker boards";
+    work.status = WORK_STATUS.in_progress;
+    work.assigneeId = liveAgentKey(assignee);
+    office.work.set(workKey(ISSUE), work);
+    return work;
+  }
+
+  function carried(office: Office, id: string): number {
+    return (agent(office, id) as LiveAgent).carriedIssue;
+  }
+
+  function atBoard(office: Office, id: string, boardId: string): boolean {
+    const spot = interactableById(OFFICE_LAYOUT, boardId)?.anchor;
+    const body = agent(office, id);
+    return spot !== undefined && Math.hypot(spot.x - body.x, spot.z - body.z) < 0.1;
+  }
+
+  /** Brings an agent in on the issue and runs until it is at its desk with the note. */
+  function seatedWithNote(office: Office): IssueWork {
+    const work = startedWork(office);
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working, "Sticker boards")], office.now);
+    const seated = runUntil(office, 60, () => agent(office, "alpha").interactableId !== "" && carried(office, "alpha") === ISSUE);
+    expect(seated).toBeDefined();
+    return work;
+  }
+
+  it("are fetched from the issues board by an agent starting the issue, then carried to its desk", () => {
+    const office = createOffice();
+    startedWork(office);
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working, "Sticker boards")], office.now);
+
+    expect(runUntil(office, 30, () => atBoard(office, "alpha", ISSUES_STICKER_BOARD_ID))).toBeDefined();
+    // It stands there a moment, and only then does the note leave the board.
+    expect(carried(office, "alpha")).toBe(0);
+    expect(agent(office, "alpha").interactableId).toBe("");
+    const tookAfter = runUntil(office, 5, () => carried(office, "alpha") === ISSUE);
+    expect(tookAfter).toBeDefined();
+    expect((tookAfter ?? 0) * 1000).toBeGreaterThanOrEqual(NOTE_HANDLING_MS - TICK_INTERVAL_MS);
+
+    expect(runUntil(office, 30, () => agent(office, "alpha").interactableId !== "")).toBeDefined();
+    expect(carried(office, "alpha")).toBe(ISSUE);
+  });
+
+  it("are not fetched for work only assigned, which has not started", () => {
+    const office = createOffice();
+    startedWork(office).status = WORK_STATUS.assigned;
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working, "Sticker boards")], office.now);
+    expect(runUntil(office, 30, () => agent(office, "alpha").interactableId !== "")).toBeDefined();
+    expect(carried(office, "alpha")).toBe(0);
+  });
+
+  it("are pinned on the pull requests board once the work is handed in, and the agent wanders off", () => {
+    const office = createOffice();
+    const work = seatedWithNote(office);
+    work.status = WORK_STATUS.review;
+    work.outputArtifact = "PR #41: Sticker boards, https://github.com/o/r/pull/41";
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+
+    expect(runUntil(office, 40, () => atBoard(office, "alpha", PULL_REQUESTS_STICKER_BOARD_ID))).toBeDefined();
+    expect(carried(office, "alpha")).toBe(ISSUE);
+    expect(runUntil(office, 5, () => carried(office, "alpha") === 0)).toBeDefined();
+    expect(runUntil(office, 20, () => !atBoard(office, "alpha", PULL_REQUESTS_STICKER_BOARD_ID))).toBeDefined();
+  });
+
+  it("are put back on the issues board when the work stops with a note saying why", () => {
+    const office = createOffice();
+    const work = seatedWithNote(office);
+    work.note = "Timed out after 30 minutes";
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+
+    expect(runUntil(office, 40, () => atBoard(office, "alpha", ISSUES_STICKER_BOARD_ID))).toBeDefined();
+    expect(runUntil(office, 5, () => carried(office, "alpha") === 0)).toBeDefined();
+  });
+
+  it("are put back when the work is taken back, even by an agent still working", () => {
+    const office = createOffice();
+    seatedWithNote(office);
+    office.work.delete(workKey(ISSUE));
+
+    expect(runUntil(office, 40, () => carried(office, "alpha") === 0)).toBeDefined();
+    expect(atBoard(office, "alpha", ISSUES_STICKER_BOARD_ID)).toBe(true);
+  });
+
+  it("are left on the board when the work is taken back before the agent gets there", () => {
+    const office = createOffice();
+    startedWork(office);
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working, "Sticker boards")], office.now);
+    runUntil(office, 1, () => false);
+    office.work.delete(workKey(ISSUE));
+
+    expect(runUntil(office, 30, () => agent(office, "alpha").interactableId !== "")).toBeDefined();
+    expect(carried(office, "alpha")).toBe(0);
+  });
+
+  it("are never copied: an agent given work whose note another still holds waits for it to come back", () => {
+    const office = createOffice();
+    const work = seatedWithNote(office);
+    office.crew.sync(
+      [record("alpha", LIVE_AGENT_STATUS.working, "Sticker boards"), record("beta", LIVE_AGENT_STATUS.working)],
+      office.now,
+    );
+    work.assigneeId = liveAgentKey("beta");
+
+    let both = false;
+    const handedOver = runUntil(office, 90, () => {
+      both ||= carried(office, "alpha") === ISSUE && carried(office, "beta") === ISSUE;
+      return carried(office, "beta") === ISSUE;
+    });
+    expect(handedOver).toBeDefined();
+    expect(both).toBe(false);
+    expect(carried(office, "alpha")).toBe(0);
   });
 });
