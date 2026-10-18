@@ -37,6 +37,14 @@ export const RUNNER_GITHUB_AUTHS = ["app", "personal"] as const;
 
 export type RunnerGithubAuth = (typeof RUNNER_GITHUB_AUTHS)[number];
 
+/**
+ * What a real agent may run without asking: `allowlist`, the short list its
+ * adapter names, or `all`, every command, unprompted, on the runner's machine.
+ */
+export const RUNNER_AGENT_PERMISSIONS = ["allowlist", "all"] as const;
+
+export type RunnerAgentPermissions = (typeof RUNNER_AGENT_PERMISSIONS)[number];
+
 /** Where the runner finds the game server when `RUNNER_SERVER_URL` is unset: `pnpm dev`'s. */
 const DEFAULT_SERVER_URL = "http://localhost:2567";
 
@@ -79,6 +87,8 @@ export interface RunnerConfig {
   readonly mockOutcome: MockOutcome;
   /** The model a real agent runs; its CLI's own default when `undefined`. */
   readonly model: string | undefined;
+  /** What a real agent may run without a permission prompt. */
+  readonly agentPermissions: RunnerAgentPermissions;
   /** Slots, from 1 to `MAX_RUNNER_SLOTS`. */
   readonly maxAgents: number;
   /** Longest one task may run before its slot stops it. */
@@ -124,6 +134,9 @@ export interface RunnerConfig {
  *   `question`, waiting at its prompt for an answer before it hands one in.
  * - `RUNNER_MODEL`: the model a `claude` agent runs, its `--model`; unset,
  *   Claude Code's default.
+ * - `RUNNER_AGENT_PERMISSIONS`: one of {@link RUNNER_AGENT_PERMISSIONS},
+ *   defaulting to `allowlist`; `all` lets a `claude` agent run anything
+ *   without a permission prompt.
  * - `RUNNER_MAX_AGENTS`: slots, from 1 to `MAX_RUNNER_SLOTS`, defaulting to 2.
  * - `RUNNER_TASK_TIMEOUT_MINUTES`: whole minutes, at least 1, defaulting to 60.
  * - `RUNNER_DAILY_BUDGET_USD`: US dollars, `0` or more, the agents may spend
@@ -159,6 +172,7 @@ export function readConfig(
     agent,
     mockOutcome: readMockOutcome(env),
     model: readModel(env),
+    agentPermissions: readAgentPermissions(env),
     maxAgents: readMaxAgents(env),
     taskTimeoutMs: readTaskTimeoutMinutes(env) * 60_000,
     dailyBudgetUsd: readDailyBudget(env),
@@ -331,6 +345,20 @@ function readAgent(env: NodeJS.ProcessEnv): RunnerAgentKind {
     throw new Error(`RUNNER_AGENT must be one of ${RUNNER_AGENT_KINDS.join(", ")}, got "${env["RUNNER_AGENT"]}"`);
   }
   return kind;
+}
+
+function readAgentPermissions(env: NodeJS.ProcessEnv): RunnerAgentPermissions {
+  const raw = read(env, "RUNNER_AGENT_PERMISSIONS").toLowerCase();
+  if (raw === "") {
+    return "allowlist";
+  }
+  const permissions = RUNNER_AGENT_PERMISSIONS.find((candidate) => candidate === raw);
+  if (permissions === undefined) {
+    throw new Error(
+      `RUNNER_AGENT_PERMISSIONS must be one of ${RUNNER_AGENT_PERMISSIONS.join(", ")}, got "${env["RUNNER_AGENT_PERMISSIONS"]}"`,
+    );
+  }
+  return permissions;
 }
 
 function readLogLevel(env: NodeJS.ProcessEnv): RunnerLogLevel {

@@ -467,6 +467,7 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_AGENT` | `mock` | The agent each slot runs: `mock` or `claude`. |
 | `RUNNER_MOCK_OUTCOME` | `failed` | How a mock agent's work ends: `failed`, `pr-opened`, or `question`, waiting at its prompt for the CEO's answer before it opens one. |
 | `RUNNER_MODEL` | Claude Code's | The model a `claude` agent runs, passed as `--model`: `sonnet`, `claude-sonnet-4-5`. |
+| `RUNNER_AGENT_PERMISSIONS` | `allowlist` | What a `claude` agent runs without asking: `allowlist`, the short list below, anything else stopping at a permission prompt; or `all`, every command, unprompted, which lets an agent run anything on the runner's machine as its user. See [Claude Code in the runner](#claude-code-in-the-runner). |
 | `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
 | `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it; time it waits on a person does not count. |
 | `RUNNER_DAILY_BUDGET_USD` | none | US dollars, `0` or more, the agents may spend in a day before the runner refuses new starts; see [The runner's budget](#the-runners-budget). Unset, spend is counted and nothing is refused. |
@@ -589,8 +590,21 @@ look at and commit its own work, the project's `pnpm` checks, `ls`, and
 `git push`, `gh pr create`, `gh pr view` and `gh pr list` to hand its work in.
 Merging and anything else stop at a permission prompt and show as
 `needs-input`; a push to the default branch is refused by its branch
-protection, which [the App's setup](#the-runners-github-app) asks for. It
-starts with only part of the runner's environment: `PATH`, `HOME`, `USER`, the
+protection, which [the App's setup](#the-runners-github-app) asks for.
+
+With `RUNNER_AGENT_PERMISSIONS=all`, every Claude runs with
+`--permission-mode bypassPermissions` instead, and its settings carry
+`skipDangerousModePermissionPrompt` so it does not stop on that mode's
+one-time warning: no command waits at a permission prompt, so none needs an
+answer the office cannot give, but nothing is asked either. An agent can then
+run anything on the runner's machine as the runner's user: delete files
+outside its worktree, read whatever that user can, reach the network. The
+runner logs a warning at boot while it is on. Its hooks still report each step,
+its questions and its pull request; only the `PermissionRequest` reports go,
+since none is made. Use it on a machine, or a user, you would let a stranger's
+script loose on, and keep the default otherwise.
+
+It starts with only part of the runner's environment: `PATH`, `HOME`, `USER`, the
 locale (`LANG`, `LANGUAGE`, `LC_*`), `GH_TOKEN`, and Claude's credential
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`); never
 `RUNNER_SECRET` or anything else. `USER` is there because macOS keeps a

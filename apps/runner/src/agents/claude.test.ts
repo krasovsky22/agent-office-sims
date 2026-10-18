@@ -231,6 +231,26 @@ describe("claudeAdapter", () => {
     // It pushes its branch and opens its pull request; merging is a person's.
     expect(written.permissions.allow).toEqual(expect.arrayContaining(["Bash(git push:*)", "Bash(gh pr create:*)"]));
     expect(written.permissions.allow.some((rule) => /merge/.test(rule))).toBe(false);
+    expect(written).not.toHaveProperty("skipDangerousModePermissionPrompt");
+  });
+
+  it("with every permission, launches in bypassPermissions past its one-time warning, its hooks kept", () => {
+    const adapter = claudeAdapter({ permissions: "all" });
+    const setup = adapter.prepare(dataDir());
+    const plan = adapter.launch({ prompt: "go", cwd: "/work", setup });
+    expect(plan.args).toEqual(["--settings", setup.settings, "--permission-mode", "bypassPermissions", "--", "go"]);
+    const written = JSON.parse(readFileSync(setup.settings, "utf8")) as {
+      hooks: Record<string, unknown>;
+      skipDangerousModePermissionPrompt?: boolean;
+    };
+    expect(written.skipDangerousModePermissionPrompt).toBe(true);
+    expect(Object.keys(written.hooks)).toEqual(expect.arrayContaining(["PreToolUse", "PostToolUse", "Notification", "Stop"]));
+  });
+
+  it("keeps acceptEdits and the allowlist when asked for the allowlist", () => {
+    const adapter = claudeAdapter({ permissions: "allowlist" });
+    const setup = adapter.prepare(dataDir());
+    expect(adapter.launch({ prompt: "go", cwd: "/work", setup }).args).toContain("acceptEdits");
   });
 });
 
