@@ -145,7 +145,9 @@ nobody else's tab is told of them: the terminal is the record.
 
 Under the AI Manager in the roster, the CEO's `Call a standup` button calls a
 standup; everyone else's is disabled and says only the CEO can. While one is
-on, its panel is docked over the foot of the office in every tab; see
+on, its panel is docked over the foot of the office in every tab, and moves
+to the right edge while the AI Manager's conversation, the board close-up or an
+agent's terminal is open, so neither covers the other; see
 [The standup](#the-standup).
 
 At the manager's desk in the lobby, `E` opens the conversation with the AI Manager
