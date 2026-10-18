@@ -91,7 +91,11 @@ coffee machine, the project board or the manager's desk and a prompt appears;
 Behind the chair of an open-floor desk where a live agent is working, the
 prompt reads `Watch the agent's terminal` and `E` opens its terminal at full
 size, with its name, what it is doing, and links to its issue and pull
-request. `E` or `Esc` closes it, and so do stepping away and the agent getting
+request. The terminal is drawn in small text with its scrollback above the
+screen: the mouse wheel or a trackpad scrolls back through it, as do `PageUp`
+and `PageDown`, and `Home` and `End` outside the prompt box. Scrolled back, it
+stays on what it shows as new output arrives; at the bottom, it follows the
+agent live. `E` or `Esc` closes it, and so do stepping away and the agent getting
 up. Behind an empty chair, or one a player sits in, there is no such prompt
 and `E` reaches for the chair.
 
@@ -353,11 +357,22 @@ the rows that changed. The runner sends each screen whole every eight seconds
 anyway, and the server never interprets a terminal byte: a frame carries text,
 not escape sequences, and the server strips control characters from every run.
 
+A frame may also carry `history`: the rows that scrolled off the top of the
+screen since the frame before, oldest first, at most 100, each held to a row's
+limits. A row goes out as history once, whatever kind of frame carries it, and
+history in a frame that is lost is not sent again. `historyCleared: true` says
+the scrollback before it is gone: the terminal cleared its own (`CSI 3 J`), or
+was reset for a new run. The alternate screen has no scrollback, so nothing
+on it is history.
+
 The server keeps the last whole screen of each slot its runner reports, applies
 each diff to it, and broadcasts every frame it accepts to every room as a
 `screens` message (`ScreenFramesEvent`), keyed by the slot's occupant id,
 `agent:runner:<runnerId>:<slotId>`. A client joining, or reconnecting after a
-drop, is sent every screen whole, so every tab holds the same screens. A diff with no screen to apply to,
+drop, is sent every screen whole, so every tab holds the same screens. Each
+screen keeps its scrollback too, the newest 500 rows of history, across whole
+frames, and a joining client gets it whole with the screen, marked
+`historyCleared` so it replaces whatever the client held. A diff with no screen to apply to,
 or a size other than the screen's, and any frame for a slot the runner has not
 reported in a sync yet, is not kept or relayed, and the reply's `resend` names
 its slot so the runner sends that one whole. A batch from a runner whose sync
@@ -987,7 +1002,7 @@ Then confirm all twenty-one:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -1210,6 +1225,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to
   src/ui/AgentTerminalPanel.tsx  a working agent's terminal at full size, opened behind its chair
+  src/terminalView.ts     the panel's terminal: scrollback and screen in small text, and scrolling it
   src/assets/office-kit/ the vendored models, and their licence
 ```
 

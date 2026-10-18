@@ -210,6 +210,17 @@ describe("fitBatch", () => {
     expect(fitted?.frame.cursor).toEqual([0, 0]);
   });
 
+  it("fits a frame's history with the rest of it, keeping every row", () => {
+    const history = Array.from({ length: 100 }, () => heavyRow());
+    const [fitted] = fitBatch("runner-1", [{ slotId: "slot-1", frame: { ...frame({ 0: heavyRow() }), history, historyCleared: true } }]);
+    expect(Buffer.byteLength(JSON.stringify({ runnerId: "runner-1", screens: [fitted] }))).toBeLessThanOrEqual(
+      MAX_RUNNER_SCREENS_BYTES,
+    );
+    expect(fitted?.frame.history).toHaveLength(100);
+    expect(fitted?.frame.history?.[0]?.[0]?.[1]).toBe(-1);
+    expect(fitted?.frame.historyCleared).toBe(true);
+  });
+
   it("cuts a frame's text when even its plain text is too big", () => {
     const wide = "日".repeat(200 * 4);
     const lines = Object.fromEntries(Array.from({ length: 60 }, (_, row) => [row, [[wide, -1, -1, 0]] as [string, number, number, number][]]));

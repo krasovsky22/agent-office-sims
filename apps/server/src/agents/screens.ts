@@ -13,7 +13,13 @@
  * A diff only means something on top of the screen it was taken against. One
  * that arrives with no screen to apply it to, after a server restart say, or
  * with a size other than the stored screen's, is not kept or relayed, and the
- * runner is told to send that slot whole instead. So is any frame for a slot
+ * runner is told to send that slot whole instead.
+ *
+ * Each screen keeps its scrollback too: the rows every frame it takes
+ * carries as history, the newest `MAX_SCREEN_HISTORY` of them, kept across
+ * the runner's whole frames and emptied only when the runner says the
+ * terminal's own scrollback was. A client walking in is handed it whole, with
+ * the screen, and the diffs relayed after carry the rows that follow. So is any frame for a slot
  * its runner has not reported yet, so the screen arrives whole once the sync
  * has. A batch from a runner the link does not hold at all, one posting before
  * its first sync or one the floor refused, is not taken: the endpoint refuses
@@ -31,6 +37,7 @@ import {
   type ScreenFrame,
   type ScreenFramesEvent,
   type ScreenRun,
+  appendScreenHistory,
   liveAgentKey,
 } from "@sim/shared";
 
@@ -79,6 +86,8 @@ interface StoredScreen {
   /** Every row, top to bottom. */
   readonly lines: (readonly ScreenRun[])[];
   cursor: readonly [number, number];
+  /** Rows scrolled off the top, oldest first. */
+  readonly history: (readonly ScreenRun[])[];
 }
 
 const NO_RUNS: readonly ScreenRun[] = [];
@@ -114,17 +123,19 @@ export class ScreenStore implements ScreenSource {
         continue;
       }
       const occupantId = liveAgentKey(runnerSlotAgentId(batch.runnerId, slotId));
+      let stored = this.screens.get(occupantId);
       if (frame.full) {
-        this.screens.set(occupantId, {
+        stored = {
           runnerId: batch.runnerId,
           slotId,
           cols: frame.cols,
           rows: frame.rows,
           lines: Array.from({ length: frame.rows }, (_, row) => frame.lines[row] ?? NO_RUNS),
           cursor: frame.cursor,
-        });
+          history: stored?.history ?? [],
+        };
+        this.screens.set(occupantId, stored);
       } else {
-        const stored = this.screens.get(occupantId);
         if (stored === undefined || stored.rows !== frame.rows || stored.cols !== frame.cols) {
           resend.push(slotId);
           continue;
@@ -134,6 +145,7 @@ export class ScreenStore implements ScreenSource {
         }
         stored.cursor = frame.cursor;
       }
+      appendScreenHistory(stored.history, frame);
       accepted.push({ occupantId, frame });
     }
     if (accepted.length > 0) {
@@ -149,6 +161,7 @@ export class ScreenStore implements ScreenSource {
     return { resend };
   }
 
+  /** Every screen whole, each with its scrollback whole, in place of whatever a client held. */
   public fullScreens(): ScreenFramesEvent {
     const screens: OccupantScreen[] = [];
     for (const [occupantId, stored] of this.screens) {
@@ -183,5 +196,13 @@ function fullFrame(stored: StoredScreen): ScreenFrame {
   stored.lines.forEach((runs, row) => {
     lines[row] = runs;
   });
-  return { cols: stored.cols, rows: stored.rows, lines, full: true, cursor: stored.cursor };
+  return {
+    cols: stored.cols,
+    rows: stored.rows,
+    lines,
+    full: true,
+    cursor: stored.cursor,
+    history: [...stored.history],
+    historyCleared: true,
+  };
 }

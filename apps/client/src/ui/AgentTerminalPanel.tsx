@@ -2,9 +2,11 @@
  * A working live agent's terminal at full size, opened with `E` behind its chair.
  *
  * The desk's monitor shows the same terminal, but a monitor is too small to
- * read from across the room. This panel paints the agent's current frame onto
- * a 2D canvas with the monitor's own paint function, so the two cannot show
- * different things, and keeps painting as frames arrive. The terminal is
+ * read from across the room. This panel paints the agent's terminal onto a 2D
+ * canvas in small text, its scrollback above its screen (`terminalView.ts`),
+ * and keeps painting as frames arrive. The mouse wheel or a trackpad scrolls
+ * it back, as do `PageUp` and `PageDown`, and `Home` and `End` outside the
+ * prompt box; at the bottom it follows the agent live. The terminal is
  * pixels only: none of its text goes into the DOM, where a frame's content
  * could be mistaken for the page's.
  *
@@ -43,9 +45,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { type AgentPromptAccess, agentKeyOfKeyboard } from "../agentPromptAccess.js";
 import type { TerminalLinks } from "../agentTerminal.js";
-import { KEYBOARD_OWNER_ATTRIBUTE } from "../keys.js";
+import { KEYBOARD_OWNER_ATTRIBUTE, isTypingTarget } from "../keys.js";
 import type { TerminalScreen } from "../net/screens.js";
 import { SCREEN_PLACEHOLDER, paintScreen } from "../scene/agentScreen.js";
+import { TERMINAL_FONT_PX, paintTerminal, wheelRows } from "../terminalView.js";
 import type { RosterEntry } from "./Hud.js";
 
 export interface AgentTerminalActions {
@@ -119,15 +122,28 @@ const PAD_KEYS: ReadonlyArray<readonly [AgentKey, string]> = [
 /** The version painted while the canvas shows its placeholder. */
 const PLACEHOLDER_VERSION = -1;
 
+/** Where the CEO has scrolled the terminal to. */
+interface TerminalScroll {
+  /** Rows back from the newest; `0` follows the agent live. */
+  offset: number;
+  /** The screen's `historyAdded` when {@link offset} was last kept in step with it. */
+  anchor: number;
+  /** Rows the canvas had room for when last painted, which a page scrolls by. */
+  pageRows: number;
+  lineHeightPx: number;
+}
+
 /**
- * Paints the agent's terminal onto the canvas whenever its frame or the
- * canvas's size has changed, at most once a display frame.
+ * Paints the agent's terminal onto the canvas whenever its frame, the
+ * canvas's size or the scroll has changed, at most once a display frame, at
+ * the canvas's own pixel size so the glyphs stay sharp.
  *
- * The whole screen is painted, every row of it, at the canvas's own pixel
- * size so the glyphs stay sharp.
+ * @returns the canvas's ref, and a function that scrolls the terminal back by
+ * a number of rows, or to the newest for `-Infinity`.
  */
 function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["screenOf"]) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scrollRef = useRef<TerminalScroll>({ offset: 0, anchor: 0, pageRows: 1, lineHeightPx: TERMINAL_FONT_PX });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -135,7 +151,11 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
     if (canvas === null || ctx === null || ctx === undefined) {
       return;
     }
+    const scroll = scrollRef.current;
+    scroll.offset = 0;
+    scroll.anchor = screenOf(agentId)?.historyAdded ?? 0;
     let paintedVersion = Number.NaN;
+    let paintedOffset = Number.NaN;
     let request = 0;
     const paint = () => {
       request = requestAnimationFrame(paint);
@@ -143,24 +163,75 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
       const width = Math.max(1, Math.round(canvas.clientWidth * scale));
       const height = Math.max(1, Math.round(canvas.clientHeight * scale));
       const screen = screenOf(agentId);
+      // Scrolled back, the view stays on what it shows as rows arrive under it.
+      const added = screen?.historyAdded ?? 0;
+      if (scroll.offset > 0) {
+        scroll.offset = added < scroll.anchor ? 0 : scroll.offset + added - scroll.anchor;
+      }
+      scroll.anchor = added;
       const version = screen?.version ?? PLACEHOLDER_VERSION;
-      if (version === paintedVersion && width === canvas.width && height === canvas.height) {
+      if (version === paintedVersion && scroll.offset === paintedOffset && width === canvas.width && height === canvas.height) {
         return;
       }
       canvas.width = width;
       canvas.height = height;
       paintedVersion = version;
-      paintScreen(ctx, width, height, screen, SCREEN_PLACEHOLDER, MAX_SCREEN_ROWS);
+      if (screen === undefined) {
+        paintScreen(ctx, width, height, undefined, SCREEN_PLACEHOLDER, MAX_SCREEN_ROWS);
+      } else {
+        const layout = paintTerminal(ctx, width, height, scale, screen, scroll.offset);
+        scroll.offset = layout.offset;
+        scroll.pageRows = layout.visibleRows;
+        scroll.lineHeightPx = layout.lineHeightPx;
+      }
+      paintedOffset = scroll.offset;
     };
     paint();
     return () => cancelAnimationFrame(request);
   }, [agentId, screenOf]);
 
-  return canvasRef;
+  // Painting holds the offset to what there is, so this need not.
+  const scrollBack = (rows: number) => {
+    const scroll = scrollRef.current;
+    scroll.offset = rows === Number.NEGATIVE_INFINITY ? 0 : Math.max(0, scroll.offset + rows);
+  };
+
+  // The keys a terminal scrolls with, from anywhere in the panel; `Home` and
+  // `End` only outside the prompt box, where they move the caret.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const scroll = scrollRef.current;
+      const page = Math.max(1, scroll.pageRows - 1);
+      const typing = isTypingTarget(event.target);
+      let rows: number | undefined;
+      if (event.key === "PageUp") {
+        rows = page;
+      } else if (event.key === "PageDown") {
+        rows = -page;
+      } else if (event.key === "Home" && !typing) {
+        rows = Number.POSITIVE_INFINITY;
+      } else if (event.key === "End" && !typing) {
+        rows = Number.NEGATIVE_INFINITY;
+      }
+      if (rows !== undefined) {
+        event.preventDefault();
+        scrollBack(rows);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const onWheel = (event: { deltaY: number; deltaMode: number }) => {
+    const scroll = scrollRef.current;
+    scrollBack(wheelRows(event.deltaY, event.deltaMode, scroll.lineHeightPx, scroll.pageRows));
+  };
+
+  return { canvasRef, onWheel };
 }
 
 export function AgentTerminalPanel({ agentId, agent, links, prompts, access, localId, refusal, actions }: AgentTerminalPanelProps) {
-  const canvasRef = useTerminalCanvas(agentId, actions.screenOf);
+  const { canvasRef, onWheel } = useTerminalCanvas(agentId, actions.screenOf);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const logRef = useRef<HTMLOListElement>(null);
   const [draft, setDraft] = useState("");
@@ -272,7 +343,13 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
         {links.simulatedPullRequest ? <span className="terminal__caption">Simulated pull request, nothing on GitHub</span> : null}
       </p>
 
-      <canvas className="terminal__screen" ref={canvasRef} role="img" aria-label={`${name}'s terminal output`} />
+      <canvas
+        className="terminal__screen"
+        ref={canvasRef}
+        role="img"
+        aria-label={`${name}'s terminal output; scroll to read back`}
+        onWheel={onWheel}
+      />
 
       {prompts.length === 0 ? null : (
         <ol className="manager__log terminal__prompts" ref={logRef} aria-label={`Prompts typed to ${name}`}>
@@ -379,7 +456,9 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
       )}
 
       <p className="board__hint">
-        <span className="hud__keys">E</span> or <span className="hud__keys">Esc</span> to close
+        <span className="hud__keys">E</span> or <span className="hud__keys">Esc</span> to close; scroll the terminal
+        or use <span className="hud__keys">PgUp</span> <span className="hud__keys">PgDn</span>, and{" "}
+        <span className="hud__keys">End</span> to follow it live
         {mayPrompt && agent?.needsInput === true ? (
           <>
             ; click the key pad to answer its screen with <span className="hud__keys">↑</span>{" "}

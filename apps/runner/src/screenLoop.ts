@@ -12,7 +12,8 @@
  *
  * Each post is fitted to the server's {@link MAX_RUNNER_SCREENS_BYTES}, and
  * every changed screen gets its share of it: a frame too big for its share is
- * sent without its colours, and cut to fit if that is still too much. A whole
+ * sent without its colours, and cut to fit if that is still too much, the
+ * rows it carries as history along with the rest. A whole
  * screen sent that way stays so until the next keyframe rather than being
  * sent again every quarter second.
  */
@@ -181,22 +182,30 @@ export function fitBatch(runnerId: string, changed: readonly SlotScreen[], maxBy
   return fitted.filter((screen) => screen !== undefined);
 }
 
-/** A screen as it is if it fits in `maxBytes`, else without colours, else cut too. */
+/** A row's text alone, in the terminal's default colours, cut to `keep` of its length. */
+function plainRow(text: string, keep: number): ScreenRun[] {
+  const cut = text.slice(0, Math.floor(text.length * keep));
+  return cut === "" ? [] : [[cut, SCREEN_DEFAULT_COLOR, SCREEN_DEFAULT_COLOR, 0]];
+}
+
+/** A screen as it is if it fits in `maxBytes`, else without colours, else cut too; its history with it. */
 function fitScreen(screen: SlotScreen, maxBytes: number): SlotScreen {
   if (jsonBytes(screen) <= maxBytes) {
     return screen;
   }
-  const plain = Object.entries(screen.frame.lines).map(
-    ([row, runs]) => [row, runs.map((run) => run[0]).join("")] as const,
-  );
+  const textOf = (runs: readonly ScreenRun[]) => runs.map((run) => run[0]).join("");
+  const plain = Object.entries(screen.frame.lines).map(([row, runs]) => [row, textOf(runs)] as const);
+  const plainHistory = screen.frame.history?.map(textOf);
   let keep = 1;
   for (;;) {
     const lines: Record<number, ScreenRun[]> = {};
     for (const [row, text] of plain) {
-      const cut = text.slice(0, Math.floor(text.length * keep));
-      lines[Number(row)] = cut === "" ? [] : [[cut, SCREEN_DEFAULT_COLOR, SCREEN_DEFAULT_COLOR, 0]];
+      lines[Number(row)] = plainRow(text, keep);
     }
-    const frame: ScreenFrame = { ...screen.frame, lines };
+    const frame: ScreenFrame =
+      plainHistory === undefined
+        ? { ...screen.frame, lines }
+        : { ...screen.frame, lines, history: plainHistory.map((text) => plainRow(text, keep)) };
     const fitted = { slotId: screen.slotId, frame };
     const bytes = jsonBytes(fitted);
     if (bytes <= maxBytes || keep === 0) {

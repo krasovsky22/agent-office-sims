@@ -6,7 +6,7 @@
  * which slots are reported and when one leaves.
  */
 
-import type { ScreenFrame, ScreenFramesEvent, ScreenRun } from "@sim/shared";
+import { MAX_SCREEN_HISTORY, type ScreenFrame, type ScreenFramesEvent, type ScreenRun } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import { ScreenStore, isScreenSource } from "./screens.js";
@@ -61,7 +61,12 @@ describe("ScreenStore", () => {
     expect(store.accept({ runnerId: "runner-1", screens: [{ slotId: "slot-1", frame: FULL }] })).toEqual({ resend: [] });
     expect(heard).toEqual([{ screens: [{ occupantId: OCCUPANT, frame: FULL }] }]);
     expect(store.fullScreens()).toEqual({
-      screens: [{ occupantId: OCCUPANT, frame: { ...FULL, lines: { 0: [run("$ pnpm test")], 1: [run("running", 3)], 2: [] } } }],
+      screens: [
+        {
+          occupantId: OCCUPANT,
+          frame: { ...FULL, lines: { 0: [run("$ pnpm test")], 1: [run("running", 3)], 2: [] }, history: [], historyCleared: true },
+        },
+      ],
     });
   });
 
@@ -78,7 +83,45 @@ describe("ScreenStore", () => {
       lines: { 0: [run("$ pnpm test")], 1: [run("passed", 2)], 2: [run("$ ")] },
       full: true,
       cursor: [2, 2],
+      history: [],
+      historyCleared: true,
     });
+  });
+
+  it("keeps every frame's history as the screen's scrollback, across whole frames, until the terminal clears it", () => {
+    const { store, heard } = storeWithSlots();
+    const accept = (frame: ScreenFrame) => store.accept({ runnerId: "runner-1", screens: [{ slotId: "slot-1", frame }] });
+    const history = () => store.fullScreens().screens[0]?.frame.history;
+    accept({ ...FULL, history: [[run("one")]] });
+    const diff = frame({ 2: [run("$ ")] }, { history: [[run("two")], []] });
+    accept(diff);
+    expect(heard.at(-1)).toEqual({ screens: [{ occupantId: OCCUPANT, frame: diff }] });
+    accept(FULL);
+    expect(history()).toEqual([[run("one")], [run("two")], []]);
+
+    accept(frame({}, { history: [[run("three")]], historyCleared: true }));
+    expect(history()).toEqual([[run("three")]]);
+    accept(frame({}, { historyCleared: true }));
+    expect(history()).toEqual([]);
+  });
+
+  it("keeps only the newest rows of scrollback", () => {
+    const { store } = storeWithSlots();
+    store.accept({ runnerId: "runner-1", screens: [{ slotId: "slot-1", frame: FULL }] });
+    for (let row = 0; row < MAX_SCREEN_HISTORY + 20; row += 1) {
+      store.accept({ runnerId: "runner-1", screens: [{ slotId: "slot-1", frame: frame({}, { history: [[run(`row ${row}`)]] }) }] });
+    }
+    const history = store.fullScreens().screens[0]?.frame.history ?? [];
+    expect(history).toHaveLength(MAX_SCREEN_HISTORY);
+    expect(history[0]).toEqual([run("row 20")]);
+    expect(history.at(-1)).toEqual([run(`row ${MAX_SCREEN_HISTORY + 19}`)]);
+  });
+
+  it("keeps no history from a frame it does not take", () => {
+    const { store } = storeWithSlots();
+    store.accept({ runnerId: "runner-1", screens: [{ slotId: "slot-1", frame: FULL }] });
+    store.accept({ runnerId: "runner-1", screens: [{ slotId: "slot-1", frame: frame({}, { rows: 4, history: [[run("lost")]] }) }] });
+    expect(store.fullScreens().screens[0]?.frame.history).toEqual([]);
   });
 
   it("blanks the rows a later full frame leaves out", () => {

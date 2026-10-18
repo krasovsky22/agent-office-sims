@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_RUNNER_SLOTS } from "./runner.js";
 import {
   MAX_SCREEN_COLS,
+  MAX_SCREEN_HISTORY_PER_FRAME,
   MAX_SCREEN_ROWS,
   MAX_SCREEN_TEXT_PER_COL,
   SCREEN_FLAG_BOLD,
@@ -94,6 +95,33 @@ describe("parseScreenFrame", () => {
   it("refuses a flag it does not know", () => {
     expect(parseScreenFrame(frameWith({ lines: { 0: [["a", -1, -1, 8]] } }))).toBeUndefined();
     expect(parseScreenFrame(frameWith({ lines: { 0: [["a", -1, -1, -1]] } }))).toBeUndefined();
+  });
+
+  it("takes history, held to a row's limits and stripped like one", () => {
+    const history = [[["$ ls", -1, -1, 0]], [], [["\u001b[31mred", 1, -1, SCREEN_FLAG_BOLD]]];
+    expect(parseScreenFrame(frameWith({ history, historyCleared: true }))).toEqual({
+      ...FRAME,
+      history: [[["$ ls", -1, -1, 0]], [], [["[31mred", 1, -1, SCREEN_FLAG_BOLD]]],
+      historyCleared: true,
+    });
+    expect(parseScreenFrame(frameWith({ historyCleared: true }))).toEqual({ ...FRAME, historyCleared: true });
+    expect(parseScreenFrame(frameWith({ history: [], historyCleared: false }))).toEqual({ ...FRAME, history: [] });
+  });
+
+  it.each([
+    ["history that is not a list", frameWith({ history: { 0: [] } })],
+    ["a history row that is not a list", frameWith({ history: ["$ ls"] })],
+    ["a history row with a bad colour", frameWith({ history: [[["a", 256, -1, 0]]] })],
+    ["a history row with more runs than columns", frameWith({ history: [Array.from({ length: 81 }, () => ["x", -1, -1, 0])] })],
+    ["historyCleared as a string", frameWith({ historyCleared: "yes" })],
+  ])("refuses %s", (_label, raw) => {
+    expect(parseScreenFrame(raw)).toBeUndefined();
+  });
+
+  it("caps the history one frame carries", () => {
+    const rows = (count: number): unknown[] => Array.from({ length: count }, () => [["x", -1, -1, 0]]);
+    expect(parseScreenFrame(frameWith({ history: rows(MAX_SCREEN_HISTORY_PER_FRAME) }))).toBeDefined();
+    expect(parseScreenFrame(frameWith({ history: rows(MAX_SCREEN_HISTORY_PER_FRAME + 1) }))).toBeUndefined();
   });
 
   it("caps the screen's size", () => {
