@@ -283,7 +283,7 @@ export function readStandingInstruction(message: string, words: string, view: Of
   if (schedule.instruction === "") {
     return { kind: "unclear", reply: "What should the job do each time? Say it like “every weekday at 9, summarise what changed yesterday”." };
   }
-  return { kind: "plan", standing: [{ action: "schedule", cron: parseCron(schedule.cron)?.expression ?? schedule.cron, instruction: schedule.instruction, name: "" }] };
+  return { kind: "plan", standing: [{ action: "schedule", cron: parseCron(schedule.cron)?.expression ?? schedule.cron, instruction: schedule.instruction }] };
 }
 
 /** One standing task in a line: `“Watch for new pull requests” (every 2 min) · active; last: reviewed PR #112; $0.20 of $2.00 today`. */
@@ -341,6 +341,7 @@ export function carryOutStanding(actions: readonly PlannedStanding[], context: S
     return actions.length === 0 ? [] : ["✗ No agent runner is configured, so there is nobody to give a standing task to."];
   }
   const lines: string[] = [];
+  let scheduled = false;
   for (const action of actions.slice(0, MAX_STANDING_PER_PLAN)) {
     switch (action.action) {
       case "watch-pull-requests": {
@@ -349,13 +350,17 @@ export function carryOutStanding(actions: readonly PlannedStanding[], context: S
         break;
       }
       case "schedule": {
+        if (scheduled) {
+          break;
+        }
+        scheduled = true;
         const asked = readSchedule(context.message);
         if (asked === undefined || asked.instruction === "") {
           lines.push("✗ I only set up a scheduled job when you ask for one yourself, with what it should do in your own words, like “every weekday at 9, summarise what changed yesterday”.");
           break;
         }
         const cron = parseCron(asked.cron)?.expression ?? asked.cron;
-        const request = { kind: STANDING_KIND.schedule, cron, instruction: asked.instruction, ...(action.name === "" ? {} : { name: action.name }) };
+        const request = { kind: STANDING_KIND.schedule, cron, instruction: asked.instruction };
         const result = control.create(context.actor, context.ceoName, request, "");
         lines.push(result.ok ? result.text : `✗ ${result.text}`);
         break;

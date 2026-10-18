@@ -52,7 +52,7 @@ export interface PlannedAssignment {
  */
 export type PlannedStanding =
   | { readonly action: "watch-pull-requests" }
-  | { readonly action: "schedule"; readonly cron: string; readonly instruction: string; readonly name: string }
+  | { readonly action: "schedule"; readonly cron: string; readonly instruction: string }
   | { readonly action: "pause" | "resume" | "remove" | "check-now"; readonly task: string };
 
 export interface ManagerPlan {

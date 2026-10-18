@@ -105,9 +105,8 @@ const OUTPUT_SCHEMA = {
             description: "For schedule: five-field cron on the runner's clock, never more often than every 5 minutes, such as 0 9 * * 1-5. Empty otherwise.",
           },
           instruction: { type: "string", description: "For schedule: what each run is to do, copied word for word from the CEO's message. Empty otherwise." },
-          name: { type: "string", description: "For schedule: a short name for the job, or empty for one made from the instruction." },
         },
-        required: ["action", "task", "cron", "instruction", "name"],
+        required: ["action", "task", "cron", "instruction"],
         additionalProperties: false,
       },
     },
@@ -191,13 +190,13 @@ function readStanding(raw: unknown): PlannedStanding[] {
     return [];
   }
   return raw.flatMap((entry: unknown): PlannedStanding[] => {
-    const { action, task, cron, instruction, name } = (entry ?? {}) as Record<string, unknown>;
+    const { action, task, cron, instruction } = (entry ?? {}) as Record<string, unknown>;
     const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
     switch (action) {
       case "watch-pull-requests":
         return [{ action }];
       case "schedule":
-        return text(cron) === "" || text(instruction) === "" ? [] : [{ action, cron: text(cron), instruction: text(instruction), name: text(name) }];
+        return text(cron) === "" || text(instruction) === "" ? [] : [{ action, cron: text(cron), instruction: text(instruction) }];
       case "pause":
       case "resume":
       case "remove":
