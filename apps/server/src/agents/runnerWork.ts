@@ -48,6 +48,7 @@ import {
   WORK_STATUS,
   actorOf,
   isLiveAgentKey,
+  isRunnerWorkEvent,
   liveAgentKey,
   simulatedPullRequestArtifact,
   workKey,
@@ -217,9 +218,16 @@ export class RunnerWork {
     this.stop(work.assigneeId, work.issueNumber, reason);
   }
 
-  /** Applies what the runners reported, each event as its slot's live agent. */
+  /**
+   * Applies what the runners reported about issue work, each event as its
+   * slot's live agent. A standing task's events are not the work's: the
+   * room's `StandingAnnouncer` has them.
+   */
   public receive(records: readonly RunnerEventRecord[]): void {
     for (const { runnerId, event } of records) {
+      if (!isRunnerWorkEvent(event)) {
+        continue;
+      }
       const occupant = this.options.host.state.occupants.get(liveAgentKey(runnerSlotAgentId(runnerId, event.slotId)));
       if (occupant === undefined) {
         continue;

@@ -11,7 +11,7 @@ import {
   MAX_RUNNER_PROMPT_OUTCOMES,
   RUNNER_PROMPT_OUTCOME,
   type RunnerCommand,
-  type RunnerEvent,
+  type RunnerWorkEvent,
   type RunnerPromptOutcome,
   type RunnerSlotReport,
   type RunnerSync,
@@ -27,7 +27,7 @@ const SLOTS: RunnerSlotReport[] = [
   { id: "slot-1", name: "Mock 1", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
 ];
 
-function event(id: string): RunnerEvent {
+function event(id: string): RunnerWorkEvent {
   return { id, kind: "started", slotId: "slot-1", issueNumber: 39, pr: undefined, message: "" };
 }
 
@@ -36,7 +36,7 @@ function stop(id: string): RunnerCommand {
 }
 
 /** A pool that records what it is handed, and a client that answers from a script. */
-function setup(replies: (SyncReply | Error)[], events: RunnerEvent[] = [], outcomes: RunnerPromptOutcome[] = []) {
+function setup(replies: (SyncReply | Error)[], events: RunnerWorkEvent[] = [], outcomes: RunnerPromptOutcome[] = []) {
   const sent: RunnerSync[] = [];
   const handled: string[] = [];
   const logged: string[] = [];

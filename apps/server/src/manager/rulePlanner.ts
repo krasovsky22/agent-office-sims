@@ -25,6 +25,10 @@
  *   agent, what it is doing right now, its issue and the pull request it opened.
  * - **"What's open?"**, "which PRs are open?", "what is everyone working on?":
  *   a summary of the project board, its pull requests, or the agents.
+ * - **"Watch for new pull requests"**, "every weekday at 9, summarise what
+ *   changed", "pause the pull request watch", "what are you watching?":
+ *   standing tasks, read by `./standingPlan.ts` and carried out, like an
+ *   assignment, afterwards and through the office's own gate.
  *
  * Anything else gets a short list of what it can do. Every word of every
  * answer comes from the {@link OfficeView} it is handed.
@@ -35,6 +39,7 @@ import { LIVE_AGENT_STATUS, WORK_STATUS, type WorkStatus } from "@sim/shared";
 import { ANY_CODING_AGENT, type ManagerPlan, type ManagerRequest } from "./advisor.js";
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, WorkView } from "./officeView.js";
 import { type WorkRef, findAgents, findIssueByTitle, findUnknownWork, findWork, resolveAgent } from "./resolve.js";
+import { readStandingInstruction, standingSummary } from "./standingPlan.js";
 
 /** Most items one list in an answer names before saying how many more there are. */
 const LIST_LIMIT = 8;
@@ -101,6 +106,8 @@ export const HELP_TEXT = [
   "- “What is Claude 1 doing?”",
   "- “Assign #39”, “Put someone on #39” or “Have Claude 1 do #39”",
   "- “Hand out the backlog”",
+  "- “Watch for new pull requests”, or “Every weekday at 9, summarise what changed yesterday”",
+  "- “What are you watching?”, “Pause the pull request watch”",
 ].join("\n");
 
 /** One planner attempt: never throws, never waits. */
@@ -109,6 +116,10 @@ export function planFromRules(request: ManagerRequest): ManagerPlan {
 }
 
 function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUsed"> {
+  const standing = standingAnswer(message, view);
+  if (standing !== undefined) {
+    return standing;
+  }
   const work = findWork(message, view);
   const agents = findAgents(message, view);
 
@@ -172,6 +183,27 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     return { reply: `Hello${view.ceo === undefined ? "" : `, ${view.ceo}`}. ${HELP_TEXT}`, assignments: [] };
   }
   return { reply: `I didn't catch what you want me to look at. ${HELP_TEXT}`, assignments: [] };
+}
+
+/**
+ * A message about standing tasks, or `undefined` for any other. A question
+ * is only ever asked about them, so only an instruction sets one up.
+ */
+function standingAnswer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUsed"> | undefined {
+  const words = wordsOf(message).filter((word) => word !== ",").join(" ");
+  const instruction = readStandingInstruction(message, words, view);
+  if (instruction === undefined) {
+    return undefined;
+  }
+  if (instruction.kind === "list") {
+    return { reply: standingSummary(view), assignments: [] };
+  }
+  if (QUESTION_START.test(words)) {
+    return undefined;
+  }
+  return instruction.kind === "unclear"
+    ? { reply: instruction.reply, assignments: [] }
+    : { reply: "Here's how that went:", assignments: [], standing: instruction.standing };
 }
 
 /** The backlog: open issues GitHub shows nobody on, and nobody in the office is either. */
@@ -537,6 +569,13 @@ function describeCodingAgent(agent: IssueAgentView): string {
   const work = agent.issue;
   const activity = agent.activity === "" ? "" : ` (${agent.activity})`;
   const who = `${agent.name} (coding agent)`;
+  if (work === undefined && agent.standing !== undefined) {
+    const { task, taskName } = agent.standing;
+    const review = /^Review (PR #\d+)(?:: (.*))?$/.exec(task.title);
+    return review === null
+      ? `${who} is running the standing task “${taskName}”${activity}; an issue handed to it comes first.`
+      : `${who} is reviewing ${review[1]}${review[2] === undefined ? "" : ` “${review[2]}”`} for the standing task “${taskName}”${activity}; an issue handed to it comes first.`;
+  }
   if (work === undefined) {
     return `${who} is idle.`;
   }

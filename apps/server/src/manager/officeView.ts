@@ -6,7 +6,8 @@
  * model's answer are about the same office. It covers what the CEO asks about:
  * the orchestrator's live coding agents and their tasks, the runners' coding
  * agents on the floor that can be given an issue, each with what it is doing,
- * the issue it has and the pull request it opened, and this repository's
+ * the issue it has and the pull request it opened, the standing tasks they
+ * run between issues, and this repository's
  * issues and pull requests from the project board's feed, each issue with
  * whatever the office is doing about it.
  *
@@ -74,6 +75,38 @@ export interface IssueAgentView {
    * request it keeps until the CEO judges it. `undefined` when it has none.
    */
   readonly issue: WorkView | undefined;
+  /**
+   * The standing task it is running now, which it gives up the moment it is
+   * handed an issue; `undefined` while it runs none.
+   */
+  readonly standing: { readonly taskName: string; readonly task: LinkView } | undefined;
+}
+
+/**
+ * A standing task: a recurring job a coding agent does, such as watching for
+ * new pull requests, as its runner last reported it.
+ */
+export interface StandingTaskView {
+  /** Its id, which a plan may name it by. */
+  readonly id: string;
+  /** `pr-review` or `schedule`. */
+  readonly kind: string;
+  readonly name: string;
+  /** `active`, `paused`, `waiting-slot`, `running`, `over-budget` or `error`. */
+  readonly status: string;
+  /** Its trigger in a few words: `every 2 min`, `weekdays 09:00`. */
+  readonly trigger: string;
+  /** Its newest run's outcome, such as `reviewed` or `simulated`; `undefined` before the first. */
+  readonly lastOutcome: string | undefined;
+  /** The pull request its newest run was about. */
+  readonly lastRunPr: number | undefined;
+  /** Events waiting for a free coding agent. */
+  readonly queued: number;
+  readonly spentTodayUsd: number;
+  readonly dailyUsd: number;
+  readonly lastError: string | undefined;
+  /** The coding agent running it now, by name. */
+  readonly runningOn: string | undefined;
 }
 
 /** What an agent is doing about one issue. */
@@ -150,6 +183,8 @@ export interface OfficeView {
   readonly project: ProjectView | undefined;
   /** Whether issues can be handed to live agents: an orchestrator is configured. */
   readonly orchestrator: boolean;
+  /** The runners' standing tasks. */
+  readonly standing: readonly StandingTaskView[];
 }
 
 export interface OfficeViewSources {
@@ -202,15 +237,32 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
       ceo = occupant.name;
     }
     if (isLiveAgent(occupant) && isIssueAssignee(actorOf(occupant))) {
+      const running = [...state.standing.values()].find((task) => task.runningAgentId === occupant.id);
       issueAgents.push({
         id: occupant.id,
         name: occupant.name,
         status: occupant.status,
         activity: occupant.activity,
         issue: issueInHand(occupant.id, work),
+        standing: running === undefined ? undefined : { taskName: running.name, task: link(occupant.taskTitle, occupant.taskUrl) },
       });
     }
   }
+
+  const standing: StandingTaskView[] = [...state.standing.values()].map((task) => ({
+    id: task.id,
+    kind: task.kind,
+    name: task.name,
+    status: task.status,
+    trigger: task.trigger,
+    lastOutcome: task.lastOutcome === "" ? undefined : task.lastOutcome,
+    lastRunPr: task.lastRunPr === 0 ? undefined : task.lastRunPr,
+    queued: task.queued,
+    spentTodayUsd: task.spentTodayUsd,
+    dailyUsd: task.dailyUsd,
+    lastError: task.lastError === "" ? undefined : task.lastError,
+    runningOn: task.runningAgentId === "" ? undefined : state.occupants.get(task.runningAgentId)?.name,
+  }));
 
   return {
     ceo,
@@ -219,6 +271,7 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
     work,
     project: sources.project === undefined ? undefined : readProject(sources.project, work),
     orchestrator: sources.liveAgents !== undefined,
+    standing,
   };
 }
 

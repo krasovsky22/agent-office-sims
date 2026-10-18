@@ -42,6 +42,7 @@ import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText }
 import { boardAccessFor, rejectionText } from "./boardAccess.js";
 import { DayClock } from "./dayClock.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
+import { standingAccessFor, standingRejectionText } from "./standingAccess.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
 import { type CameraFocus, PlayerController, shoulderView } from "./player/controller.js";
@@ -398,6 +399,7 @@ function start(): void {
         boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name),
         managerAccess: local === undefined ? undefined : managerAccessFor(local, ceo?.name),
         agentPromptAccess: local === undefined ? undefined : agentPromptAccessFor(local, ceo?.name),
+        standingAccess: local === undefined ? undefined : standingAccessFor(local, ceo?.name),
       });
       refreshStickerNotes();
     },
@@ -449,7 +451,9 @@ function start(): void {
           ? "Too many messages — that one was dropped."
           : event.command === CLIENT_MESSAGE.managerSay
             ? "Too many messages to the manager — that one was dropped."
-            : "Too many emotes — that one was dropped.",
+            : event.command === CLIENT_MESSAGE.emote
+              ? "Too many emotes — that one was dropped."
+              : "Too many standing task buttons — that one was dropped. Wait a few seconds.",
       );
     },
 
@@ -495,6 +499,14 @@ function start(): void {
 
     onSpendChanged: (runnerSpend) => {
       publishHud({ runnerSpend });
+    },
+
+    onStandingChanged: (standingTasks) => {
+      publishHud({ standingTasks });
+    },
+
+    onStandingRejected: (event) => {
+      showNotice(standingRejectionText(event.rejection));
     },
 
     // Handed over whole on every join, a reconnection included, so it replaces
@@ -566,6 +578,9 @@ function start(): void {
           close: () => {
             readingBoard = "";
           },
+        },
+        standing: {
+          act: (action, taskId) => room.sendStanding(action, taskId),
         },
         terminal: {
           screenOf: (agentId) => room.screenOf(agentId),

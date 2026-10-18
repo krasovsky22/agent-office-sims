@@ -11,6 +11,11 @@
  * them is answered, and the server passes each id on once. What came of the
  * CEO's prompts rides along the same way.
  *
+ * The runner's standing tasks (`./standing/`) ride the same sync: their
+ * reports with the slots', their events beside the slots' (a couple of places
+ * kept for them, so a busy pool never holds them back), and the commands for
+ * them handed to the scheduler rather than a slot.
+ *
  * Syncs run one at a time, never overlapping, so an answer always settles
  * exactly what its own request carried. A failed sync is retried with backoff
  * up to {@link MAX_BACKOFF_MS}, which keeps a runner pointed at a server that is
@@ -18,10 +23,33 @@
  * is back.
  */
 
-import { MAX_RUNNER_ACKS, MAX_RUNNER_EVENTS, MAX_RUNNER_PROMPT_OUTCOMES, type RunnerSync } from "@sim/shared";
+import {
+  MAX_RUNNER_ACKS,
+  MAX_RUNNER_EVENTS,
+  MAX_RUNNER_PROMPT_OUTCOMES,
+  type RunnerEvent,
+  type RunnerStandingCommand,
+  type RunnerSync,
+  type StandingOff,
+  type StandingTaskReport,
+  isRunnerSlotCommand,
+} from "@sim/shared";
 
 import type { SlotPool } from "./slots.js";
 import type { SyncClient } from "./syncClient.js";
+
+/** What the sync needs of the runner's standing tasks. */
+export interface StandingSyncSource {
+  report(): StandingTaskReport[];
+  /** Why the runner takes no standing tasks, or `undefined` when it does. */
+  off(): StandingOff | undefined;
+  pendingEvents(): readonly RunnerEvent[];
+  delivered(ids: ReadonlySet<string>): void;
+  handle(command: RunnerStandingCommand): void;
+}
+
+/** Places in a sync's events kept for the standing tasks' while they have any. */
+const STANDING_EVENT_PLACES = 2;
 
 const DEFAULT_INTERVAL_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
@@ -33,6 +61,8 @@ export interface SyncLoopOptions {
   readonly runnerId: string;
   readonly repo: string;
   readonly pool: Pick<SlotPool, "report" | "pendingEvents" | "pendingPromptOutcomes" | "delivered" | "handle" | "spend">;
+  /** The standing tasks; none by default. */
+  readonly standing?: StandingSyncSource;
   readonly client: SyncClient;
   readonly intervalMs?: number;
   readonly maxBackoffMs?: number;
@@ -75,9 +105,11 @@ export class SyncLoop {
    * @returns whether the server answered it.
    */
   public async syncOnce(): Promise<boolean> {
-    const { pool } = this.options;
+    const { pool, standing } = this.options;
     const acked = this.acks.slice(0, MAX_RUNNER_ACKS);
-    const events = pool.pendingEvents().slice(0, MAX_RUNNER_EVENTS);
+    const standingEvents = standing?.pendingEvents() ?? [];
+    const slotEvents = pool.pendingEvents().slice(0, MAX_RUNNER_EVENTS - Math.min(standingEvents.length, STANDING_EVENT_PLACES));
+    const events = [...slotEvents, ...standingEvents.slice(0, MAX_RUNNER_EVENTS - slotEvents.length)];
     const prompts = pool.pendingPromptOutcomes().slice(0, MAX_RUNNER_PROMPT_OUTCOMES);
     const sync: RunnerSync = {
       runnerId: this.options.runnerId,
@@ -87,6 +119,7 @@ export class SyncLoop {
       events,
       spend: pool.spend(),
       prompts,
+      ...(standing === undefined ? {} : { standing: standing.report(), standingOff: standing.off() }),
     };
 
     let reply;
@@ -100,7 +133,9 @@ export class SyncLoop {
 
     const settled = new Set(acked);
     this.acks = this.acks.filter((id) => !settled.has(id));
-    pool.delivered(new Set([...events.map((event) => event.id), ...prompts.map((prompt) => prompt.commandId)]));
+    const delivered = new Set([...events.map((event) => event.id), ...prompts.map((prompt) => prompt.commandId)]);
+    pool.delivered(delivered);
+    standing?.delivered(delivered);
 
     for (const id of reply.unreadable) {
       if (this.take(id)) {
@@ -108,8 +143,15 @@ export class SyncLoop {
       }
     }
     for (const command of reply.commands) {
-      if (this.take(command.id)) {
+      if (!this.take(command.id)) {
+        continue;
+      }
+      if (isRunnerSlotCommand(command)) {
         pool.handle(command);
+      } else if (standing !== undefined) {
+        standing.handle(command);
+      } else {
+        this.log(`command ${command.id} is for standing tasks, which this runner does not run; acked without acting on it`);
       }
     }
     return true;

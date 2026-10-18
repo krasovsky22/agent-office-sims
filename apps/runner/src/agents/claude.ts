@@ -80,6 +80,22 @@ const NOT_LOGGED_IN = /Not logged in\s*·\s*Run \/login|Please run \/login/i;
  */
 const TURN_END_TAIL = 1024;
 
+/**
+ * Its sign-in: a key or token, or the one `claude /login` saved, which is found
+ * through its config dir and, in the macOS keychain, under the user's name.
+ */
+export const CLAUDE_CREDENTIAL_ENV: readonly string[] = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "USER"];
+
+/** Variables its own sessions set that would make it think it runs inside one. */
+export const CLAUDE_SCRUB_ENV: readonly string[] = [
+  "CLAUDECODE",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_SSE_PORT",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_PID",
+  "CLAUDE_EFFORT",
+];
+
 export interface ClaudeOptions {
   /** `--model`; Claude's own default when unset. */
   readonly model?: string;
@@ -282,10 +298,8 @@ export function claudeAdapter(options: ClaudeOptions = {}): ProviderAdapter<Clau
     id: "claude",
     label: "Claude",
     command: "claude",
-    // Its sign-in: a key or token, or the one `claude /login` saved, which is found
-    // through its config dir and, in the macOS keychain, under the user's name.
-    credentialEnv: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "USER"],
-    scrubEnv: ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CLAUDE_EFFORT"],
+    credentialEnv: CLAUDE_CREDENTIAL_ENV,
+    scrubEnv: CLAUDE_SCRUB_ENV,
     prepare: (dataDir) => ({ settings: writeSettings(dataDir, permissions) }),
     launch({ prompt, setup }) {
       const mode = permissions === "all" ? "bypassPermissions" : "acceptEdits";

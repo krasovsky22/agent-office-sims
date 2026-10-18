@@ -43,9 +43,11 @@ import {
   actorOf,
   isAiManager,
   mayInstructManager,
+  mayManageStandingTasks,
 } from "@sim/shared";
 
 import type { LiveAgentSource } from "../agents/registry.js";
+import type { StandingControl } from "../agents/standingControl.js";
 import type { WorkHost } from "../rooms/workHandlers.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import { type AdviceResult, type ManagerAdvisor, type ManagerRequest } from "./advisor.js";
@@ -55,6 +57,7 @@ import type { LiveAssignmentQueue } from "./liveAssignments.js";
 import { type OfficeView, readLiveAgents, readOfficeView } from "./officeView.js";
 import { ADVICE_FAILURE } from "./plannerError.js";
 import { planFromRules } from "./rulePlanner.js";
+import { carryOutStanding } from "./standingPlan.js";
 import { type Observation, describeChanges, observe } from "./updates.js";
 
 /** Messages that may wait behind the one being answered. */
@@ -78,6 +81,8 @@ export interface ManagerHost {
   readonly floor?: LiveAgentSource | undefined;
   /** Where GitHub work for live agents is queued; absent with no orchestrator. */
   readonly assignments: LiveAssignmentQueue | undefined;
+  /** The office's one gate for standing tasks; absent with no runner. */
+  readonly standing?: StandingControl | undefined;
   /** This room, as the assignment queue knows it. */
   readonly origin: string;
   /** Sends a new line to every client. */
@@ -237,7 +242,20 @@ export class OfficeManager {
               note: question.text,
             });
     }
-    this.say(MANAGER_ENTRY_KIND.reply, MANAGER_NAME, [preface, plan.reply, ...outcomes].filter((line) => line !== "").join("\n"));
+    const standing = plan.standing ?? [];
+    let standingOutcomes: string[] = [];
+    if (standing.length > 0) {
+      const ceo = this.host.work.state.occupants.get(question.ceoId);
+      standingOutcomes =
+        ceo === undefined || !mayManageStandingTasks(actorOf(ceo))
+          ? ["✗ You are no longer the CEO, so I changed no standing task."]
+          : carryOutStanding(standing, { message: question.text, control: this.host.standing, actor: actorOf(ceo), ceoName: ceo.name, view });
+    }
+    this.say(
+      MANAGER_ENTRY_KIND.reply,
+      MANAGER_NAME,
+      [preface, plan.reply, ...outcomes, ...standingOutcomes].filter((line) => line !== "").join("\n"),
+    );
     recordOfficeEvent("manager-answer", {
       ceo: question.ceoName,
       via: result.ok ? this.host.advisor.mode : "rules",

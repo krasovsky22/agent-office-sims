@@ -55,7 +55,7 @@ export type RunCommand = (
   options: { readonly cwd?: string; readonly env: NodeJS.ProcessEnv },
 ) => Promise<string>;
 
-const runCommand: RunCommand = async (file, args, options) => {
+export const runCommand: RunCommand = async (file, args, options) => {
   const { stdout } = await execFileP(file, [...args], {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     env: options.env,

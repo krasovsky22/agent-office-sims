@@ -14,7 +14,8 @@
  * keeps in the snapshot whether or not its panel is open, counting the lines
  * nobody has read yet. A live agent's terminal is the one thing a panel reads
  * that is not in the snapshot: it changes too often, so the panel asks for it
- * through {@link HudActions} as it repaints.
+ * through {@link HudActions} as it repaints. The runners' standing tasks are
+ * listed under the agents for everyone, with the CEO's buttons for them.
  */
 
 import {
@@ -29,6 +30,8 @@ import {
   type OccupantKind,
   type ProjectBoardSnapshot,
   type RunnerSpendTotal,
+  STANDING_ACTION,
+  type StandingTaskAction,
   type WorkData,
   isIssueAssignee,
   spendSummary,
@@ -42,6 +45,7 @@ import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ManagerAccess } from "../managerAccess.js";
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
+import { type StandingAccess, type StandingTaskData, standingRow } from "../standingAccess.js";
 import type { ConnectionStatus } from "../net/room.js";
 import { type AgentPromptRefusal, type AgentTerminalActions, AgentTerminalPanel } from "./AgentTerminalPanel.js";
 import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
@@ -176,6 +180,15 @@ export interface HudSnapshot {
   readonly agentPromptAccess?: AgentPromptAccess | undefined;
   /** Why the local player's latest prompt was not typed, if one was not. */
   readonly agentPromptRefusal?: AgentPromptRefusal | undefined;
+  /** The runners' standing tasks as last replicated, in no particular order. */
+  readonly standingTasks: readonly StandingTaskData[];
+  /** What the local player may do about them; absent until they are in the office. */
+  readonly standingAccess?: StandingAccess | undefined;
+}
+
+/** What the standing tasks' buttons do; the server decides whether it happens. */
+export interface StandingActions {
+  readonly act: (action: StandingTaskAction, taskId: string) => void;
 }
 
 export interface HudActions {
@@ -185,6 +198,7 @@ export interface HudActions {
   readonly projectBoard: ProjectBoardActions;
   readonly manager: ManagerPanelActions;
   readonly terminal: AgentTerminalActions;
+  readonly standing: StandingActions;
 }
 
 export interface HudStore {
@@ -205,6 +219,7 @@ const INITIAL: HudSnapshot = {
   managerLog: [],
   agentPrompts: [],
   managerUnread: 0,
+  standingTasks: [],
 };
 
 export function createHudStore(): HudStore {
@@ -505,6 +520,80 @@ function SpendLine({ spend }: { spend: RunnerSpendTotal }) {
 }
 
 /**
+ * One standing task's row: what it is, how it stands, and the CEO's buttons,
+ * disabled with the reason for everyone else, since only the CEO's are taken.
+ * Pause becomes Resume while it is paused.
+ */
+function StandingRowView({
+  task,
+  access,
+  actions,
+  now,
+}: {
+  task: StandingTaskData;
+  access: StandingAccess | undefined;
+  actions: StandingActions;
+  now: number;
+}) {
+  const row = standingRow(task, now);
+  const disabled = access?.mayManage !== true;
+  const reason = access?.reason ?? "";
+  const button = (label: string, action: StandingTaskAction) => (
+    <button
+      className="hud__standing-button"
+      type="button"
+      disabled={disabled}
+      title={disabled ? reason : `${label}: ${task.name}`}
+      onClick={(event) => {
+        event.currentTarget.blur();
+        actions.act(action, task.id);
+      }}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <li className={row.alert ? "hud__standing hud__standing--alert" : "hud__standing"}>
+      <span className="hud__standing-title">{row.title}</span>
+      {row.lines.map((line) => (
+        <span className="hud__standing-line" key={line}>
+          {line}
+        </span>
+      ))}
+      <span className="hud__standing-buttons">
+        {row.paused ? button("Resume", STANDING_ACTION.resume) : button("Pause", STANDING_ACTION.pause)}
+        {button("Check now", STANDING_ACTION.checkNow)}
+        {button("Remove", STANDING_ACTION.remove)}
+      </span>
+    </li>
+  );
+}
+
+/** The standing tasks, under the agents' spend: shown to everyone, each with its buttons. */
+function StandingTasks({
+  tasks,
+  access,
+  actions,
+}: {
+  tasks: readonly StandingTaskData[];
+  access: StandingAccess | undefined;
+  actions: StandingActions;
+}) {
+  const now = Date.now();
+  const sorted = [...tasks].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return (
+    <>
+      <h2 className="hud__title hud__title--group">Standing tasks ({tasks.length})</h2>
+      <ul className="hud__roster">
+        {sorted.map((task) => (
+          <StandingRowView task={task} access={access} actions={actions} now={now} key={task.id} />
+        ))}
+      </ul>
+    </>
+  );
+}
+
+/**
  * Who is in the office: people first, then the manager and the live coding
  * agents under headings of their own, so the roster answers "who is a person
  * here?" as plainly as the floor does.
@@ -514,11 +603,17 @@ function Roster({
   boardAccess,
   managerUnread,
   runnerSpend,
+  standingTasks,
+  standingAccess,
+  standingActions,
 }: {
   roster: readonly RosterEntry[];
   boardAccess: BoardAccess | undefined;
   managerUnread: number;
   runnerSpend: RunnerSpendTotal | undefined;
+  standingTasks: readonly StandingTaskData[];
+  standingAccess: StandingAccess | undefined;
+  standingActions: StandingActions;
 }) {
   const { people, liveAgents, managers } = groupRoster(roster);
   return (
@@ -554,6 +649,7 @@ function Roster({
         </>
       )}
       {runnerSpend === undefined || runnerSpend.runners === 0 ? null : <SpendLine spend={runnerSpend} />}
+      {standingTasks.length === 0 ? null : <StandingTasks tasks={standingTasks} access={standingAccess} actions={standingActions} />}
       {boardAccess === undefined ? null : (
         <p
           className={boardAccess.readOnly ? "hud__role hud__role--readonly" : "hud__role"}
@@ -589,6 +685,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     agentPrompts,
     agentPromptAccess,
     agentPromptRefusal,
+    standingTasks,
+    standingAccess,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
@@ -601,7 +699,15 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       </div>
 
       <div className="hud__column">
-        <Roster roster={roster} boardAccess={boardAccess} managerUnread={managerUnread} runnerSpend={runnerSpend} />
+        <Roster
+          roster={roster}
+          boardAccess={boardAccess}
+          managerUnread={managerUnread}
+          runnerSpend={runnerSpend}
+          standingTasks={standingTasks}
+          standingAccess={standingAccess}
+          standingActions={actions.standing}
+        />
 
         <div className="hud__panel">
           <h2 className="hud__title">Status</h2>

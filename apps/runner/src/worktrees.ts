@@ -235,6 +235,41 @@ export class Worktrees {
     }
   }
 
+  /**
+   * A throwaway worktree of origin's default branch at `path`, on no branch:
+   * a standing task's run reads the repository there, and nothing it does
+   * is kept. Brought up to date first, as a task's worktree is.
+   */
+  public async createScratch(path: string): Promise<string> {
+    try {
+      await this.ready();
+      await this.fetch();
+      const base = await this.startPoint();
+      await mkdir(dirname(path), { recursive: true });
+      await this.git(["worktree", "prune"]);
+      await this.git(["worktree", "add", "--detach", path, base]);
+      return path;
+    } catch (error) {
+      throw new Error(`could not create a git worktree: ${gitError(error)}`);
+    }
+  }
+
+  /** Deletes a scratch worktree, whatever is in it. Says what went wrong, if anything. */
+  public async removeScratch(path: string): Promise<string | undefined> {
+    try {
+      if (existsSync(path)) {
+        await this.git(["worktree", "remove", "--force", "--force", path]);
+      }
+      await this.git(["worktree", "prune"]);
+      // Anything git would not remove, such as files it never tracked under an ignored folder.
+      await rm(path, { recursive: true, force: true });
+      return undefined;
+    } catch (error) {
+      await rm(path, { recursive: true, force: true }).catch(() => undefined);
+      return gitError(error);
+    }
+  }
+
   /** What a worktree holds that would be lost with it: uncommitted changes, and commits no remote has. */
   public async inspect(ref: WorktreeRef): Promise<WorktreeState> {
     const exists = existsSync(ref.path);

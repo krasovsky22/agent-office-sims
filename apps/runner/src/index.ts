@@ -19,22 +19,28 @@
  * What the agents spend is booked against `RUNNER_DAILY_BUDGET_USD`, which
  * refuses new starts once it is spent (`./budget.ts`).
  *
+ * Beside the slots' issue work, the runner keeps its standing tasks
+ * (`./standing/`): recurring jobs the CEO set up, such as watching for new
+ * pull requests, each run a fresh, short, capped agent run on a free slot. A
+ * real agent's runner takes them only once `RUNNER_STANDING_DAILY_BUDGET_USD`
+ * is set.
+ *
  * A misconfigured runner exits at once with the reason; see `./config.ts`.
  */
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { formatUsd } from "@sim/shared";
+import { STANDING_OFF, formatUsd } from "@sim/shared";
 
 import { claudeAdapter } from "./agents/claude.js";
 import { HookServer } from "./agents/hookServer.js";
 import { createMockAgent } from "./agents/mock.js";
-import { createPtyAgent } from "./agents/ptyAgent.js";
+import { createPtyAgent, findOnPath } from "./agents/ptyAgent.js";
 import type { Agent } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { type RunnerConfig, readConfig } from "./config.js";
-import { NO_GITHUB, type TaskGithub, createTaskGithub } from "./github.js";
+import { NO_GITHUB, type TaskGithub, createTaskGithub, runCommand } from "./github.js";
 import { GITHUB_TOKEN_ENV, GithubAppCredentials, type GithubCredentials } from "./githubApp.js";
 import { PersonalGithubCredentials } from "./githubPersonal.js";
 import { createRedactor, runnerSecrets } from "./redact.js";
@@ -42,6 +48,13 @@ import { ScreenLoop } from "./screenLoop.js";
 import { createScreensClient } from "./screensClient.js";
 import { SlotWorktrees } from "./slotWorktrees.js";
 import { SlotPool } from "./slots.js";
+import { createClaudeStandingRunners } from "./standing/claude.js";
+import { createMockStandingRunners } from "./standing/mock.js";
+import { githubPullSource } from "./standing/pulls.js";
+import { createReviewGithub } from "./standing/review.js";
+import { StandingScheduler } from "./standing/scheduler.js";
+import { StandingStore } from "./standing/store.js";
+import type { StandingRunners } from "./standing/types.js";
 import { createSyncClient } from "./syncClient.js";
 import { SyncLoop } from "./syncLoop.js";
 import { Worktrees, ghClone } from "./worktrees.js";
@@ -69,17 +82,14 @@ const SHUTDOWN_GRACE_MS = 10_000;
 // Private to the runner's user: its clone and its tasks' worktrees live here.
 mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
 
-const workspaces = new SlotWorktrees({
-  worktrees: new Worktrees({
-    repoDir: join(config.dataDir, "repo"),
-    worktreesDir: join(config.dataDir, "worktrees"),
-    ceilingDir: config.dataDir,
-    clone: ghClone(config.repo),
-    log,
-  }),
-  stateFile: join(config.dataDir, "worktrees.json"),
+const worktrees = new Worktrees({
+  repoDir: join(config.dataDir, "repo"),
+  worktreesDir: join(config.dataDir, "worktrees"),
+  ceilingDir: config.dataDir,
+  clone: ghClone(config.repo),
   log,
 });
+const workspaces = new SlotWorktrees({ worktrees, stateFile: join(config.dataDir, "worktrees.json"), log });
 
 const redactor = createRedactor(runnerSecrets(process.env, [config.secret]));
 
@@ -165,6 +175,35 @@ try {
   process.exit(1);
 }
 
+/** How the standing tasks' runs are done: the mock's script, or Claude Code, headless. */
+function createStandingRunners(runnerConfig: RunnerConfig): StandingRunners {
+  if (runnerConfig.agent === "mock" || credentials === undefined) {
+    return createMockStandingRunners();
+  }
+  const app = credentials;
+  const command = findOnPath("claude");
+  if (command === undefined) {
+    throw new Error("claude is not on PATH; install it or put it there");
+  }
+  return createClaudeStandingRunners({
+    command,
+    dataDir: runnerConfig.dataDir,
+    model: runnerConfig.model,
+    permissions: runnerConfig.agentPermissions,
+    worktrees,
+    github: createReviewGithub({
+      repo: runnerConfig.repo,
+      author: () => (runnerConfig.githubApp === undefined ? { login: personalCredentials?.login } : { appId: runnerConfig.githubApp.appId }),
+      env: () => githubEnv(app),
+      run: runCommand,
+    }),
+    identity: { env: app.env(), scrub: GITHUB_TOKEN_ENV },
+    log,
+  });
+}
+
+// One set of books for issue work and standing tasks alike.
+const ledger = new SpendLedger({ budgetUsd: config.dailyBudgetUsd });
 const pool = new SlotPool({
   count: config.maxAgents,
   agent,
@@ -172,14 +211,46 @@ const pool = new SlotPool({
   taskTimeoutMs: config.taskTimeoutMs,
   github,
   redactor,
-  ledger: new SpendLedger({ budgetUsd: config.dailyBudgetUsd }),
+  ledger,
   log,
   debug,
 });
+let standing: StandingScheduler;
+try {
+  standing = new StandingScheduler({
+    store: new StandingStore({ file: join(config.dataDir, "standing.json"), log }),
+    pool,
+    runners: createStandingRunners(config),
+    // The agents' identity for a real runner; the mock asks anonymously.
+    pulls: githubPullSource({
+      repo: config.repo,
+      ...(credentials === undefined || config.agent === "mock"
+        ? {}
+        : {
+            token: async () => {
+              await credentials.fresh();
+              return credentials.token();
+            },
+          }),
+    }),
+    ledger,
+    budgetUsd: config.standingDailyBudgetUsd,
+    off: config.agent !== "mock" && config.standingDailyBudgetUsd === undefined ? STANDING_OFF.noBudget : undefined,
+    maxConcurrent: config.standingMaxConcurrent,
+    redactor,
+    log,
+    debug,
+  });
+} catch (error) {
+  // eslint-disable-next-line no-console -- the runner's log is its console, read by its operator
+  console.error(`[runner] refusing to start: ${(error as Error).message}`);
+  process.exit(1);
+}
 const loop = new SyncLoop({
   runnerId: config.runnerId,
   repo: config.repo,
   pool,
+  standing,
   client: createSyncClient({ serverUrl: config.serverUrl, secret: config.secret }),
   log,
 });
@@ -196,6 +267,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     loop.stop();
     screens.stop();
     credentials?.stop();
+    standing.stop();
     pool.stopAll();
     // A worktree left half-removed would read as work to keep, so let removals finish.
     const grace = setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
@@ -243,10 +315,22 @@ if (config.agent === "mock") {
     }
   }
 }
+if (config.agent !== "mock" && config.standingDailyBudgetUsd === undefined) {
+  log("standing tasks: off (RUNNER_STANDING_DAILY_BUDGET_USD is not set), so the office cannot set any up on this runner");
+} else {
+  log(
+    `standing tasks: up to ${config.standingMaxConcurrent} ${config.standingMaxConcurrent === 1 ? "run" : "runs"} at once, ` +
+      (config.standingDailyBudgetUsd === undefined
+        ? "no standing budget of their own"
+        : `${formatUsd(config.standingDailyBudgetUsd)} a day for all of them together`) +
+      `; kept in ${join(config.dataDir, "standing.json")}`,
+  );
+}
 if (config.logLevel === "debug") {
   log("logging every step the agents report (RUNNER_LOG_LEVEL=debug)");
 }
 credentials?.start();
 await workspaces.reattach();
+standing.start();
 loop.start();
 screens.start();

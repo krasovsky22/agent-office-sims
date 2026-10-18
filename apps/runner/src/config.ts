@@ -116,6 +116,14 @@ export interface RunnerConfig {
   readonly logLevel: RunnerLogLevel;
   /** The person's token the agents push and open pull requests with, with `RUNNER_GITHUB_AUTH=personal`. */
   readonly personalGithub: PersonalGithubConfig | undefined;
+  /**
+   * US dollars all standing tasks together may spend in a day. For a real
+   * agent it is also the opt-in: unset, the runner takes no standing tasks.
+   * Never more than {@link dailyBudgetUsd}, so issue work keeps the difference.
+   */
+  readonly standingDailyBudgetUsd: number | undefined;
+  /** Standing runs at once, across every task, from 1 to the slots. */
+  readonly standingMaxConcurrent: number;
 }
 
 /**
@@ -151,6 +159,11 @@ export interface RunnerConfig {
  * - `RUNNER_GITHUB_TOKEN`: the token a `claude` agent uses with `personal`;
  *   unset, the machine's own `gh auth token`.
  * - `RUNNER_LOG_LEVEL`: one of {@link RUNNER_LOG_LEVELS}, defaulting to `info`.
+ * - `RUNNER_STANDING_DAILY_BUDGET_USD`: US dollars, `0` or more, all standing
+ *   tasks may spend in a day; unset, a `claude` runner takes no standing
+ *   tasks. Refused when above `RUNNER_DAILY_BUDGET_USD`.
+ * - `RUNNER_STANDING_MAX_CONCURRENT`: standing runs at once, from 1 to
+ *   `RUNNER_MAX_AGENTS`, defaulting to 1.
  *
  * @param ghToken the machine's `gh` login token, `undefined` when there is
  * none; injected so a test never reads the real one.
@@ -164,6 +177,8 @@ export function readConfig(
 ): RunnerConfig {
   const agent = readAgent(env);
   const auth = readGithubAuth(env);
+  const dailyBudgetUsd = readDailyBudget(env);
+  const maxAgents = readMaxAgents(env);
   return {
     serverUrl: readServerUrl(env),
     secret: readSecret(env),
@@ -173,14 +188,16 @@ export function readConfig(
     mockOutcome: readMockOutcome(env),
     model: readModel(env),
     agentPermissions: readAgentPermissions(env),
-    maxAgents: readMaxAgents(env),
+    maxAgents,
     taskTimeoutMs: readTaskTimeoutMinutes(env) * 60_000,
-    dailyBudgetUsd: readDailyBudget(env),
+    dailyBudgetUsd,
     runnerId: runnerIdFor(host),
     issueLabel: readAgentIssueLabel(env["REAL_AGENT_ISSUE_LABEL"]),
     githubApp: auth === "app" ? readGithubApp(env, agent) : undefined,
     personalGithub: auth === "personal" && agent !== "mock" ? readPersonalGithub(env, ghToken) : undefined,
     logLevel: readLogLevel(env),
+    standingDailyBudgetUsd: readStandingBudget(env, dailyBudgetUsd),
+    standingMaxConcurrent: readStandingMaxConcurrent(env, maxAgents),
   };
 }
 
@@ -430,16 +447,48 @@ function readTaskTimeoutMinutes(env: NodeJS.ProcessEnv): number {
 /** A plain amount of dollars, `5` or `12.50`: no sign, exponent or thousands separator. */
 const DOLLARS = /^\d+(?:\.\d+)?$/;
 
-function readDailyBudget(env: NodeJS.ProcessEnv): number | undefined {
-  const raw = read(env, "RUNNER_DAILY_BUDGET_USD");
+function readDollars(env: NodeJS.ProcessEnv, name: string): number | undefined {
+  const raw = read(env, name);
   if (raw === "") {
     return undefined;
   }
   const usd = Number(raw);
   if (!DOLLARS.test(raw) || !Number.isFinite(usd) || usd > MAX_RUNNER_USD) {
-    throw new Error(`RUNNER_DAILY_BUDGET_USD must be an amount of US dollars from 0 to ${MAX_RUNNER_USD}, such as 5 or 12.50; got "${raw}"`);
+    throw new Error(`${name} must be an amount of US dollars from 0 to ${MAX_RUNNER_USD}, such as 5 or 12.50; got "${raw}"`);
   }
   return usd;
+}
+
+function readDailyBudget(env: NodeJS.ProcessEnv): number | undefined {
+  return readDollars(env, "RUNNER_DAILY_BUDGET_USD");
+}
+
+/**
+ * Above the runner's own daily budget is refused rather than capped: standing
+ * work could then spend the whole day's budget and leave issue work none,
+ * which is what keeping it lower is for.
+ */
+function readStandingBudget(env: NodeJS.ProcessEnv, dailyBudgetUsd: number | undefined): number | undefined {
+  const usd = readDollars(env, "RUNNER_STANDING_DAILY_BUDGET_USD");
+  if (usd !== undefined && dailyBudgetUsd !== undefined && usd > dailyBudgetUsd) {
+    throw new Error(
+      `RUNNER_STANDING_DAILY_BUDGET_USD (${usd}) must not be more than RUNNER_DAILY_BUDGET_USD (${dailyBudgetUsd}), ` +
+        "so standing tasks can never spend what issue work needs",
+    );
+  }
+  return usd;
+}
+
+function readStandingMaxConcurrent(env: NodeJS.ProcessEnv, maxAgents: number): number {
+  const raw = read(env, "RUNNER_STANDING_MAX_CONCURRENT");
+  if (raw === "") {
+    return 1;
+  }
+  const count = Number(raw);
+  if (!Number.isInteger(count) || count < 1 || count > maxAgents) {
+    throw new Error(`RUNNER_STANDING_MAX_CONCURRENT must be a whole number from 1 to RUNNER_MAX_AGENTS (${maxAgents}); got "${raw}"`);
+  }
+  return count;
 }
 
 /** The machine's name, narrowed to what a runner id may hold. */

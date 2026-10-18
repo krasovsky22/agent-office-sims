@@ -15,7 +15,7 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { type AgentKey, MAX_NAME_LENGTH, MAX_TITLE_LENGTH, type RunnerCommand } from "@sim/shared";
+import { type AgentKey, MAX_NAME_LENGTH, MAX_TITLE_LENGTH, type RunnerSlotCommand } from "@sim/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -41,7 +41,7 @@ const TO_WAIT_MS = STEP_MS * 4;
 /** The rest of its script, from the answer to its outcome. */
 const FROM_ANSWER_MS = STEP_MS * 2;
 
-const START: RunnerCommand = {
+const START: RunnerSlotCommand = {
   id: "command-1",
   slotId: "slot-1",
   kind: "start",
@@ -53,7 +53,7 @@ const START: RunnerCommand = {
 };
 
 /** The CEO's answer to what the mock waits on. */
-const ANSWER: RunnerCommand = { id: "command-answer", slotId: "slot-1", kind: "prompt", text: "Go ahead.", requestedBy: "Dana" };
+const ANSWER: RunnerSlotCommand = { id: "command-answer", slotId: "slot-1", kind: "prompt", text: "Go ahead.", requestedBy: "Dana" };
 
 let fixture: GitFixture;
 /** What the pool asked of its workspaces, in order. */
@@ -880,7 +880,7 @@ describe("SlotPool prompts from the CEO", () => {
   });
 
   let nextCommand = 10;
-  function ceoPrompt(text: string): RunnerCommand {
+  function ceoPrompt(text: string): RunnerSlotCommand {
     nextCommand += 1;
     return { id: `command-${nextCommand}`, slotId: "slot-1", kind: "prompt", text, requestedBy: "Dana", fromCeo: true };
   }
@@ -1024,7 +1024,7 @@ describe("SlotPool keys from the CEO", () => {
   });
 
   let nextCommand = 100;
-  function ceoKey(key: AgentKey): RunnerCommand {
+  function ceoKey(key: AgentKey): RunnerSlotCommand {
     nextCommand += 1;
     return { id: `command-${nextCommand}`, slotId: "slot-1", kind: "key", key, requestedBy: "Dana" };
   }

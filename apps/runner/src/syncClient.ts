@@ -15,6 +15,7 @@ import {
   type RunnerCommandDraft,
   type RunnerSync,
   isAgentKey,
+  isStandingTaskCommandKind,
   toRunnerCommand,
 } from "@sim/shared";
 
@@ -107,11 +108,26 @@ export function readCommands(raw: readonly unknown[]): SyncReply {
 }
 
 function readCommand(raw: unknown): RunnerCommand | undefined {
-  if (!isRecord(raw) || typeof raw["id"] !== "string" || typeof raw["slotId"] !== "string") {
+  if (!isRecord(raw) || typeof raw["id"] !== "string") {
     return undefined;
   }
-  const draft = readDraft(raw, raw["slotId"]);
+  const draft = typeof raw["slotId"] === "string" ? readDraft(raw, raw["slotId"]) : readStandingDraft(raw);
   return draft === undefined ? undefined : toRunnerCommand(raw["id"], draft);
+}
+
+/** A standing task's command, which names no slot; its definition is proved by `toRunnerCommand`. */
+function readStandingDraft(raw: Record<string, unknown>): RunnerCommandDraft | undefined {
+  const { kind, requestedBy } = raw;
+  if (typeof requestedBy !== "string") {
+    return undefined;
+  }
+  if (kind === RUNNER_COMMAND_KIND.standingSet) {
+    return { kind, spec: raw["spec"] as never, requestedBy };
+  }
+  if (isStandingTaskCommandKind(kind) && typeof raw["taskId"] === "string") {
+    return { kind, taskId: raw["taskId"], requestedBy };
+  }
+  return undefined;
 }
 
 function readDraft(raw: Record<string, unknown>, slotId: string): RunnerCommandDraft | undefined {

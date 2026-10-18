@@ -29,7 +29,8 @@
  *
  * The agents' work on the project board's issues is state too, and is handed
  * on as a fresh plain copy whenever any of it changes, so the panel re-renders
- * from a value rather than holding a schema object that mutates under it.
+ * from a value rather than holding a schema object that mutates under it. So
+ * are the runners' standing tasks, for the roster.
  *
  * The conversation with the AI manager is not: like chat it arrives as events —
  * the lines so far on joining, then each new one — and the manager's own badge
@@ -78,6 +79,11 @@ import {
   type ReportedAnimation,
   type RunnerSpendTotal,
   SERVER_MESSAGE,
+  STANDING_ACTION,
+  type StandingClientMessage,
+  type StandingRejectedEvent,
+  type StandingTaskAction,
+  type StandingTaskMessage,
   type ScreenFramesEvent,
   type ThrottledEvent,
   type WorkAssignMessage,
@@ -94,6 +100,7 @@ import {
 } from "@sim/shared";
 import { Client, type Room, getStateCallbacks } from "colyseus.js";
 
+import { type StandingTaskData, copyStandingTask } from "../standingAccess.js";
 import { type TerminalScreen, applyScreenFrame } from "./screens.js";
 
 export type ConnectionStatus =
@@ -210,7 +217,19 @@ export interface RoomConnectionEvents {
   onAgentPrompted?: (entry: AgentPromptEntry) => void;
   /** One of the local client's own prompts was not typed, or keys not pressed, and why. */
   onAgentPromptRejected?: (event: AgentPromptRejectedEvent) => void;
+  /** The runners' standing tasks, after any of them is added, changed or removed. */
+  onStandingChanged?: (tasks: readonly StandingTaskData[]) => void;
+  /** The office did nothing about one of the local client's standing task buttons. */
+  onStandingRejected?: (event: StandingRejectedEvent) => void;
 }
+
+/** The message each standing task button sends. */
+const STANDING_MESSAGES: Readonly<Record<StandingTaskAction, StandingClientMessage>> = {
+  [STANDING_ACTION.pause]: CLIENT_MESSAGE.standingPause,
+  [STANDING_ACTION.resume]: CLIENT_MESSAGE.standingResume,
+  [STANDING_ACTION.remove]: CLIENT_MESSAGE.standingRemove,
+  [STANDING_ACTION.checkNow]: CLIENT_MESSAGE.standingCheckNow,
+};
 
 /** The runners' books as the state replicates them, back as one total. */
 export function runnerSpendOf(state: Pick<OfficeState, "spendRunners" | "spentUsd" | "budgeted" | "budgetUsd" | "budgetSpent">): RunnerSpendTotal {
@@ -235,6 +254,7 @@ export class RoomConnection {
   private readonly screens = new Map<string, TerminalScreen>();
 
   private workQueued = false;
+  private standingQueued = false;
 
   private lastSentAt = Number.NEGATIVE_INFINITY;
   private readonly lastSent = {
@@ -423,6 +443,11 @@ export class RoomConnection {
     return true;
   }
 
+  /** Pauses, resumes, removes or checks a standing task. The state patch is the reply, or a rejection to this client alone. */
+  public sendStanding(action: StandingTaskAction, taskId: string): void {
+    this.room?.send(STANDING_MESSAGES[action], { taskId } satisfies StandingTaskMessage);
+  }
+
   /** Says something out loud. Echoed back by the server, like an emote. */
   public sendChat(text: string): void {
     this.room?.send(CLIENT_MESSAGE.chat, { text } satisfies ChatMessage);
@@ -581,6 +606,12 @@ export class RoomConnection {
     });
     $(room.state).work.onRemove(() => this.queueWork(room));
 
+    $(room.state).standing.onAdd((task) => {
+      $(task).onChange(() => this.queueStanding(room));
+      this.queueStanding(room);
+    });
+    $(room.state).standing.onRemove(() => this.queueStanding(room));
+
     // Expression arrives as events rather than state, so there is nothing to
     // diff here: the server has already validated and sanitized each one, and
     // the handler's job is only to pass it on.
@@ -632,6 +663,10 @@ export class RoomConnection {
       this.events.onAgentPromptRejected?.(event);
     });
 
+    room.onMessage<StandingRejectedEvent>(SERVER_MESSAGE.standingRejected, (event) => {
+      this.events.onStandingRejected?.(event);
+    });
+
     // Several times a second, so kept rather than passed on: the game loop
     // reads a screen when it is due a repaint.
     room.onMessage<ScreenFramesEvent>(SERVER_MESSAGE.screens, (event) => {
@@ -654,6 +689,7 @@ export class RoomConnection {
       this.screens.clear();
       this.events.onOccupantsChanged?.();
       this.events.onWorkChanged?.([]);
+      this.events.onStandingChanged?.([]);
       this.room = undefined;
       if (this.leaving || code === CONSENTED_CLOSE_CODE) {
         this.events.onStatusChanged?.("disconnected");
@@ -756,6 +792,21 @@ export class RoomConnection {
         return;
       }
       this.events.onWorkChanged?.([...room.state.work.values()].map(copyWork));
+    });
+  }
+
+  /** Publishes the standing tasks once per patch, as {@link queueWork} does the work. */
+  private queueStanding(room: Room<OfficeState>): void {
+    if (this.standingQueued) {
+      return;
+    }
+    this.standingQueued = true;
+    queueMicrotask(() => {
+      this.standingQueued = false;
+      if (this.room !== room) {
+        return;
+      }
+      this.events.onStandingChanged?.([...room.state.standing.values()].map(copyStandingTask));
     });
   }
 

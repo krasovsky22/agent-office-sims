@@ -100,6 +100,7 @@ const VIEW: OfficeView = {
     counts: { open: 5, inProgress: 2, pullRequests: 2 },
   },
   orchestrator: true,
+  standing: [],
 };
 
 function ask(message: string, view: OfficeView = VIEW) {
@@ -302,7 +303,7 @@ describe("planFromRules: assignments", () => {
 
 /** A runner's coding agent, idle with no issue unless told otherwise. */
 function coder(id: string, name: string, extra: Partial<IssueAgentView> = {}): IssueAgentView {
-  return { id, name, status: LIVE_AGENT_STATUS.idle, activity: "", issue: undefined, ...extra };
+  return { id, name, status: LIVE_AGENT_STATUS.idle, activity: "", issue: undefined, standing: undefined, ...extra };
 }
 
 describe("planFromRules: the runners' coding agents", () => {
@@ -312,6 +313,7 @@ describe("planFromRules: the runners' coding agents", () => {
     liveAgents: [],
     issueAgents: [ADA, coder("agent:runner/2", "Claude 2")],
     orchestrator: false,
+    standing: [],
   };
   /** The office with Claude 2 doing something about #39. */
   function claude2(extra: Partial<IssueAgentView>, on: Partial<WorkView> = {}): OfficeView {

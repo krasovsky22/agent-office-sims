@@ -25,6 +25,7 @@ import {
   MAX_WORK_NOTE_LENGTH,
 } from "./constants.js";
 import type { ManagerRejection } from "./manager.js";
+import { type StandingRejection, type StandingTaskAction, isStandingTaskId } from "./standing.js";
 import { ANIMATION_STATE, type ReportedAnimation, type WorkStatus, isWorkStatus } from "./state.js";
 import type { WorkAction, WorkRejection } from "./work.js";
 
@@ -54,6 +55,14 @@ export const CLIENT_MESSAGE = {
   agentPrompt: "agent:prompt",
   /** Press a key on the choice screen a coding agent waits on; only the CEO is listened to. See `agentPrompt.ts`. */
   agentKey: "agent:key",
+  /** Pause a standing task; only the CEO is listened to. See `standing.ts`. */
+  standingPause: "standing:pause",
+  /** Resume a paused standing task; only the CEO is listened to. */
+  standingResume: "standing:resume",
+  /** Remove a standing task, stopping any run of it; only the CEO is listened to. */
+  standingRemove: "standing:remove",
+  /** Have a standing task check its trigger now; only the CEO is listened to. */
+  standingCheckNow: "standing:check-now",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -121,6 +130,11 @@ export const SERVER_MESSAGE = {
    * Carries an {@link AgentPromptRejectedEvent}.
    */
   agentPromptRejected: "agent:prompt-rejected",
+  /**
+   * Sent only to the client whose standing task command the office refused,
+   * with the reason. Carries a {@link StandingRejectedEvent}.
+   */
+  standingRejected: "standing:rejected",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];
@@ -200,8 +214,16 @@ export interface ThrottledEvent {
     | typeof CLIENT_MESSAGE.chat
     | typeof CLIENT_MESSAGE.managerSay
     | typeof CLIENT_MESSAGE.agentPrompt
-    | typeof CLIENT_MESSAGE.agentKey;
+    | typeof CLIENT_MESSAGE.agentKey
+    | StandingClientMessage;
 }
+
+/** The four standing task commands, which share one allowance. */
+export type StandingClientMessage =
+  | typeof CLIENT_MESSAGE.standingPause
+  | typeof CLIENT_MESSAGE.standingResume
+  | typeof CLIENT_MESSAGE.standingRemove
+  | typeof CLIENT_MESSAGE.standingCheckNow;
 
 /**
  * The office refused one of this client's work commands and changed nothing.
@@ -309,6 +331,18 @@ export interface AgentPromptRejectedEvent {
   readonly rejection: AgentPromptRejection;
   /** Set when it was a key, which one; absent for a prompt. */
   readonly key?: AgentKey;
+}
+
+/** Which standing task a pause, resume, remove or check-now is for. */
+export interface StandingTaskMessage {
+  readonly taskId: string;
+}
+
+/** The office did nothing about one of this client's standing task commands, and why. */
+export interface StandingRejectedEvent {
+  readonly action: StandingTaskAction;
+  readonly taskId: string;
+  readonly rejection: StandingRejection;
 }
 
 /** A key the CEO wants pressed on the choice screen a coding agent waits on. */
@@ -726,4 +760,14 @@ export function parseWorkMoveMessage(raw: unknown): WorkMoveMessage | undefined 
     return undefined;
   }
   return { issueNumber: candidate.issueNumber, status: candidate.status };
+}
+
+/**
+ * Validates a raw `standing:pause`, `standing:resume`, `standing:remove` or
+ * `standing:check-now` payload. Shape only: whether the sender may is
+ * `mayManageStandingTasks`'s call, and whether the task exists the office's.
+ */
+export function parseStandingTaskMessage(raw: unknown): StandingTaskMessage | undefined {
+  const taskId = asRecord(raw)?.taskId;
+  return isStandingTaskId(taskId) ? { taskId } : undefined;
 }

@@ -26,6 +26,12 @@
  * came of the CEO's prompts travels the same way, in the same inbox; the room
  * that sent a prompt is the one that knows it, and takes its first report.
  *
+ * Each sync carries the runner's standing tasks too (`@sim/shared`'s
+ * `standing.ts`), which go to the process-wide {@link StandingMirror}; a slot
+ * on a standing run is on the floor with the pull request it reviews, or the
+ * schedule it runs, as its task. Commands for standing tasks address the
+ * runner rather than a slot, and ride the same outbox.
+ *
  * Like the registry, everything here runs on Node's event loop, from an HTTP
  * request or this module's own sweep timer, and never inside a tick. The
  * slots reach the rooms through {@link LiveAgentSource}: a finished list, and
@@ -53,10 +59,14 @@ import {
   type RunnerSpendReport,
   type RunnerSpendTotal,
   type RunnerSync,
+  isRunnerSlotCommand,
+  sanitizeTitle,
+  liveAgentKey,
   toRunnerCommand,
 } from "@sim/shared";
 
 import type { LiveAgentRecord, LiveAgentSource } from "./registry.js";
+import type { StandingMirror } from "./standingMirror.js";
 
 /** What came of one sync. */
 export type RunnerSyncOutcome =
@@ -138,6 +148,10 @@ export interface RunnerLinkOptions {
   readonly now?: () => number;
   /** Command ids. Injected so a test can read them. */
   readonly commandId?: () => string;
+  /** Where every runner's standing tasks are mirrored for the rooms; none kept without it. */
+  readonly standing?: StandingMirror;
+  /** An open pull request's title on the project board, for a slot reviewing it; `undefined` when the board does not list it. */
+  readonly pullTitle?: (number: number) => string | undefined;
 }
 
 const DEFAULT_MAX_RUNNERS = 4;
@@ -205,6 +219,8 @@ interface Runner {
   readonly seenEvents: Set<string>;
   /** What its last sync said it spent; `undefined` from a runner that does not meter. */
   spend: RunnerSpendReport | undefined;
+  /** Its standing tasks' names, by id, for a slot running one. */
+  standingNames: ReadonlyMap<string, string>;
 }
 
 interface Inbox {
@@ -295,6 +311,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
         startedTitles: new Map(),
         seenEvents: new Set(),
         spend: undefined,
+        standingNames: new Map(),
       };
       this.runners.set(sync.runnerId, runner);
     }
@@ -307,6 +324,17 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
     }
     this.receive(sync.runnerId, runner, sync.events);
     this.receivePrompts(sync.runnerId, sync.prompts ?? []);
+    const standing = sync.standing ?? [];
+    runner.standingNames = new Map(standing.map((task) => [task.id, task.name]));
+    if (this.options.standing !== undefined) {
+      const running = new Map<string, string>();
+      for (const slot of sync.slots) {
+        if (slot.standing !== undefined) {
+          running.set(slot.standing.taskId, liveAgentKey(runnerSlotAgentId(sync.runnerId, slot.id)));
+        }
+      }
+      this.options.standing.update(sync.runnerId, standing, sync.standingOff, running);
+    }
 
     const records = sync.slots.map((slot) => this.record(sync.runnerId, runner, slot));
     runner.slots = sync.slots;
@@ -323,8 +351,8 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
   }
 
   /**
-   * Queues a command for one of a runner's slots. It goes out in every sync
-   * reply to that runner until the runner acks it.
+   * Queues a command for one of a runner's slots, or for its standing tasks.
+   * It goes out in every sync reply to that runner until the runner acks it.
    *
    * @returns the command, or `undefined` when the runner is not connected, the
    * slot is not one it reported, the command is malformed, or the runner has
@@ -332,7 +360,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
    */
   public enqueue(runnerId: string, draft: RunnerCommandDraft): RunnerCommand | undefined {
     const runner = this.runners.get(runnerId);
-    if (runner === undefined || !runner.slots.some((slot) => slot.id === draft.slotId)) {
+    if (runner === undefined || (isRunnerSlotCommand(draft) && !runner.slots.some((slot) => slot.id === draft.slotId))) {
       return undefined;
     }
     if (runner.outbox.size >= (this.options.maxPendingCommands ?? DEFAULT_MAX_PENDING_COMMANDS)) {
@@ -431,6 +459,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
         // Its commands go too: they name slots that are gone, and a runner
         // that comes back starts from what it reports then.
         this.runners.delete(id);
+        this.options.standing?.drop(id);
         dropped ||= runner.records.length > 0;
       }
     }
@@ -545,12 +574,35 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
    * when there was one. What it is doing travels as its activity, not here.
    */
   private task(runner: Runner, slot: RunnerSlotReport): LiveAgentTask | undefined {
+    if (slot.standing !== undefined && isLiveAgentOnTask(FLOOR_STATUS[slot.status])) {
+      return this.standingTask(runner, slot.standing.taskId, slot.standing.pr);
+    }
     if (slot.issueNumber === undefined || !isLiveAgentOnTask(FLOOR_STATUS[slot.status])) {
       return undefined;
     }
     const started = runner.startedTitles.get(slot.id);
     const title = started?.issueNumber === slot.issueNumber ? started.title : `Issue #${slot.issueNumber}`;
     return { title, url: this.issueUrl(slot.issueNumber) };
+  }
+
+  /**
+   * A standing run as a slot's task: the pull request it reviews, linked and
+   * titled from the project board where it lists it, or the schedule it runs.
+   */
+  private standingTask(runner: Runner, taskId: string, pr: number | undefined): LiveAgentTask {
+    if (pr === undefined) {
+      return { title: sanitizeTitle(`Scheduled: ${runner.standingNames.get(taskId) ?? "a standing task"}`), url: "" };
+    }
+    const title = this.options.pullTitle?.(pr);
+    return {
+      title: sanitizeTitle(title === undefined || title === "" ? `Review PR #${pr}` : `Review PR #${pr}: ${title}`),
+      url: this.pullUrl(pr),
+    };
+  }
+
+  /** A pull request's link on the project board's repository. */
+  public pullUrl(number: number): string {
+    return `https://github.com/${this.options.repository}/pull/${number}`;
   }
 
   private changed(): void {

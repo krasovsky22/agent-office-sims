@@ -27,6 +27,7 @@ const VIEW: OfficeView = {
   work: [],
   project: undefined,
   orchestrator: true,
+  standing: [],
 };
 
 const REQUEST: ManagerRequest = {
@@ -62,7 +63,7 @@ describe("the request", () => {
     };
     const planner = createModelPlanner({ apiKey: "test-key", model: "claude-opus-5-5", send });
 
-    expect(await planner(REQUEST, SIGNAL)).toEqual({ reply: "Ada is idle.", assignments: [], tokensUsed: 1000 });
+    expect(await planner(REQUEST, SIGNAL)).toEqual({ reply: "Ada is idle.", assignments: [], standing: [], tokensUsed: 1000 });
     const params = sent[0];
     expect(params?.model).toBe("claude-opus-5-5");
     expect(params?.output_config).toMatchObject({ effort: "low", format: { type: "json_schema" } });

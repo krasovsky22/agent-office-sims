@@ -43,10 +43,24 @@ export interface PlannedAssignment {
   readonly agent: string;
 }
 
+/**
+ * One thing the manager wants done about a standing task, as the planner
+ * wrote it: carried out afterwards through the office's one gate for them
+ * (`../agents/standingControl.ts`), with the CEO as the actor, never trusted.
+ * `task` names an existing task by its id, its name, or "pull requests" for
+ * the pull request watch.
+ */
+export type PlannedStanding =
+  | { readonly action: "watch-pull-requests" }
+  | { readonly action: "schedule"; readonly cron: string; readonly instruction: string }
+  | { readonly action: "pause" | "resume" | "remove" | "check-now"; readonly task: string };
+
 export interface ManagerPlan {
   /** What the manager says, before the outcome of any assignment is added. */
   readonly reply: string;
   readonly assignments: readonly PlannedAssignment[];
+  /** Standing tasks to set up, pause, resume, remove or check; none when left out. */
+  readonly standing?: readonly PlannedStanding[];
   /** Model tokens spent; `0` for the rules. */
   readonly tokensUsed: number;
 }

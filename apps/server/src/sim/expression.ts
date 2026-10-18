@@ -35,6 +35,8 @@ import {
   EMOTE_REFILL_PER_SECOND,
   MANAGER_BURST_ALLOWANCE,
   MANAGER_REFILL_PER_SECOND,
+  STANDING_BURST_ALLOWANCE,
+  STANDING_REFILL_PER_SECOND,
   type ThrottledEvent,
 } from "@sim/shared";
 
@@ -94,7 +96,13 @@ export function tryConsume(bucket: TokenBucket, now: number): boolean {
 export type ExpressionBudget = Readonly<Record<ThrottledEvent["command"], TokenBucket>>;
 
 export function createExpressionBudget(now: number): ExpressionBudget {
+  // One allowance for every standing task command: they all queue for a runner alike.
+  const standing = createTokenBucket(STANDING_BURST_ALLOWANCE, STANDING_REFILL_PER_SECOND, now);
   return {
+    [CLIENT_MESSAGE.standingPause]: standing,
+    [CLIENT_MESSAGE.standingResume]: standing,
+    [CLIENT_MESSAGE.standingRemove]: standing,
+    [CLIENT_MESSAGE.standingCheckNow]: standing,
     [CLIENT_MESSAGE.emote]: createTokenBucket(EMOTE_BURST_ALLOWANCE, EMOTE_REFILL_PER_SECOND, now),
     [CLIENT_MESSAGE.chat]: createTokenBucket(CHAT_BURST_ALLOWANCE, CHAT_REFILL_PER_SECOND, now),
     [CLIENT_MESSAGE.managerSay]: createTokenBucket(MANAGER_BURST_ALLOWANCE, MANAGER_REFILL_PER_SECOND, now),

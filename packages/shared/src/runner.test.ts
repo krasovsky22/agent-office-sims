@@ -15,6 +15,7 @@ import {
   MAX_RUNNER_PROMPT_LENGTH,
   MAX_RUNNER_PROMPT_OUTCOMES,
   MAX_RUNNER_SLOTS,
+  type RunnerWorkEvent,
   SIMULATED_PULL_REQUEST,
   isSimulatedPullRequestArtifact,
   parseRunnerSync,
@@ -76,6 +77,7 @@ describe("parseRunnerSync", () => {
       ],
       spend: undefined,
       prompts: [{ commandId: "command-7", slotId: "slot-1", outcome: "busy" }],
+      standing: [],
     });
   });
 
@@ -85,7 +87,7 @@ describe("parseRunnerSync", () => {
       events: [{ id: "event-2", kind: "failed", slotId: "slot-1", issueNumber: 40, message: "budget spent", refusal: "budget" }],
       spend: { spentUsd: 5.25, budgetUsd: 5 },
     });
-    expect(parsed?.events[0]?.refusal).toBe("budget");
+    expect((parsed?.events[0] as RunnerWorkEvent | undefined)?.refusal).toBe("budget");
     expect(parsed?.spend).toEqual({ spentUsd: 5.25, budgetUsd: 5 });
     expect(parseRunnerSync({ ...SYNC, spend: { spentUsd: 0.5 } })?.spend).toEqual({ spentUsd: 0.5, budgetUsd: undefined });
   });
@@ -101,6 +103,7 @@ describe("parseRunnerSync", () => {
       events: [],
       spend: undefined,
       prompts: [],
+      standing: [],
     });
   });
 
@@ -112,7 +115,7 @@ describe("parseRunnerSync", () => {
       events: [{ id: "event-1", kind: "pr-opened", slotId: "slot-1", issueNumber: 39, pr: { number: 1_000_039, simulated: true } }],
     });
     expect(parsed?.slots[0]?.pr).toEqual({ number: 1_000_039, title: "[mock] Night shift", url: "", simulated: true });
-    expect(parsed?.events[0]?.pr).toEqual({ number: 1_000_039, title: "", url: "", simulated: true });
+    expect((parsed?.events[0] as RunnerWorkEvent | undefined)?.pr).toEqual({ number: 1_000_039, title: "", url: "", simulated: true });
     // Only `true` makes one simulated: anything else is a real one, which needs its link.
     expect(parseRunnerSync({ ...SYNC, slots: [{ id: "s", status: "idle", pr: { number: 1, simulated: "yes" } }] })).toBeUndefined();
   });
