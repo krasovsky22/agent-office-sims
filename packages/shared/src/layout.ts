@@ -46,11 +46,24 @@ export interface Vec2 {
   readonly z: number;
 }
 
+/**
+ * How a wall is drawn. Every style blocks exactly its footprint; the style only
+ * changes what you see of it.
+ *
+ * - `window`: a sill, a run of glass and a header, so the street outside shows
+ *   through it.
+ * - `railing`: a waist-high rail on posts, for the kerb edge of the pavement,
+ *   which you can see over but not cross.
+ */
+export type WallStyle = "window" | "railing";
+
 /** A wall segment. Its footprint is already axis-aligned. */
 export interface WallSpec {
   readonly id: string;
   readonly footprint: Aabb2;
   readonly height: number;
+  /** Absent for a plain solid wall. */
+  readonly style?: WallStyle;
 }
 
 /**
@@ -76,7 +89,7 @@ export interface DeskSpec {
  * Desks have their own spec because the rows of them are the floor plan's main
  * structure; everything else solid that is not a wall or a desk is a prop.
  */
-export type PropKind = "coffee" | "cabinet" | "table" | "diningChair";
+export type PropKind = "coffee" | "cabinet" | "table" | "diningChair" | "reception";
 
 /**
  * A solid furnishing other than a desk, positioned the same way a desk is.
@@ -287,6 +300,32 @@ export interface Workstation {
   readonly exit: Vec2;
 }
 
+/** One lane of the street, and which way its traffic drives. */
+export interface StreetLaneSpec {
+  /** Centre line of the lane. The street runs north-south, so a lane is a line of constant X. */
+  readonly x: number;
+  /** `1` for traffic driving south (+Z), `-1` for north. */
+  readonly direction: 1 | -1;
+}
+
+/**
+ * The street the office's front faces: everything past the pavement's kerb.
+ *
+ * It is scenery. Nobody walks on the road, so none of it collides and the
+ * server never reads it; it is here, rather than in the client, so the road is
+ * drawn against the same kerb the pavement's railing stands on. The pavement
+ * itself is floor, a room with walls like any other.
+ */
+export interface StreetSpec {
+  /** The carriageway, kerb to kerb; its Z extent is how far up and down the street is drawn. */
+  readonly road: Aabb2;
+  readonly lanes: readonly StreetLaneSpec[];
+  /** Centre of the pedestrian crossing, and the traffic lights, across the road. */
+  readonly crossingZ: number;
+  /** Where the fronts of the buildings across the street stand, a pavement's width back from the far kerb. */
+  readonly farFrontX: number;
+}
+
 export interface OfficeLayout {
   readonly name: string;
   /** Outer extent of the floor slab, walls included. */
@@ -308,9 +347,14 @@ export interface OfficeLayout {
    * {@link interactables} returns all of them.
    */
   readonly fixtures: readonly InteractableSpec[];
+  /** The street outside, or `undefined` for a floor with no outside. */
+  readonly street: StreetSpec | undefined;
 }
 
 const WALL_HEIGHT = 3;
+
+/** Height of the railing along the kerb: waist high, so the street is seen over it. */
+const RAILING_HEIGHT = 1.05;
 const DESK_HEIGHT = 0.75;
 
 /** Quarter turn, the only yaw granularity the shipped layout uses. */
@@ -339,6 +383,9 @@ const STANDING_GAP = 0.5;
 
 /** Gap between a wall board and the occupant standing to read it. */
 const READING_GAP = 1;
+
+/** The pavement outside the main entrance, the one room that is outdoors. */
+export const SIDEWALK_ROOM_ID = "sidewalk";
 
 /** The room the desk rows stand in, where the live agents work. */
 export const OPEN_FLOOR_ROOM_ID = "open-floor";
@@ -375,6 +422,16 @@ function rect(minX: number, minZ: number, maxX: number, maxZ: number): Aabb2 {
 
 function wall(id: string, minX: number, minZ: number, maxX: number, maxZ: number): WallSpec {
   return { id, footprint: rect(minX, minZ, maxX, maxZ), height: WALL_HEIGHT };
+}
+
+/** A shell wall glazed onto the street. */
+function windowWall(id: string, minX: number, minZ: number, maxX: number, maxZ: number): WallSpec {
+  return { ...wall(id, minX, minZ, maxX, maxZ), style: "window" };
+}
+
+/** A waist-high railing, the pavement's edge. */
+function railing(id: string, minX: number, minZ: number, maxX: number, maxZ: number): WallSpec {
+  return { id, footprint: rect(minX, minZ, maxX, maxZ), height: RAILING_HEIGHT, style: "railing" };
 }
 
 function desk(id: string, x: number, z: number, yaw: number, width = 1.6, depth = 0.8): DeskSpec {
@@ -422,7 +479,8 @@ function deskRow(prefix: string, z: number, yaw: number, xs: readonly number[]):
 const DESK_ROW_XS = [-9, -5.4, -1.8, 1.8, 5.4, 9] as const;
 
 /**
- * The prototype office floor: one storey, six named rooms.
+ * The prototype office floor: one storey, six named rooms, and the pavement
+ * outside its front door.
  *
  * Reading from the north wall south:
  *
@@ -439,7 +497,13 @@ const DESK_ROW_XS = [-9, -5.4, -1.8, 1.8, 5.4, 9] as const;
  *   it from the corridor, broken by two doorways so the walk from a desk to a
  *   meeting is short from either end of the room.
  *
- * Every doorway is 1.4m clear, which is twice an occupant's diameter: wide
+ * - The street front, on the east: the shell's east wall is glass from end to
+ *   end bar the main entrance, which opens from the pavement into the lobby
+ *   with the reception counter facing it from across the room. The pavement
+ *   runs the length of the building between the glass and a railing along the
+ *   kerb; past the kerb is the {@link StreetSpec | street}, which is scenery.
+ *
+ * Every interior doorway is 1.4m clear, which is twice an occupant's diameter: wide
  * enough that two people pass, narrow enough to read as a door. Walls are
  * {@link MIN_OBSTACLE_THICKNESS} thick, the thinnest the collision substep can
  * guarantee a fast mover cannot cross.
@@ -452,7 +516,15 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     wall("wall-north", -12, -12, 12, -11.7),
     wall("wall-south", -12, 11.7, 12, 12),
     wall("wall-west", -12, -12, -11.7, 12),
-    wall("wall-east", 11.7, -12, 12, 12),
+    // The street front, glazed either side of the main entrance into the lobby.
+    windowWall("wall-east-north", 11.7, -12, 12, -7.5),
+    windowWall("wall-east-south", 11.7, -5.7, 12, 12),
+
+    // The pavement outside: a railing along the kerb and across each end,
+    // where the neighbouring buildings' fronts begin.
+    railing("railing-kerb", 15.5, -12.3, 15.8, 12.3),
+    railing("railing-north", 12, -12.3, 15.5, -12),
+    railing("railing-south", 12, 12, 15.5, 12.3),
 
     // Dividers between the rooms in the north band. Each runs south to the
     // corridor, so it doubles as the jamb of the doorway beside it.
@@ -530,6 +602,12 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     prop("kitchen-chair-2", "diningChair", 5.2, -8.65, Math.PI, DINING_CHAIR),
     prop("kitchen-chair-3", "diningChair", 4.6, -7.35, 0, DINING_CHAIR),
     prop("kitchen-chair-4", "diningChair", 5.2, -7.35, 0, DINING_CHAIR),
+
+    // Reception, against the lobby's west wall and turned to face the main
+    // entrance across the room: the first thing anyone coming in off the
+    // street sees. Clear of the lobby's opening onto the corridor, so the walk
+    // from the door to the rest of the office passes in front of it.
+    prop("reception-desk", "reception", 7, -6.75, -QUARTER_TURN, { width: 1.8, depth: 0.6, height: 1.05 }),
   ],
   tabletop: [
     // On the middle of the counter's north leg, pushed back against the wall.
@@ -593,6 +671,7 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { id: "lobby", name: "Lobby", bounds: rect(6.3, -11.7, 11.7, -5) },
     { id: "corridor", name: "Corridor", bounds: rect(-11.7, -4.7, 11.7, -2.7) },
     { id: "open-floor", name: "Open Floor", bounds: rect(-11.7, -2.4, 11.7, 11.7) },
+    { id: SIDEWALK_ROOM_ID, name: "Sidewalk", bounds: rect(12, -12, 15.5, 12) },
   ],
   doorways: [
     { id: "door-ceo", centre: { x: -8.7, z: -4.85 }, width: 1.4, axis: "x", connects: ["ceo-office", "corridor"] },
@@ -601,6 +680,7 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { id: "door-lobby", centre: { x: 9, z: -4.85 }, width: 5.4, axis: "x", connects: ["lobby", "corridor"] },
     { id: "door-floor-west", centre: { x: -6, z: -2.55 }, width: 1.4, axis: "x", connects: ["corridor", "open-floor"] },
     { id: "door-floor-east", centre: { x: 6, z: -2.55 }, width: 1.4, axis: "x", connects: ["corridor", "open-floor"] },
+    { id: "door-entrance", centre: { x: 11.85, z: -6.6 }, width: 1.8, axis: "z", connects: ["lobby", SIDEWALK_ROOM_ID] },
   ],
   // Every link is axis-aligned and clear of the geometry, so a body can follow
   // one by walking straight at the next node.
@@ -624,8 +704,25 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     // Lobby, and round the east end of the manager's desk to its chair.
     { id: "wp-lobby-centre", x: 9, z: -8, links: ["wp-lobby-door", "wp-lobby-east"] },
     { id: "wp-lobby-door", x: 9, z: -4.85, links: ["wp-lobby-centre", "wp-corridor-lobby"] },
-    { id: "wp-lobby-east", x: 10.8, z: -8, links: ["wp-lobby-centre", "wp-lobby-desk-back"] },
+    {
+      id: "wp-lobby-east",
+      x: 10.8,
+      z: -8,
+      links: ["wp-lobby-centre", "wp-lobby-desk-back", "wp-lobby-entrance"],
+    },
     { id: "wp-lobby-desk-back", x: 10.8, z: -10.9, links: ["wp-lobby-east"] },
+
+    // In through the main entrance from the pavement, and up and down it.
+    { id: "wp-lobby-entrance", x: 10.8, z: -6.6, links: ["wp-lobby-east", "wp-entrance-door"] },
+    { id: "wp-entrance-door", x: 11.85, z: -6.6, links: ["wp-lobby-entrance", "wp-sidewalk-door"] },
+    {
+      id: "wp-sidewalk-door",
+      x: 13.7,
+      z: -6.6,
+      links: ["wp-entrance-door", "wp-sidewalk-north", "wp-sidewalk-south"],
+    },
+    { id: "wp-sidewalk-north", x: 13.7, z: -10.8, links: ["wp-sidewalk-door"] },
+    { id: "wp-sidewalk-south", x: 13.7, z: 10.8, links: ["wp-sidewalk-door"] },
 
     // Corridor, one node off each doorway so a turn lands on a node.
     { id: "wp-corridor-ceo", x: -8.7, z: -3.7, links: ["wp-ceo-door", "wp-corridor-west-door"] },
@@ -742,6 +839,21 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       seatId: undefined,
     },
   ],
+  // A two-way avenue, two lanes each way, driving on the right: the near lanes
+  // run south past the windows and the far ones north. It runs on well past
+  // where the client's fog has swallowed it, so nobody on the pavement sees
+  // where it ends or where the cars wrap round.
+  street: {
+    road: rect(15.8, -280, 26.2, 280),
+    lanes: [
+      { x: 17.1, direction: 1 },
+      { x: 19.7, direction: 1 },
+      { x: 22.3, direction: -1 },
+      { x: 24.9, direction: -1 },
+    ],
+    crossingZ: -6.6,
+    farFrontX: 30,
+  },
 };
 
 /**
@@ -822,6 +934,7 @@ const PROP_INTERACTION: Record<PropKind, InteractionKind | undefined> = {
   cabinet: undefined,
   table: undefined,
   diningChair: undefined,
+  reception: undefined,
 };
 
 const interactableCache = new WeakMap<OfficeLayout, readonly InteractableSpec[]>();
@@ -1234,7 +1347,7 @@ function describeFurnishingProblems(layout: OfficeLayout): string[] {
         problems.push(`prop ${spec.id} stands in doorway ${door.id}`);
       }
     }
-    if (!containsBox(layout.floor, box)) {
+    if (!groundsOf(layout).some((ground) => containsBox(ground, box))) {
       problems.push(`prop ${spec.id} stands off the floor`);
     }
   }
@@ -1257,6 +1370,40 @@ function describeFurnishingProblems(layout: OfficeLayout): string[] {
     }
   }
   return problems;
+}
+
+/**
+ * Where something can stand: the floor slab, and any room outside it — the
+ * pavement — which is ground of its own.
+ */
+export function groundsOf(layout: OfficeLayout): readonly Aabb2[] {
+  return [
+    layout.floor,
+    ...layout.rooms.map((room) => room.bounds).filter((bounds) => !containsBox(layout.floor, bounds)),
+  ];
+}
+
+const groundExtentCache = new WeakMap<OfficeLayout, Aabb2>();
+
+/**
+ * The box round all of {@link groundsOf}: the furthest anyone can stand.
+ *
+ * Cached, since the resolver clamps to it on every move it makes.
+ */
+export function groundExtent(layout: OfficeLayout): Aabb2 {
+  const cached = groundExtentCache.get(layout);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const grounds = groundsOf(layout);
+  const extent = rect(
+    Math.min(...grounds.map((box) => box.minX)),
+    Math.min(...grounds.map((box) => box.minZ)),
+    Math.max(...grounds.map((box) => box.maxX)),
+    Math.max(...grounds.map((box) => box.maxZ)),
+  );
+  groundExtentCache.set(layout, extent);
+  return extent;
 }
 
 /** Whether `inner` lies wholly within `outer`. */

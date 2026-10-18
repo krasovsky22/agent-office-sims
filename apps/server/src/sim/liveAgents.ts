@@ -44,6 +44,7 @@ import {
   LiveAgent,
   type LiveAgentStatus,
   OCCUPANT_RADIUS,
+  SIDEWALK_ROOM_ID,
   type Occupant,
   type OfficeLayout,
   type Vec2,
@@ -569,7 +570,7 @@ export class LiveAgentCrew {
     return best;
   }
 
-  /** Where a wandering agent goes next: towards company, or anywhere else. */
+  /** Where a wandering agent goes next: towards company, or anywhere else indoors. */
   private chooseStop(body: AgentBody): Vec2 {
     const { waypoints } = this.host.layout;
     if (this.host.random() < SEEK_COMPANY_CHANCE) {
@@ -587,7 +588,9 @@ export class LiveAgentCrew {
       }
     }
     const here = nearestWaypoint(body.occupant, this.host.layout)?.id;
-    const elsewhere = waypoints.filter((node) => node.id !== here);
+    const elsewhere = waypoints.filter(
+      (node) => node.id !== here && roomAt(this.host.layout, node)?.id !== SIDEWALK_ROOM_ID,
+    );
     return elsewhere[Math.floor(this.host.random() * elsewhere.length)] ?? body.occupant;
   }
 

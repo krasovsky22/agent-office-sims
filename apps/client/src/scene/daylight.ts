@@ -41,6 +41,7 @@ interface Moment {
   readonly skyIntensity: number;
   /** How far up the interior lights are, 0 off to 1 full. */
   readonly interior: number;
+  /** The sky, seen over the walls and out of the street windows. */
   readonly background: number;
 }
 
@@ -55,16 +56,16 @@ const MOONLIGHT = 0x8ea4d8;
  * it, so the opening hours are unchanged.
  */
 const MOMENTS: readonly Moment[] = [
-  { minute: 0, sun: MOONLIGHT, sunIntensity: 0.3, sky: 0x5b6684, ground: 0x2a2a33, skyIntensity: 0.6, interior: 1, background: 0x07080f },
-  { minute: 5 * 60, sun: MOONLIGHT, sunIntensity: 0.25, sky: 0x5f6a88, ground: 0x2a2a33, skyIntensity: 0.6, interior: 1, background: 0x0b0e1a },
-  { minute: 6 * 60, sun: 0xff9a5c, sunIntensity: 0, sky: 0x9c8c96, ground: 0x302d33, skyIntensity: 0.75, interior: 0.85, background: 0x2a2433 },
-  { minute: 7 * 60, sun: 0xffc48f, sunIntensity: 0.75, sky: 0xd2cdcc, ground: 0x37363c, skyIntensity: 0.95, interior: 0.35, background: 0x1d1f29 },
-  { minute: 9 * 60, sun: 0xffffff, sunIntensity: 1.2, sky: 0xdfe3ea, ground: 0x3a3a40, skyIntensity: 1.1, interior: 0, background: 0x15151a },
-  { minute: 16 * 60, sun: 0xfff3e2, sunIntensity: 1.15, sky: 0xdfe3ea, ground: 0x3a3a40, skyIntensity: 1.1, interior: 0, background: 0x15151a },
-  { minute: 17 * 60 + 30, sun: 0xff9d5a, sunIntensity: 0.7, sky: 0xd8bba6, ground: 0x3a3438, skyIntensity: 0.9, interior: 0.45, background: 0x241b22 },
-  { minute: 18 * 60, sun: 0xff7a45, sunIntensity: 0, sky: 0x8a7d92, ground: 0x2f2b33, skyIntensity: 0.75, interior: 0.85, background: 0x1a1522 },
-  { minute: 19 * 60, sun: MOONLIGHT, sunIntensity: 0.22, sky: 0x5f6a88, ground: 0x2a2a33, skyIntensity: 0.62, interior: 1, background: 0x0b0d17 },
-  { minute: MINUTES_PER_DAY, sun: MOONLIGHT, sunIntensity: 0.3, sky: 0x5b6684, ground: 0x2a2a33, skyIntensity: 0.6, interior: 1, background: 0x07080f },
+  { minute: 0, sun: MOONLIGHT, sunIntensity: 0.3, sky: 0x5b6684, ground: 0x2a2a33, skyIntensity: 0.6, interior: 1, background: 0x0a0e1c },
+  { minute: 5 * 60, sun: MOONLIGHT, sunIntensity: 0.25, sky: 0x5f6a88, ground: 0x2a2a33, skyIntensity: 0.6, interior: 1, background: 0x10162a },
+  { minute: 6 * 60, sun: 0xff9a5c, sunIntensity: 0, sky: 0x9c8c96, ground: 0x302d33, skyIntensity: 0.75, interior: 0.85, background: 0x7d6676 },
+  { minute: 7 * 60, sun: 0xffc48f, sunIntensity: 0.75, sky: 0xd2cdcc, ground: 0x37363c, skyIntensity: 0.95, interior: 0.35, background: 0xc4b6ab },
+  { minute: 9 * 60, sun: 0xffffff, sunIntensity: 1.2, sky: 0xdfe3ea, ground: 0x3a3a40, skyIntensity: 1.1, interior: 0, background: 0xa9c1d8 },
+  { minute: 16 * 60, sun: 0xfff3e2, sunIntensity: 1.15, sky: 0xdfe3ea, ground: 0x3a3a40, skyIntensity: 1.1, interior: 0, background: 0xaec3d6 },
+  { minute: 17 * 60 + 30, sun: 0xff9d5a, sunIntensity: 0.7, sky: 0xd8bba6, ground: 0x3a3438, skyIntensity: 0.9, interior: 0.45, background: 0xd4a68a },
+  { minute: 18 * 60, sun: 0xff7a45, sunIntensity: 0, sky: 0x8a7d92, ground: 0x2f2b33, skyIntensity: 0.75, interior: 0.85, background: 0x6e5470 },
+  { minute: 19 * 60, sun: MOONLIGHT, sunIntensity: 0.22, sky: 0x5f6a88, ground: 0x2a2a33, skyIntensity: 0.62, interior: 1, background: 0x161c33 },
+  { minute: MINUTES_PER_DAY, sun: MOONLIGHT, sunIntensity: 0.3, sky: 0x5b6684, ground: 0x2a2a33, skyIntensity: 0.6, interior: 1, background: 0x0a0e1c },
 ];
 
 /** Every colour in {@link MOMENTS}, converted once to the renderer's working space. */

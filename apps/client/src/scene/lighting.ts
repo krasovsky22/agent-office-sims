@@ -61,10 +61,24 @@ const SCREEN_GLOW_COLOUR = new THREE.Color(0x9cc2ff);
 /** How bright the screens glow with the interior lights full. */
 const SCREEN_GLOW = 0.8;
 
+/**
+ * Where the haze over the city starts and where it has swallowed the skyline:
+ * well past anything indoors, so only the street and the buildings across it
+ * fade into the sky.
+ */
+const FOG_NEAR = 70;
+const FOG_FAR = 230;
+
 /** The office's lights, set to a time of day by {@link OfficeLighting.showMinute}. */
 export interface OfficeLighting {
   /** Lights the scene for `minuteOfDay`, which may be fractional. */
   showMinute(minuteOfDay: number): void;
+  /**
+   * The light as of the last {@link OfficeLighting.showMinute}, for scenery
+   * that follows the same day: the street's lamps and windows come on with
+   * the interior lights.
+   */
+  readonly daylight: Readonly<Daylight>;
   /**
    * Hands over the desk screens' material, so they glow as it gets dark.
    *
@@ -103,7 +117,8 @@ function aimShadowCamera(sun: THREE.DirectionalLight, floor: ReturnType<typeof c
  * Adds the office's lights to a scene and hands back the one control they need.
  *
  * The scene's background is taken over as well, so the sky above the walls
- * darkens with the light.
+ * and over the street darkens with the light, and so is its fog, the same
+ * colour, so the far end of the street and the skyline fade into that sky.
  */
 export function buildLighting(scene: THREE.Scene, layout: OfficeLayout): OfficeLighting {
   const floor = centreOf(layout.floor);
@@ -118,11 +133,14 @@ export function buildLighting(scene: THREE.Scene, layout: OfficeLayout): OfficeL
 
   const background = new THREE.Color();
   scene.background = background;
+  const fog = new THREE.Fog(background, FOG_NEAR, FOG_FAR);
+  scene.fog = fog;
 
   const daylight: Daylight = createDaylight();
   let screen: THREE.MeshStandardMaterial | undefined;
 
   return {
+    daylight,
     showMinute(minuteOfDay) {
       sampleDaylight(minuteOfDay, daylight);
 
@@ -142,6 +160,7 @@ export function buildLighting(scene: THREE.Scene, layout: OfficeLayout): OfficeL
       }
 
       background.copy(daylight.background);
+      fog.color.copy(daylight.background);
     },
     lightScreens(material) {
       material.emissive.copy(SCREEN_GLOW_COLOUR);

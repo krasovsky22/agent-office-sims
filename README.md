@@ -11,11 +11,16 @@ with smooth remote movement and collision both sides agree on, and enough
 expression to tell each other you are there — emotes and text chat, each drawn
 above the speaker's head and relayed through the server. The floor plan is a
 whole floor — desk rows in the open plan, a meeting room, a kitchen, the CEO's
-corner office and the lobby, joined by a corridor — and it is furnished now,
+corner office and the lobby, joined by a corridor — and it fronts a New York
+street: a main entrance from the pavement into the lobby, with a reception desk
+facing it, and glass along the whole street side, through which cars and yellow
+cabs drive both ways past brick walk-ups and glass towers, stopping at the lights
+by the crossing outside the door. It is furnished now,
 with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
 one shadow-casting light that follows the in-game clock, sun by day and moon by
 night, with the room light turning warmer and the desk screens glowing brighter
-as the outside light falls. Some of it can be used: walk up to a desk chair, the
+as the outside light falls, and the sky, the street lamps and the windows across
+the street following the same clock. Some of it can be used: walk up to a desk chair, the
 kitchen's coffee machine or the project board and a prompt offers the action,
 which the server grants or refuses. The project board, on the open floor's north
 wall facing the desk rows, is this repository's own GitHub issues, grouped open,
@@ -1406,6 +1411,9 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
   src/scene/daylight.ts   the day's light curve: sun, sky and interior by the minute
   src/scene/lighting.ts   the office's lights, set from that curve every frame
+  src/scene/street.ts     the street outside the glass: road, lights, lamps, buildings, cars
+  src/scene/traffic.ts    the cars: lanes, following distance and the lights at the crossing
+  src/scene/skyline.ts    the buildings round the street, generated from a seed
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
@@ -1474,8 +1482,9 @@ Ten things are worth knowing before changing anything:
 - **The furniture is data too, and only some of it collides.** `shared/props.ts`
   derives every prop from the floor plan — a chair and a screen per workstation, a
   frame in every doorway gap, a plant in each room — so a layout change furnishes
-  itself. Walls, desks, the chairs and the kitchen's furniture — the coffee
-  machine, the counter's cabinets, the table and its chairs — are solid; screens,
+  itself. Walls, desks, the chairs, the lobby's reception counter and the
+  kitchen's furniture — the coffee machine, the counter's cabinets, the table and
+  its chairs — are solid; screens,
   plants, door frames and the microwave on the counter are not. A chair's
   footprint, its seat height and its backrest are one shared record,
   `DESK_CHAIR` in `shared/layout.ts`: the chair prop is fitted to it, the server
@@ -1528,7 +1537,7 @@ Ten things are worth knowing before changing anything:
 
 ## Assets
 
-The props come from Kenney's **Furniture Kit 2.0**, which is CC0. Ten models are
+The props come from Kenney's **Furniture Kit 2.0**, which is CC0. Eleven models are
 vendored into `apps/client/src/assets/office-kit/`, with the pack's own licence
 text, the checksums, and the re-download command recorded in the `README.md`
 beside them. That file is the provenance record — keep it current when the models

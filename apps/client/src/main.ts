@@ -55,6 +55,7 @@ import { buildOffice } from "./scene/office.js";
 import { loadPropKit, screenFaceOf, screenMaterialOf } from "./scene/propKit.js";
 import { buildProps } from "./scene/props.js";
 import { StickerBoards } from "./scene/stickerBoards.js";
+import { buildStreet, streetReach } from "./scene/street.js";
 import {
   Hud,
   type ChatLogEntry,
@@ -205,7 +206,9 @@ function closeLabelFor(interactableId: string): string {
 
 function createCamera(canvas: HTMLCanvasElement, layout: OfficeLayout): THREE.PerspectiveCamera {
   const span = Math.max(layout.floor.maxX - layout.floor.minX, layout.floor.maxZ - layout.floor.minZ);
-  return new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, span * 4);
+  // Far enough to take in the skyline out of the street windows, too.
+  const far = Math.max(span * 4, streetReach(layout) + span);
+  return new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, far);
 }
 
 function start(): void {
@@ -221,6 +224,7 @@ function start(): void {
   const scene = new THREE.Scene();
   const office = buildOffice(scene, OFFICE_LAYOUT);
   const lighting = buildLighting(scene, OFFICE_LAYOUT);
+  const street = buildStreet(scene, OFFICE_LAYOUT);
   // Lit for opening time until the first patch says what time it really is.
   const dayClock = new DayClock();
   lighting.showMinute(STARTING_MINUTE_OF_DAY);
@@ -829,6 +833,7 @@ function start(): void {
     if (minuteOfDay !== undefined) {
       lighting.showMinute(minuteOfDay);
     }
+    street?.update(deltaSeconds, lighting.daylight.interior);
 
     renderer.render(scene, camera);
 

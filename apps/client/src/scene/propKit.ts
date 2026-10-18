@@ -2,7 +2,7 @@
  * The prop asset kit: one model per {@link AssetPropKind}, loaded and normalised.
  *
  * This module is the whole of what the client knows about the asset pack — the
- * ten files, which kind each one draws, and which way round each one happens to
+ * eleven files, which kind each one draws, and which way round each one happens to
  * have been authored. Everything downstream works in metres with the prop's
  * footprint centred on its position, because models arrive here in neither of
  * those conventions and leave in both.
@@ -28,6 +28,7 @@ import monitorUrl from "../assets/office-kit/computerScreen.glb?url";
 import deskUrl from "../assets/office-kit/desk.glb?url";
 import doorUrl from "../assets/office-kit/doorwayOpen.glb?url";
 import coffeeUrl from "../assets/office-kit/kitchenCoffeeMachine.glb?url";
+import receptionUrl from "../assets/office-kit/kitchenBar.glb?url";
 import microwaveUrl from "../assets/office-kit/kitchenMicrowave.glb?url";
 import plantUrl from "../assets/office-kit/pottedPlant.glb?url";
 import tableUrl from "../assets/office-kit/table.glb?url";
@@ -93,6 +94,7 @@ const KIT: Readonly<Record<AssetPropKind, KitEntry>> = {
   microwave: { url: microwaveUrl, yawOffset: HALF_TURN },
   table: { url: tableUrl, yawOffset: HALF_TURN },
   diningChair: { url: diningChairUrl, yawOffset: HALF_TURN },
+  reception: { url: receptionUrl, yawOffset: HALF_TURN },
 };
 
 /** Every kind the kit supplies, for callers that want to preload or report. */
@@ -297,9 +299,9 @@ export function screenFaceOf(kit: PropKit): ScreenFace | undefined {
 /**
  * Loads every model in the registry.
  *
- * All ten at once and all-or-nothing: the caller shows one loading state and then
+ * All eleven at once and all-or-nothing: the caller shows one loading state and then
  * furnishes the office in a single frame, rather than watching it assemble. The
- * whole kit is 125 KB of untextured geometry, so there is nothing to gain from
+ * whole kit is 131 KB of untextured geometry, so there is nothing to gain from
  * streaming it and a half-built office to lose.
  *
  * Rejects if any model fails, which is the signal to fall back to grey boxes.

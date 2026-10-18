@@ -108,7 +108,10 @@ describe("the open floor's project board", () => {
 
   it("fits under the ceiling the walls give it", () => {
     const board = projectBoard();
-    const wallHeight = Math.min(...OFFICE_LAYOUT.walls.map((spec) => spec.height));
+    // The pavement's railings are waist high on purpose and roof nothing.
+    const wallHeight = Math.min(
+      ...OFFICE_LAYOUT.walls.filter((spec) => spec.style !== "railing").map((spec) => spec.height),
+    );
     expect(board.elevation + board.height).toBeLessThanOrEqual(wallHeight);
   });
 
