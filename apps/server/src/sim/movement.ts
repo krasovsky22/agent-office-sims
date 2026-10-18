@@ -7,18 +7,23 @@
  * client could have produced, and to publish the result as the authoritative
  * position other clients see.
  *
- * Two checks do that work, and only two:
+ * Two checks do that work on the floor plan, and only two:
  *
  * 1. The implied speed is clamped against the shared walking speed, so a
  *    modified client cannot teleport across the office.
  * 2. The clamped movement goes through the same shared collision resolver the
  *    client used, so a modified client cannot step through a wall.
  *
+ * A jump's height is checked only against the highest an honest jump reaches:
+ * it is cosmetic, since collision ignores it, so there is nothing to gain from
+ * re-simulating the arc.
+ *
  * Because the second check runs the identical function the client ran, an honest
  * client's pose survives both unchanged and the player feels no correction.
  */
 
 import {
+  MAX_JUMP_HEIGHT,
   MAX_POSE_INTERVAL_MS,
   OCCUPANT_RADIUS,
   type OfficeLayout,
@@ -42,6 +47,7 @@ export interface OccupantMotion {
   /** Latest pose reported by the client, overwritten as newer ones arrive. */
   readonly pending: {
     x: number;
+    y: number;
     z: number;
     yaw: number;
     animation: ReportedAnimation;
@@ -58,7 +64,7 @@ export interface OccupantMotion {
 
 export function createMotion(x: number, z: number, yaw: number, now: number): OccupantMotion {
   return {
-    pending: { x, z, yaw, animation: ANIMATION_STATE.idle },
+    pending: { x, y: 0, z, yaw, animation: ANIMATION_STATE.idle },
     hasPending: false,
     lastAppliedAt: now,
     lastMessageAt: now,
@@ -84,6 +90,7 @@ export function discardPending(motion: OccupantMotion, now: number): void {
 /** Records a validated pose message, replacing any pose not yet simulated. */
 export function recordPose(motion: OccupantMotion, pose: PoseMessage, now: number): void {
   motion.pending.x = pose.x;
+  motion.pending.y = pose.y;
   motion.pending.z = pose.z;
   motion.pending.yaw = pose.yaw;
   motion.pending.animation = pose.animation;
@@ -125,6 +132,7 @@ export function applyPose(
 
   const resolved = resolveMove(occupant, { x: deltaX, z: deltaZ }, OCCUPANT_RADIUS, layout);
   occupant.x = resolved.x;
+  occupant.y = Math.min(Math.max(motion.pending.y, 0), MAX_JUMP_HEIGHT);
   occupant.z = resolved.z;
   occupant.yaw = normalizeYaw(motion.pending.yaw);
   occupant.animation = motion.pending.animation;

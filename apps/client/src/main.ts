@@ -243,7 +243,7 @@ function start(): void {
   const hudStore = createHudStore();
 
   const avatars = new Map<string, Avatar>();
-  const remotePose: RemotePose = { x: 0, z: 0, yaw: 0, animation: ANIMATION_STATE.idle };
+  const remotePose: RemotePose = { x: 0, y: 0, z: 0, yaw: 0, animation: ANIMATION_STATE.idle };
   let hud: HudSnapshot = hudStore.getSnapshot();
 
   // Undefined until the humanoid model has downloaded, and for the rest of the
@@ -757,10 +757,10 @@ function start(): void {
             : heldAnimationFor(held),
         );
       } else if (id === localId) {
-        avatar.setPose(controller.pose.x, controller.pose.z, controller.pose.yaw);
+        avatar.setPose(controller.pose.x, controller.pose.z, controller.pose.yaw, controller.pose.y);
         avatar.setAnimation(controller.pose.animation);
       } else if (room.sampleRemote(id, nowMs, remotePose)) {
-        avatar.setPose(remotePose.x, remotePose.z, remotePose.yaw);
+        avatar.setPose(remotePose.x, remotePose.z, remotePose.yaw, remotePose.y);
         avatar.setAnimation(remotePose.animation);
       }
       avatar.update(deltaSeconds);

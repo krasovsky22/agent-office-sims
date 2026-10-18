@@ -474,6 +474,7 @@ export class Avatar {
 
   /** The pose as given, before the glide below is added to it. */
   private poseX = 0;
+  private poseY = 0;
   private poseZ = 0;
   /** How far the drawn body still is from the pose, after a sit or a stand. */
   private glideX = 0;
@@ -565,10 +566,12 @@ export class Avatar {
     this.headAnchor.add(this.nameplate);
   }
 
-  public setPose(x: number, z: number, yaw: number): void {
+  /** Places the body; `height` lifts its feet off the floor, for a jump. */
+  public setPose(x: number, z: number, yaw: number, height = 0): void {
     this.poseX = x;
+    this.poseY = height;
     this.poseZ = z;
-    this.group.position.set(x + this.glideX, 0, z + this.glideZ);
+    this.group.position.set(x + this.glideX, height, z + this.glideZ);
     this.group.rotation.y = yaw;
     if (!this.hasPreviousPose) {
       // The first pose is a placement, not travel: crediting the distance from
@@ -589,7 +592,7 @@ export class Avatar {
       // to the pose it has just been given.
       this.glideX = this.previousX - this.poseX;
       this.glideZ = this.previousZ - this.poseZ;
-      this.group.position.set(this.previousX, 0, this.previousZ);
+      this.group.position.set(this.previousX, this.poseY, this.previousZ);
     }
     this.animation = animation;
     this.body.animator?.setState(animation);
@@ -607,7 +610,7 @@ export class Avatar {
       const settle = Math.exp(-SEAT_GLIDE_RATE * deltaSeconds);
       this.glideX *= settle;
       this.glideZ *= settle;
-      this.group.position.set(this.poseX + this.glideX, 0, this.poseZ + this.glideZ);
+      this.group.position.set(this.poseX + this.glideX, this.poseY, this.poseZ + this.glideZ);
 
       const travelled = Math.hypot(
         this.group.position.x - this.previousX,

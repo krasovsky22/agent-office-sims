@@ -12,6 +12,11 @@
  * toward the authoritative one, but only once the gap is wider than anything an
  * honest round trip explains.
  *
+ * A jump is predicted the same way: the arc is simulated here and its height
+ * reported with the pose. It only lifts the body; the step underneath is
+ * resolved against the floor plan exactly as on the ground, so nobody jumps
+ * over a desk or through a wall.
+ *
  * The camera follows on a boom behind the player. A seated agent's monitor is
  * right in front of that agent, so from the boom the agent's head and the
  * player's own avatar hide it, and its text is too small to read; a player
@@ -22,7 +27,9 @@
 
 import {
   ANIMATION_STATE,
+  GRAVITY,
   type InteractableSpec,
+  JUMP_SPEED,
   OCCUPANT_RADIUS,
   OFFICE_LAYOUT,
   RECONCILE_EASE_RATE,
@@ -95,6 +102,9 @@ const INTERACT_KEY = "KeyE";
 /** Closes whatever panel is open over the office. Named in the HUD prompt as `Esc`. */
 const CLOSE_KEY = "Escape";
 
+/** Jumps. Named in the HUD hint as `Space`. */
+const JUMP_KEY = "Space";
+
 const MOVEMENT_KEYS = new Set([
   ...FORWARD_KEYS,
   ...BACKWARD_KEYS,
@@ -102,10 +112,12 @@ const MOVEMENT_KEYS = new Set([
   ...RIGHT_KEYS,
 ]);
 
-const ALL_KEYS = new Set([...MOVEMENT_KEYS, INTERACT_KEY]);
+const ALL_KEYS = new Set([...MOVEMENT_KEYS, INTERACT_KEY, JUMP_KEY]);
 
 export interface Pose {
   x: number;
+  /** Height of the feet above the floor, `0` unless jumping. */
+  y: number;
   z: number;
   yaw: number;
   animation: ReportedAnimation;
@@ -230,7 +242,10 @@ function smoothstep(t: number): number {
 
 export class PlayerController {
   /** The predicted pose, which is what the local avatar renders at. */
-  public readonly pose: Pose = { x: 0, z: 0, yaw: 0, animation: ANIMATION_STATE.idle };
+  public readonly pose: Pose = { x: 0, y: 0, z: 0, yaw: 0, animation: ANIMATION_STATE.idle };
+
+  /** Vertical speed while in the air, upward positive; `0` on the floor. */
+  private verticalSpeed = 0;
 
   private readonly pressed = new Set<string>();
   private cameraYaw = 0;
@@ -260,6 +275,7 @@ export class PlayerController {
   private releasePending = false;
 
   private interactRequested = false;
+  private jumpRequested = false;
   private releaseRequested = false;
   private closeRequested = false;
 
@@ -274,6 +290,7 @@ export class PlayerController {
     this.pose.z = z;
     this.pose.yaw = normalizeYaw(yaw);
     this.pose.animation = ANIMATION_STATE.idle;
+    this.land();
     // A rejoin reuses this controller, and the player arrives standing however
     // they left.
     this.hold = undefined;
@@ -302,6 +319,13 @@ export class PlayerController {
         // A press, not a state: holding the key down must not fire repeatedly.
         if (!event.repeat) {
           this.interactRequested = true;
+        }
+        return;
+      }
+      if (event.code === JUMP_KEY) {
+        // Holding the key down jumps once, not again on every landing.
+        if (!event.repeat) {
+          this.jumpRequested = true;
         }
         return;
       }
@@ -399,6 +423,12 @@ export class PlayerController {
     this.pose.z = anchor.z;
     this.pose.yaw = normalizeYaw(anchor.yaw);
     this.pose.animation = ANIMATION_STATE.idle;
+    this.land();
+  }
+
+  /** Whether the player is off the floor, mid-jump. */
+  public get airborne(): boolean {
+    return this.pose.y > 0;
   }
 
   /** Whether the player is standing in a held pose this frame. */
@@ -471,6 +501,11 @@ export class PlayerController {
       this.leaning = this.focus;
     }
 
+    // A press is good for this frame only: one made in the air or in a chair
+    // is dropped, not saved up to fire on landing or standing up.
+    const jump = this.jumpRequested && this.hold === undefined;
+    this.jumpRequested = false;
+
     if (this.hold !== undefined) {
       if (!this.movementPressed()) {
         // Held: the pose is the server's, so there is nothing to predict. The
@@ -537,6 +572,11 @@ export class PlayerController {
       this.pose.animation = ANIMATION_STATE.idle;
     }
 
+    if (jump && !this.airborne) {
+      this.verticalSpeed = JUMP_SPEED;
+    }
+    this.fall(deltaSeconds);
+
     this.updateCamera();
   }
 
@@ -570,6 +610,31 @@ export class PlayerController {
     const blend = 1 - Math.exp(-RECONCILE_EASE_RATE * deltaSeconds);
     this.pose.x += errorX * blend;
     this.pose.z += errorZ * blend;
+  }
+
+  /**
+   * Carries a jump one frame along its arc.
+   *
+   * Integrated exactly for constant gravity rather than stepped, so the arc is
+   * the same height and length whatever the frame rate.
+   */
+  private fall(deltaSeconds: number): void {
+    if (!this.airborne && this.verticalSpeed <= 0) {
+      return;
+    }
+    const height = this.pose.y + this.verticalSpeed * deltaSeconds - 0.5 * GRAVITY * deltaSeconds * deltaSeconds;
+    this.verticalSpeed -= GRAVITY * deltaSeconds;
+    if (height <= 0) {
+      this.land();
+    } else {
+      this.pose.y = height;
+    }
+  }
+
+  /** Puts the feet back on the floor, ending any jump. */
+  private land(): void {
+    this.pose.y = 0;
+    this.verticalSpeed = 0;
   }
 
   private movementPressed(): boolean {

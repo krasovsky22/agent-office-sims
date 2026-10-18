@@ -574,10 +574,12 @@ export class OfficeRoom extends Room<OfficeState> {
         applyPose(occupant, motion, now, OFFICE_LAYOUT);
         motion.hasPending = false;
       } else if (
-        occupant.animation !== ANIMATION_STATE.idle &&
+        (occupant.animation !== ANIMATION_STATE.idle || occupant.y !== 0) &&
         now - motion.lastMessageAt > IDLE_AFTER_MS
       ) {
         occupant.animation = ANIMATION_STATE.idle;
+        // Nor hanging in the air, if it went quiet mid-jump.
+        occupant.y = 0;
       }
     }
 

@@ -7,11 +7,14 @@
  *
  * And the camera leans in over a working agent's shoulder to read its
  * monitor only while the player stands still at it, never from inside a wall.
+ *
+ * A jump is one arc per press, from the floor and never from a chair.
  */
 
 import {
   INTERACTION_KIND,
   type InteractableSpec,
+  MAX_JUMP_HEIGHT,
   OFFICE_LAYOUT,
   RECONCILE_THRESHOLD,
   interactableById,
@@ -280,5 +283,85 @@ describe("PlayerController leaning in over a working agent's shoulder", () => {
     frames(1.5, other);
     expect(controller.leaningInto).toBe(other);
     expect(controller.leanedIn).toBe(1);
+  });
+});
+
+describe("PlayerController jumping", () => {
+  let controller: PlayerController;
+  let seat: InteractableSpec;
+
+  beforeEach(() => {
+    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("HTMLElement", class {});
+    controller = new PlayerController(
+      new THREE.PerspectiveCamera(),
+      new EventTarget() as HTMLCanvasElement,
+    );
+    controller.attach();
+    seat = firstSeat();
+    const exit = seat.exit ?? seat.anchor;
+    controller.teleport(exit.x, exit.z, 0);
+  });
+
+  afterEach(() => {
+    controller.detach();
+    vi.unstubAllGlobals();
+  });
+
+  /** Runs frames until the player is back on the floor, and says how many and how high. */
+  function flight(): { frames: number; peak: number } {
+    let frames = 0;
+    let peak = 0;
+    do {
+      controller.update(FRAME);
+      peak = Math.max(peak, controller.pose.y);
+      frames += 1;
+    } while (controller.airborne && frames < 600);
+    return { frames, peak };
+  }
+
+  it("leaves the floor, arcs no higher than a jump reaches, and lands where it took off", () => {
+    const { x, z } = controller.pose;
+    window.dispatchEvent(keyDown("Space"));
+    const { frames, peak } = flight();
+    expect(peak).toBeGreaterThan(MAX_JUMP_HEIGHT * 0.9);
+    expect(peak).toBeLessThanOrEqual(MAX_JUMP_HEIGHT + 1e-9);
+    expect(frames).toBeGreaterThan(10);
+    expect(frames).toBeLessThan(60);
+    expect(controller.pose.y).toBe(0);
+    expect(controller.pose.x).toBe(x);
+    expect(controller.pose.z).toBe(z);
+  });
+
+  it("cannot jump again in mid-air", () => {
+    window.dispatchEvent(keyDown("Space"));
+    const single = flight();
+
+    window.dispatchEvent(keyDown("Space"));
+    controller.update(FRAME);
+    for (let frame = 0; frame < 10; frame += 1) {
+      controller.update(FRAME);
+    }
+    window.dispatchEvent(keyDown("Space"));
+    const rest = flight();
+    expect(11 + rest.frames).toBe(single.frames);
+  });
+
+  it("ignores the key while seated, and does not save it for standing up", () => {
+    controller.teleport(seat.anchor.x, seat.anchor.z, seat.anchor.yaw);
+    controller.setHold(seat);
+    window.dispatchEvent(keyDown("Space"));
+    controller.update(FRAME);
+    expect(controller.pose.y).toBe(0);
+
+    controller.setHold(undefined);
+    controller.update(FRAME);
+    expect(controller.airborne).toBe(false);
+  });
+
+  it("does not jump on a key repeat", () => {
+    window.dispatchEvent(Object.assign(new Event("keydown", { cancelable: true }), { code: "Space", repeat: true }));
+    controller.update(FRAME);
+    expect(controller.airborne).toBe(false);
   });
 });

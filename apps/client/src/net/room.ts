@@ -117,6 +117,7 @@ const RECONNECT_RETRY_MS = 1000;
 interface PoseSample {
   t: number;
   x: number;
+  y: number;
   z: number;
   yaw: number;
   animation: AnimationState;
@@ -162,6 +163,7 @@ export interface OccupantView {
 /** The local pose as reported to the server: only states a client may claim. */
 export interface ReportedPose {
   readonly x: number;
+  readonly y: number;
   readonly z: number;
   readonly yaw: number;
   readonly animation: ReportedAnimation;
@@ -170,6 +172,7 @@ export interface ReportedPose {
 /** A pose written by {@link RoomConnection.sampleRemote}. */
 export interface RemotePose {
   x: number;
+  y: number;
   z: number;
   yaw: number;
   animation: AnimationState;
@@ -240,6 +243,7 @@ export class RoomConnection {
   private lastSentAt = Number.NEGATIVE_INFINITY;
   private readonly lastSent = {
     x: Number.NaN,
+    y: Number.NaN,
     z: Number.NaN,
     yaw: Number.NaN,
     animation: ANIMATION_STATE.idle as ReportedAnimation,
@@ -354,6 +358,7 @@ export class RoomConnection {
     }
     if (
       pose.x === this.lastSent.x &&
+      pose.y === this.lastSent.y &&
       pose.z === this.lastSent.z &&
       pose.yaw === this.lastSent.yaw &&
       pose.animation === this.lastSent.animation
@@ -362,12 +367,14 @@ export class RoomConnection {
     }
 
     this.lastSent.x = pose.x;
+    this.lastSent.y = pose.y;
     this.lastSent.z = pose.z;
     this.lastSent.yaw = pose.yaw;
     this.lastSent.animation = pose.animation;
     this.lastSentAt = nowMs;
     room.send(CLIENT_MESSAGE.pose, {
       x: pose.x,
+      y: pose.y,
       z: pose.z,
       yaw: pose.yaw,
       animation: pose.animation,
@@ -468,6 +475,7 @@ export class RoomConnection {
       const span = after.t - before.t;
       const alpha = span <= 0 ? 1 : (renderTime - before.t) / span;
       out.x = before.x + (after.x - before.x) * alpha;
+      out.y = before.y + (after.y - before.y) * alpha;
       out.z = before.z + (after.z - before.z) * alpha;
       out.yaw = normalizeYaw(before.yaw + shortestYawDelta(before.yaw, after.yaw) * alpha);
       out.animation = after.animation;
@@ -807,6 +815,7 @@ function sampleOf(occupant: Occupant): PoseSample {
   return {
     t: performance.now(),
     x: occupant.x,
+    y: occupant.y,
     z: occupant.z,
     yaw: occupant.yaw,
     animation: occupant.animation,
@@ -815,6 +824,7 @@ function sampleOf(occupant: Occupant): PoseSample {
 
 function copySample(sample: PoseSample, out: RemotePose): void {
   out.x = sample.x;
+  out.y = sample.y;
   out.z = sample.z;
   out.yaw = sample.yaw;
   out.animation = sample.animation;

@@ -136,7 +136,7 @@ describe("requestInteract", () => {
     const motion = room.motions.get("alice");
     const { anchor } = specOf(SEAT);
     if (motion !== undefined) {
-      recordPose(motion, { x: anchor.x, z: anchor.z, yaw: 0, animation: "walking" }, 50);
+      recordPose(motion, { x: anchor.x, y: 0, z: anchor.z, yaw: 0, animation: "walking" }, 50);
     }
     const before = snapshot(alice);
 
@@ -321,7 +321,7 @@ describe("releaseHold", () => {
 
     // One honest step south, sent 100ms after standing up.
     const target = { x: alice.x, z: alice.z + 0.3 };
-    recordPose(motion, { ...target, yaw: Math.PI, animation: "walking" }, 60_100);
+    recordPose(motion, { ...target, y: 0, yaw: Math.PI, animation: "walking" }, 60_100);
     expect(holdTick(room, "alice", 60_100)).toBe(false);
     applyPose(alice, motion, 60_100, OFFICE_LAYOUT);
 
@@ -368,7 +368,7 @@ describe("holdTick", () => {
       throw new Error("alice has no motion");
     }
     requestInteract(room, "alice", SEAT, 0);
-    recordPose(motion, { x: alice.x + 1, z: alice.z, yaw: 0, animation: "walking" }, 50);
+    recordPose(motion, { x: alice.x + 1, y: 0, z: alice.z, yaw: 0, animation: "walking" }, 50);
 
     expect(holdTick(room, "alice", 50)).toBe(true);
     expect(motion.hasPending).toBe(false);

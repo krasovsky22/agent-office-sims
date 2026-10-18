@@ -117,8 +117,9 @@ describe("parseChatMessage", () => {
 describe("parsePoseMessage", () => {
   for (const animation of [ANIMATION_STATE.idle, ANIMATION_STATE.walking]) {
     it(`accepts a pose reporting ${animation}`, () => {
-      expect(parsePoseMessage({ x: 1, z: 2, yaw: 0, animation })).toEqual({
+      expect(parsePoseMessage({ x: 1, y: 0.3, z: 2, yaw: 0, animation })).toEqual({
         x: 1,
+        y: 0.3,
         z: 2,
         yaw: 0,
         animation,
@@ -130,9 +131,14 @@ describe("parsePoseMessage", () => {
   // could report it would be seated at a desk from across the room.
   for (const animation of [ANIMATION_STATE.sitting, ANIMATION_STATE.typing]) {
     it(`rejects a pose claiming ${animation}`, () => {
-      expect(parsePoseMessage({ x: 1, z: 2, yaw: 0, animation })).toBeUndefined();
+      expect(parsePoseMessage({ x: 1, y: 0, z: 2, yaw: 0, animation })).toBeUndefined();
     });
   }
+
+  it("rejects a pose without a finite height", () => {
+    expect(parsePoseMessage({ x: 1, z: 2, yaw: 0, animation: "idle" })).toBeUndefined();
+    expect(parsePoseMessage({ x: 1, y: Number.NaN, z: 2, yaw: 0, animation: "idle" })).toBeUndefined();
+  });
 });
 
 describe("parseInteractMessage", () => {

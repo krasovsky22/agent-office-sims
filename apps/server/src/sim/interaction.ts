@@ -192,6 +192,7 @@ export function requestInteract(
   host.holds.take(sessionId, spec, now);
   occupant.interactableId = spec.id;
   occupant.x = spec.anchor.x;
+  occupant.y = 0;
   occupant.z = spec.anchor.z;
   occupant.yaw = normalizeYaw(spec.anchor.yaw);
   occupant.animation = heldAnimationFor(spec);
@@ -228,6 +229,7 @@ export function releaseHold(host: InteractionHost, sessionId: string, now: numbe
       occupant.x = exit.x;
       occupant.z = exit.z;
     }
+    occupant.y = 0;
     occupant.interactableId = "";
     occupant.animation = ANIMATION_STATE.idle;
   }

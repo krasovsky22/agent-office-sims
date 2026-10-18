@@ -96,6 +96,8 @@ export class Occupant extends Schema {
   declare public name: string;
   declare public kind: OccupantKind;
   declare public x: number;
+  /** Height of the feet above the floor: `0` except mid-jump. */
+  declare public y: number;
   declare public z: number;
   declare public yaw: number;
   declare public animation: AnimationState;
@@ -114,6 +116,7 @@ export class Occupant extends Schema {
     this.name = "";
     this.kind = OCCUPANT_KIND.human;
     this.x = 0;
+    this.y = 0;
     this.z = 0;
     this.yaw = 0;
     this.animation = ANIMATION_STATE.idle;
@@ -126,6 +129,7 @@ defineTypes(Occupant, {
   name: "string",
   kind: "string",
   x: "float32",
+  y: "float32",
   z: "float32",
   yaw: "float32",
   animation: "string",

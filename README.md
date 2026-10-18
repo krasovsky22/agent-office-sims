@@ -86,7 +86,10 @@ budget.
 Walk with `W A S D` or the arrow keys. Click the canvas to capture the mouse,
 then move it to swing the camera; `Esc` releases it. Walk up to a desk chair, the
 coffee machine, the project board or the manager's desk and a prompt appears;
-`E` uses it. Any movement key gets you out of a chair.
+`E` uses it. Any movement key gets you out of a chair. `Space` jumps, standing
+or walking, and everyone else sees the hop; there is no jumping again in mid-air
+or from a chair, nor while a panel has the keyboard, and a jump clears nothing:
+walls and furniture stop you in the air just as on the floor.
 
 Behind the chair of an open-floor desk where a live agent is working, the
 prompt reads `Watch the agent's terminal` and `E` opens its terminal at full
@@ -798,8 +801,10 @@ Then confirm all twenty-one:
 3. **Walls, desks and props stop you, doorways do not.** Walk hard into a wall
    or a desk straight on and at an angle. Head-on you stop against the surface;
    at an angle you slide along it. You never pass through, and both tabs show
-   you ending up in the same place. Then walk a lap of the floor: every room is
-   reachable through a doorway.
+   you ending up in the same place. Jump into a desk with `Space` while walking
+   at it: the other tab sees the avatar leave the floor and land, the desk
+   still stops you, and pressing `Space` again in mid-air does nothing. Then
+   walk a lap of the floor: every room is reachable through a doorway.
 4. **Closing a tab removes that avatar** from the other tab within about a
    second, and reopening it rejoins cleanly. If the CEO is the one who left, the
    title passes to the connected player who has been in the office longest

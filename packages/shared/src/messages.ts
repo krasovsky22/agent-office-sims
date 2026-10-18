@@ -153,6 +153,8 @@ export const EMOTES: readonly Emote[] = [
 /** Where the sending client believes it is, in world units. */
 export interface PoseMessage {
   readonly x: number;
+  /** Height of the feet above the floor, which only a jump makes non-zero. */
+  readonly y: number;
   readonly z: number;
   readonly yaw: number;
   readonly animation: ReportedAnimation;
@@ -388,6 +390,7 @@ export function parsePoseMessage(raw: unknown): PoseMessage | undefined {
   const candidate = raw as Partial<Record<keyof PoseMessage, unknown>>;
   if (
     !isFiniteNumber(candidate.x) ||
+    !isFiniteNumber(candidate.y) ||
     !isFiniteNumber(candidate.z) ||
     !isFiniteNumber(candidate.yaw) ||
     !isReportedAnimation(candidate.animation)
@@ -396,6 +399,7 @@ export function parsePoseMessage(raw: unknown): PoseMessage | undefined {
   }
   return {
     x: candidate.x,
+    y: candidate.y,
     z: candidate.z,
     yaw: candidate.yaw,
     animation: candidate.animation,

@@ -44,6 +44,22 @@ export const OCCUPANT_RADIUS = 0.35;
 /** Total height of an occupant's capsule, floor to crown. */
 export const OCCUPANT_HEIGHT = 1.7;
 
+/** Upward speed a jump leaves the floor with, in metres per second. */
+export const JUMP_SPEED = 4.2;
+
+/** Downward acceleration on an occupant in the air, in metres per second squared. */
+export const GRAVITY = 18;
+
+/**
+ * Highest a jump lifts an occupant's feet off the floor: the apex of
+ * {@link JUMP_SPEED} against {@link GRAVITY}, about half a metre.
+ *
+ * The server clamps every reported height to this, so a modified client can
+ * hop but cannot float. Height is cosmetic: collision is resolved on the floor
+ * plan whatever it is, which is why a jump never clears a desk or a wall.
+ */
+export const MAX_JUMP_HEIGHT = (JUMP_SPEED * JUMP_SPEED) / (2 * GRAVITY);
+
 /**
  * Longest distance the collision resolver advances before re-testing against
  * the world. Must stay below the thinnest obstacle in the layout, or a fast
