@@ -10,9 +10,10 @@
  * request. Anything else stops at a permission prompt, which its slot reports
  * as needing a person. With `RUNNER_AGENT_PERMISSIONS=all` it runs in
  * `bypassPermissions` instead, every command unprompted, and its settings
- * accept that mode's one-time warning so it never stops on it. The pull request it opens is read off its `PostToolUse`
- * hook, by the `gh pr create` it ran, and what it spends off the transcript
- * every hook names (`./usage.ts`).
+ * accept that mode's one-time warning so it never stops on it. The pull
+ * request it opens is read off its `PostToolUse` hook, by the `gh pr create`
+ * it ran, and what it spends off the transcript every hook names
+ * (`./usage.ts`).
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
