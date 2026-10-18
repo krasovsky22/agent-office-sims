@@ -150,6 +150,18 @@ export function isSimulatedPullRequestArtifact(artifact: string): boolean {
   return artifact === SIMULATED_PULL_REQUEST || artifact.startsWith(`${SIMULATED_PULL_REQUEST}: `);
 }
 
+/**
+ * The pull request a deliverable written by the server's `pullRequestArtifact`
+ * names, `PR #N: title, url`, so the manager can link it and its sticky note
+ * show its number; `undefined` for any other deliverable.
+ */
+export function pullRequestOfArtifact(
+  artifact: string,
+): { readonly number: number; readonly title: string; readonly url: string } | undefined {
+  const match = /^PR #(\d+): (?:(.*), )?(https:\/\/\S+)$/.exec(artifact);
+  return match === null ? undefined : { number: Number(match[1]), title: match[2] ?? "", url: match[3] ?? "" };
+}
+
 /** One slot, as the runner reports it on every sync. */
 export interface RunnerSlotReport {
   readonly id: string;

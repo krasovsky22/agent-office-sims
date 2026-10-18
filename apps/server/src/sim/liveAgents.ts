@@ -19,6 +19,16 @@
  * Every step goes through `resolveMove`, the collision function players are
  * validated with, so an agent cannot walk anywhere a player could not.
  *
+ * The sticky notes on the sticker boards are walked about too. An agent that
+ * starts an issue first goes to the issues board and takes the issue's note,
+ * then carries it to its desk; one that hands in a pull request stands up,
+ * takes the note to the pull requests board and pins it there; and one whose
+ * work stops, or is taken off it, puts the note back on the issues board. Each
+ * errand comes first, before sitting or wandering, and the note only changes
+ * hands — `carriedIssue` — once the agent has stood at the board for a moment,
+ * so what a client draws matches where the body is. Which note and which board
+ * are `stickerNotes.ts`'s rules, shared with the clients that draw them.
+ *
  * All of it is synchronous and runs inside the room's tick. What the agents are
  * meant to be doing arrives from the feed as a finished list; the tick reads it
  * through {@link LiveAgentCrew.sync} without waiting on anything.
@@ -28,6 +38,7 @@ import { type MapSchema } from "@colyseus/schema";
 import {
   ANIMATION_STATE,
   type InteractableSpec,
+  ISSUES_STICKER_BOARD_ID,
   type IssueWork,
   LIVE_AGENT_STATUS,
   LiveAgent,
@@ -39,11 +50,14 @@ import {
   WALK_SPEED,
   distanceToInteractable,
   findPath,
+  interactableById,
   isClearLine,
   isLiveAgentOnTask,
   liveAgentKey,
   liveAgentSeats,
   nearestWaypoint,
+  noteDestination,
+  noteToFetch,
   normalizeYaw,
   releaseWorkOf,
   resolveMove,
@@ -93,6 +107,15 @@ const SEAT_RETRY_MS = 1500;
 const SEEK_COMPANY_CHANCE = 0.5;
 
 /**
+ * How long an agent stands at a sticker board taking a note off it or pinning
+ * one on, before the note changes hands: long enough to read as doing it.
+ */
+export const NOTE_HANDLING_MS = 1200;
+
+/** How often an agent waiting for a note another agent still holds looks again. */
+const NOTE_RETRY_MS = 1500;
+
+/**
  * What two idle agents say to each other, alternating, first speaker first.
  *
  * Canned on purpose: the point of the exchange is to show two of them are
@@ -117,6 +140,15 @@ interface Conversation {
   nextLineAt: number;
 }
 
+/** A walk to a sticker board, to take a note off it or pin the one in hand. */
+interface NoteErrand {
+  readonly kind: "fetch" | "pin";
+  readonly issueNumber: number;
+  readonly boardId: string;
+  /** Room clock time it reached the board and began handling the note; `undefined` while walking. */
+  arrivedAt: number | undefined;
+}
+
 interface AgentBody {
   readonly key: string;
   readonly occupant: LiveAgent;
@@ -133,6 +165,10 @@ interface AgentBody {
   conversation: Conversation | undefined;
   /** Room clock time it may start another conversation. */
   chatReadyAt: number;
+  /** The sticker board it is on its way to or standing at, or `undefined`. */
+  errand: NoteErrand | undefined;
+  /** Room clock time it next looks for a note it found another agent holding. */
+  noteRetryAt: number;
 }
 
 /** What the crew needs from the room, named so a test can supply it. */
@@ -197,6 +233,9 @@ export class LiveAgentCrew {
   /** One tick. `deltaSeconds` is the time since the last one. */
   public step(now: number, deltaSeconds: number): void {
     for (const body of this.bodies.values()) {
+      if (this.stepErrand(body, now, deltaSeconds)) {
+        continue;
+      }
       if (isLiveAgentOnTask(body.status)) {
         this.stepWorking(body, now, deltaSeconds);
       } else if (body.conversation === undefined) {
@@ -234,6 +273,8 @@ export class LiveAgentCrew {
       stuckTicks: 0,
       conversation: undefined,
       chatReadyAt: now,
+      errand: undefined,
+      noteRetryAt: now,
     };
     this.bodies.set(record.id, body);
     this.host.occupants.set(key, occupant);
@@ -291,6 +332,128 @@ export class LiveAgentCrew {
     releaseWorkOf(body.key, this.host.work);
     this.host.occupants.delete(body.key);
     this.bodies.delete(id);
+  }
+
+  /**
+   * Runs the agent's sticky-note errand, if it has one or now needs one.
+   *
+   * Looked at afresh every tick, so an errand whose reason went away — work
+   * taken back while the agent walked to fetch it, a fresh start while it
+   * walked the note back — is dropped or turned round rather than finished.
+   *
+   * @returns whether the errand had the body this tick, so it neither sits nor wanders.
+   */
+  private stepErrand(body: AgentBody, now: number, deltaSeconds: number): boolean {
+    const wanted = this.errandFor(body, now);
+    if (wanted === undefined) {
+      if (body.errand !== undefined) {
+        body.errand = undefined;
+        body.route = [];
+      }
+      return false;
+    }
+    if (
+      body.errand === undefined ||
+      body.errand.kind !== wanted.kind ||
+      body.errand.issueNumber !== wanted.issueNumber ||
+      body.errand.boardId !== wanted.boardId
+    ) {
+      body.errand = wanted;
+      body.route = [];
+    }
+    const errand = body.errand;
+    const { occupant } = body;
+    const spot = interactableById(this.host.layout, errand.boardId)?.anchor;
+    if (spot === undefined) {
+      this.handleNote(body, errand, now);
+      return false;
+    }
+
+    if (body.conversation !== undefined) {
+      this.endConversation(body.conversation, now);
+    }
+    if (occupant.interactableId !== "") {
+      // Up from the desk first, the way a player stands, then off to the board.
+      releaseHold(this.host.interaction, body.key, now);
+      body.seatId = "";
+      body.route = [];
+      return true;
+    }
+    body.seatId = "";
+
+    if (errand.arrivedAt === undefined) {
+      if (body.route.length === 0) {
+        body.route = this.routeTo(occupant, spot);
+        if (body.route.length === 0 && Math.hypot(spot.x - occupant.x, spot.z - occupant.z) > ARRIVE_DISTANCE) {
+          // No way there: handle the note where it stands rather than never.
+          this.handleNote(body, errand, now);
+          return false;
+        }
+      }
+      if (!this.walk(body, deltaSeconds)) {
+        return true;
+      }
+      errand.arrivedAt = now;
+      occupant.yaw = normalizeYaw(spot.yaw);
+    }
+
+    this.standStill(body);
+    if (now - errand.arrivedAt < NOTE_HANDLING_MS) {
+      return true;
+    }
+    this.handleNote(body, errand, now);
+    return true;
+  }
+
+  /**
+   * The errand this agent should be on: pinning the note in its hand where the
+   * work now says it goes, or fetching the note of work it has started.
+   * `undefined` for none, which includes waiting on a note another agent holds.
+   */
+  private errandFor(body: AgentBody, now: number): NoteErrand | undefined {
+    const carried = body.occupant.carriedIssue;
+    const current = body.errand;
+    if (carried !== 0) {
+      const boardId = noteDestination(body.key, carried, this.host.work.values());
+      if (boardId === undefined) {
+        return undefined;
+      }
+      return current?.kind === "pin" && current.issueNumber === carried && current.boardId === boardId
+        ? current
+        : { kind: "pin", issueNumber: carried, boardId, arrivedAt: undefined };
+    }
+    if (now < body.noteRetryAt) {
+      return undefined;
+    }
+    const issueNumber = noteToFetch(body.key, this.host.work.values());
+    if (issueNumber === 0) {
+      return undefined;
+    }
+    return current?.kind === "fetch" && current.issueNumber === issueNumber
+      ? current
+      : { kind: "fetch", issueNumber, boardId: ISSUES_STICKER_BOARD_ID, arrivedAt: undefined };
+  }
+
+  /**
+   * Takes the note off the board or pins it on, ending the errand. A note
+   * another agent still has in hand — the work changed hands while it was
+   * being carried — is not copied: this agent waits and looks again.
+   */
+  private handleNote(body: AgentBody, errand: NoteErrand, now: number): void {
+    body.errand = undefined;
+    body.route = [];
+    body.restUntil = now;
+    if (errand.kind === "pin") {
+      body.occupant.carriedIssue = 0;
+      return;
+    }
+    for (const other of this.bodies.values()) {
+      if (other !== body && other.occupant.carriedIssue === errand.issueNumber) {
+        body.noteRetryAt = now + NOTE_RETRY_MS;
+        return;
+      }
+    }
+    body.occupant.carriedIssue = errand.issueNumber;
   }
 
   private stepWorking(body: AgentBody, now: number, deltaSeconds: number): void {
@@ -415,6 +578,7 @@ export class LiveAgentCrew {
           other !== body &&
           other.status === LIVE_AGENT_STATUS.idle &&
           other.conversation === undefined &&
+          other.errand === undefined &&
           other.occupant.interactableId === "",
       );
       const company = others[Math.floor(this.host.random() * others.length)];
@@ -549,6 +713,7 @@ export class LiveAgentCrew {
       if (
         body.status === LIVE_AGENT_STATUS.idle &&
         body.conversation === undefined &&
+        body.errand === undefined &&
         body.occupant.interactableId === "" &&
         now >= body.chatReadyAt
       ) {

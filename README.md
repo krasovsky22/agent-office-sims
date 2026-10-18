@@ -24,7 +24,12 @@ labels (`wave-1`, `client`…), polled by the server and shown to everyone the
 same. Its open issues are the work the office does, and what an agent is doing
 about each issue — who has it, in progress, handed in for review, done — is
 replicated state with its rules enforced on the server, shown on the board's
-cards. The game server never writes to GitHub. The work does: an issue a
+cards. Two sticker boards beside it show the same work as anime-style sticky
+notes: one note per issue an agent may take on the issues board, west of the
+project board. An agent starting an issue walks there, takes its note and
+props it on its desk while it works. Once it hands in a pull request it pins
+the note, now naming the pull request, on the pull requests board to the east.
+A note whose work stops or is taken back goes back on the issues board. The game server never writes to GitHub. The work does: an issue a
 maintainer has labelled `agent-ready`, handed by the CEO to one of the runner's
 coding agents, is worked in a git worktree of its own and handed in as a pull
 request that closes it, which the runner opens as a GitHub App (or, if its
@@ -1164,6 +1169,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/runner.ts       the runner link's wire contract: a sync, its slots and events, and the commands
   src/screens.ts      the slots' terminal screens: a frame of styled runs, a runner's batch, and its parser
   src/spend.ts        the runners' real spend in dollars: the budget refusal and how spend is said
+  src/stickerNotes.ts the sticker boards' notes: which issues have one, where each is, and which an agent fetches or pins
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/agentPrompt.ts  the CEO's prompts and choice-screen keys to the coding agents: the one gate, the keys, and why one was refused
   src/layout.ts       the office floor plan and its interactables, as data
@@ -1182,7 +1188,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/manager/            the AI manager: its view of the office, rule and model planners, call budget, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/rooms/agentPromptHandlers.ts  the CEO's prompts and keys to a coding agent, and the refusals sent back
-  src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk
+  src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk, and carry the sticky notes between boards and desk
 apps/runner/       @sim/runner   the agent runner: slots, agents, their screens, and the sync with the server
   src/config.ts           its RUNNER_* variables, refused at boot when wrong
   src/syncLoop.ts         the sync about once a second: acks, events, backoff
@@ -1216,6 +1222,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
+  src/scene/stickerBoards.ts  the two sticker boards and their anime sticky notes, pinned, in hand and in flight
+  src/stickerBoard.ts     what a sticky note says, its look, its cell on a board, and when it is seen changing hands
   src/scene/agentScreen.ts  a seated live agent's terminal, painted on its desk's monitor
   src/net/screens.ts      the live agents' terminals, built up from the server's frames
   src/projectBoard.ts     the project board's columns, filters, and how an issue's work reads

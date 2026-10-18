@@ -237,6 +237,16 @@ const FACING_MATERIAL = new THREE.MeshLambertMaterial({ color: FACING_COLOUR });
 const CEO_MARKER_MATERIAL = new THREE.MeshLambertMaterial({ color: CEO_MARKER_COLOUR });
 const CUP_MATERIAL = new THREE.MeshLambertMaterial({ color: CUP_COLOUR });
 
+/**
+ * Where a carried sticky note is drawn, in the body's own frame (forward is
+ * -Z): held up beside the chest while standing, so it reads over the shoulder
+ * of whoever follows, and propped on the desk to the right of the keyboard
+ * while seated, which is where it stays while the agent works.
+ */
+const HELD_NOTE_OFFSET = new THREE.Vector3(-(OCCUPANT_RADIUS + 0.12), OCCUPANT_HEIGHT * 0.66, -OCCUPANT_RADIUS * 0.6);
+const SEATED_NOTE_OFFSET = new THREE.Vector3(0.55, 0.95, -0.74);
+const UP = new THREE.Vector3(0, 1, 0);
+
 export interface AvatarOptions {
   readonly name: string;
   readonly kind: OccupantKind;
@@ -592,6 +602,13 @@ export class Avatar {
     this.animation = animation;
     this.body.animator?.setState(animation);
     this.applyCapsulePosture();
+  }
+
+  /** Where a sticky note this occupant carries is drawn this frame, in world space. */
+  public notePosition(target: THREE.Vector3): THREE.Vector3 {
+    target.copy(isSeated(this.animation) ? SEATED_NOTE_OFFSET : HELD_NOTE_OFFSET);
+    target.applyAxisAngle(UP, this.group.rotation.y);
+    return target.add(this.group.position);
   }
 
   /** Shows or hides the coffee cup a break at the machine puts in hand. */

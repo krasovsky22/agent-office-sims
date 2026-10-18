@@ -280,8 +280,7 @@ describe("OFFICE_LAYOUT", () => {
       "wp-corridor-ceo",
       "wp-corridor-west-door",
       "wp-floor-west-door",
-      "wp-floor-north",
-      "wp-floor-aisle-north",
+      "wp-floor-north-west",
       "wp-floor-aisle-north-west",
     ]);
   });
