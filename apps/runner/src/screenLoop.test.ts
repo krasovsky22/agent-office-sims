@@ -172,6 +172,22 @@ describe("ScreenLoop", () => {
     expect(posts).toHaveLength(3);
   });
 
+  it("keeps sending diffs after a frame gave up only some of its history", async () => {
+    const mirror = new ScreenMirror(0, 200, 3);
+    const { posts, loop } = denseSetup(new Map([["slot-1", mirror]]));
+    await loop.flushOnce();
+    mirror.write(`${DENSE}\r\nplain one\r\nplain two\r\nplain three`);
+    await mirror.written();
+    await loop.flushOnce();
+    expect(kinds(posts[1])).toEqual([["slot-1", false]]);
+    expect(posts[1]?.screens[0]?.frame.history?.[0]).toEqual([["x".repeat(200), -1, -1, 0]]);
+
+    mirror.write(" more");
+    await mirror.written();
+    await loop.flushOnce();
+    expect(kinds(posts[2])).toEqual([["slot-1", false]]);
+  });
+
   it("posts an oversized screen beside the other slots, without sending it again every tick", async () => {
     const dense = new ScreenMirror(0, 200, 60);
     dense.write(DENSE);

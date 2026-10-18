@@ -69,7 +69,7 @@ export interface TerminalViewport {
 /** @param top the row to show first, which need not be whole; `undefined` for the newest. */
 export function terminalViewport(total: number, visible: number, top: number | undefined): TerminalViewport {
   const bottom = Math.max(0, total - visible);
-  const held = top === undefined || top >= bottom ? undefined : Math.max(0, top);
+  const held = top === undefined || Math.round(top) >= bottom ? undefined : Math.max(0, top);
   return { first: held === undefined ? bottom : Math.round(held), top: held, bottom };
 }
 

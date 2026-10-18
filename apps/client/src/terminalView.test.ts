@@ -80,7 +80,11 @@ describe("terminalViewport", () => {
 
   it("keeps a scroll by part of a row, so a trackpad's small steps add up", () => {
     expect(terminalViewport(100, 30, 59.7)).toEqual({ first: 60, top: 59.7, bottom: 70 });
-    expect(terminalViewport(100, 30, 69.8)).toEqual({ first: 70, top: 69.8, bottom: 70 });
+    expect(terminalViewport(100, 30, 69.4)).toEqual({ first: 69, top: 69.4, bottom: 70 });
+  });
+
+  it("follows the newest rows once a scroll down shows them, part of a row short or not", () => {
+    expect(terminalViewport(100, 30, 69.6)).toEqual({ first: 70, top: undefined, bottom: 70 });
   });
 });
 

@@ -86,7 +86,7 @@ export class ScreenLoop {
       const sent = screens.find((fitted) => fitted.slotId === screen.slotId);
       if (sent === undefined) {
         mirrors.get(screen.slotId)?.lost();
-      } else if (sent !== screen && !screen.frame.full) {
+      } else if (sent.frame.lines !== screen.frame.lines && !screen.frame.full) {
         mirrors.get(screen.slotId)?.sendWhole();
       }
     }

@@ -207,7 +207,7 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
   const scrollBack = (rows: number) => {
     const scroll = scrollRef.current;
     const top = (scroll.top ?? scroll.bottom) - rows;
-    scroll.top = top >= scroll.bottom ? undefined : top;
+    scroll.top = Math.round(top) >= scroll.bottom ? undefined : top;
   };
 
   // The keys a terminal scrolls with, from anywhere in the panel; `Home` and
