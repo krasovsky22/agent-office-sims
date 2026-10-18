@@ -1283,8 +1283,9 @@ Then confirm all twenty-two:
     to the manager's desk and says `end the standup`: the panel closes, the
     AI Manager says `✓ Standup over`, `Mock 1` walks back to the chair it left,
     and `Mock 2` carries on from its paused step and, once it waits on its
-    permission, is typed the direction, which `what happened at the standup?`
-    lists among the AI Manager's answer. Nothing was lost: both issues' cards
+    permission, is typed the direction. Asked `what happened at the standup?`,
+    the AI Manager lists each agent's update and blocker, the resolved one
+    marked `since resolved`. Nothing was lost: both issues' cards
     are where they were. `apps/server/src/rooms/standupHandlers.test.ts`
     checks the gate, the late joiner and the direction's round trip against a
     live room.
