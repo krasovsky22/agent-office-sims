@@ -856,9 +856,10 @@ terminal panel name and link the pull request it reviews.
   push, open or merge anything, and its final message is what the AI Manager
   posts, in the conversation everyone in the office sees, so a job should
   never be asked to report anything not every visitor may read. A job is only
-  set up when the CEO's own message asks for a schedule and says what to do:
-  a model-planned job whose instruction is not in that message, such as one
-  lifted from an issue or pull request title, is refused.
+  set up when the CEO's own message asks for a schedule and says what to do,
+  and its schedule and instruction are always read from that message, never
+  taken from a model's plan, so an order lifted from an issue or pull request
+  title can neither set one up nor change what it runs.
 
 **The caps.** Each task has its own: $0.50 and 10 minutes a run
 (`--max-budget-usd`, and the runner stops the run's process group at its

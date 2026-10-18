@@ -21,9 +21,9 @@
  * `../agents/standingControl.ts` and its one gate with the CEO as the actor,
  * and whatever it names is resolved against the office as it is then. A
  * scheduled job runs unattended with the agents' permissions, so one is only
- * set up when the CEO's own message asks for a schedule and the job's
- * instruction is in it: never from a board's issue or pull request title a
- * model read and took for an order.
+ * set up from the CEO's own message, its schedule and instruction read from
+ * it by {@link readSchedule}: never from a board's issue or pull request
+ * title a model read and took for an order.
  */
 
 import {
@@ -315,16 +315,6 @@ export function standingSummary(view: OfficeView): string {
   return ["Standing tasks:", ...view.standing.map((task) => `- ${describeStandingTask(task)}`)].join("\n");
 }
 
-/** Words compared as said, whatever their case and spacing. */
-function said(text: string): string {
-  return text.toLowerCase().replace(/’/g, "'").replace(/\s+/g, " ").trim();
-}
-
-/** Whether `message` itself asks for a scheduled job that does `instruction`. */
-function asksForSchedule(message: string, instruction: string): boolean {
-  return readSchedule(message) !== undefined && said(instruction) !== "" && said(message).includes(said(instruction));
-}
-
 export interface StandingContext {
   /** The CEO's message the plan answers. */
   readonly message: string;
@@ -359,11 +349,13 @@ export function carryOutStanding(actions: readonly PlannedStanding[], context: S
         break;
       }
       case "schedule": {
-        if (!asksForSchedule(context.message, action.instruction)) {
+        const asked = readSchedule(context.message);
+        if (asked === undefined || asked.instruction === "") {
           lines.push("✗ I only set up a scheduled job when you ask for one yourself, with what it should do in your own words, like “every weekday at 9, summarise what changed yesterday”.");
           break;
         }
-        const request = { kind: STANDING_KIND.schedule, cron: action.cron, instruction: action.instruction, ...(action.name === "" ? {} : { name: action.name }) };
+        const cron = parseCron(asked.cron)?.expression ?? asked.cron;
+        const request = { kind: STANDING_KIND.schedule, cron, instruction: asked.instruction, ...(action.name === "" ? {} : { name: action.name }) };
         const result = control.create(context.actor, context.ceoName, request, "");
         lines.push(result.ok ? result.text : `✗ ${result.text}`);
         break;

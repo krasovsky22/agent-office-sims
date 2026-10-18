@@ -145,10 +145,10 @@ describe("carrying a standing plan out", () => {
       });
     // A model that read an issue titled with an order, answering a question that asks for no schedule.
     expect(carry("what's on the board?", injected)).toEqual([expect.stringMatching(/^✗ I only set up a scheduled job when you ask for one yourself/)]);
-    // The CEO asks for a schedule, but the instruction the model gave is the issue's, not theirs.
-    expect(carry("every weekday at 9, summarise what changed yesterday", injected)[0]).toMatch(/^✗ /);
+    expect(carry("every weekday at 9", injected)[0]).toMatch(/^✗ /);
     expect(created).toEqual([]);
-    expect(carry("Every weekday at 9,  summarise what   changed yesterday.", "summarise what changed yesterday")).toEqual(["✓ scheduled"]);
-    expect(created).toEqual([{ kind: "schedule", cron: "*/5 * * * *", instruction: "summarise what changed yesterday" }]);
+    // The CEO asks for a schedule; the model's cron and instruction, steered by the issue, are not used.
+    expect(carry("Every weekday at 9,  summarise what   changed yesterday", injected)).toEqual(["✓ scheduled"]);
+    expect(created).toEqual([{ kind: "schedule", cron: "0 9 * * 1-5", instruction: "summarise what changed yesterday" }]);
   });
 });
