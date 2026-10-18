@@ -8,7 +8,9 @@
  * allowlist of commands: editing files in its worktree, reading the issue,
  * committing, the project's checks, pushing its branch and opening its pull
  * request. Anything else stops at a permission prompt, which its slot reports
- * as needing a person. The pull request it opens is read off its `PostToolUse`
+ * as needing a person. With `RUNNER_AGENT_PERMISSIONS=all` it runs in
+ * `bypassPermissions` instead, every command unprompted, and its settings
+ * accept that mode's one-time warning so it never stops on it. The pull request it opens is read off its `PostToolUse`
  * hook, by the `gh pr create` it ran, and what it spends off the transcript
  * every hook names (`./usage.ts`).
  */
@@ -16,6 +18,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { RunnerAgentPermissions } from "../config.js";
 import { ownPr } from "../github.js";
 import { HOOK_ENV, HOOK_PATH } from "./hookServer.js";
 import type { ProviderAdapter, RunHandle } from "./provider.js";
@@ -81,6 +84,8 @@ export interface ClaudeOptions {
   readonly model?: string;
   /** `owner/name`: a pull request it opens anywhere else is not its task's. */
   readonly repo?: string;
+  /** `all` runs it in `bypassPermissions`; `allowlist`, the default, in `acceptEdits` with {@link CLAUDE_ALLOWED_COMMANDS}. */
+  readonly permissions?: RunnerAgentPermissions;
 }
 
 interface ClaudeSetup {
@@ -98,7 +103,7 @@ function shq(value: string): string {
  * posted to the runner with the run's token, by the runner's own node, which
  * is always there.
  */
-function writeSettings(dataDir: string): string {
+function writeSettings(dataDir: string, permissions: RunnerAgentPermissions): string {
   const dir = join(dataDir, "claude");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const helper = join(dir, "hook.cjs");
@@ -136,8 +141,10 @@ process.stdin.on("end", () => {
     hooks[event] = [{ hooks: [{ type: "command", command, timeout: HOOK_TIMEOUT_SECONDS }] }];
   }
   const settings = join(dir, "settings.json");
-  const permissions = { allow: CLAUDE_ALLOWED_COMMANDS };
-  writeFileSync(settings, `${JSON.stringify({ hooks, permissions }, null, 2)}\n`, { mode: 0o600 });
+  // Bypass mode otherwise opens on a warning to accept, which nobody is at the terminal to do.
+  const bypass = permissions === "all" ? { skipDangerousModePermissionPrompt: true } : {};
+  const written = { hooks, permissions: { allow: CLAUDE_ALLOWED_COMMANDS }, ...bypass };
+  writeFileSync(settings, `${JSON.stringify(written, null, 2)}\n`, { mode: 0o600 });
   return settings;
 }
 
@@ -269,6 +276,7 @@ export function claudeBlocked(screenText: string, early: boolean): string | unde
 }
 
 export function claudeAdapter(options: ClaudeOptions = {}): ProviderAdapter<ClaudeSetup> {
+  const permissions = options.permissions ?? "allowlist";
   return {
     id: "claude",
     label: "Claude",
@@ -277,9 +285,10 @@ export function claudeAdapter(options: ClaudeOptions = {}): ProviderAdapter<Clau
     // through its config dir and, in the macOS keychain, under the user's name.
     credentialEnv: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "USER"],
     scrubEnv: ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CLAUDE_EFFORT"],
-    prepare: (dataDir) => ({ settings: writeSettings(dataDir) }),
+    prepare: (dataDir) => ({ settings: writeSettings(dataDir, permissions) }),
     launch({ prompt, setup }) {
-      const args = ["--settings", setup.settings, "--permission-mode", "acceptEdits"];
+      const mode = permissions === "all" ? "bypassPermissions" : "acceptEdits";
+      const args = ["--settings", setup.settings, "--permission-mode", mode];
       if (options.model !== undefined) {
         args.push("--model", options.model);
       }

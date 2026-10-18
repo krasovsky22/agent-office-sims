@@ -127,7 +127,11 @@ async function createAgent(runnerConfig: RunnerConfig): Promise<{ agent: Agent; 
         throw new Error("a claude agent needs a GitHub identity: the runner's GitHub App or RUNNER_GITHUB_AUTH=personal");
       }
       const agent = createPtyAgent({
-        adapter: claudeAdapter({ repo: runnerConfig.repo, ...(runnerConfig.model === undefined ? {} : { model: runnerConfig.model }) }),
+        adapter: claudeAdapter({
+          repo: runnerConfig.repo,
+          permissions: runnerConfig.agentPermissions,
+          ...(runnerConfig.model === undefined ? {} : { model: runnerConfig.model }),
+        }),
         dataDir: runnerConfig.dataDir,
         hooks: await HookServer.start(),
         github: { env: app.env(), scrub: GITHUB_TOKEN_ENV },
@@ -226,6 +230,18 @@ if (config.agent === "mock") {
 } else {
   log(`agents run ${config.agent} with ${config.model === undefined ? "its default model" : `model ${config.model}`}`);
   log(`issues need the "${config.issueLabel}" label; agents push and open pull requests as ${githubIdentity()}`);
+  if (config.agentPermissions === "all") {
+    // Opted into, and easy to forget it is on: every agent can run anything here, and no prompt will say so.
+    for (const line of [
+      "=".repeat(72),
+      "WARNING: agents run EVERY command without asking (RUNNER_AGENT_PERMISSIONS=all).",
+      "Each Claude runs in bypassPermissions: it can run anything on this machine as this user, unprompted.",
+      "Unset RUNNER_AGENT_PERMISSIONS, or set it to allowlist, to go back to the allowlist and its prompts.",
+      "=".repeat(72),
+    ]) {
+      log(line);
+    }
+  }
 }
 if (config.logLevel === "debug") {
   log("logging every step the agents report (RUNNER_LOG_LEVEL=debug)");

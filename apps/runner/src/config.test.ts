@@ -52,6 +52,7 @@ describe("readConfig", () => {
     expect(read.agent).toBe("mock");
     expect(read.mockOutcome).toBe("failed");
     expect(read.model).toBeUndefined();
+    expect(read.agentPermissions).toBe("allowlist");
     expect(read.maxAgents).toBe(2);
     expect(read.taskTimeoutMs).toBe(60 * 60_000);
     expect(read.dailyBudgetUsd).toBeUndefined();
@@ -71,6 +72,7 @@ describe("readConfig", () => {
         RUNNER_AGENT: "Claude",
         RUNNER_MOCK_OUTCOME: "pr-opened",
         RUNNER_MODEL: "claude-sonnet-4-5",
+        RUNNER_AGENT_PERMISSIONS: "All",
         RUNNER_MAX_AGENTS: "4",
         RUNNER_TASK_TIMEOUT_MINUTES: "15",
         RUNNER_DAILY_BUDGET_USD: "12.50",
@@ -87,6 +89,7 @@ describe("readConfig", () => {
     expect(read.agent).toBe("claude");
     expect(read.mockOutcome).toBe("pr-opened");
     expect(read.model).toBe("claude-sonnet-4-5");
+    expect(read.agentPermissions).toBe("all");
     expect(read.maxAgents).toBe(4);
     expect(read.taskTimeoutMs).toBe(15 * 60_000);
     expect(read.dailyBudgetUsd).toBe(12.5);
@@ -141,6 +144,12 @@ describe("readConfig", () => {
   it("refuses an agent it cannot run, and a mock outcome it does not know", () => {
     expect(() => config({ RUNNER_AGENT: "codex" })).toThrow(/RUNNER_AGENT must be one of mock, claude, got "codex"/);
     expect(() => config({ RUNNER_MOCK_OUTCOME: "merged" })).toThrow(/RUNNER_MOCK_OUTCOME must be one of failed, pr-opened/);
+  });
+
+  it("refuses agent permissions it does not know", () => {
+    expect(() => config({ RUNNER_AGENT_PERMISSIONS: "yes" })).toThrow(
+      /RUNNER_AGENT_PERMISSIONS must be one of allowlist, all, got "yes"/,
+    );
   });
 
   it("refuses a log level it does not know", () => {
