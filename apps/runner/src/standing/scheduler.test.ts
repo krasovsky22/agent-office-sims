@@ -323,6 +323,30 @@ describe("a restarted runner", () => {
     expect(runs(second.pendingEvents())).toEqual([]);
   });
 
+  it("polls and runs nothing a mock left in standing.json once it is a real agent's runner with no standing budget", async () => {
+    const first = makeScheduler(makePool());
+    set(first, PR_TASK);
+    set(first, SCHEDULE_TASK);
+    await until(() => polls === 1);
+    first.stop();
+
+    const pool = makePool();
+    const second = makeScheduler(pool, { off: STANDING_OFF.noBudget });
+    listing = [pull(90)];
+    later(second);
+    second.handle({ id: "c-now", kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: PR_TASK.id, requestedBy: "Dana" });
+    second.handle({ id: "c-fire", kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: SCHEDULE_TASK.id, requestedBy: "Dana" });
+    clock = new Date(2026, 9, 19, 9, 0).getTime();
+    second.tick();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(polls).toBe(1);
+    expect(pool.report().every((slot) => slot.standing === undefined)).toBe(true);
+    expect(runs(second.pendingEvents())).toEqual([]);
+    for (const task of second.report()) {
+      expect(task).toMatchObject({ status: "error", nextCheckAt: undefined, lastError: expect.stringContaining("RUNNER_STANDING_DAILY_BUDGET_USD") });
+    }
+  });
+
   it("tries a run the restart cut short again", async () => {
     const pool = makePool();
     const first = makeScheduler(pool, {}, createMockStandingRunners({ stepMs: 1000, minPollIntervalMs: 0 }));

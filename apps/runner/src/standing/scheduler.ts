@@ -214,6 +214,10 @@ export class StandingScheduler {
   /** One look at every task: checks due, firings due, retries due, and runs to start. Exposed for the tests. */
   public tick(): void {
     this.rollOver();
+    // A task kept in standing.json from before the runner was turned off checks and runs nothing.
+    if (this.offReason() !== undefined) {
+      return;
+    }
     const now = this.now();
     for (const task of this.data.tasks) {
       if (task.spec.paused) {
@@ -285,8 +289,9 @@ export class StandingScheduler {
       this.log(`standing task "${spec.name}" (${spec.id}) from ${requestedBy} refused: ${why}`);
       this.emit({ id: this.eventId(), kind: RUNNER_EVENT_KIND.standingRefused, taskId: spec.id, name: short(spec.name, MAX_STANDING_NAME_BYTES), message: short(why, MAX_WORK_NOTE_LENGTH) });
     };
-    if (this.options.off === STANDING_OFF.noBudget) {
-      refuse("this runner's agents are real, and its operator has not set RUNNER_STANDING_DAILY_BUDGET_USD, so it takes no standing tasks");
+    const off = this.offReason();
+    if (off !== undefined) {
+      refuse(off);
       return;
     }
     if (existing !== undefined) {
@@ -333,6 +338,12 @@ export class StandingScheduler {
     }
     this.save();
     this.tick();
+  }
+
+  private offReason(): string | undefined {
+    return this.options.off === STANDING_OFF.noBudget
+      ? "this runner's agents are real, and its operator has not set RUNNER_STANDING_DAILY_BUDGET_USD, so it takes no standing tasks"
+      : undefined;
   }
 
   /** A definition held to what the runner allows: no task may spend more in a day, or a run, than every standing task together may. */
@@ -728,19 +739,20 @@ export class StandingScheduler {
   private reportOf(task: StoredTask): StandingTaskReport {
     const queued = Object.values(task.ledger).filter((entry) => entry.state === LEDGER_STATE.queued).length;
     const block = this.block(task);
+    const off = this.offReason();
     return {
       id: task.spec.id,
       kind: task.spec.kind,
       name: fitBytes(task.spec.name, MAX_STANDING_NAME_BYTES),
-      status: this.statusOf(task, queued, block),
+      status: off === undefined ? this.statusOf(task, queued, block) : STANDING_STATUS.error,
       trigger: fitBytes(this.trigger(task.spec), MAX_STANDING_TRIGGER_BYTES),
       lastCheckAt: task.lastCheckAt,
-      nextCheckAt: task.spec.paused || block !== undefined ? undefined : task.nextCheckAt,
+      nextCheckAt: task.spec.paused || block !== undefined || off !== undefined ? undefined : task.nextCheckAt,
       queued,
       handledToday: task.handledToday,
       spentTodayUsd: task.spentTodayUsd,
       dailyUsd: task.spec.caps.dailyUsd,
-      lastError: fitBytes(task.checkError || task.runError, MAX_STANDING_ERROR_BYTES),
+      lastError: fitBytes(off === undefined ? task.checkError || task.runError : "Off: RUNNER_STANDING_DAILY_BUDGET_USD is not set", MAX_STANDING_ERROR_BYTES),
       recent: task.recent,
     };
   }
