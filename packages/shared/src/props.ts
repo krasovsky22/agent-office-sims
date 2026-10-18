@@ -34,6 +34,7 @@ import {
   type WallSpec,
   OFFICE_LAYOUT,
   collisionBoxes,
+  groundsOf,
   localToWorld,
   seatInteractableId,
   workstations,
@@ -56,7 +57,8 @@ export type AssetPropKind =
   | "cabinet"
   | "microwave"
   | "table"
-  | "diningChair";
+  | "diningChair"
+  | "reception";
 
 /** An exact box a model should be stretched to fill. */
 export interface PropFit {
@@ -485,8 +487,9 @@ export function describePropProblems(
       }
     }
     // A negative margin shrinks the floor slab, so a prop has to stand a clear
-    // radius inside it rather than half-buried in the shell wall.
-    if (!nearBox(layout.floor, point, -PROP_CLEARANCE)) {
+    // radius inside it rather than half-buried in the shell wall. The pavement
+    // is ground as well, so its plant stands on that.
+    if (!groundsOf(layout).some((ground) => nearBox(ground, point, -PROP_CLEARANCE))) {
       problems.push(`prop ${prop.id} stands off the floor at (${prop.x}, ${prop.z})`);
     }
   }

@@ -16,7 +16,7 @@ import {
   COLLISION_SUBSTEP,
   MAX_COLLISION_SUBSTEPS,
 } from "./constants.js";
-import { type Aabb2, type OfficeLayout, type Vec2, collisionBoxes } from "./layout.js";
+import { type Aabb2, type OfficeLayout, type Vec2, collisionBoxes, groundExtent } from "./layout.js";
 
 /** Mutable point, so callers can resolve into a scratch value. */
 export interface MutableVec2 {
@@ -161,10 +161,11 @@ export function resolveMove(
     z = sweepAxis(z, z + stepZ, x, radius, boxes, false);
   }
 
-  // Backstop in case a caller ever starts an occupant outside the shell walls.
-  const { floor } = layout;
-  x = clamp(x, floor.minX + radius, floor.maxX - radius);
-  z = clamp(z, floor.minZ + radius, floor.maxZ - radius);
+  // Backstop in case a caller ever starts an occupant outside the shell walls
+  // or past the pavement's railings.
+  const ground = groundExtent(layout);
+  x = clamp(x, ground.minX + radius, ground.maxX - radius);
+  z = clamp(z, ground.minZ + radius, ground.maxZ - radius);
 
   return { x, z };
 }

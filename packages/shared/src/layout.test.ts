@@ -30,8 +30,10 @@ import {
   containsPoint,
   describeLayoutProblems,
   interactables,
+  groundExtent,
   propAabb,
   roomAt,
+  SIDEWALK_ROOM_ID,
 } from "./layout.js";
 import { nearestWaypoint } from "./nav.js";
 
@@ -157,6 +159,7 @@ describe("OFFICE_LAYOUT rooms", () => {
     ["lobby", "wp-lobby-centre"],
     ["corridor", "wp-corridor-ceo"],
     ["open-floor", "wp-floor-back"],
+    ["sidewalk", "wp-sidewalk-door"],
   ];
 
   it("names one destination per room", () => {
@@ -412,5 +415,90 @@ describe("OFFICE_LAYOUT kitchen", () => {
     expect(describeLayoutProblems({ ...OFFICE_LAYOUT, tabletop: [onNothing] })).toEqual([
       `tabletop item ${microwave.id} stands on unknown prop kitchen-shelf`,
     ]);
+  });
+});
+
+describe("OFFICE_LAYOUT street front", () => {
+  const street = OFFICE_LAYOUT.street;
+  if (street === undefined) {
+    throw new Error("the shipped layout has no street");
+  }
+  const entrance = OFFICE_LAYOUT.doorways.find((door) => door.id === "door-entrance");
+  if (entrance === undefined) {
+    throw new Error("the shipped layout has no main entrance");
+  }
+  const sidewalk = OFFICE_LAYOUT.rooms.find((room) => room.id === SIDEWALK_ROOM_ID);
+  if (sidewalk === undefined) {
+    throw new Error("the shipped layout has no sidewalk");
+  }
+
+  it("opens the main entrance from the pavement into the lobby, through the street wall", () => {
+    expect([...entrance.connects].sort()).toEqual(["lobby", SIDEWALK_ROOM_ID]);
+    expect(entrance.centre.x).toBeGreaterThan(OFFICE_LAYOUT.floor.maxX - MIN_OBSTACLE_THICKNESS);
+    expect(entrance.centre.x).toBeLessThan(OFFICE_LAYOUT.floor.maxX);
+
+    // Off the street, in at the door, and on to the open floor's desks.
+    const outside = { x: (sidewalk.bounds.minX + sidewalk.bounds.maxX) / 2, z: entrance.centre.z };
+    const inside = walkTo(outside, { x: 10.8, z: entrance.centre.z });
+    expect(roomAt(OFFICE_LAYOUT, inside)?.id).toBe("lobby");
+    walkRoute(inside, routeBetween("wp-lobby-entrance", "wp-floor-aisle-north"));
+  });
+
+  it("stands the reception desk just inside, facing the entrance", () => {
+    const reception = OFFICE_LAYOUT.props.find((spec) => spec.kind === "reception");
+    if (reception === undefined) {
+      throw new Error("the shipped layout has no reception desk");
+    }
+    expect(roomAt(OFFICE_LAYOUT, reception)?.id).toBe("lobby");
+    // Its front, the local -Z side every prop faces, looks at the door, and
+    // the door is square in front of it.
+    const forward = { x: -Math.sin(reception.yaw), z: -Math.cos(reception.yaw) };
+    const toDoor = { x: entrance.centre.x - reception.x, z: entrance.centre.z - reception.z };
+    const along = (forward.x * toDoor.x + forward.z * toDoor.z) / Math.hypot(toDoor.x, toDoor.z);
+    expect(along).toBeGreaterThan(0.95);
+    const box = propAabb(reception);
+    expect(box.minZ).toBeLessThan(entrance.centre.z);
+    expect(box.maxZ).toBeGreaterThan(entrance.centre.z);
+  });
+
+  it("glazes the whole street wall either side of the entrance", () => {
+    const streetWall = OFFICE_LAYOUT.walls.filter(
+      (spec) => spec.footprint.minX >= OFFICE_LAYOUT.floor.maxX - MIN_OBSTACLE_THICKNESS - 1e-9 &&
+        spec.footprint.maxX <= OFFICE_LAYOUT.floor.maxX,
+    );
+    expect(streetWall.length).toBe(2);
+    for (const spec of streetWall) {
+      expect(spec.style, spec.id).toBe("window");
+    }
+    const glazed = streetWall.reduce((sum, spec) => sum + spec.footprint.maxZ - spec.footprint.minZ, 0);
+    expect(glazed + entrance.width).toBeCloseTo(OFFICE_LAYOUT.floor.maxZ - OFFICE_LAYOUT.floor.minZ);
+  });
+
+  it("keeps everyone on the pavement, off the road", () => {
+    const starts = [
+      { x: 13.7, z: -6.6 },
+      { x: 13.7, z: -10.8 },
+      { x: 13.7, z: 10.8 },
+    ];
+    for (const start of starts) {
+      for (let step = 0; step < 36; step += 1) {
+        const angle = (step / 36) * Math.PI * 2;
+        const end = resolveMove(start, { x: Math.cos(angle) * 40, z: Math.sin(angle) * 40 }, R, OFFICE_LAYOUT);
+        expect(end.x + R, `${start.x}, ${start.z} at ${angle}`).toBeLessThanOrEqual(street.road.minX);
+        expect(containsPoint(groundExtent(OFFICE_LAYOUT), end)).toBe(true);
+      }
+    }
+  });
+
+  it("runs traffic both ways in lanes on the road, and puts the far buildings past it", () => {
+    expect(new Set(street.lanes.map((lane) => lane.direction))).toEqual(new Set([1, -1]));
+    for (const lane of street.lanes) {
+      expect(lane.x).toBeGreaterThan(street.road.minX);
+      expect(lane.x).toBeLessThan(street.road.maxX);
+    }
+    expect(street.road.minX).toBeGreaterThanOrEqual(sidewalk.bounds.maxX);
+    expect(street.farFrontX).toBeGreaterThan(street.road.maxX);
+    expect(street.crossingZ).toBeGreaterThan(street.road.minZ);
+    expect(street.crossingZ).toBeLessThan(street.road.maxZ);
   });
 });

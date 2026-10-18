@@ -87,6 +87,7 @@ const FIXTURE_LAYOUT: OfficeLayout = {
   ],
   spawnPoints: [{ x: -3, z: 0, yaw: 0 }],
   fixtures: [],
+  street: undefined,
 };
 
 /** A position inside the sealed closet, clear of its walls by a body radius. */
