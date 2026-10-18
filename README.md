@@ -33,7 +33,7 @@ a person can merge. The coding agents building this
 repository can be on the floor too: an orchestrator or a runner reports each one
 to the server, and it walks in, sits at a free desk and types while it has a
 task, and gets up to wander and chat with the other idle agents while it has
-none. And someone is in charge of all of them: Firstmate, the AI manager, a
+none. And someone is in charge of all of them: the AI Manager, a
 crimson body at its own desk in the lobby. The CEO walks up and talks to it —
 "what's open?", "what's the status of #12?", "which PRs are open?", "what is
 Claude 1 doing?", "assign the jumping ticket", "put someone on #39", "have
@@ -132,7 +132,7 @@ waits at its prompt after a turn, is refused, and only the CEO is told why,
 under the pad. Keys are limited to eight in a burst, two more a second, and
 nobody else's tab is told of them: the terminal is the record.
 
-At the manager's desk in the lobby, `E` opens the conversation with Firstmate
+At the manager's desk in the lobby, `E` opens the conversation with the AI Manager
 and puts the keyboard in its message box: `Enter` sends, `Esc` closes, and
 stepping away closes it too. Only the CEO's messages are taken; anyone else's
 panel says who can, and the server refuses theirs with that reason.
@@ -550,7 +550,7 @@ the day at nothing.
 Once today's spend reaches `RUNNER_DAILY_BUDGET_USD`, the runner refuses every
 new start, reported to the server as a failed start that gives the budget and
 the spend; work already under way runs on. The refusal is noted on the work,
-in its agent's voice, and Firstmate explains it in its conversation. Nothing
+in its agent's voice, and the AI Manager explains it in its conversation. Nothing
 retries a refused start, so the work stays assigned: once the budget is raised
 or the day turns over, take the work back and assign it again.
 
@@ -875,7 +875,7 @@ Then confirm all twenty-one:
     it leaves after the timeout, its chair free again. The same report without
     the secret gets `401` and changes nothing.
 14. **The manager answers the CEO, and only the CEO.** Both tabs show
-    Firstmate, a crimson body seated at its desk in the lobby, with `AI Manager`
+    the AI Manager, a crimson body seated at its desk in the lobby, with `AI Manager`
     under its name and a `Ready` badge, listed under **Manager** in the roster.
     Walk Dana into the lobby to the desk, press `E` at `Talk to the manager`, and
     ask `what is everyone working on?`: the badge turns `Thinking…` for a moment
@@ -889,11 +889,11 @@ Then confirm all twenty-one:
     board. Then `put a coding agent on #N`, with an open issue labelled
     `agent-ready` that nobody has: with the runner running, as in
     [Running the runner](#running-the-runner), it goes to a mock slot and both
-    tabs' boards show the issue assigned to it, and Firstmate posts
+    tabs' boards show the issue assigned to it, and the AI Manager posts
     `Mock 1 started on #N` and `Mock 1 needs you on #N: Permission: Bash pnpm test`,
     and `Mock 1` waits in its chair, its beacon lit, however long nobody
     answers; `what is Mock 1 doing?` says it is waiting on you. Once a prompt
-    answers it, Firstmate posts `Mock 1 couldn't work on #N` with the mock's
+    answers it, the AI Manager posts `Mock 1 couldn't work on #N` with the mock's
     reason, or with `RUNNER_MOCK_OUTCOME=pr-opened`,
     `Mock 1 handed in #N … for your review as a simulated pull request: the mock agent opened nothing on GitHub.`,
     with no number and no link. `have Mock 2 do #N` names the
@@ -950,7 +950,7 @@ Then confirm all twenty-one:
     again. Assign another labelled issue and, while the mock works it,
     `Unassign` it: the slot stops at once and goes idle, and the runner's log
     says its worktree is kept, with the uncommitted change or commit it holds.
-18. **A spent runner budget refuses the next start, and Firstmate says so.**
+18. **A spent runner budget refuses the next start, and the AI Manager says so.**
     Run the server as in step 17 and the runner with
     `RUNNER_MOCK_OUTCOME=pr-opened` and `RUNNER_DAILY_BUDGET_USD=0.15`. With
     the runner up, both tabs' rosters read `Agents' spend: $0.00 of $0.15 today`
@@ -959,7 +959,7 @@ Then confirm all twenty-one:
     pull request is handed in it reads `$0.20 of $0.15 today — budget spent, no
     new starts`, marked as a warning. She assigns another labelled issue to
     `Mock 2`: it never starts, its card notes the runner's daily budget is
-    spent with the day's figures, Firstmate's conversation explains it and how
+    spent with the day's figures, the AI Manager's conversation explains it and how
     to try again, and the runner's log says the start was refused.
 19. **The CEO prompts a coding agent from its terminal, in both tabs.** Run
     the server with `RUNNER_SECRET` and the runner with

@@ -154,7 +154,7 @@ describe("the AI manager in a live room", () => {
     await settled(() => replies(milo).length === 1);
     expect(milo.entries.map((entry) => [entry.kind, entry.authorName, entry.text])).toEqual([
       [MANAGER_ENTRY_KIND.instruction, "Dana", "what's the status of #1?"],
-      [MANAGER_ENTRY_KIND.reply, "Firstmate", "#1 “Fix the login redirect loop” is open. Nobody in the office is on it yet."],
+      [MANAGER_ENTRY_KIND.reply, "AI Manager", "#1 “Fix the login redirect loop” is open. Nobody in the office is on it yet."],
     ]);
 
     say(dana, "what is everyone working on?");

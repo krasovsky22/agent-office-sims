@@ -39,8 +39,8 @@ import { type WorkRef, findAgents, findIssueByTitle, findUnknownWork, findWork, 
 /** Most items one list in an answer names before saying how many more there are. */
 const LIST_LIMIT = 8;
 
-/** "please", "can you", "firstmate," and the like ahead of an instruction. */
-const LEAD_IN = /^(?:(?:please|ok(?:ay)?|(?:can|could|would|will) you|firstmate)[\s,]+)*/;
+/** "please", "can you", "AI manager," and the like ahead of an instruction. */
+const LEAD_IN = /^(?:(?:please|ok(?:ay)?|(?:can|could|would|will) you|(?:the )?ai manager)[\s,]+)*/;
 /** A question is answered and never acted on: it is told by how it starts. */
 const QUESTION_START =
   /^(what|what's|whats|how|how's|hows|who|who's|which|where|why|when|is|are|was|were|do|does|did|has|had|should|any|status|have you)\b/;

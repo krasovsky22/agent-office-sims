@@ -32,19 +32,19 @@ export function managerAccessFor(actor: OfficeActor, ceoName: string | undefined
   if (mayInstructManager(actor)) {
     return {
       mayInstruct: true,
-      summary: `You are the CEO: ask ${MANAGER_NAME} for status, or tell it who should take what.`,
+      summary: `You are the CEO: ask the ${MANAGER_NAME} for status, or tell it who should take what.`,
     };
   }
   const who = ceoName === undefined ? "the CEO" : `the CEO, ${ceoName},`;
   return {
     mayInstruct: false,
-    summary: `Only ${who} can instruct ${MANAGER_NAME}. You can read the conversation.`,
+    summary: `Only ${who} can instruct the ${MANAGER_NAME}. You can read the conversation.`,
   };
 }
 
 const REJECTION_TEXT: Readonly<Record<ManagerRejection, string>> = {
-  [MANAGER_REJECTION.forbidden]: `Only the CEO can instruct ${MANAGER_NAME}.`,
-  [MANAGER_REJECTION.busy]: `${MANAGER_NAME} is still working through your last few messages — try again in a moment.`,
+  [MANAGER_REJECTION.forbidden]: `Only the CEO can instruct the ${MANAGER_NAME}.`,
+  [MANAGER_REJECTION.busy]: `The ${MANAGER_NAME} is still working through your last few messages — try again in a moment.`,
 };
 
 /** What to tell the player when the manager does not take their message. */

@@ -1,7 +1,7 @@
 /**
  * What the runners' real agents have spent today, in US dollars, and how it
  * is said: on the HUD in every tab, in the runner's refusal of a start once
- * its daily budget is spent, and by Firstmate when it explains that refusal.
+ * its daily budget is spent, and by the AI Manager when it explains that refusal.
  *
  * Real money, kept apart from anything in the game: the runner meters it off
  * its agents' transcripts and caps it on its own, and the server only shows

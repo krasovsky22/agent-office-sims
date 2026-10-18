@@ -223,7 +223,7 @@ describe("planFromRules: assignments", () => {
     ["put someone who's free on #39", [{ work: "issue #39", agent: "" }]],
     ["assign #39 to someone who is idle", [{ work: "issue #39", agent: "" }]],
     ["can you put Deckhand on #10?", [{ work: "issue #10", agent: "crew-2" }]],
-    ["Firstmate, put Crewmate on #15", [{ work: "issue #15", agent: "crew-1" }]],
+    ["AI Manager, put Crewmate on #15", [{ work: "issue #15", agent: "crew-1" }]],
     ["have someone take #39", [{ work: "issue #39", agent: "" }]],
     ["give Deckhand's #10 to Crewmate", [{ work: "issue #10", agent: "crew-1" }]],
     ["reassign #11 to Deckhand", [{ work: "issue #11", agent: "crew-2" }]],

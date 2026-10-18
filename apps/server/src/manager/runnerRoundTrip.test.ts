@@ -1,5 +1,5 @@
 /**
- * Firstmate and the runner's coding agents, end to end: a live room, the
+ * The AI Manager and the runner's coding agents, end to end: a live room, the
  * runner link over real HTTP, and the runner's own slot pool with the mock
  * agent, so what the CEO reads in the conversation at each step is what the
  * office would say about a real agent's work.
@@ -168,7 +168,7 @@ function lines(tab: Tab, kind: ManagerEntry["kind"]): string[] {
   return tab.entries.filter((entry) => entry.kind === kind).map((entry) => entry.text);
 }
 
-/** Says something to Firstmate and waits for the reply to it. */
+/** Says something to the AI Manager and waits for the reply to it. */
 async function ask(tab: Tab, text: string): Promise<string> {
   const before = lines(tab, MANAGER_ENTRY_KIND.reply).length;
   tab.room.send(CLIENT_MESSAGE.managerSay, { text });
@@ -176,14 +176,14 @@ async function ask(tab: Tab, text: string): Promise<string> {
   return lines(tab, MANAGER_ENTRY_KIND.reply)[before] ?? "";
 }
 
-/** Firstmate's updates about one agent, in order. */
+/** The AI Manager's updates about one agent, in order. */
 function updatesAbout(tab: Tab, name: string): string[] {
   return lines(tab, MANAGER_ENTRY_KIND.update)
     .flatMap((text) => text.split("\n"))
     .filter((line) => line.startsWith(`${name} `));
 }
 
-describe("Firstmate and the mock runner's coding agents", () => {
+describe("the AI Manager and the mock runner's coding agents", () => {
   it("puts a free coding agent on an issue however it is asked for, and says how it goes at each step", { timeout: 60_000 }, async () => {
     const room = await new Client(endpoint).create<OfficeState>(OFFICE_ROOM_NAME, { name: "Dana" });
     const dana: Tab = { room, entries: [] };

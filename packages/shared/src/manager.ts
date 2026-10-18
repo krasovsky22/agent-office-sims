@@ -31,7 +31,7 @@ import type { OfficeActor } from "./work.js";
 export const MANAGER_OCCUPANT_ID = "manager:firstmate";
 
 /** What the nameplate and the conversation call it. */
-export const MANAGER_NAME = "Firstmate";
+export const MANAGER_NAME = "AI Manager";
 
 export const MANAGER_JOB_TITLE = "AI Manager";
 

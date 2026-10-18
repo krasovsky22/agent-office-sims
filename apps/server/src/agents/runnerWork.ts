@@ -27,7 +27,7 @@
  * and `failed` says why on the work. An event about work the slot no longer
  * holds is refused by those rules and changes nothing. A start the runner
  * refused because its daily budget is spent is also explained to the office,
- * in Firstmate's voice, since nothing on the board says why the work never
+ * in the AI Manager's voice, since nothing on the board says why the work never
  * began.
  *
  * Nothing here writes to GitHub: the runner's agent opens the pull request,
@@ -97,7 +97,7 @@ export function reworkPrompt(issueNumber: number): string {
 }
 
 /**
- * What Firstmate says when a runner refused to start an agent because its
+ * What the AI Manager says when a runner refused to start an agent because its
  * daily budget is spent: who could not start on what, the runner's own reason
  * with its numbers, and how to start it once the budget allows. Nothing
  * retries a refused start by itself, so the work stays assigned until the CEO
@@ -148,7 +148,7 @@ export interface RunnerWorkOptions {
   readonly runner: RunnerCommands;
   /** Where a command the runner was given, or could not be, is written down. */
   readonly log?: (name: string, detail: Record<string, string | number>) => void;
-  /** Says something to the office as Firstmate; nobody hears it by default. */
+  /** Says something to the office as the AI Manager; nobody hears it by default. */
   readonly announce?: (text: string) => void;
 }
 

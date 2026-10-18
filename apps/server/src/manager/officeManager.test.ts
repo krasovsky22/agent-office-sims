@@ -164,7 +164,7 @@ describe("OfficeManager", () => {
     await until(() => held.waiting.length === 1);
     held.waiting[0]?.resolve({ reply: "Nobody is on #10 yet.", assignments: [], tokensUsed: 0 });
     await until(() => published.length === 2);
-    expect(published[1]).toMatchObject({ kind: MANAGER_ENTRY_KIND.reply, authorName: "Firstmate", text: "Nobody is on #10 yet." });
+    expect(published[1]).toMatchObject({ kind: MANAGER_ENTRY_KIND.reply, authorName: "AI Manager", text: "Nobody is on #10 yet." });
     expect(status()).toBe(MANAGER_STATUS.idle);
     expect(office.history()).toHaveLength(2);
   });

@@ -320,7 +320,7 @@ describe("RunnerWork inward: the runner's events as the agent's moves", () => {
     expect(state.work.get(workKey(40))?.note).toBe("#40 is not labelled agent-ready on GitHub");
   });
 
-  it("has Firstmate explain a start the runner refused because its budget is spent, and only that kind of failure", () => {
+  it("has the AI Manager explain a start the runner refused because its budget is spent, and only that kind of failure", () => {
     const { ceoDoes, state, runnerWork, announced } = setup();
     ceoDoes(assign(39));
     const reason =

@@ -82,7 +82,7 @@ export type RunnerEventKind = (typeof RUNNER_EVENT_KIND)[keyof typeof RUNNER_EVE
 
 /**
  * Why a runner turned a start down, when the office should know more than its
- * message says: Firstmate explains a start refused for the runner's budget.
+ * message says: the AI Manager explains a start refused for the runner's budget.
  */
 export const RUNNER_REFUSAL = {
   budget: "budget",
