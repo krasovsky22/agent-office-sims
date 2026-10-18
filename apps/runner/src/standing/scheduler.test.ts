@@ -343,7 +343,7 @@ describe("a restarted runner", () => {
     expect(pool.report().every((slot) => slot.standing === undefined)).toBe(true);
     expect(runs(second.pendingEvents())).toEqual([]);
     for (const task of second.report()) {
-      expect(task).toMatchObject({ status: "error", nextCheckAt: undefined, lastError: expect.stringContaining("RUNNER_STANDING_DAILY_BUDGET_USD") });
+      expect(task).toMatchObject({ status: "error", nextCheckAt: undefined, queued: 0, lastError: expect.stringContaining("RUNNER_STANDING_DAILY_BUDGET_USD") });
     }
   });
 

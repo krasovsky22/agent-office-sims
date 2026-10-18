@@ -247,6 +247,11 @@ export class StandingScheduler {
       return;
     }
     const name = `"${task.spec.name}" (${task.spec.id})`;
+    const off = this.offReason();
+    if (off !== undefined && (command.kind === RUNNER_COMMAND_KIND.standingResume || command.kind === RUNNER_COMMAND_KIND.standingCheckNow)) {
+      this.log(`${command.kind} for standing task ${name} from ${command.requestedBy} refused: ${off}`);
+      return;
+    }
     switch (command.kind) {
       case RUNNER_COMMAND_KIND.standingPause:
         if (!task.spec.paused) {

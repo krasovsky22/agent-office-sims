@@ -167,6 +167,10 @@ export class StandingControl {
     if (record === undefined) {
       return refuse(STANDING_REJECTION.unknownTask);
     }
+    const runnerOff = this.options.directory.runnerViews().some((runner) => runner.runnerId === record.runnerId && runner.off !== undefined);
+    if (runnerOff && (action === STANDING_ACTION.resume || action === STANDING_ACTION.checkNow)) {
+      return refuse(STANDING_REJECTION.runnerRefuses);
+    }
     const kind = {
       [STANDING_ACTION.pause]: RUNNER_COMMAND_KIND.standingPause,
       [STANDING_ACTION.resume]: RUNNER_COMMAND_KIND.standingResume,

@@ -115,6 +115,20 @@ describe("StandingControl", () => {
   });
 });
 
+describe("StandingControl on a runner off for standing tasks", () => {
+  it("refuses to resume or check a task it kept, and still pauses and removes it", () => {
+    const { control, link } = setup();
+    link.sync(sync("box", { standingOff: STANDING_OFF.noBudget, standing: [report("st-kept", { kind: "schedule", name: "Morning summary", status: "error" })] }));
+    for (const action of ["check-now", "resume"] as const) {
+      expect(control.act(CEO, "Dana", action, "st-kept")).toMatchObject({ ok: false, rejection: STANDING_REJECTION.runnerRefuses, text: expect.stringContaining("RUNNER_STANDING_DAILY_BUDGET_USD") });
+    }
+    expect(link.pending("box")).toEqual([]);
+    expect(control.act(CEO, "Dana", "pause", "st-kept")).toMatchObject({ ok: true });
+    expect(control.act(CEO, "Dana", "remove", "st-kept")).toMatchObject({ ok: true });
+    expect(link.pending("box").map((command) => command.kind)).toEqual(["standing-pause", "standing-remove"]);
+  });
+});
+
 describe("the standing mirror", () => {
   it("keeps every runner's tasks with the slot running each, and drops a runner's with it", () => {
     let clock = 1000;
