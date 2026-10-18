@@ -277,8 +277,9 @@ export type ManagerStatus = (typeof MANAGER_STATUS)[keyof typeof MANAGER_STATUS]
  * the work out to the live agents.
  *
  * Seated at its own desk for good and moved by nobody, so nothing here is a
- * position; what is replicated is what a client draws — a badge saying whether it is thinking. The conversation itself is not
- * state: it is relayed as messages, like chat.
+ * position; what is replicated is what a client draws — a badge saying
+ * whether it is thinking. The conversation itself is not state: it is relayed
+ * as messages, like chat.
  */
 export class AiManager extends Occupant {
   declare public status: ManagerStatus;

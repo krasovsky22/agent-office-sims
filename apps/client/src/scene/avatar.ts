@@ -275,7 +275,7 @@ interface AvatarBody {
 
 /**
  * Paints a nameplate: the name, with a CEO suffix for the CEO, and on a second
- * line beneath it the manager's job title or a live agent's task, cut short
+ * line beneath it a live agent's task, cut short
  * with an ellipsis rather than overflowing.
  */
 function drawNameplate(
@@ -461,7 +461,7 @@ export class Avatar {
 
   private name: string;
   private isCeo: boolean;
-  /** The nameplate's second line: the manager's job title or a live agent's task. */
+  /** The nameplate's second line: a live agent's task, `""` for anyone else. */
   private subtitle: string;
   private animation: AnimationState = ANIMATION_STATE.idle;
 

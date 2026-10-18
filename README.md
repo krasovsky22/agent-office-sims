@@ -875,7 +875,8 @@ Then confirm all twenty-one:
     it leaves after the timeout, its chair free again. The same report without
     the secret gets `401` and changes nothing.
 14. **The manager answers the CEO, and only the CEO.** Both tabs show
-    the AI Manager, a crimson body seated at its desk in the lobby, with a `Ready` badge, listed under **Manager** in the roster.
+    the AI Manager, a crimson body seated at its desk in the lobby, with a
+    `Ready` badge, listed under **Manager** in the roster.
     Walk Dana into the lobby to the desk, press `E` at `Talk to the manager`, and
     ask `what is everyone working on?`: the badge turns `Thinking…` for a moment
     and the answer lists every live agent and what it is doing, from the live

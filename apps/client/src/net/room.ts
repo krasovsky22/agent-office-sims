@@ -778,7 +778,6 @@ function describeError(error: unknown): string {
   return described === "" || described.startsWith("[object ") ? "unknown error" : described;
 }
 
-
 function copyWork(work: IssueWork): WorkData {
   return {
     issueNumber: work.issueNumber,
