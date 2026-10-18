@@ -737,9 +737,12 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
+  // The CEO runs a standup from its panel and from the manager's desk at once, so
+  // the standup docks to one side rather than covering another close-up.
+  const standupDocked = standup.active && (boardCloseUp || managerOpen || terminalAgentId !== undefined);
 
   return (
-    <div className="hud">
+    <div className={standupDocked ? "hud hud--standup-docked" : "hud"}>
       {/* Always mounted, so hiding it is a transition rather than a cut. */}
       <div className={assets === "loading" ? "hud__loading" : "hud__loading hud__loading--done"}>
         <p className="hud__loading-text">Furnishing the office…</p>

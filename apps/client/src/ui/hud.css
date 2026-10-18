@@ -1006,6 +1006,32 @@
   width: min(820px, calc(100vw - 32px));
 }
 
+/* Beside another close-up (the manager's conversation, the board, a terminal)
+   the standup docks to the right edge at full height and the other panel moves
+   left, so both stay in view and clickable. */
+.hud--standup-docked {
+  --standup-dock: min(400px, 36vw);
+}
+
+.hud--standup-docked .board {
+  box-sizing: border-box;
+}
+
+.hud--standup-docked .standup {
+  top: 16px;
+  left: auto;
+  right: 16px;
+  transform: none;
+  max-height: none;
+  width: var(--standup-dock);
+}
+
+.hud--standup-docked .board:not(.standup) {
+  left: 16px;
+  transform: none;
+  max-width: calc(100vw - 48px - var(--standup-dock));
+}
+
 .standup__agents {
   flex: 1 1 auto;
   min-height: 3em;
