@@ -1294,8 +1294,9 @@ Ten things are worth knowing before changing anything:
 - **The furniture is data too, and only some of it collides.** `shared/props.ts`
   derives every prop from the floor plan — a chair and a screen per workstation, a
   frame in every doorway gap, a plant in each room — so a layout change furnishes
-  itself. Walls, desks, the chairs and the kitchen's furniture — the coffee
-  machine, the counter's cabinets, the table and its chairs — are solid; screens,
+  itself. Walls, desks, the chairs, the lobby's reception counter and the
+  kitchen's furniture — the coffee machine, the counter's cabinets, the table and
+  its chairs — are solid; screens,
   plants, door frames and the microwave on the counter are not. A chair's
   footprint, its seat height and its backrest are one shared record,
   `DESK_CHAIR` in `shared/layout.ts`: the chair prop is fitted to it, the server
