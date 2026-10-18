@@ -874,7 +874,8 @@ standing spend is booked too. A `claude` runner takes no standing task at all
 until its operator sets `RUNNER_STANDING_DAILY_BUDGET_USD`: it says so on
 every sync, the AI Manager says why when asked for one, and the runner itself
 refuses one anyway; tasks kept in `standing.json` from before show `error`
-and check and run nothing until it is set. The runner holds a task's caps to the standing budget
+and check and run nothing until it is set, and `Resume` and `Check now` on
+them are refused. The runner holds a task's caps to the standing budget
 whatever the server sent, and holds at most four tasks, one of them a pull
 request watch.
 
