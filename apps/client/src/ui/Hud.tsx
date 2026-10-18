@@ -16,6 +16,10 @@
  * that is not in the snapshot: it changes too often, so the panel asks for it
  * through {@link HudActions} as it repaints. The runners' standing tasks are
  * listed under the agents for everyone, with the CEO's buttons for them.
+ *
+ * The standup is in the snapshot, and while one is on its panel is docked over
+ * the foot of the office in every tab; the roster offers the CEO the button
+ * that calls one.
  */
 
 import {
@@ -24,6 +28,7 @@ import {
   type Emote,
   MANAGER_STATUS,
   MAX_CHAT_LENGTH,
+  NO_STANDUP,
   type ManagerEntry,
   type ManagerStatus,
   OCCUPANT_KIND,
@@ -32,6 +37,7 @@ import {
   type RunnerSpendTotal,
   STANDING_ACTION,
   type StandingTaskAction,
+  type StandupData,
   type WorkData,
   isIssueAssignee,
   spendSummary,
@@ -47,9 +53,11 @@ import type { ManagerAccess } from "../managerAccess.js";
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
 import { type StandingAccess, type StandingTaskData, standingRow } from "../standingAccess.js";
 import type { ConnectionStatus } from "../net/room.js";
+import type { StandupAccess } from "../standupAccess.js";
 import { type AgentPromptRefusal, type AgentTerminalActions, AgentTerminalPanel } from "./AgentTerminalPanel.js";
 import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
 import { type ProjectBoardActions, ProjectBoardPanel } from "./ProjectBoardPanel.js";
+import { type StandupActions, StandupPanel } from "./StandupPanel.js";
 
 import "./hud.css";
 
@@ -180,6 +188,12 @@ export interface HudSnapshot {
   readonly agentPromptAccess?: AgentPromptAccess | undefined;
   /** Why the local player's latest prompt was not typed, if one was not. */
   readonly agentPromptRefusal?: AgentPromptRefusal | undefined;
+  /** The standup, on or the last one held, as last replicated. */
+  readonly standup: StandupData;
+  /** What the local player may do about the standup; absent until they are in the office. */
+  readonly standupAccess?: StandupAccess | undefined;
+  /** Why the local player's latest standup command was refused, if one was. */
+  readonly standupNotice?: string | undefined;
   /** The runners' standing tasks as last replicated, in no particular order. */
   readonly standingTasks: readonly StandingTaskData[];
   /** What the local player may do about them; absent until they are in the office. */
@@ -199,6 +213,7 @@ export interface HudActions {
   readonly manager: ManagerPanelActions;
   readonly terminal: AgentTerminalActions;
   readonly standing: StandingActions;
+  readonly standup: StandupActions & { readonly start: () => void };
 }
 
 export interface HudStore {
@@ -220,6 +235,7 @@ const INITIAL: HudSnapshot = {
   agentPrompts: [],
   managerUnread: 0,
   standingTasks: [],
+  standup: NO_STANDUP,
 };
 
 export function createHudStore(): HudStore {
@@ -594,6 +610,30 @@ function StandingTasks({
 }
 
 /**
+ * The CEO's button that calls a standup, under the manager, whom the agents
+ * gather around. Everyone else sees it disabled, and why.
+ */
+function StandupCall({ access, active, start }: { access: StandupAccess; active: boolean; start: () => void }) {
+  return (
+    <div className="hud__standup">
+      <button
+        className="panel__button"
+        type="button"
+        disabled={!access.mayRun || active}
+        title={access.mayRun ? "Every agent gathers at the manager's desk and gives an update" : access.summary}
+        onClick={(event) => {
+          event.currentTarget.blur();
+          start();
+        }}
+      >
+        {active ? "Standup on" : "Call a standup"}
+      </button>
+      {access.mayRun ? null : <span className="hud__task">Only the CEO calls a standup</span>}
+    </div>
+  );
+}
+
+/**
  * Who is in the office: people first, then the manager and the live coding
  * agents under headings of their own, so the roster answers "who is a person
  * here?" as plainly as the floor does.
@@ -606,6 +646,7 @@ function Roster({
   standingTasks,
   standingAccess,
   standingActions,
+  standupCall,
 }: {
   roster: readonly RosterEntry[];
   boardAccess: BoardAccess | undefined;
@@ -614,6 +655,8 @@ function Roster({
   standingTasks: readonly StandingTaskData[];
   standingAccess: StandingAccess | undefined;
   standingActions: StandingActions;
+  /** The standup button, or `undefined` before the local player is in the office. */
+  standupCall: { readonly access: StandupAccess; readonly active: boolean; readonly start: () => void } | undefined;
 }) {
   const { people, liveAgents, managers } = groupRoster(roster);
   return (
@@ -636,6 +679,7 @@ function Roster({
               <ManagerRow entry={entry} unread={managerUnread} key={entry.id} />
             ))}
           </ul>
+          {standupCall === undefined ? null : <StandupCall {...standupCall} />}
         </>
       )}
       {liveAgents.length === 0 ? null : (
@@ -687,6 +731,9 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     agentPromptRefusal,
     standingTasks,
     standingAccess,
+    standup,
+    standupAccess,
+    standupNotice,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
@@ -707,6 +754,9 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           standingTasks={standingTasks}
           standingAccess={standingAccess}
           standingActions={actions.standing}
+          standupCall={
+            standupAccess === undefined ? undefined : { access: standupAccess, active: standup.active, start: actions.standup.start }
+          }
         />
 
         <div className="hud__panel">
@@ -763,6 +813,17 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           actions={actions.terminal}
         />
       )}
+
+      {standup.active ? (
+        <StandupPanel
+          standup={standup}
+          roster={roster}
+          access={standupAccess}
+          refusal={agentPromptRefusal}
+          notice={standupNotice}
+          actions={actions.standup}
+        />
+      ) : null}
 
       <div className="hud__column hud__column--right">
         <div className="hud__panel hud__panel--chat">

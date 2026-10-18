@@ -144,7 +144,7 @@ server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   manager: createConfiguredManager(manager),
   ...(floor === undefined ? {} : { liveAgents: floor }),
   ...(liveAssignments === undefined ? {} : { liveAssignments }),
-  ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink, runnerCommands: runnerLink, runnerSpend: runnerLink }),
+  ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink, runnerCommands: runnerLink, runnerSpend: runnerLink, runnerStandup: runnerLink }),
   agentIssueLabel: runner.issueLabel,
   ...(screens === undefined ? {} : { screens }),
   ...(standingMirror === undefined ? {} : { standing: standingMirror }),

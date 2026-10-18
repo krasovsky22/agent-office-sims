@@ -181,6 +181,12 @@ export const RUNNER_PROMPT_OUTCOME = {
   unavailable: "unavailable",
   /** A key, for an agent that waits on no choice screen. */
   notWaiting: "not-waiting",
+  /**
+   * A standup's direction, for an agent not at its prompt: kept, and typed
+   * the next time it is with the standup over, when the runner reports the
+   * same command `delivered`. The one outcome that is not the last word.
+   */
+  queued: "queued",
 } as const;
 
 export type RunnerPromptOutcomeKind = (typeof RUNNER_PROMPT_OUTCOME)[keyof typeof RUNNER_PROMPT_OUTCOME];
@@ -386,7 +392,11 @@ export interface RunnerStopCommand {
  * The office's own rework prompt is given whatever the agent is doing. One
  * the CEO typed in the agent's terminal panel is marked `fromCeo`: it is typed
  * only while the agent waits at its prompt, and refused otherwise, and the
- * runner reports which as a {@link RunnerPromptOutcome}.
+ * runner reports which as a {@link RunnerPromptOutcome}. A direction the CEO
+ * gave at a standup is marked `queue` too: rather than refused, it is kept
+ * and typed the next time the agent waits at its prompt with the standup over,
+ * reported `queued` and then `delivered`, or `unavailable` should its work end
+ * first.
  */
 export interface RunnerPromptCommand {
   readonly id: string;
@@ -395,6 +405,7 @@ export interface RunnerPromptCommand {
   readonly text: string;
   readonly requestedBy: string;
   readonly fromCeo?: boolean;
+  readonly queue?: boolean;
 }
 
 /**
@@ -459,10 +470,19 @@ export type RunnerCommandDraft =
   | Omit<RunnerStandingSetCommand, "id">
   | Omit<RunnerStandingTaskCommand, "id">;
 
-/** The server's reply to a sync: every command the runner has not yet acked. */
+/**
+ * The server's reply to a sync: every command the runner has not yet acked,
+ * and whether a standup is on. During a standup the runner's agents pause at
+ * a safe point, the mock between its steps and a real agent once its turn is
+ * done, and their task timeout is held; a direction kept for one waits for the
+ * standup to end. Said on every reply rather than sent as a command, so a
+ * runner that restarts mid-standup is told again on its first sync.
+ */
 export interface RunnerSyncReply {
   readonly ok: true;
   readonly commands: readonly RunnerCommand[];
+  /** Left out, as an older server does, when no standup is on. */
+  readonly standup?: boolean;
 }
 
 /**
@@ -970,7 +990,10 @@ function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCom
         return undefined;
       }
       const prompt = { id, slotId: draft.slotId, kind: draft.kind, text, requestedBy: sanitizeName(draft.requestedBy) };
-      return draft.fromCeo === true ? { ...prompt, fromCeo: true } : prompt;
+      if (draft.fromCeo !== true) {
+        return prompt;
+      }
+      return draft.queue === true ? { ...prompt, fromCeo: true, queue: true } : { ...prompt, fromCeo: true };
     }
     case RUNNER_COMMAND_KIND.key:
       return isAgentKey(draft.key)

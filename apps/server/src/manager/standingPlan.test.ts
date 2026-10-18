@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import type { StandingControl } from "../agents/standingControl.js";
 import { planFromRules } from "./rulePlanner.js";
-import type { OfficeView, StandingTaskView } from "./officeView.js";
+import { NO_STANDUP_VIEW, type OfficeView, type StandingTaskView } from "./officeView.js";
 import { carryOutStanding, readSchedule, resolveStandingTask, standingSummary } from "./standingPlan.js";
 
 function task(extra: Partial<StandingTaskView>): StandingTaskView {
@@ -37,6 +37,7 @@ const VIEW: OfficeView = {
   project: undefined,
   orchestrator: false,
   standing: [task({}), task({ id: "st-morning", kind: "schedule", name: "Morning summary", trigger: "weekdays 09:00", lastOutcome: undefined, lastRunPr: undefined, queued: 0 })],
+  standup: NO_STANDUP_VIEW,
 };
 
 function ask(message: string, view = VIEW) {

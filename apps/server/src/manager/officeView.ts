@@ -9,7 +9,8 @@
  * the issue it has and the pull request it opened, the standing tasks they
  * run between issues, and this repository's
  * issues and pull requests from the project board's feed, each issue with
- * whatever the office is doing about it.
+ * whatever the office is doing about it, and the standup, on or the last one
+ * held, with what each agent said at it.
  *
  * Built synchronously, in one pass over the room's state, between ticks. It
  * holds no schema objects: the model is handed it as JSON, and nothing the
@@ -169,6 +170,31 @@ export interface ProjectView {
   readonly counts: ProjectBoardSnapshot["counts"];
 }
 
+/** One agent's update at the standup. */
+export interface StandupUpdateView {
+  readonly agent: string;
+  readonly workedOn: string;
+  /** `""` for none. */
+  readonly blockers: string;
+  /** It waited on a person when it spoke and has not carried on since. */
+  readonly waitingOnYou: boolean;
+  /** It waited on a person when it spoke and has carried on since. */
+  readonly resolved: boolean;
+}
+
+/** The standup that is on, or the last one held. */
+export interface StandupView {
+  readonly active: boolean;
+  /** `""` before the first standup. */
+  readonly calledBy: string;
+  /** The agents in the order they speak, by name, those still on the floor. */
+  readonly order: readonly string[];
+  readonly updates: readonly StandupUpdateView[];
+}
+
+/** A standup view of an office that has never held one. */
+export const NO_STANDUP_VIEW: StandupView = { active: false, calledBy: "", order: [], updates: [] };
+
 export interface OfficeView {
   /** The CEO's name, or `undefined` in the moment nobody holds the role. */
   readonly ceo: string | undefined;
@@ -185,6 +211,7 @@ export interface OfficeView {
   readonly orchestrator: boolean;
   /** The runners' standing tasks. */
   readonly standing: readonly StandingTaskView[];
+  readonly standup: StandupView;
 }
 
 export interface OfficeViewSources {
@@ -272,6 +299,26 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
     project: sources.project === undefined ? undefined : readProject(sources.project, work),
     orchestrator: sources.liveAgents !== undefined,
     standing,
+    standup: readStandup(state),
+  };
+}
+
+function readStandup(state: OfficeState): StandupView {
+  const { standup } = state;
+  return {
+    active: standup.active,
+    calledBy: standup.calledBy,
+    order: standup.order.toArray().flatMap((id) => {
+      const name = state.occupants.get(id)?.name;
+      return name === undefined ? [] : [name];
+    }),
+    updates: standup.updates.map((update) => ({
+      agent: update.agentName,
+      workedOn: update.workedOn,
+      blockers: update.blockers,
+      waitingOnYou: update.needsYou && !update.resolved,
+      resolved: update.needsYou && update.resolved,
+    })),
   };
 }
 

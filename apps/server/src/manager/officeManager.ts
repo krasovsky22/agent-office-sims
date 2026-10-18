@@ -22,6 +22,10 @@
  * manager answers by rule instead and says so, so a question about status still
  * gets an answer from the live state.
  *
+ * Asked to call or end a standup, it does so as the CEO who asked, through
+ * the standup's own gate (`../sim/standup.ts`), and adds a line saying how
+ * it went, as it does for an assignment.
+ *
  * Its updates come from its own timer: a look at the office every couple of
  * seconds, compared with the last (`./updates.ts`), and posted to the same
  * conversation when anything happened.
@@ -50,7 +54,7 @@ import type { LiveAgentSource } from "../agents/registry.js";
 import type { StandingControl } from "../agents/standingControl.js";
 import type { WorkHost } from "../rooms/workHandlers.js";
 import { recordOfficeEvent } from "../sim/events.js";
-import { type AdviceResult, type ManagerAdvisor, type ManagerRequest } from "./advisor.js";
+import { type AdviceResult, type ManagerAdvisor, type ManagerRequest, type PlannedStandup } from "./advisor.js";
 import { carryOut } from "./assign.js";
 import { ManagerConversation } from "./conversation.js";
 import type { LiveAssignmentQueue } from "./liveAssignments.js";
@@ -89,6 +93,8 @@ export interface ManagerHost {
   readonly publish: (entry: ManagerEntry) => void;
   /** Defaults to {@link UPDATE_INTERVAL_MS}. */
   readonly updateIntervalMs?: number;
+  /** Calls or ends the standup for the CEO, and says how it went; absent in a room without one. */
+  readonly standup?: (action: PlannedStandup, ceo: Occupant) => string;
 }
 
 interface Question {
@@ -228,19 +234,22 @@ export class OfficeManager {
     const preface = result.ok ? "" : fallbackNote(result);
 
     let outcomes: string[] = [];
+    const ceo = this.host.work.state.occupants.get(question.ceoId);
+    const stillCeo = ceo !== undefined && mayInstructManager(actorOf(ceo));
     if (plan.assignments.length > 0) {
-      const ceo = this.host.work.state.occupants.get(question.ceoId);
-      outcomes =
-        ceo === undefined || !mayInstructManager(actorOf(ceo))
-          ? ["✗ You are no longer the CEO, so I didn't hand anything out."]
-          : carryOut(plan.assignments, {
-              work: this.host.work,
-              ceo,
-              view,
-              queue: this.host.assignments,
-              origin: this.host.origin,
-              note: question.text,
-            });
+      outcomes = !stillCeo
+        ? ["✗ You are no longer the CEO, so I didn't hand anything out."]
+        : carryOut(plan.assignments, {
+            work: this.host.work,
+            ceo,
+            view,
+            queue: this.host.assignments,
+            origin: this.host.origin,
+            note: question.text,
+          });
+    }
+    if (plan.standup !== undefined && this.host.standup !== undefined) {
+      outcomes.push(stillCeo ? this.host.standup(plan.standup, ceo) : "✗ You are no longer the CEO, so I didn't.");
     }
     const standing = plan.standing ?? [];
     let standingOutcomes: string[] = [];

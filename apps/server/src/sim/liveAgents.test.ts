@@ -32,6 +32,7 @@ import {
   liveAgentSeats,
   liveAgentKey,
   roomAt,
+  standupSpots,
   workKey,
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
@@ -623,5 +624,79 @@ describe("sticky notes", () => {
     expect(handedOver).toBeDefined();
     expect(both).toBe(false);
     expect(carried(office, "alpha")).toBe(0);
+  });
+});
+
+describe("a standup", () => {
+  const SPOTS = standupSpots(OFFICE_LAYOUT);
+  const atSpot = (body: Occupant) => SPOTS.some((spot) => Math.hypot(spot.x - body.x, spot.z - body.z) < 0.1);
+
+  it("gets every agent out of its chair and to a place of its own in the manager's room, facing the desk", () => {
+    const office = createOffice();
+    office.crew.sync(
+      [record("alpha", LIVE_AGENT_STATUS.working, "Live agents"), record("bravo", LIVE_AGENT_STATUS.idle)],
+      office.now,
+    );
+    const alpha = agent(office, "alpha");
+    const bravo = agent(office, "bravo");
+    expect(runUntil(office, 30, () => alpha.interactableId !== "")).toBeDefined();
+
+    office.crew.gather(SPOTS, office.now);
+    expect(runUntil(office, 60, () => office.crew.isGathered(alpha.id) && office.crew.isGathered(bravo.id))).toBeDefined();
+    for (const body of [alpha, bravo]) {
+      expect(body.interactableId).toBe("");
+      expect(atSpot(body)).toBe(true);
+      expect(roomAt(OFFICE_LAYOUT, body)?.id).toBe("lobby");
+      expect(body.animation).toBe(ANIMATION_STATE.idle);
+    }
+    expect(Math.hypot(alpha.x - bravo.x, alpha.z - bravo.z)).toBeGreaterThan(0.5);
+    expect(alpha.yaw).toBeCloseTo(SPOTS.find((spot) => Math.hypot(spot.x - alpha.x, spot.z - alpha.z) < 0.1)?.yaw ?? Number.NaN);
+  });
+
+  it("takes in an agent that arrives while it is on, and nobody stops to chat", () => {
+    const office = createOffice();
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    office.crew.gather(SPOTS, office.now);
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle), record("bravo", LIVE_AGENT_STATUS.idle)], office.now);
+    const bravo = agent(office, "bravo");
+    expect(runUntil(office, 60, () => office.crew.isGathered(bravo.id) && office.crew.isGathered(agent(office, "alpha").id))).toBeDefined();
+    runUntil(office, 10, () => false);
+    expect(office.said).toEqual([]);
+  });
+
+  it("sends a working agent back to the chair it left once it ends, and an idle one off wandering", () => {
+    const office = createOffice();
+    office.crew.sync(
+      [record("alpha", LIVE_AGENT_STATUS.working, "Live agents"), record("bravo", LIVE_AGENT_STATUS.idle)],
+      office.now,
+    );
+    const alpha = agent(office, "alpha");
+    const bravo = agent(office, "bravo");
+    expect(runUntil(office, 30, () => alpha.interactableId !== "")).toBeDefined();
+    const desk = alpha.interactableId;
+
+    office.crew.gather(SPOTS, office.now);
+    expect(runUntil(office, 60, () => office.crew.isGathered(alpha.id) && office.crew.isGathered(bravo.id))).toBeDefined();
+    office.crew.dismiss(office.now);
+    expect(office.crew.isGathered(alpha.id)).toBe(false);
+    expect(runUntil(office, 60, () => alpha.interactableId !== "")).toBeDefined();
+    expect(alpha.interactableId).toBe(desk);
+    expect(alpha.animation).toBe(ANIMATION_STATE.typing);
+    expect(runUntil(office, 30, () => !atSpot(bravo))).toBeDefined();
+  });
+
+  it("finds another chair when somebody took the one it left", () => {
+    const office = createOffice();
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working, "Live agents")], office.now);
+    const alpha = agent(office, "alpha");
+    expect(runUntil(office, 30, () => alpha.interactableId !== "")).toBeDefined();
+    const desk = alpha.interactableId;
+
+    office.crew.gather(SPOTS, office.now);
+    expect(runUntil(office, 60, () => office.crew.isGathered(alpha.id))).toBeDefined();
+    seatPlayer(office, "player-1", desk);
+    office.crew.dismiss(office.now);
+    expect(runUntil(office, 60, () => alpha.interactableId !== "")).toBeDefined();
+    expect(alpha.interactableId).not.toBe(desk);
   });
 });

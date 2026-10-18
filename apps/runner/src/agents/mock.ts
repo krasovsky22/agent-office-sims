@@ -23,6 +23,9 @@
  * CEO's prompt is the answer, and it carries on to hand its simulated pull
  * request in.
  *
+ * It pauses for a standup between one step and the next, saying so on its
+ * screen, and carries on from that step once the standup is over.
+ *
  * It does one real thing, writing a file in its worktree and committing it, so
  * a task's worktree is exercised end to end too: stopped before it writes, its
  * worktree is removed, and from then on kept, first with an uncommitted change
@@ -63,6 +66,9 @@ const MOCK_DIR = ".sims-mock";
 /** What the mock waits on a person for, as a real agent waits on a permission. */
 export const MOCK_PERMISSION = "Permission: Bash pnpm test";
 
+/** What it is doing once its permission is given, as a real agent is back at work the moment it is. */
+export const MOCK_PERMISSION_GRANTED = "Permission granted: Bash pnpm test";
+
 const BOLD = "\u001b[1m";
 const DIM = "\u001b[2m";
 const RED = "\u001b[31m";
@@ -73,6 +79,10 @@ const RESET = "\u001b[0m";
 
 /** The choices on its permission menu, in order: the first carries on, the second says no. */
 export const MOCK_PERMISSION_CHOICES = ["Yes", "No, and tell the agent what to do differently (esc)"] as const;
+
+/** What it prints when it stops for a standup, and when it carries on. */
+export const MOCK_PAUSED = "Paused for the standup.";
+export const MOCK_RESUMED = "Back from the standup.";
 
 /** What it prints when it is told no, ending its turn. */
 export const MOCK_DECLINED = "Declined. Waiting to be told what to do instead.";
@@ -177,8 +187,18 @@ export function createMockAgent(options: MockAgentOptions): Agent {
       let waiting = false;
       /** The choice its permission menu points at. */
       let selected = 0;
+      /** A standup is on: it takes no next step until it is over. */
+      let paused = false;
+      /** A step came due while it was paused, and is taken on resuming. */
+      let stalled = false;
 
       const next = (): void => {
+        if (paused) {
+          timer = undefined;
+          stalled = true;
+          reporter.output(`${DIM}⏸ ${MOCK_PAUSED}${RESET}\r\n`);
+          return;
+        }
         const current = steps[step];
         step += 1;
         if (current !== undefined) {
@@ -238,6 +258,7 @@ export function createMockAgent(options: MockAgentOptions): Agent {
         waiting = false;
         if (choice === 0) {
           reporter.output(`${GREEN}  ✓ ${MOCK_PERMISSION_CHOICES[0]}${RESET}\r\n`);
+          reporter.progress(MOCK_PERMISSION_GRANTED);
           timer = setTimeout(next, stepMs);
           return;
         }
@@ -280,11 +301,23 @@ export function createMockAgent(options: MockAgentOptions): Agent {
             timer = undefined;
           }
         },
+        pause() {
+          paused = true;
+        },
+        resume() {
+          paused = false;
+          if (stalled && !stopped) {
+            stalled = false;
+            reporter.output(`${DIM}▶ ${MOCK_RESUMED}${RESET}\r\n`);
+            timer = setTimeout(next, stepMs);
+          }
+        },
         prompt(text) {
           if (stopped) {
             return;
           }
           clearTimeout(timer);
+          stalled = false;
           reporter.output(`\r\n${BOLD}>${RESET} ${text.replace(/\n/g, "\r\n  ")}\r\n`);
           if (waiting) {
             // The answer to what it waits on: it carries on from there.

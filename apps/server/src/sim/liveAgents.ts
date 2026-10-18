@@ -29,6 +29,12 @@
  * so what a client draws matches where the body is. Which note and which board
  * are `stickerNotes.ts`'s rules, shared with the clients that draw them.
  *
+ * During a standup ({@link LiveAgentCrew.gather}) every agent, working or
+ * not, gets up and walks to a place of its own in front of the manager's
+ * desk, and stands there facing it; nobody chats. Once it ends
+ * ({@link LiveAgentCrew.dismiss}) a working agent goes back to the chair it
+ * left, if nobody has taken it meanwhile, and an idle one wanders off again.
+ *
  * All of it is synchronous and runs inside the room's tick. What the agents are
  * meant to be doing arrives from the feed as a finished list; the tick reads it
  * through {@link LiveAgentCrew.sync} without waiting on anything.
@@ -46,6 +52,7 @@ import {
   OCCUPANT_RADIUS,
   type Occupant,
   type OfficeLayout,
+  type StandupSpot,
   type Vec2,
   WALK_SPEED,
   distanceToInteractable,
@@ -169,6 +176,12 @@ interface AgentBody {
   errand: NoteErrand | undefined;
   /** Room clock time it next looks for a note it found another agent holding. */
   noteRetryAt: number;
+  /** Its place at the standup, while one is on and a place is free for it. */
+  spot: StandupSpot | undefined;
+  /** It has reached {@link spot}. */
+  atSpot: boolean;
+  /** The chair it got up from for the standup, which it goes back to; `""` for none. */
+  homeSeatId: string;
 }
 
 /** What the crew needs from the room, named so a test can supply it. */
@@ -196,6 +209,8 @@ export class LiveAgentCrew {
   private readonly conversations = new Set<Conversation>();
   private readonly entrances: readonly Vec2[];
   private entranceCursor = 0;
+  /** The places in front of the manager's desk while a standup is on; `undefined` otherwise. */
+  private standupSpots: readonly StandupSpot[] | undefined;
 
   public constructor(private readonly host: LiveAgentHost) {
     // Agents walk in through the open floor's doorways, which is where their
@@ -230,8 +245,56 @@ export class LiveAgentCrew {
     }
   }
 
+  /**
+   * Calls every agent to the standup: from the next tick each one gets up,
+   * walks to a place in front of the manager's desk and waits there, an agent
+   * that arrives meanwhile included. Its work carries on as its runner or
+   * orchestrator says; only the body moves.
+   */
+  public gather(spots: readonly StandupSpot[], now: number): void {
+    this.standupSpots = spots;
+    for (const conversation of [...this.conversations]) {
+      this.endConversation(conversation, now);
+    }
+  }
+
+  /** Ends the standup: a working agent goes back to its desk, an idle one wanders. */
+  public dismiss(now: number): void {
+    if (this.standupSpots === undefined) {
+      return;
+    }
+    this.standupSpots = undefined;
+    for (const body of this.bodies.values()) {
+      body.spot = undefined;
+      body.atSpot = false;
+      // A sticky-note errand the standup broke off starts again from the board, not from here.
+      body.errand = undefined;
+      body.route = [];
+      body.seatId = "";
+      body.restUntil = now;
+      // Back from a meeting, not between tasks: nobody stops for a chat on the way.
+      body.chatReadyAt = Math.max(body.chatReadyAt, now + CHAT_COOLDOWN_MS);
+    }
+  }
+
+  /** Whether an agent, by occupant key, stands at its place at the standup. */
+  public isGathered(key: string): boolean {
+    for (const body of this.bodies.values()) {
+      if (body.key === key) {
+        return body.atSpot;
+      }
+    }
+    return false;
+  }
+
   /** One tick. `deltaSeconds` is the time since the last one. */
   public step(now: number, deltaSeconds: number): void {
+    if (this.standupSpots !== undefined) {
+      for (const body of this.bodies.values()) {
+        this.stepStandup(body, now, deltaSeconds);
+      }
+      return;
+    }
     for (const body of this.bodies.values()) {
       if (this.stepErrand(body, now, deltaSeconds)) {
         continue;
@@ -275,6 +338,9 @@ export class LiveAgentCrew {
       chatReadyAt: now,
       errand: undefined,
       noteRetryAt: now,
+      spot: undefined,
+      atSpot: false,
+      homeSeatId: "",
     };
     this.bodies.set(record.id, body);
     this.host.occupants.set(key, occupant);
@@ -494,6 +560,7 @@ export class LiveAgentCrew {
     const outcome = requestInteract(this.host.interaction, body.key, body.seatId, now);
     if (outcome.result === "held") {
       body.refusedSeats.clear();
+      body.homeSeatId = "";
       occupant.animation = ANIMATION_STATE.typing;
       return;
     }
@@ -503,6 +570,58 @@ export class LiveAgentCrew {
     if (body.refusedSeats.size >= liveAgentSeats(this.host.layout).length) {
       body.refusedSeats.clear();
     }
+  }
+
+  /**
+   * One tick of a standup: out of its chair, to its place, and facing the
+   * manager once there. The chair it left is remembered to go back to.
+   */
+  private stepStandup(body: AgentBody, now: number, deltaSeconds: number): void {
+    const { occupant } = body;
+    if (occupant.interactableId !== "") {
+      body.homeSeatId = occupant.interactableId;
+      releaseHold(this.host.interaction, body.key, now);
+      body.seatId = "";
+      body.route = [];
+      return;
+    }
+    if (body.seatId !== "") {
+      // It was on its way to a chair; that one is its desk for afterwards.
+      body.homeSeatId = body.seatId;
+      body.seatId = "";
+      body.route = [];
+    }
+    const spot = body.spot ?? this.freeSpot();
+    if (spot === undefined) {
+      // More agents than places: it waits where it is.
+      this.standStill(body);
+      return;
+    }
+    if (body.spot !== spot) {
+      body.spot = spot;
+      body.atSpot = false;
+      body.route = this.routeTo(occupant, spot);
+    }
+    if (!body.atSpot && (body.route.length === 0 || this.walk(body, deltaSeconds))) {
+      body.atSpot = true;
+    }
+    if (body.atSpot) {
+      if (occupant.yaw !== spot.yaw) {
+        occupant.yaw = spot.yaw;
+      }
+      this.standStill(body);
+    }
+  }
+
+  /** The first standup place no agent has, nearest the desk first. */
+  private freeSpot(): StandupSpot | undefined {
+    const taken = new Set<StandupSpot>();
+    for (const other of this.bodies.values()) {
+      if (other.spot !== undefined) {
+        taken.add(other.spot);
+      }
+    }
+    return this.standupSpots?.find((spot) => !taken.has(spot));
   }
 
   private stepIdle(body: AgentBody, now: number, deltaSeconds: number): void {
@@ -550,14 +669,17 @@ export class LiveAgentCrew {
         claimed.add(other.seatId);
       }
     }
+    const free = (seat: InteractableSpec): boolean =>
+      !claimed.has(seat.id) && !body.refusedSeats.has(seat.id) && this.host.interaction.holds.holderOf(seat.id) === undefined;
+    // Back from a standup, its own desk first, if nobody has taken it.
+    const home = liveAgentSeats(this.host.layout).find((seat) => seat.id === body.homeSeatId);
+    if (home !== undefined && free(home)) {
+      return home;
+    }
     let best: InteractableSpec | undefined;
     let bestDistance = Number.POSITIVE_INFINITY;
     for (const seat of liveAgentSeats(this.host.layout)) {
-      if (
-        claimed.has(seat.id) ||
-        body.refusedSeats.has(seat.id) ||
-        this.host.interaction.holds.holderOf(seat.id) !== undefined
-      ) {
+      if (!free(seat)) {
         continue;
       }
       const distance = distanceToInteractable(seat, body.occupant);
@@ -706,7 +828,7 @@ export class LiveAgentCrew {
     }
   }
 
-  /** Pairs up idle agents that have come close enough to talk. */
+  /** Pairs up idle agents that have come close enough to talk; nobody during a standup. */
   private startConversations(now: number): void {
     const available: AgentBody[] = [];
     for (const body of this.bodies.values()) {

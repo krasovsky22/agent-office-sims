@@ -1,6 +1,7 @@
 /**
  * Rate limiting for the things an occupant does on purpose: emotes, chat,
- * messages to the AI manager, and prompts and keys to the coding agents.
+ * messages to the AI manager, prompts and keys to the coding agents, and the
+ * CEO's standups and the directions given at them.
  *
  * Movement is limited by physics — the speed clamp in `movement.ts` bounds how
  * much of it the server will accept. Expression has no physics to lean on, so a
@@ -37,6 +38,8 @@ import {
   MANAGER_REFILL_PER_SECOND,
   STANDING_BURST_ALLOWANCE,
   STANDING_REFILL_PER_SECOND,
+  STANDUP_CALL_BURST_ALLOWANCE,
+  STANDUP_CALL_REFILL_PER_SECOND,
   type ThrottledEvent,
 } from "@sim/shared";
 
@@ -108,5 +111,9 @@ export function createExpressionBudget(now: number): ExpressionBudget {
     [CLIENT_MESSAGE.managerSay]: createTokenBucket(MANAGER_BURST_ALLOWANCE, MANAGER_REFILL_PER_SECOND, now),
     [CLIENT_MESSAGE.agentPrompt]: createTokenBucket(AGENT_PROMPT_BURST_ALLOWANCE, AGENT_PROMPT_REFILL_PER_SECOND, now),
     [CLIENT_MESSAGE.agentKey]: createTokenBucket(AGENT_KEY_BURST_ALLOWANCE, AGENT_KEY_REFILL_PER_SECOND, now),
+    // Calling and ending a standup share one: each walks every agent across the office.
+    [CLIENT_MESSAGE.standupStart]: createTokenBucket(STANDUP_CALL_BURST_ALLOWANCE, STANDUP_CALL_REFILL_PER_SECOND, now),
+    // A direction may start a real agent's turn, as a prompt does.
+    [CLIENT_MESSAGE.standupDirect]: createTokenBucket(AGENT_PROMPT_BURST_ALLOWANCE, AGENT_PROMPT_REFILL_PER_SECOND, now),
   };
 }

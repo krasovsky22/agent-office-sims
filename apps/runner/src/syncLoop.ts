@@ -9,7 +9,8 @@
  * one until a sync carrying the ack is answered. Events work the same way in
  * the other direction: they stay queued in the slot pool until a sync carrying
  * them is answered, and the server passes each id on once. What came of the
- * CEO's prompts rides along the same way.
+ * CEO's prompts rides along the same way. Every reply also says whether a
+ * standup is on in the office, which the slot pool pauses its agents for.
  *
  * The runner's standing tasks (`./standing/`) ride the same sync: their
  * reports with the slots', their events beside the slots' (a couple of places
@@ -60,7 +61,8 @@ const REMEMBERED_COMMAND_IDS = 512;
 export interface SyncLoopOptions {
   readonly runnerId: string;
   readonly repo: string;
-  readonly pool: Pick<SlotPool, "report" | "pendingEvents" | "pendingPromptOutcomes" | "delivered" | "handle" | "spend">;
+  readonly pool: Pick<SlotPool, "report" | "pendingEvents" | "pendingPromptOutcomes" | "delivered" | "handle" | "spend"> &
+    Partial<Pick<SlotPool, "setStandup">>;
   /** The standing tasks; none by default. */
   readonly standing?: StandingSyncSource;
   readonly client: SyncClient;
@@ -134,7 +136,10 @@ export class SyncLoop {
     const settled = new Set(acked);
     this.acks = this.acks.filter((id) => !settled.has(id));
     const delivered = new Set([...events.map((event) => event.id), ...prompts.map((prompt) => prompt.commandId)]);
-    pool.delivered(delivered);
+    // The outcomes themselves as well as their ids: a standup's direction is
+    // reported twice by one id, kept and then typed, and only what this sync
+    // carried is settled.
+    pool.delivered(delivered, prompts);
     standing?.delivered(delivered);
 
     for (const id of reply.unreadable) {
@@ -154,6 +159,8 @@ export class SyncLoop {
         this.log(`command ${command.id} is for standing tasks, which this runner does not run; acked without acting on it`);
       }
     }
+    // After the commands, so a direction that came with the end of a standup is kept before the agents carry on.
+    pool.setStandup?.(reply.standup === true);
     return true;
   }
 

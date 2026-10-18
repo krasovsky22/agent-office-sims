@@ -72,6 +72,14 @@ export interface AgentRun {
    * only while it waits on a person. Left out by an agent with no screen to press it on.
    */
   key?(key: AgentKey): void;
+  /**
+   * Pauses it at a safe point, for a standup: before its next step, with
+   * nothing it has done undone. Left out by an agent that cannot pause, as a
+   * real one cannot mid-turn; it finishes its turn and waits at its prompt.
+   */
+  pause?(): void;
+  /** Lets it carry on from where {@link pause} stopped it. */
+  resume?(): void;
   /** The process it runs as, for the runner's log; left out by an agent that runs inside the runner, as the mock does. */
   readonly process?: { readonly command: string; readonly pid: number };
 }

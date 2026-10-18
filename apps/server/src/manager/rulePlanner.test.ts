@@ -7,7 +7,7 @@ import { CHECK_STATUS, LIVE_AGENT_STATUS, WORK_STATUS } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import type { ManagerRequest } from "./advisor.js";
-import type { IssueAgentView, IssueColumn, IssueView, OfficeView, WorkView } from "./officeView.js";
+import { type IssueAgentView, type IssueColumn, type IssueView, NO_STANDUP_VIEW, type OfficeView, type WorkView } from "./officeView.js";
 import { HELP_TEXT, REPHRASE_TEXT, planFromRules } from "./rulePlanner.js";
 
 function work(overrides: Partial<WorkView> & Pick<WorkView, "issueNumber" | "title" | "status">): WorkView {
@@ -101,6 +101,7 @@ const VIEW: OfficeView = {
   },
   orchestrator: true,
   standing: [],
+  standup: NO_STANDUP_VIEW,
 };
 
 function ask(message: string, view: OfficeView = VIEW) {
@@ -486,5 +487,77 @@ describe("planFromRules: the runners' coding agents", () => {
     it("does not resolve the shared first name to either slot", () => {
       expect(ask("put Claude on #39", SLOTS_VIEW).assignments).toEqual([]);
     });
+  });
+});
+
+describe("planFromRules: standups", () => {
+  it.each([
+    "call a standup",
+    "Call a stand-up please",
+    "can you call a standup?",
+    "let's have a standup",
+    "start the standup now",
+    "time for standup",
+    "standup",
+    "AI Manager, gather everyone for a standup",
+  ])("calls one for %j", (message) => {
+    expect(ask(message)).toEqual({
+      reply: "Calling a standup: everyone to my desk, and each of them gives an update in turn.",
+      assignments: [],
+      standup: "start",
+      tokensUsed: 0,
+    });
+  });
+
+  it.each(["end the standup", "finish standup", "wrap up the stand-up", "the standup's over", "standup is done"])(
+    "ends one for %j",
+    (message) => {
+      expect(ask(message)).toMatchObject({ reply: "Ending the standup.", assignments: [], standup: "end" });
+    },
+  );
+
+  it.each(["is there a standup on?", "what happened at the standup?", "how did the standup go?"])(
+    "acts on no question: %j",
+    (message) => {
+      expect(ask(message).standup).toBeUndefined();
+    },
+  );
+
+  it("says what each agent said at the last one, and whether its blocker was resolved", () => {
+    expect(ask("how did the standup go?").reply).toBe(
+      "There hasn't been a standup yet. Say “call a standup” and I'll gather everyone at my desk.",
+    );
+    const view: OfficeView = {
+      ...VIEW,
+      standup: {
+        active: false,
+        calledBy: "Dana",
+        order: ["Claude 1", "Crewmate"],
+        updates: [
+          {
+            agent: "Claude 1",
+            workedOn: "#39 “Night shift”, in progress",
+            blockers: "waiting on you: Permission: Bash git push",
+            waitingOnYou: false,
+            resolved: true,
+          },
+          { agent: "Crewmate", workedOn: "#33 “Live agents”", blockers: "", waitingOnYou: false, resolved: false },
+        ],
+      },
+    };
+    expect(ask("what came up at the standup?", view).reply).toBe(
+      [
+        "No standup is on. At the last one, called by Dana:",
+        "- Claude 1: #39 “Night shift”, in progress. Blocker: waiting on you: Permission: Bash git push (since resolved).",
+        "- Crewmate: #33 “Live agents”. No blockers.",
+      ].join("\n"),
+    );
+    expect(ask("is the standup still going?", { ...view, standup: { ...view.standup, active: true } }).reply).toMatch(
+      /^A standup is on, called by Dana: 2 of 2 updates so far\./,
+    );
+  });
+
+  it("lists standups among what it can do", () => {
+    expect(ask("help").reply).toContain("“Call a standup” or “End the standup”");
   });
 });

@@ -39,6 +39,7 @@ function stop(id: string): RunnerCommand {
 function setup(replies: (SyncReply | Error)[], events: RunnerWorkEvent[] = [], outcomes: RunnerPromptOutcome[] = []) {
   const sent: RunnerSync[] = [];
   const handled: string[] = [];
+  const standups: boolean[] = [];
   const logged: string[] = [];
   let pending = [...events];
   let prompts = [...outcomes];
@@ -56,6 +57,9 @@ function setup(replies: (SyncReply | Error)[], events: RunnerWorkEvent[] = [], o
       handle: (command) => {
         handled.push(command.id);
       },
+      setStandup: (on) => {
+        standups.push(on);
+      },
       spend: () => ({ spentUsd: 1.25, budgetUsd: 5 }),
     },
     client: async (sync) => {
@@ -70,7 +74,7 @@ function setup(replies: (SyncReply | Error)[], events: RunnerWorkEvent[] = [], o
     maxBackoffMs: 30_000,
     log: (line) => logged.push(line),
   });
-  return { loop, sent, handled, logged, pending: () => pending, prompts: () => prompts };
+  return { loop, sent, handled, standups, logged, pending: () => pending, prompts: () => prompts };
 }
 
 describe("SyncLoop", () => {
@@ -105,6 +109,21 @@ describe("SyncLoop", () => {
     expect(sent[3]?.acked).toEqual(["command-1"]);
     await loop.syncOnce();
     expect(sent[4]?.acked).toEqual([]);
+  });
+
+  it("tells the slots whether a standup is on after every answered sync, once its commands are carried out", async () => {
+    const { loop, handled, standups } = setup([
+      { commands: [stop("command-1")], unreadable: [], standup: true },
+      { commands: [], unreadable: [] },
+      new Error("down"),
+    ]);
+    await loop.syncOnce();
+    expect(handled).toEqual(["command-1"]);
+    expect(standups).toEqual([true]);
+    await loop.syncOnce();
+    expect(standups).toEqual([true, false]);
+    await loop.syncOnce();
+    expect(standups).toEqual([true, false]);
   });
 
   it("acks a command it cannot read, without acting on it", async () => {

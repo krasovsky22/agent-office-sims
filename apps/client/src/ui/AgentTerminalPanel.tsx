@@ -38,6 +38,9 @@
  * office, as in the prompt box, so cancelling the screen is the pad's own Esc
  * button, never a slip of the key that closes the panel. The terminal shows
  * what each key did; a key that was not pressed says why under the pad.
+ *
+ * The standup panel shows an agent's terminal and key pad the same way, with
+ * the pieces exported here.
  */
 
 import { AGENT_KEY_LABEL, type AgentKey, MAX_AGENT_PROMPT_LENGTH, MAX_SCREEN_ROWS, type AgentPromptEntry } from "@sim/shared";
@@ -139,7 +142,7 @@ interface PanelScroll extends TerminalScroll {
  * @returns the canvas's ref, and a function that scrolls the terminal back by
  * a number of rows, or to the newest for `-Infinity`.
  */
-function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["screenOf"]) {
+export function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["screenOf"]) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollRef = useRef<PanelScroll>({
     following: true,
@@ -236,6 +239,51 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
   };
 
   return { canvasRef, onWheel };
+}
+
+/**
+ * The key pad for the choice screen an agent waits on: a button per key, and,
+ * while it has the focus, the arrows, Enter and the digits from the keyboard.
+ * `Esc` there hands the keyboard back to the office; the pad's own Esc button
+ * is what cancels the screen.
+ */
+export function KeyPad({ name, press }: { readonly name: string; readonly press: (key: AgentKey) => void }) {
+  return (
+    <div
+      className="terminal__keys"
+      role="group"
+      aria-label={`Answer ${name}'s screen with keys`}
+      tabIndex={0}
+      {...{ [KEYBOARD_OWNER_ATTRIBUTE]: "" }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          // Back to the office, where Esc closes the panel; the Esc button cancels the screen.
+          event.preventDefault();
+          event.currentTarget.blur();
+          return;
+        }
+        const key = agentKeyOfKeyboard(event.key);
+        if (key !== undefined && !event.altKey && !event.ctrlKey && !event.metaKey) {
+          // Not a click on whichever button has the focus: the key is the agent's.
+          event.preventDefault();
+          press(key);
+        }
+      }}
+    >
+      <span className="terminal__keys-label">Answer its screen:</span>
+      {PAD_KEYS.map(([key, text]) => (
+        <button
+          className="hud__send terminal__key"
+          type="button"
+          key={key}
+          aria-label={`Press ${AGENT_KEY_LABEL[key]}`}
+          onClick={() => press(key)}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function AgentTerminalPanel({ agentId, agent, links, prompts, access, localId, refusal, actions }: AgentTerminalPanelProps) {
@@ -375,42 +423,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
         </ol>
       )}
 
-      {mayPrompt && agent?.needsInput === true ? (
-        <div
-          className="terminal__keys"
-          role="group"
-          aria-label={`Answer ${name}'s screen with keys`}
-          tabIndex={0}
-          {...{ [KEYBOARD_OWNER_ATTRIBUTE]: "" }}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              // Back to the office, where Esc closes the panel; the Esc button cancels the screen.
-              event.preventDefault();
-              event.currentTarget.blur();
-              return;
-            }
-            const key = agentKeyOfKeyboard(event.key);
-            if (key !== undefined && !event.altKey && !event.ctrlKey && !event.metaKey) {
-              // Not a click on whichever button has the focus: the key is the agent's.
-              event.preventDefault();
-              press(key);
-            }
-          }}
-        >
-          <span className="terminal__keys-label">Answer its screen:</span>
-          {PAD_KEYS.map(([key, text]) => (
-            <button
-              className="hud__send terminal__key"
-              type="button"
-              key={key}
-              aria-label={`Press ${AGENT_KEY_LABEL[key]}`}
-              onClick={() => press(key)}
-            >
-              {text}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      {mayPrompt && agent?.needsInput === true ? <KeyPad name={name} press={press} /> : null}
       {myRefusal?.forKey === true ? (
         <p className="hud__notice" role="alert">
           {myRefusal.text}

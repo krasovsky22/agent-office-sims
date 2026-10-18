@@ -26,6 +26,7 @@ import {
 } from "./constants.js";
 import type { ManagerRejection } from "./manager.js";
 import { type StandingRejection, type StandingTaskAction, isStandingTaskId } from "./standing.js";
+import type { StandupRejection } from "./standup.js";
 import { ANIMATION_STATE, type ReportedAnimation, type WorkStatus, isWorkStatus } from "./state.js";
 import type { WorkAction, WorkRejection } from "./work.js";
 
@@ -63,6 +64,12 @@ export const CLIENT_MESSAGE = {
   standingRemove: "standing:remove",
   /** Have a standing task check its trigger now; only the CEO is listened to. */
   standingCheckNow: "standing:check-now",
+  /** Call a standup: every agent gathers in the manager's room. Only the CEO is listened to; see `standup.ts`. */
+  standupStart: "standup:start",
+  /** End the standup: every agent goes back to work. Only the CEO is listened to. */
+  standupEnd: "standup:end",
+  /** Give one agent at the standup, or every one, a direction. Only the CEO is listened to. */
+  standupDirect: "standup:direct",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -135,6 +142,12 @@ export const SERVER_MESSAGE = {
    * with the reason. Carries a {@link StandingRejectedEvent}.
    */
   standingRejected: "standing:rejected",
+  /**
+   * Sent only to the client whose standup command the office refused, with
+   * the reason. Carries a {@link StandupRejectedEvent}; the standup itself is
+   * replicated state, so a command taken has no reply but the next patch.
+   */
+  standupRejected: "standup:rejected",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];
@@ -215,7 +228,9 @@ export interface ThrottledEvent {
     | typeof CLIENT_MESSAGE.managerSay
     | typeof CLIENT_MESSAGE.agentPrompt
     | typeof CLIENT_MESSAGE.agentKey
-    | StandingClientMessage;
+    | StandingClientMessage
+    | typeof CLIENT_MESSAGE.standupStart
+    | typeof CLIENT_MESSAGE.standupDirect;
 }
 
 /** The four standing task commands, which share one allowance. */
@@ -350,6 +365,23 @@ export interface AgentKeyMessage {
   /** The agent's occupant key. */
   readonly agentId: string;
   readonly key: AgentKey;
+}
+
+/** The office did not take one of this client's standup commands, and why. */
+export interface StandupRejectedEvent {
+  readonly command:
+    | typeof CLIENT_MESSAGE.standupStart
+    | typeof CLIENT_MESSAGE.standupEnd
+    | typeof CLIENT_MESSAGE.standupDirect;
+  readonly rejection: StandupRejection;
+}
+
+/** A direction the CEO gives at a standup. */
+export interface StandupDirectMessage {
+  /** The agent's occupant key, or `STANDUP_EVERYONE` (`""`) for every agent at the standup. */
+  readonly agentId: string;
+  /** Already sanitized by {@link parseStandupDirectMessage}, and never empty; may hold newlines. */
+  readonly text: string;
 }
 
 /** Options a client may supply when joining the office room. */
@@ -770,4 +802,33 @@ export function parseWorkMoveMessage(raw: unknown): WorkMoveMessage | undefined 
 export function parseStandingTaskMessage(raw: unknown): StandingTaskMessage | undefined {
   const taskId = asRecord(raw)?.taskId;
   return isStandingTaskId(taskId) ? { taskId } : undefined;
+}
+
+/**
+ * Validates a raw `standup:direct` payload.
+ *
+ * A direction becomes a prompt typed into a coding agent's terminal, so its
+ * text is held to a prompt's rules. Shape only: whether the sender may give
+ * it is `mayRunStandup`'s call, and whether the agent is at the standup the
+ * server's.
+ *
+ * @returns the sanitized message, or `undefined` for a malformed one, one with
+ * nothing legible left, or one longer than {@link MAX_AGENT_PROMPT_LENGTH}.
+ */
+export function parseStandupDirectMessage(raw: unknown): StandupDirectMessage | undefined {
+  const candidate = asRecord(raw);
+  const agentId = candidate?.agentId;
+  if (
+    candidate === undefined ||
+    typeof agentId !== "string" ||
+    agentId.length > MAX_AGENT_KEY_LENGTH ||
+    typeof candidate.text !== "string"
+  ) {
+    return undefined;
+  }
+  if (candidate.text.replace(LINE_BREAK, "\n").length > MAX_AGENT_PROMPT_LENGTH) {
+    return undefined;
+  }
+  const text = sanitizePromptText(candidate.text);
+  return text === "" ? undefined : { agentId, text };
 }

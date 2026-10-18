@@ -18,6 +18,14 @@
  * person. One pressed is not announced, since the agent's terminal shows what
  * it did; one refused is told to the CEO who pressed it, as a prompt's is.
  *
+ * A direction the CEO gave at a standup (`../sim/standup.ts`) is a prompt
+ * marked `queue`: the runner types it if its agent waits at its prompt, and
+ * otherwise keeps it, reports it `queued`, and types it the next time the
+ * agent does with the standup over, reporting it `delivered` then. Whatever
+ * comes of one goes to the standup rather than to the CEO's terminal panel, so
+ * a refusal is shown on the standup's record and not as a refused prompt. A
+ * queued one is waited on for as long as its agent is on the floor.
+ *
  * The command reaches the runner exactly once, by the runner link's ids; the
  * runner's report of it is taken once here, by the same id, and forgotten.
  *
@@ -49,18 +57,27 @@ const DEFAULT_ANSWER_TIMEOUT_MS = 30_000;
 /**
  * Prompts and keys one room keeps waiting on at once; one more is refused as
  * if the runner were offline. Keys come a few at a time, to reach an option.
+ * Directions a runner holds for after a standup count apart, against
+ * {@link MAX_QUEUED}: a standup gives every agent one or two.
  */
 const MAX_PENDING = 32;
+const MAX_QUEUED = 64;
 
 /** Typed prompts a room remembers, for a client that joins later. */
 const HISTORY_LIMIT = 20;
 
-const REFUSAL: Readonly<Record<Exclude<RunnerPromptOutcomeKind, "delivered">, AgentPromptRejection>> = {
+const REFUSAL: Readonly<Record<Exclude<RunnerPromptOutcomeKind, "delivered" | "queued">, AgentPromptRejection>> = {
   [RUNNER_PROMPT_OUTCOME.busy]: AGENT_PROMPT_REJECTION.busy,
   [RUNNER_PROMPT_OUTCOME.needsInput]: AGENT_PROMPT_REJECTION.needsInput,
   [RUNNER_PROMPT_OUTCOME.unavailable]: AGENT_PROMPT_REJECTION.unavailable,
   [RUNNER_PROMPT_OUTCOME.notWaiting]: AGENT_PROMPT_REJECTION.notWaiting,
 };
+
+/** What came of a standup's direction: typed, kept for later, or why it never will be. */
+export type DirectionOutcome =
+  | { readonly kind: "typed" }
+  | { readonly kind: "queued" }
+  | { readonly kind: "failed"; readonly rejection: AgentPromptRejection };
 
 export interface AgentPromptsOptions {
   readonly state: OfficeState;
@@ -74,6 +91,8 @@ export interface AgentPromptsOptions {
   readonly publish: (entry: AgentPromptEntry) => void;
   readonly log?: (name: string, detail: Record<string, string | number>) => void;
   readonly answerTimeoutMs?: number;
+  /** Hears what came of each standup direction, by the id {@link AgentPrompts.submitDirection} gave it. */
+  readonly directed?: (commandId: string, outcome: DirectionOutcome) => void;
 }
 
 interface Pending {
@@ -88,6 +107,10 @@ interface Pending {
   /** Set for a key, which one; absent for a prompt. */
   readonly key?: AgentKey;
   readonly sentAt: number;
+  /** A standup's direction, whose outcome goes to the standup. */
+  readonly direction?: boolean;
+  /** Its runner keeps it for later: no answer is overdue while its agent is here. */
+  queued?: boolean;
 }
 
 /** Who a prompt or key is for, once it is known to be one of a runner's agents. */
@@ -146,6 +169,40 @@ export class AgentPrompts {
   }
 
   /**
+   * Queues a standup's direction the gate has let through for the agent's
+   * runner, typed now or kept for after the standup; see the module comment.
+   *
+   * @returns the command's id once it is on its way, else why it cannot be.
+   */
+  public submitDirection(senderId: string, agentId: string, text: string): { readonly commandId: string } | AgentPromptRejection {
+    const target = this.target(senderId, agentId);
+    if (typeof target === "string") {
+      return target;
+    }
+    const command = this.options.runner?.enqueue(target.runnerId, {
+      kind: RUNNER_COMMAND_KIND.prompt,
+      slotId: target.slotId,
+      text,
+      requestedBy: target.senderName,
+      fromCeo: true,
+      queue: true,
+    });
+    this.options.log?.(command === undefined ? "standup-direction-refused" : "standup-direction", { agent: agentId, by: target.senderName });
+    if (command === undefined || command.kind !== RUNNER_COMMAND_KIND.prompt) {
+      return AGENT_PROMPT_REJECTION.offline;
+    }
+    this.pending.set(command.id, {
+      ...target,
+      senderId,
+      agentId,
+      text: command.text,
+      sentAt: this.options.now(),
+      direction: true,
+    });
+    return { commandId: command.id };
+  }
+
+  /**
    * Queues a key the gate has let through for the agent's runner, to press on
    * the choice screen its agent waits on.
    *
@@ -192,7 +249,11 @@ export class AgentPrompts {
     if (this.options.runner === undefined) {
       return AGENT_PROMPT_REJECTION.noAgent;
     }
-    if (this.pending.size >= MAX_PENDING) {
+    let queued = 0;
+    for (const prompt of this.pending.values()) {
+      queued += prompt.queued === true ? 1 : 0;
+    }
+    if (this.pending.size - queued >= MAX_PENDING || queued >= MAX_QUEUED) {
       return AGENT_PROMPT_REJECTION.offline;
     }
     return { runnerId: slot.runnerId, slotId: slot.slotId, senderName: sender.name, agentName: agent.name };
@@ -208,22 +269,45 @@ export class AgentPrompts {
       if (prompt === undefined || prompt.runnerId !== runnerId || prompt.slotId !== outcome.slotId) {
         continue;
       }
+      if (outcome.outcome === RUNNER_PROMPT_OUTCOME.queued) {
+        // Not the last word, and only a direction is ever kept.
+        if (prompt.direction === true && prompt.queued !== true) {
+          prompt.queued = true;
+          this.options.directed?.(outcome.commandId, { kind: "queued" });
+        }
+        continue;
+      }
       this.pending.delete(outcome.commandId);
       if (outcome.outcome === RUNNER_PROMPT_OUTCOME.delivered) {
         this.delivered(prompt);
+        if (prompt.direction === true) {
+          this.options.directed?.(outcome.commandId, { kind: "typed" });
+        }
+      } else if (prompt.direction === true) {
+        this.options.log?.("standup-direction-not-typed", { agent: prompt.agentId, why: outcome.outcome });
+        this.options.directed?.(outcome.commandId, { kind: "failed", rejection: REFUSAL[outcome.outcome] });
       } else {
         this.refused(prompt, REFUSAL[outcome.outcome]);
       }
     }
   }
 
-  /** Gives up on every prompt whose runner has not answered in time. */
+  /**
+   * Gives up on every prompt whose runner has not answered in time, and on
+   * every direction kept for an agent that has since left the floor.
+   */
   public expire(): void {
     const cutoff = this.options.now() - (this.options.answerTimeoutMs ?? DEFAULT_ANSWER_TIMEOUT_MS);
     for (const [id, prompt] of this.pending) {
-      if (prompt.sentAt <= cutoff) {
-        this.pending.delete(id);
-        this.options.runner?.withdraw(prompt.runnerId, id);
+      const overdue = prompt.queued === true ? !this.options.state.occupants.has(prompt.agentId) : prompt.sentAt <= cutoff;
+      if (!overdue) {
+        continue;
+      }
+      this.pending.delete(id);
+      this.options.runner?.withdraw(prompt.runnerId, id);
+      if (prompt.direction === true) {
+        this.options.directed?.(id, { kind: "failed", rejection: AGENT_PROMPT_REJECTION.unanswered });
+      } else {
         this.refused(prompt, AGENT_PROMPT_REJECTION.unanswered);
       }
     }

@@ -30,7 +30,7 @@
  * The agents' work on the project board's issues is state too, and is handed
  * on as a fresh plain copy whenever any of it changes, so the panel re-renders
  * from a value rather than holding a schema object that mutates under it. So
- * are the runners' standing tasks, for the roster.
+ * are the runners' standing tasks, for the roster, and the standup.
  *
  * The conversation with the AI manager is not: like chat it arrives as events —
  * the lines so far on joining, then each new one — and the manager's own badge
@@ -59,6 +59,7 @@ import {
   type EmoteEvent,
   type EmoteMessage,
   INTERPOLATION_DELAY_MS,
+  NO_STANDUP,
   type InteractMessage,
   type IssueWork,
   type LiveAgentStatus,
@@ -85,6 +86,10 @@ import {
   type StandingTaskAction,
   type StandingTaskMessage,
   type ScreenFramesEvent,
+  type Standup,
+  type StandupData,
+  type StandupDirectMessage,
+  type StandupRejectedEvent,
   type ThrottledEvent,
   type WorkAssignMessage,
   type WorkData,
@@ -221,6 +226,10 @@ export interface RoomConnectionEvents {
   onStandingChanged?: (tasks: readonly StandingTaskData[]) => void;
   /** The office did nothing about one of the local client's standing task buttons. */
   onStandingRejected?: (event: StandingRejectedEvent) => void;
+  /** The standup, after any of it changed: called, an update given, a direction's fate, ended. */
+  onStandupChanged?: (standup: StandupData) => void;
+  /** The office refused one of the local client's own standup commands. */
+  onStandupRejected?: (event: StandupRejectedEvent) => void;
 }
 
 /** The message each standing task button sends. */
@@ -255,6 +264,7 @@ export class RoomConnection {
 
   private workQueued = false;
   private standingQueued = false;
+  private standupQueued = false;
 
   private lastSentAt = Number.NEGATIVE_INFINITY;
   private readonly lastSent = {
@@ -448,6 +458,30 @@ export class RoomConnection {
     this.room?.send(STANDING_MESSAGES[action], { taskId } satisfies StandingTaskMessage);
   }
 
+  /** Calls a standup. The standup in the next patch is the reply, or a rejection to this client alone. */
+  public sendStandupStart(): void {
+    this.room?.send(CLIENT_MESSAGE.standupStart, {});
+  }
+
+  /** Ends the standup. */
+  public sendStandupEnd(): void {
+    this.room?.send(CLIENT_MESSAGE.standupEnd, {});
+  }
+
+  /**
+   * Gives one agent at the standup, or every one for `STANDUP_EVERYONE`, a
+   * direction; its record in the standup says what came of it.
+   *
+   * @returns whether it went out at all.
+   */
+  public sendStandupDirection(agentId: string, text: string): boolean {
+    if (this.room === undefined) {
+      return false;
+    }
+    this.room.send(CLIENT_MESSAGE.standupDirect, { agentId, text } satisfies StandupDirectMessage);
+    return true;
+  }
+
   /** Says something out loud. Echoed back by the server, like an emote. */
   public sendChat(text: string): void {
     this.room?.send(CLIENT_MESSAGE.chat, { text } satisfies ChatMessage);
@@ -612,6 +646,28 @@ export class RoomConnection {
     });
     $(room.state).standing.onRemove(() => this.queueStanding(room));
 
+    // Every part of the standup, down to one direction's fate, comes out as one
+    // fresh copy. Bound once the standup itself has arrived: the first patch
+    // may not have decoded it yet, and Colyseus' callbacks cannot reach a
+    // collection inside a schema that is not there.
+    $(room.state).listen("standup", (instance) => {
+      const standup = $(instance);
+      standup.onChange(() => this.queueStandup(room));
+      standup.order.onAdd(() => this.queueStandup(room));
+      standup.order.onRemove(() => this.queueStandup(room));
+      standup.updates.onAdd((update) => {
+        $(update).onChange(() => this.queueStandup(room));
+        this.queueStandup(room);
+      });
+      standup.updates.onRemove(() => this.queueStandup(room));
+      standup.directions.onAdd((direction) => {
+        $(direction).onChange(() => this.queueStandup(room));
+        this.queueStandup(room);
+      });
+      standup.directions.onRemove(() => this.queueStandup(room));
+      this.queueStandup(room);
+    });
+
     // Expression arrives as events rather than state, so there is nothing to
     // diff here: the server has already validated and sanitized each one, and
     // the handler's job is only to pass it on.
@@ -667,6 +723,10 @@ export class RoomConnection {
       this.events.onStandingRejected?.(event);
     });
 
+    room.onMessage<StandupRejectedEvent>(SERVER_MESSAGE.standupRejected, (event) => {
+      this.events.onStandupRejected?.(event);
+    });
+
     // Several times a second, so kept rather than passed on: the game loop
     // reads a screen when it is due a repaint.
     room.onMessage<ScreenFramesEvent>(SERVER_MESSAGE.screens, (event) => {
@@ -690,6 +750,7 @@ export class RoomConnection {
       this.events.onOccupantsChanged?.();
       this.events.onWorkChanged?.([]);
       this.events.onStandingChanged?.([]);
+      this.events.onStandupChanged?.(NO_STANDUP);
       this.room = undefined;
       if (this.leaving || code === CONSENTED_CLOSE_CODE) {
         this.events.onStatusChanged?.("disconnected");
@@ -810,6 +871,21 @@ export class RoomConnection {
     });
   }
 
+  /** Publishes the standup once per patch, however much of it the patch touched, as {@link queueWork} does the work. */
+  private queueStandup(room: Room<OfficeState>): void {
+    if (this.standupQueued) {
+      return;
+    }
+    this.standupQueued = true;
+    queueMicrotask(() => {
+      this.standupQueued = false;
+      if (this.room !== room) {
+        return;
+      }
+      this.events.onStandupChanged?.(copyStandup(room.state.standup));
+    });
+  }
+
   private readLocalPose(occupant: Occupant): void {
     this.localServerPose.x = occupant.x;
     this.localServerPose.z = occupant.z;
@@ -845,6 +921,38 @@ function copyWork(work: IssueWork): WorkData {
     note: work.note,
     assignedAt: work.assignedAt,
     updatedAt: work.updatedAt,
+  };
+}
+
+/** A plain copy of the replicated standup. */
+export function copyStandup(standup: Standup): StandupData {
+  return {
+    active: standup.active,
+    calledBy: standup.calledBy,
+    startedAt: standup.startedAt,
+    endedAt: standup.endedAt,
+    order: standup.order.toArray(),
+    speakerId: standup.speakerId,
+    updates: standup.updates.map((update) => ({
+      agentId: update.agentId,
+      agentName: update.agentName,
+      workedOn: update.workedOn,
+      blockers: update.blockers,
+      needsYou: update.needsYou,
+      resolved: update.resolved,
+      at: update.at,
+    })),
+    directions: standup.directions.map((direction) => ({
+      id: direction.id,
+      agentId: direction.agentId,
+      agentName: direction.agentName,
+      authorName: direction.authorName,
+      text: direction.text,
+      everyone: direction.everyone,
+      status: direction.status,
+      reason: direction.reason,
+      at: direction.at,
+    })),
   };
 }
 
