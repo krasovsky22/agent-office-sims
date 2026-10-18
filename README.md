@@ -837,8 +837,10 @@ terminal panel name and link the pull request it reviews.
   GitHub identity at all; the runner reads the pull request and posts the
   review with `gh pr comment --body-file`, its mentions neutralised, under an
   attribution line and a hidden marker,
-  `<!-- sims-standing:<task>:pr-<n> -->`, which it looks for first, so a run
-  cut short after posting never posts twice. It never runs `gh pr review`, so
+  `<!-- sims-standing:<task>:pr-<n> -->`, which it looks for first, on
+  comments by its own identity only (the App, or the personal token's login),
+  so a run cut short after posting never posts twice and nobody else's
+  comment can pass for its review. It never runs `gh pr review`, so
   a review never approves or requests changes and never counts towards a
   required approval. The App's **Pull requests: Read and write** covers the
   comment.
@@ -852,7 +854,11 @@ terminal panel name and link the pull request it reviews.
   like the issue agents then do, anything unprompted, still in a scratch
   worktree nothing is kept of. Either way it is told to report and never to
   push, open or merge anything, and its final message is what the AI Manager
-  posts.
+  posts, in the conversation everyone in the office sees, so a job should
+  never be asked to report anything not every visitor may read. A job is only
+  set up when the CEO's own message asks for a schedule and says what to do:
+  a model-planned job whose instruction is not in that message, such as one
+  lifted from an issue or pull request title, is refused.
 
 **The caps.** Each task has its own: $0.50 and 10 minutes a run
 (`--max-budget-usd`, and the runner stops the run's process group at its

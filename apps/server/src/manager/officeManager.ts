@@ -249,7 +249,7 @@ export class OfficeManager {
       standingOutcomes =
         ceo === undefined || !mayManageStandingTasks(actorOf(ceo))
           ? ["✗ You are no longer the CEO, so I changed no standing task."]
-          : carryOutStanding(standing, { control: this.host.standing, actor: actorOf(ceo), ceoName: ceo.name, view });
+          : carryOutStanding(standing, { message: question.text, control: this.host.standing, actor: actorOf(ceo), ceoName: ceo.name, view });
     }
     this.say(
       MANAGER_ENTRY_KIND.reply,

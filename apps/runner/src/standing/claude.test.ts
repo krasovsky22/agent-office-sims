@@ -211,7 +211,7 @@ describe("the review's GitHub calls", () => {
       }
       return "";
     };
-    const review = createReviewGithub({ repo: "o/r", env: async () => ({}), run });
+    const review = createReviewGithub({ repo: "o/r", author: () => ({ appId: "42" }), env: async () => ({}), run });
     await review.prepare(7, dir);
     expect(await review.comment(7, "body", dir)).toBe(555);
     expect(await review.findMarked(7, reviewMarker("st-prwatch1", 7))).toBeUndefined();
@@ -219,6 +219,19 @@ describe("the review's GitHub calls", () => {
     expect(commands.find((args) => args[1] === "comment")).toEqual(["pr", "comment", "7", "--repo", "o/r", "--body-file", join(dir, "comment-7.md")]);
     // A path that would leave head/ is never asked for.
     expect(commands.some((args) => args.some((arg) => arg.includes("passwd")))).toBe(false);
+  });
+
+  it("count only a marked comment by the runner's own identity as its review", async () => {
+    const marked = "301 outsider 0\n302 sims-app[bot] 42\n303 Ceo 0\n";
+    const run: RunCommand = async (_file, args) => (args[0] === "api" && String(args[2]).startsWith("repos/o/r/issues/7/comments") ? marked : "");
+    const byApp = createReviewGithub({ repo: "o/r", author: () => ({ appId: "42" }), env: async () => ({}), run });
+    expect(await byApp.findMarked(7, reviewMarker("st-prwatch1", 7))).toBe(302);
+    const byPerson = createReviewGithub({ repo: "o/r", author: () => ({ login: "ceo" }), env: async () => ({}), run });
+    expect(await byPerson.findMarked(7, reviewMarker("st-prwatch1", 7))).toBe(303);
+    const unknown = createReviewGithub({ repo: "o/r", author: () => ({ login: undefined }), env: async () => ({}), run });
+    expect(await unknown.findMarked(7, reviewMarker("st-prwatch1", 7))).toBeUndefined();
+    const forged = createReviewGithub({ repo: "o/r", author: () => ({ appId: "7" }), env: async () => ({}), run });
+    expect(await forged.findMarked(7, reviewMarker("st-prwatch1", 7))).toBeUndefined();
   });
 
   it("keep a changed file's copy under head/", () => {

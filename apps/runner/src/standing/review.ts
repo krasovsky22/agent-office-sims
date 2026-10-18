@@ -14,7 +14,8 @@
  * Every comment carries a hidden marker naming the task and the pull
  * request, and the runner looks for it before running the agent and again
  * before posting, so a run cut short after it posted, and run again, never
- * posts a second. It only ever comments: `gh pr review` is never run, so a
+ * posts a second. Only a comment by the runner's own identity counts: the
+ * marker is public, and anyone may comment on a pull request. It only ever comments: `gh pr review` is never run, so a
  * review never approves or requests changes, and never counts towards a
  * required approval.
  */
@@ -103,9 +104,14 @@ export interface ReviewGithub {
   comment(number: number, body: string, scratch: string): Promise<number>;
 }
 
+/** Whose comments are the runner's own: its GitHub App's, by id, or the personal token's login. */
+export type ReviewAuthor = { readonly appId: string } | { readonly login: string | undefined };
+
 export interface ReviewGithubOptions {
   /** `owner/name`. */
   readonly repo: string;
+  /** Asked on each look, as a personal token's login is only known once GitHub has said whose it is. */
+  readonly author: () => ReviewAuthor;
   /** The environment for the runner's `gh`, with the agents' GitHub identity in it. */
   readonly env: () => Promise<NodeJS.ProcessEnv>;
   readonly run: RunCommand;
@@ -220,10 +226,17 @@ export function createReviewGithub(options: ReviewGithubOptions): ReviewGithub {
         "--paginate",
         `repos/${repo}/issues/${number}/comments?per_page=100`,
         "--jq",
-        `.[] | select(.body | contains(${JSON.stringify(marker)})) | .id`,
+        `.[] | select(.body | contains(${JSON.stringify(marker)})) | "\\(.id) \\(.user.login) \\(.performed_via_github_app.id // 0)"`,
       ]);
-      const id = Number(out.split("\n").find((line) => line.trim() !== ""));
-      return Number.isSafeInteger(id) && id > 0 ? id : undefined;
+      const author = options.author();
+      for (const line of out.split("\n")) {
+        const [id, login, appId] = line.trim().split(" ");
+        const own = "appId" in author ? appId === author.appId : author.login !== undefined && login?.toLowerCase() === author.login.toLowerCase();
+        if (own && Number.isSafeInteger(Number(id)) && Number(id) > 0) {
+          return Number(id);
+        }
+      }
+      return undefined;
     },
 
     async comment(number, body, scratch) {

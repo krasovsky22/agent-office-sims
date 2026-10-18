@@ -191,7 +191,12 @@ function createStandingRunners(runnerConfig: RunnerConfig): StandingRunners {
     model: runnerConfig.model,
     permissions: runnerConfig.agentPermissions,
     worktrees,
-    github: createReviewGithub({ repo: runnerConfig.repo, env: () => githubEnv(app), run: runCommand }),
+    github: createReviewGithub({
+      repo: runnerConfig.repo,
+      author: () => (runnerConfig.githubApp === undefined ? { login: personalCredentials?.login } : { appId: runnerConfig.githubApp.appId }),
+      env: () => githubEnv(app),
+      run: runCommand,
+    }),
     identity: { env: app.env(), scrub: GITHUB_TOKEN_ENV },
     log,
   });
