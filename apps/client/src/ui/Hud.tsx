@@ -54,8 +54,6 @@ export interface RosterEntry {
   readonly name: string;
   readonly kind: OccupantKind;
   readonly isCeo: boolean;
-  /** The manager's job title; `""` for anyone else. */
-  readonly jobTitle: string;
   readonly isLocal: boolean;
   /** A live agent's status and task, `""` for anyone else. */
   readonly caption: string;
@@ -469,13 +467,12 @@ function LiveAgentRow({ entry }: { entry: RosterEntry }) {
   );
 }
 
-/** The AI manager's line: its name and title, its status, and whether it has said anything unread. */
+/** The AI manager's line: its name, its status, and whether it has said anything unread. */
 function ManagerRow({ entry, unread }: { entry: RosterEntry; unread: number }) {
   const appearance = MANAGER_STATUS_APPEARANCE[entry.managerStatus ?? MANAGER_STATUS.idle];
   return (
     <li className="hud__occupant hud__occupant--manager">
       <span className="hud__name">{entry.name}</span>
-      <span className="hud__title-of hud__title-of--manager">{entry.jobTitle}</span>
       <span className="hud__activity" style={{ color: appearance.colour }}>
         {appearance.label}
       </span>

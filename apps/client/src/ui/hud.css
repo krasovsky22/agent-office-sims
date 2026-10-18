@@ -171,11 +171,6 @@
   margin-top: 12px;
 }
 
-.hud__title-of {
-  font-size: 11px;
-  color: #7fe3d6;
-}
-
 .hud__activity {
   margin-left: auto;
   font-size: 11px;
@@ -853,10 +848,6 @@
   color: #ffd166;
   font-style: italic;
   font-size: 12px;
-}
-
-.hud__title-of--manager {
-  color: #ff9aa5;
 }
 
 /* A live agent's terminal at full size: the canvas takes whatever height the

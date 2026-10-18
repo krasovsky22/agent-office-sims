@@ -16,7 +16,6 @@ function person(id: string, isCeo = false): RosterEntry {
     name: id,
     kind: OCCUPANT_KIND.human,
     isCeo,
-    jobTitle: "",
     isLocal: false,
     caption: "",
     needsInput: false,
@@ -33,7 +32,6 @@ function liveAgent(id: string, canTakeIssues = false): RosterEntry {
     name: id,
     kind: OCCUPANT_KIND.liveAgent,
     isCeo: false,
-    jobTitle: "",
     isLocal: false,
     caption: "Working on #33",
     needsInput: false,
@@ -48,7 +46,6 @@ function manager(): RosterEntry {
   return {
     ...person("manager:firstmate"),
     kind: OCCUPANT_KIND.manager,
-    jobTitle: "AI Manager",
     managerStatus: MANAGER_STATUS.idle,
   };
 }

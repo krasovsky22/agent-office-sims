@@ -1,5 +1,5 @@
 /**
- * How real spend is said: the runner's refusal, the HUD's line and Firstmate's
+ * How real spend is said: the runner's refusal, the HUD's line and the AI Manager's
  * explanation all read these, so their words are pinned here once.
  */
 

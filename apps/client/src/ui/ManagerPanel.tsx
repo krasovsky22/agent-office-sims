@@ -85,7 +85,7 @@ export function ManagerPanel({ entries, access, thinking, actions }: ManagerPane
     <section
       ref={rootRef}
       className="board manager"
-      aria-label={`Conversation with ${MANAGER_NAME}`}
+      aria-label={`Conversation with the ${MANAGER_NAME}`}
       tabIndex={-1}
       {...{ [KEYBOARD_OWNER_ATTRIBUTE]: "" }}
       onKeyDown={(event) => {
@@ -98,7 +98,6 @@ export function ManagerPanel({ entries, access, thinking, actions }: ManagerPane
       <header className="board__header">
         <h2 className="board__title">
           {MANAGER_NAME}
-          <span className="board__repo">AI Manager</span>
         </h2>
         <button className="panel__button" type="button" onClick={actions.close}>
           Close
@@ -107,7 +106,7 @@ export function ManagerPanel({ entries, access, thinking, actions }: ManagerPane
 
       {entries.length === 0 ? (
         <p className="board__empty">
-          Nothing said yet. {MANAGER_NAME} answers the CEO&apos;s questions about the agents and the project
+          Nothing said yet. The {MANAGER_NAME} answers the CEO&apos;s questions about the agents and the project
           board&apos;s issues and pull requests, and hands the issues out when asked.
         </p>
       ) : (
@@ -124,7 +123,7 @@ export function ManagerPanel({ entries, access, thinking, actions }: ManagerPane
           ))}
         </ol>
       )}
-      {thinking ? <p className="manager__thinking">{MANAGER_NAME} is thinking…</p> : null}
+      {thinking ? <p className="manager__thinking">The {MANAGER_NAME} is thinking…</p> : null}
 
       {access === undefined ? null : (
         <p className={mayInstruct ? "hud__role" : "hud__role hud__role--readonly"} role="note">
@@ -134,7 +133,7 @@ export function ManagerPanel({ entries, access, thinking, actions }: ManagerPane
       {mayInstruct ? (
         <form
           className="hud__composer"
-          aria-label={`Message ${MANAGER_NAME}`}
+          aria-label={`Message the ${MANAGER_NAME}`}
           onSubmit={(event) => {
             event.preventDefault();
             submit();
@@ -148,7 +147,7 @@ export function ManagerPanel({ entries, access, thinking, actions }: ManagerPane
             value={draft}
             maxLength={MAX_MANAGER_MESSAGE_LENGTH}
             placeholder="“What is everyone working on?” · “Put Ada on #12”"
-            aria-label={`Message to ${MANAGER_NAME}`}
+            aria-label={`Message to the ${MANAGER_NAME}`}
             autoComplete="off"
             onChange={(event) => setDraft(event.target.value)}
           />

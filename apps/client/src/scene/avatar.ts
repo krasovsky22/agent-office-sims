@@ -241,8 +241,6 @@ export interface AvatarOptions {
   readonly name: string;
   readonly kind: OccupantKind;
   readonly isCeo: boolean;
-  /** The manager's job title, shown under its name; `""` for anyone else. */
-  readonly jobTitle: string;
   /** A live coding agent's task, shown under its name; `""` for anyone else. */
   readonly caption: string;
   /** Whether a live coding agent is stuck until a person acts, which shows its beacon. */
@@ -277,7 +275,7 @@ interface AvatarBody {
 
 /**
  * Paints a nameplate: the name, with a CEO suffix for the CEO, and on a second
- * line beneath it the manager's job title or a live agent's task, cut short
+ * line beneath it a live agent's task, cut short
  * with an ellipsis rather than overflowing.
  */
 function drawNameplate(
@@ -463,7 +461,7 @@ export class Avatar {
 
   private name: string;
   private isCeo: boolean;
-  /** The nameplate's second line: the manager's job title or a live agent's task. */
+  /** The nameplate's second line: a live agent's task, `""` for anyone else. */
   private subtitle: string;
   private animation: AnimationState = ANIMATION_STATE.idle;
 
@@ -485,7 +483,7 @@ export class Avatar {
     this.isLiveAgent = options.kind === OCCUPANT_KIND.liveAgent;
     this.name = options.name;
     this.isCeo = options.isCeo;
-    this.subtitle = this.isLiveAgent ? options.caption : options.jobTitle;
+    this.subtitle = options.caption;
     this.look = this.isLiveAgent
       ? "liveAgent"
       : isManager

@@ -33,7 +33,7 @@ const REQUEST: ManagerRequest = {
   message: "what is Ada doing?",
   ceoName: "Dana",
   view: VIEW,
-  history: [{ id: 1, kind: MANAGER_ENTRY_KIND.update, authorName: "Firstmate", text: "Ada handed in #12.", at: 1 }],
+  history: [{ id: 1, kind: MANAGER_ENTRY_KIND.update, authorName: "AI Manager", text: "Ada handed in #12.", at: 1 }],
 };
 
 const SIGNAL = new AbortController().signal;

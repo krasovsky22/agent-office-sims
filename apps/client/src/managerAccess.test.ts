@@ -18,10 +18,10 @@ describe("managerAccessFor", () => {
   it("tells anyone else who can, and that they can still read along", () => {
     expect(managerAccessFor({ id: "b", kind: OCCUPANT_KIND.human, isCeo: false }, "Dana")).toEqual({
       mayInstruct: false,
-      summary: "Only the CEO, Dana, can instruct Firstmate. You can read the conversation.",
+      summary: "Only the CEO, Dana, can instruct the AI Manager. You can read the conversation.",
     });
     expect(managerAccessFor({ id: "b", kind: OCCUPANT_KIND.human, isCeo: false }, undefined).summary).toBe(
-      "Only the CEO can instruct Firstmate. You can read the conversation.",
+      "Only the CEO can instruct the AI Manager. You can read the conversation.",
     );
   });
 });
@@ -31,6 +31,6 @@ describe("managerRejectionText", () => {
     for (const rejection of Object.values(MANAGER_REJECTION)) {
       expect(managerRejectionText(rejection)).not.toBe("");
     }
-    expect(managerRejectionText(MANAGER_REJECTION.forbidden)).toBe("Only the CEO can instruct Firstmate.");
+    expect(managerRejectionText(MANAGER_REJECTION.forbidden)).toBe("Only the CEO can instruct the AI Manager.");
   });
 });

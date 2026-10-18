@@ -31,9 +31,7 @@ import type { OfficeActor } from "./work.js";
 export const MANAGER_OCCUPANT_ID = "manager:firstmate";
 
 /** What the nameplate and the conversation call it. */
-export const MANAGER_NAME = "Firstmate";
-
-export const MANAGER_JOB_TITLE = "AI Manager";
+export const MANAGER_NAME = "AI Manager";
 
 /** Why the manager did not take a message. Refusal never reaches the manager. */
 export const MANAGER_REJECTION = {
@@ -86,7 +84,6 @@ export function employManager(layout: OfficeLayout): AiManager | undefined {
   const manager = new AiManager();
   manager.id = MANAGER_OCCUPANT_ID;
   manager.name = MANAGER_NAME;
-  manager.jobTitle = MANAGER_JOB_TITLE;
   manager.status = MANAGER_STATUS.idle;
   manager.x = seat.anchor.x;
   manager.z = seat.anchor.z;

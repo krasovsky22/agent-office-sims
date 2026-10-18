@@ -13,7 +13,6 @@ import { INTERACT_RANGE, MAX_MANAGER_MESSAGE_LENGTH, MAX_MANAGER_REPLY_LENGTH } 
 import { authorizeInteract, interactableById, nearestInteractable, promptFor } from "./interaction.js";
 import { INTERACTION_KIND, MANAGER_DESK_ID, MANAGER_INTERACTABLE_ID, OFFICE_LAYOUT, roomAt } from "./layout.js";
 import {
-  MANAGER_JOB_TITLE,
   MANAGER_NAME,
   MANAGER_OCCUPANT_ID,
   employManager,
@@ -77,7 +76,6 @@ describe("employManager", () => {
     expect(manager.kind).toBe(OCCUPANT_KIND.manager);
     expect(manager.id).toBe(MANAGER_OCCUPANT_ID);
     expect(manager.name).toBe(MANAGER_NAME);
-    expect(manager.jobTitle).toBe(MANAGER_JOB_TITLE);
     expect(manager.status).toBe(MANAGER_STATUS.idle);
     expect(manager.interactableId).toBe(seat.id);
     expect(manager.animation).toBe(ANIMATION_STATE.sitting);
