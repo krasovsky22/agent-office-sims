@@ -11,9 +11,10 @@
  * every secret it holds masked out of them.
  *
  * A real agent works as the runner's GitHub App, which its configuration
- * requires: the runner mints its tokens and keeps them fresh
- * (`./githubApp.ts`), and checks each issue's label and finds each task's
- * pull request with them (`./github.ts`).
+ * requires unless the operator chose a person's own login instead: the runner
+ * mints the App's tokens and keeps them fresh (`./githubApp.ts`), or hands on
+ * the person's (`./githubPersonal.ts`), and checks each issue's label and
+ * finds each task's pull request with them (`./github.ts`).
  *
  * What the agents spend is booked against `RUNNER_DAILY_BUDGET_USD`, which
  * refuses new starts once it is spent (`./budget.ts`).
@@ -34,7 +35,8 @@ import type { Agent } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { type RunnerConfig, readConfig } from "./config.js";
 import { NO_GITHUB, type TaskGithub, createTaskGithub } from "./github.js";
-import { GITHUB_TOKEN_ENV, GithubAppCredentials } from "./githubApp.js";
+import { GITHUB_TOKEN_ENV, GithubAppCredentials, type GithubCredentials } from "./githubApp.js";
+import { PersonalGithubCredentials } from "./githubPersonal.js";
 import { createRedactor, runnerSecrets } from "./redact.js";
 import { ScreenLoop } from "./screenLoop.js";
 import { createScreensClient } from "./screensClient.js";
@@ -81,20 +83,30 @@ const workspaces = new SlotWorktrees({
 
 const redactor = createRedactor(runnerSecrets(process.env, [config.secret]));
 
-const credentials =
+const ghConfigDir = join(config.dataDir, "gh");
+
+// A token from `gh auth token` is a secret the runner's environment does not name: masked like the App's.
+if (config.personalGithub !== undefined) {
+  redactor.add(config.personalGithub.token);
+}
+
+const personalCredentials =
+  config.personalGithub === undefined ? undefined : new PersonalGithubCredentials({ personal: config.personalGithub, configDir: ghConfigDir });
+
+const credentials: GithubCredentials | undefined =
   config.githubApp === undefined
-    ? undefined
+    ? personalCredentials
     : new GithubAppCredentials({
         app: config.githubApp,
         repo: config.repo,
-        configDir: join(config.dataDir, "gh"),
+        configDir: ghConfigDir,
         // Its tokens are secrets the runner did not start with: masked as they are minted.
         onToken: (token) => redactor.add(token),
         log,
       });
 
-/** The environment for the runner's own `gh` and `git` calls: as the App, with a fresh token. */
-async function githubEnv(app: GithubAppCredentials): Promise<NodeJS.ProcessEnv> {
+/** The environment for the runner's own `gh` and `git` calls: as the agents' identity, with a fresh token. */
+async function githubEnv(app: GithubCredentials): Promise<NodeJS.ProcessEnv> {
   const base: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" };
   await app.fresh();
   for (const name of GITHUB_TOKEN_ENV) {
@@ -109,10 +121,10 @@ async function createAgent(runnerConfig: RunnerConfig): Promise<{ agent: Agent; 
       // It never touches GitHub: its pull request is simulated, and it spends nothing on an unlabelled issue.
       return { agent: createMockAgent({ outcome: runnerConfig.mockOutcome }), github: NO_GITHUB };
     case "claude": {
-      // readConfig refuses a claude agent without the App; this only narrows the type.
+      // readConfig refuses a claude agent with no GitHub identity; this only narrows the type.
       const app = credentials;
       if (app === undefined) {
-        throw new Error("a claude agent needs the runner's GitHub App");
+        throw new Error("a claude agent needs a GitHub identity: the runner's GitHub App or RUNNER_GITHUB_AUTH=personal");
       }
       const agent = createPtyAgent({
         adapter: claudeAdapter({ repo: runnerConfig.repo, ...(runnerConfig.model === undefined ? {} : { model: runnerConfig.model }) }),
@@ -125,10 +137,22 @@ async function createAgent(runnerConfig: RunnerConfig): Promise<{ agent: Agent; 
   }
 }
 
+/** Who the agents are on GitHub, for the boot log; a person's login comes with what that means. */
+function githubIdentity(): string {
+  if (config.personalGithub === undefined) {
+    return `GitHub App ${config.githubApp?.appId ?? ""}`;
+  }
+  const login = personalCredentials?.login;
+  return (
+    `${login === undefined ? "a personal GitHub login" : `the personal GitHub login of ${login}`} (token from ${config.personalGithub.source}), ` +
+    "not an App: they act with that account's full access, on every repository and organisation it can reach"
+  );
+}
+
 let agent: Agent;
 let github: TaskGithub;
 try {
-  // A first token now, so an App GitHub will not answer for stops the runner at boot.
+  // A first token now, so an identity GitHub will not answer for stops the runner at boot.
   await credentials?.fresh();
   ({ agent, github } = await createAgent(config));
 } catch (error) {
@@ -194,14 +218,14 @@ if (config.agent === "mock") {
     "=".repeat(72),
     "WARNING: this runner runs the MOCK agent (RUNNER_AGENT is not claude).",
     `No real coding happens: it plays a script, and any pull request it hands in is simulated (RUNNER_MOCK_OUTCOME=${config.mockOutcome}).`,
-    "For real work set RUNNER_AGENT=claude and the RUNNER_GITHUB_APP_* variables; see the README.",
+    "For real work set RUNNER_AGENT=claude and the RUNNER_GITHUB_APP_* variables, or RUNNER_GITHUB_AUTH=personal; see the README.",
     "=".repeat(72),
   ]) {
     log(line);
   }
 } else {
   log(`agents run ${config.agent} with ${config.model === undefined ? "its default model" : `model ${config.model}`}`);
-  log(`issues need the "${config.issueLabel}" label; agents push and open pull requests as GitHub App ${config.githubApp?.appId ?? ""}`);
+  log(`issues need the "${config.issueLabel}" label; agents push and open pull requests as ${githubIdentity()}`);
 }
 if (config.logLevel === "debug") {
   log("logging every step the agents report (RUNNER_LOG_LEVEL=debug)");
