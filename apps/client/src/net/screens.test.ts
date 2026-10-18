@@ -58,11 +58,22 @@ describe("applyScreenFrame", () => {
 
     expect(resized.history).toEqual([[run("one")], [run("two")], [], [run("three")]]);
     expect(resized.historyAdded).toBe(4);
+    expect(resized.historyEpoch).toBe(0);
 
     // As a joining client gets it: the server's whole scrollback in place of this one's.
     const joined = applyScreenFrame(resized, { ...frame({}, true), history: [[run("kept")]], historyCleared: true });
     expect(joined.history).toEqual([[run("kept")]]);
     expect(joined.historyAdded).toBe(1);
+    expect(joined.historyEpoch).toBe(1);
+  });
+
+  it("says the scrollback was emptied even when more rows than before arrive with the clearing", () => {
+    const held = applyScreenFrame(undefined, { ...frame({}, true), history: [[run("old")]] });
+    const epoch = held.historyEpoch;
+    const reprinted = Array.from({ length: 5 }, (_, row) => [run(`new ${row}`)]);
+    const cleared = applyScreenFrame(held, { ...frame({}, false), history: reprinted, historyCleared: true });
+    expect(cleared.historyAdded).toBe(5);
+    expect(cleared.historyEpoch).toBe(epoch + 1);
   });
 
   it("keeps only the newest rows of scrollback, counting every row added", () => {

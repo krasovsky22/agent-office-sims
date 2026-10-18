@@ -32,7 +32,7 @@ function screenOf(
   for (const [row, runs] of Object.entries(lines)) {
     all[Number(row)] = runs;
   }
-  return { cols, rows, lines: all, cursor, history, historyAdded: history.length, version: 1 };
+  return { cols, rows, lines: all, cursor, history, historyAdded: history.length, historyEpoch: 0, version: 1 };
 }
 
 /** A context that keeps the text drawn and where, and the last font. */

@@ -34,6 +34,11 @@ export interface TerminalScreen {
    * reading as rows arrive under it.
    */
   historyAdded: number;
+  /**
+   * Goes up every time {@link history} is emptied, when its rows start being
+   * counted afresh, however many arrive with it.
+   */
+  historyEpoch: number;
   /** Goes up with every frame applied. */
   version: number;
 }
@@ -60,6 +65,7 @@ export function applyScreenFrame(held: TerminalScreen | undefined, frame: Screen
       cursor: frame.cursor,
       history: held?.history ?? [],
       historyAdded: held?.historyAdded ?? 0,
+      historyEpoch: held?.historyEpoch ?? 0,
       version: held?.version ?? 0,
     };
   }
@@ -68,6 +74,7 @@ export function applyScreenFrame(held: TerminalScreen | undefined, frame: Screen
   }
   if (frame.historyCleared === true) {
     screen.historyAdded = 0;
+    screen.historyEpoch += 1;
   }
   screen.historyAdded += appendScreenHistory(screen.history, frame);
   screen.cursor = frame.cursor;

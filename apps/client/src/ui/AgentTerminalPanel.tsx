@@ -124,8 +124,8 @@ const PLACEHOLDER_VERSION = -1;
 
 /** Where the CEO has scrolled the terminal to, and what painting it last found. */
 interface PanelScroll extends TerminalScroll {
-  /** The screen's `historyAdded` when last painted, which starts again when the scrollback is emptied. */
-  added: number;
+  /** The screen's `historyEpoch` when last painted, which moves on when the scrollback is emptied. */
+  epoch: number;
   /** Rows the canvas had room for when last painted, which a page scrolls by. */
   pageRows: number;
   lineHeightPx: number;
@@ -147,7 +147,7 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
     liveTop: 0,
     oldest: 0,
     carry: 0,
-    added: 0,
+    epoch: 0,
     pageRows: 1,
     lineHeightPx: TERMINAL_FONT_PX,
   });
@@ -161,7 +161,7 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
     const scroll = scrollRef.current;
     scroll.following = true;
     scroll.carry = 0;
-    scroll.added = screenOf(agentId)?.historyAdded ?? 0;
+    scroll.epoch = screenOf(agentId)?.historyEpoch ?? 0;
     let paintedVersion = Number.NaN;
     let paintedTop: number | undefined = Number.NaN;
     let request = 0;
@@ -172,11 +172,11 @@ function useTerminalCanvas(agentId: string, screenOf: AgentTerminalActions["scre
       const height = Math.max(1, Math.round(canvas.clientHeight * scale));
       const screen = screenOf(agentId);
       // The rows are counted afresh once the scrollback is emptied, so the row scrolled to is gone.
-      const added = screen?.historyAdded ?? 0;
-      if (added < scroll.added) {
+      const epoch = screen?.historyEpoch ?? 0;
+      if (epoch !== scroll.epoch) {
         scrollTerminal(scroll, Number.NEGATIVE_INFINITY);
       }
-      scroll.added = added;
+      scroll.epoch = epoch;
       const version = screen?.version ?? PLACEHOLDER_VERSION;
       const top = scroll.following ? undefined : scroll.top;
       if (version === paintedVersion && top === paintedTop && width === canvas.width && height === canvas.height) {

@@ -61,7 +61,7 @@ function screenOf(lines: Record<number, readonly ScreenRun[]>, cols = 80, rows =
   for (const [row, runs] of Object.entries(lines)) {
     all[Number(row)] = runs;
   }
-  return { cols, rows, lines: all, cursor: [0, 0], history: [], historyAdded: 0, version: 1 };
+  return { cols, rows, lines: all, cursor: [0, 0], history: [], historyAdded: 0, historyEpoch: 0, version: 1 };
 }
 
 const plain = (text: string): ScreenRun => [text, -1, -1, 0];
