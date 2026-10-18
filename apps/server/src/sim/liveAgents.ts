@@ -570,7 +570,7 @@ export class LiveAgentCrew {
     return best;
   }
 
-  /** Where a wandering agent goes next: towards company, or anywhere else. */
+  /** Where a wandering agent goes next: towards company, or anywhere else indoors. */
   private chooseStop(body: AgentBody): Vec2 {
     const { waypoints } = this.host.layout;
     if (this.host.random() < SEEK_COMPANY_CHANCE) {
