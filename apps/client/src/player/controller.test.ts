@@ -7,6 +7,10 @@
  *
  * And the camera leans in over a working agent's shoulder to read its
  * monitor only while the player stands still at it, never from inside a wall.
+ *
+ * The camera can be switched to first person, where the body faces where the
+ * player looks, and back; the wheel zooms the third-person boom and never
+ * pushes it through the ceiling.
  */
 
 import {
@@ -22,12 +26,21 @@ import {
 import * as THREE from "three";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CAMERA_MODE, MAX_ZOOM_DISTANCE, MIN_ZOOM_DISTANCE } from "./cameraMode.js";
 import { PlayerController, shoulderView } from "./controller.js";
 
 const FRAME = 1 / 60;
 
-function keyDown(code: string): Event {
-  return Object.assign(new Event("keydown", { cancelable: true }), { code, repeat: false });
+function keyDown(code: string, repeat = false): Event {
+  return Object.assign(new Event("keydown", { cancelable: true }), { code, repeat });
+}
+
+function keyUp(code: string): Event {
+  return Object.assign(new Event("keyup"), { code });
+}
+
+function wheel(deltaY: number): Event {
+  return Object.assign(new Event("wheel", { cancelable: true }), { deltaY, deltaMode: 0 });
 }
 
 function firstSeat(): InteractableSpec {
@@ -318,5 +331,107 @@ describe("PlayerController camera through a doorway", () => {
         expect(Math.sign(cameraSide), `${gap.id} side ${side}`).toBe(side);
       }
     }
+  });
+});
+
+describe("PlayerController camera modes", () => {
+  let controller: PlayerController;
+  let camera: THREE.PerspectiveCamera;
+  let viewport: EventTarget;
+
+  beforeEach(() => {
+    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("HTMLElement", class {});
+    camera = new THREE.PerspectiveCamera();
+    viewport = new EventTarget();
+    controller = new PlayerController(camera, viewport as HTMLCanvasElement);
+    controller.attach();
+  });
+
+  afterEach(() => {
+    controller.detach();
+    vi.unstubAllGlobals();
+  });
+
+  it("asks to switch once per V press, not for a held key's repeats, and never walks for it", () => {
+    window.dispatchEvent(keyDown("KeyV"));
+    window.dispatchEvent(keyDown("KeyV", true));
+    controller.update(FRAME);
+
+    expect(controller.takeCameraToggleRequest()).toBe(true);
+    expect(controller.takeCameraToggleRequest()).toBe(false);
+    expect(controller.pose.x).toBe(0);
+    expect(controller.pose.z).toBe(0);
+  });
+
+  it("zooms the third-person boom with the wheel, within its limits", () => {
+    const start = controller.zoom;
+    const out = wheel(240);
+    viewport.dispatchEvent(out);
+    expect(out.defaultPrevented).toBe(true);
+    expect(controller.zoom).toBeGreaterThan(start);
+
+    for (let notch = 0; notch < 50; notch += 1) {
+      viewport.dispatchEvent(wheel(-240));
+    }
+    expect(controller.zoom).toBe(MIN_ZOOM_DISTANCE);
+    for (let notch = 0; notch < 50; notch += 1) {
+      viewport.dispatchEvent(wheel(240));
+    }
+    expect(controller.zoom).toBe(MAX_ZOOM_DISTANCE);
+  });
+
+  it("keeps a zoomed-out boom under the ceiling", () => {
+    const ceiling = OFFICE_LAYOUT.ceiling;
+    if (ceiling === undefined) {
+      return;
+    }
+    const seat = firstSeat();
+    const exit = seat.exit ?? seat.anchor;
+    controller.teleport(exit.x, exit.z, 0);
+    for (let notch = 0; notch < 50; notch += 1) {
+      viewport.dispatchEvent(wheel(240));
+    }
+    controller.update(FRAME);
+
+    expect(camera.position.y).toBeLessThan(ceiling);
+    expect(inWall(camera.position)).toBe(false);
+  });
+
+  it("leaves the wheel alone in first person", () => {
+    controller.setCameraMode(CAMERA_MODE.firstPerson);
+    const start = controller.zoom;
+    const turn = wheel(240);
+    viewport.dispatchEvent(turn);
+
+    expect(turn.defaultPrevented).toBe(false);
+    expect(controller.zoom).toBe(start);
+  });
+
+  it("looks from the eyes in first person, the body facing the way the camera does as it sidesteps", () => {
+    controller.teleport(0, 2, 1);
+    controller.setCameraMode(CAMERA_MODE.firstPerson);
+    controller.setEye(new THREE.Vector3(0, 1.4, 2));
+
+    expect(controller.mode).toBe(CAMERA_MODE.firstPerson);
+    expect(camera.position.y).toBeCloseTo(1.4, 6);
+    expect(Math.hypot(camera.position.x, camera.position.z - 2)).toBeLessThan(0.35);
+
+    const yaw = controller.pose.yaw;
+    window.dispatchEvent(keyDown("KeyD"));
+    for (let frame = 0; frame < 10; frame += 1) {
+      controller.update(FRAME);
+    }
+    window.dispatchEvent(keyUp("KeyD"));
+    expect(controller.pose.yaw).toBe(yaw);
+    expect(Math.hypot(controller.pose.x, controller.pose.z - 2)).toBeGreaterThan(0.1);
+  });
+
+  it("puts the camera back on its boom when switched back", () => {
+    controller.setCameraMode(CAMERA_MODE.firstPerson);
+    controller.setEye(new THREE.Vector3(0, 1.4, 0));
+    controller.setCameraMode(CAMERA_MODE.thirdPerson);
+
+    expect(Math.hypot(camera.position.x, camera.position.z)).toBeGreaterThan(1);
   });
 });

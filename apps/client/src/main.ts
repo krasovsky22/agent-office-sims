@@ -52,6 +52,7 @@ import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
 import { standingAccessFor, standingRejectionText } from "./standingAccess.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
+import { CAMERA_MODE, type CameraMode, otherCameraMode, readCameraMode, writeCameraMode } from "./player/cameraMode.js";
 import { type CameraFocus, PlayerController, shoulderView } from "./player/controller.js";
 import { AgentScreens } from "./scene/agentScreen.js";
 import { Avatar } from "./scene/avatar.js";
@@ -189,6 +190,15 @@ function readDebugEnabled(): boolean {
   return new URLSearchParams(window.location.search).has("debug");
 }
 
+/** The browser's local storage, or `undefined` where merely touching it throws, as a locked-down browser's does. */
+function browserStorage(): Storage | undefined {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The second line of a live agent's nameplate and roster entry, with what the
  * manager has assigned it next; `""` for anyone else.
@@ -271,6 +281,7 @@ function start(): void {
   const camera = createCamera(canvas, OFFICE_LAYOUT);
   const controller = new PlayerController(camera, canvas);
   controller.attach();
+  controller.setCameraMode(readCameraMode(browserStorage()));
 
   const resize = () => {
     const width = window.innerWidth;
@@ -296,6 +307,15 @@ function start(): void {
   const publishHud = (next: Partial<HudSnapshot>) => {
     hud = { ...hud, ...next };
     hudStore.publish(hud);
+  };
+  publishHud({ cameraMode: controller.mode });
+
+  /** Looks through the other camera, and keeps the choice for the next visit. */
+  const toggleCameraMode = () => {
+    const mode: CameraMode = otherCameraMode(controller.mode);
+    controller.setCameraMode(mode);
+    writeCameraMode(browserStorage(), mode);
+    publishHud({ cameraMode: mode });
   };
 
   let nextChatId = 1;
@@ -757,6 +777,7 @@ function start(): void {
       actions: {
         sendEmote: (emote) => room.sendEmote(emote),
         sendChat: (text) => room.sendChat(text),
+        toggleCamera: toggleCameraMode,
         projectBoard: {
           assign: (issueNumber, agentId) => room.sendWorkAssign(issueNumber, agentId),
           move: (issueNumber, status) => room.sendWorkMove(issueNumber, status),
@@ -815,6 +836,9 @@ function start(): void {
   // for it: leaned in, the camera is where that agent's head is.
   let leanSeat: string | undefined;
   let hiddenAgentId: string | undefined;
+
+  // Where the local player's eyes are, filled in from its body each frame for the first-person camera.
+  const eye = new THREE.Vector3();
 
   // Each screen's view over its agent's shoulder, worked out once: the layout
   // does not move, and the controller tells a view it is already in by identity.
@@ -909,6 +933,9 @@ function start(): void {
     // Before the controller moves: a hold the server granted or let lapse has to
     // be in effect for this frame's prediction, not the next one's.
     controller.setHold(interactableById(OFFICE_LAYOUT, engagedWith));
+    if (controller.takeCameraToggleRequest()) {
+      toggleCameraMode();
+    }
     controller.update(deltaSeconds);
 
     // What the controller is predicting, not what the last patch said: between
@@ -1030,6 +1057,13 @@ function start(): void {
         avatar.setAnimation(remotePose.animation);
       }
       avatar.update(deltaSeconds);
+      if (id === localId) {
+        const firstPerson = controller.mode === CAMERA_MODE.firstPerson;
+        avatar.setFirstPerson(firstPerson);
+        if (firstPerson) {
+          controller.setEye(avatar.eyePosition(eye));
+        }
+      }
       // Overhead content is parented to the avatar, so it has already followed
       // the body; all that is left is retiring whatever has expired.
       avatar.updateExpressions(nowMs);

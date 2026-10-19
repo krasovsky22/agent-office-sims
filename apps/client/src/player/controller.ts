@@ -12,7 +12,9 @@
  * toward the authoritative one, but only once the gap is wider than anything an
  * honest round trip explains.
  *
- * The camera follows on a boom behind the player. A seated agent's monitor is
+ * The camera follows on a boom behind the player, which the mouse wheel draws
+ * in and lets out, or, in first person, sits at the player's eyes and looks
+ * where the mouse points; `V` switches between the two. A seated agent's monitor is
  * right in front of that agent, so from the boom the agent's head and the
  * player's own avatar hide it, and its text is too small to read; a player
  * standing still behind a working agent's chair has the camera lean in over
@@ -38,9 +40,7 @@ import {
 import * as THREE from "three";
 
 import { isTypingTarget } from "../keys.js";
-
-/** Distance from the camera to the player when nothing is in the way. */
-const CAMERA_DISTANCE = 7;
+import { CAMERA_MODE, type CameraMode, DEFAULT_ZOOM_DISTANCE, zoomedDistance } from "./cameraMode.js";
 
 /** Closest the camera is ever pulled in, so it never sits inside the avatar. */
 const CAMERA_MIN_DISTANCE = 1.6;
@@ -81,6 +81,25 @@ const CAMERA_PITCH_MAX = 1.1;
  */
 const CAMERA_PITCH_DEFAULT = 0.3;
 
+/**
+ * How far a first-person look can tip down or up, in radians: short of
+ * straight down, where yaw stops meaning anything and the view flips.
+ */
+const LOOK_PITCH_MIN = -1.2;
+const LOOK_PITCH_MAX = 1.3;
+/** A little below level, so the desks and the floor ahead are in view as the player walks. */
+const LOOK_PITCH_DEFAULT = 0.12;
+
+/**
+ * How far behind the eyes the first-person camera sits, in metres.
+ *
+ * The robot's arms are short and hang from well below its visor, so seen from
+ * the visor itself even raised hands sit under the bottom of the view. Drawn
+ * back this far, still inside the hidden head and the body's own collision
+ * radius, they come up into the lower part of it.
+ */
+const EYE_PULLBACK = 0.25;
+
 /** Radians of camera rotation per pixel of mouse travel. */
 const LOOK_SENSITIVITY = 0.0026;
 
@@ -101,6 +120,9 @@ const INTERACT_KEY = "KeyE";
 /** Closes whatever panel is open over the office. Named in the HUD prompt as `Esc`. */
 const CLOSE_KEY = "Escape";
 
+/** Switches between first and third person. Named in the HUD as `V`. */
+const CAMERA_KEY = "KeyV";
+
 const MOVEMENT_KEYS = new Set([
   ...FORWARD_KEYS,
   ...BACKWARD_KEYS,
@@ -108,7 +130,7 @@ const MOVEMENT_KEYS = new Set([
   ...RIGHT_KEYS,
 ]);
 
-const ALL_KEYS = new Set([...MOVEMENT_KEYS, INTERACT_KEY]);
+const ALL_KEYS = new Set([...MOVEMENT_KEYS, INTERACT_KEY, CAMERA_KEY]);
 
 export interface Pose {
   x: number;
@@ -277,6 +299,14 @@ export class PlayerController {
   private readonly pressed = new Set<string>();
   private cameraYaw = 0;
   private cameraPitch = CAMERA_PITCH_DEFAULT;
+  private cameraMode: CameraMode = CAMERA_MODE.thirdPerson;
+  /** How long the boom is when nothing is in the way; the wheel sets it. */
+  private zoomDistance = DEFAULT_ZOOM_DISTANCE;
+  /** How far down a first-person look is tipped, in radians; negative is up. */
+  private lookPitch = LOOK_PITCH_DEFAULT;
+  /** Where the first-person camera sees from; the avatar says, sitting or standing, until then the shoulder. */
+  private readonly eye = new THREE.Vector3(0, SHOULDER_HEIGHT, 0);
+  private eyeKnown = false;
   private readonly cameraTarget = new THREE.Vector3();
   private readonly lookTarget = new THREE.Vector3();
   private disposers: Array<() => void> = [];
@@ -304,6 +334,7 @@ export class PlayerController {
   private interactRequested = false;
   private releaseRequested = false;
   private closeRequested = false;
+  private cameraToggleRequested = false;
 
   public constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -347,6 +378,12 @@ export class PlayerController {
         }
         return;
       }
+      if (event.code === CAMERA_KEY) {
+        if (!event.repeat) {
+          this.cameraToggleRequested = true;
+        }
+        return;
+      }
       this.pressed.add(event.code);
     };
     // Key-up is *not* filtered by target: focus can move between a key going
@@ -376,10 +413,21 @@ export class PlayerController {
         return;
       }
       this.cameraYaw = normalizeYaw(this.cameraYaw - event.movementX * LOOK_SENSITIVITY);
-      this.cameraPitch = Math.min(
-        CAMERA_PITCH_MAX,
-        Math.max(CAMERA_PITCH_MIN, this.cameraPitch + event.movementY * LOOK_SENSITIVITY),
-      );
+      const tilt = event.movementY * LOOK_SENSITIVITY;
+      if (this.cameraMode === CAMERA_MODE.firstPerson) {
+        this.lookPitch = Math.min(LOOK_PITCH_MAX, Math.max(LOOK_PITCH_MIN, this.lookPitch + tilt));
+      } else {
+        this.cameraPitch = Math.min(CAMERA_PITCH_MAX, Math.max(CAMERA_PITCH_MIN, this.cameraPitch + tilt));
+      }
+    };
+    // On the canvas only: over a HUD panel the wheel lands on the panel and
+    // scrolls it instead, which is what a player reading a terminal wants.
+    const onWheel = (event: WheelEvent) => {
+      if (this.cameraMode !== CAMERA_MODE.thirdPerson) {
+        return;
+      }
+      event.preventDefault();
+      this.zoomDistance = zoomedDistance(this.zoomDistance, event.deltaY, event.deltaMode);
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -388,6 +436,7 @@ export class PlayerController {
     window.addEventListener("focusin", onFocusIn);
     this.viewport.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("mousemove", onMouseMove);
+    this.viewport.addEventListener("wheel", onWheel, { passive: false });
 
     this.disposers = [
       () => window.removeEventListener("keydown", onKeyDown),
@@ -396,6 +445,7 @@ export class PlayerController {
       () => window.removeEventListener("focusin", onFocusIn),
       () => this.viewport.removeEventListener("pointerdown", onPointerDown),
       () => window.removeEventListener("mousemove", onMouseMove),
+      () => this.viewport.removeEventListener("wheel", onWheel),
     ];
   }
 
@@ -446,6 +496,54 @@ export class PlayerController {
   /** Whether the player is standing in a held pose this frame. */
   public get held(): boolean {
     return this.hold !== undefined;
+  }
+
+  /** Which camera the player is looking through. */
+  public get mode(): CameraMode {
+    return this.cameraMode;
+  }
+
+  /**
+   * Looks through the given camera from the next frame on.
+   *
+   * Going into first person turns the body to face the way the camera was
+   * looking, so the first step forward goes where the player was already
+   * facing on screen.
+   */
+  public setCameraMode(mode: CameraMode): void {
+    if (mode === this.cameraMode) {
+      return;
+    }
+    this.cameraMode = mode;
+    if (mode === CAMERA_MODE.firstPerson && this.hold === undefined) {
+      this.pose.yaw = this.cameraYaw;
+    }
+    this.updateCamera();
+  }
+
+  /** How far the third-person boom reaches when nothing is in the way. */
+  public get zoom(): number {
+    return this.zoomDistance;
+  }
+
+  /**
+   * Where the player's eyes are this frame, from the drawn body, and places the
+   * first-person camera there again: the body is posed after the controller
+   * moves, and a camera a frame behind it would shake against the hands.
+   */
+  public setEye(eye: THREE.Vector3): void {
+    this.eye.copy(eye);
+    this.eyeKnown = true;
+    if (this.cameraMode === CAMERA_MODE.firstPerson) {
+      this.updateCamera();
+    }
+  }
+
+  /** Takes a pending `V` press, if there is one. */
+  public takeCameraToggleRequest(): boolean {
+    const requested = this.cameraToggleRequested;
+    this.cameraToggleRequested = false;
+    return requested;
   }
 
   /** How far the camera has leaned into its focus, 0 on its boom to 1 all the way in. */
@@ -574,9 +672,17 @@ export class PlayerController {
       this.pose.x = resolved.x;
       this.pose.z = resolved.z;
       this.pose.animation = ANIMATION_STATE.walking;
-      this.turnToward(Math.atan2(-inputX, -inputZ), deltaSeconds);
+      if (this.cameraMode === CAMERA_MODE.thirdPerson) {
+        this.turnToward(Math.atan2(-inputX, -inputZ), deltaSeconds);
+      }
     } else {
       this.pose.animation = ANIMATION_STATE.idle;
+    }
+    // In first person the body faces where the player looks, so stepping
+    // sideways is a sidestep rather than a turn, and others see the player
+    // looking the way they are.
+    if (this.cameraMode === CAMERA_MODE.firstPerson) {
+      this.pose.yaw = this.cameraYaw;
     }
 
     this.updateCamera();
@@ -630,17 +736,35 @@ export class PlayerController {
   }
 
   /**
-   * Places the camera on a boom behind the player, shortened by anything in the
-   * way.
+   * Places the camera at the player's eyes, or on a boom behind the player,
+   * shortened by anything in the way, then leans it into any focus.
    *
    * Without the shortening the boom pushes straight through the nearest wall
    * whenever the player stands near one, and the player disappears behind the
    * geometry the camera is now outside of.
    */
   private updateCamera(): void {
-    const horizontal = Math.cos(this.cameraPitch) * CAMERA_DISTANCE;
+    if (this.cameraMode === CAMERA_MODE.firstPerson) {
+      // The eyes are inside the body's own collision radius, so no wall is
+      // ever nearer than the near plane and there is nothing to shorten.
+      const eyeX = this.eyeKnown ? this.eye.x : this.pose.x;
+      const eyeZ = this.eyeKnown ? this.eye.z : this.pose.z;
+      const forwardX = -Math.sin(this.cameraYaw);
+      const forwardZ = -Math.cos(this.cameraYaw);
+      const level = Math.cos(this.lookPitch);
+      this.camera.position.set(eyeX - forwardX * EYE_PULLBACK, this.eye.y, eyeZ - forwardZ * EYE_PULLBACK);
+      this.lookTarget.set(
+        this.camera.position.x + forwardX * level,
+        this.eye.y - Math.sin(this.lookPitch),
+        this.camera.position.z + forwardZ * level,
+      );
+      this.leanAndLook();
+      return;
+    }
+
+    const horizontal = Math.cos(this.cameraPitch) * this.zoomDistance;
     const boomX = Math.sin(this.cameraYaw) * horizontal;
-    const boomY = Math.sin(this.cameraPitch) * CAMERA_DISTANCE;
+    const boomY = Math.sin(this.cameraPitch) * this.zoomDistance;
     const boomZ = Math.cos(this.cameraYaw) * horizontal;
 
     this.cameraTarget.set(this.pose.x, CAMERA_TARGET_Y, this.pose.z);
@@ -653,7 +777,7 @@ export class PlayerController {
       boomY,
       boomZ,
     );
-    const fraction = Math.max(reach, CAMERA_MIN_DISTANCE / CAMERA_DISTANCE);
+    const fraction = Math.max(reach, Math.min(1, CAMERA_MIN_DISTANCE / this.zoomDistance));
 
     this.camera.position.set(
       this.cameraTarget.x + boomX * fraction,
@@ -661,6 +785,11 @@ export class PlayerController {
       this.cameraTarget.z + boomZ * fraction,
     );
     this.lookTarget.copy(this.cameraTarget);
+    this.leanAndLook();
+  }
+
+  /** Eases the camera from where it was just placed into any view it is leaning into, and aims it. */
+  private leanAndLook(): void {
     if (this.leaning !== undefined && this.focusBlend > 0) {
       const blend = smoothstep(this.focusBlend);
       this.camera.position.lerp(this.leaning.eye, blend);
