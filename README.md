@@ -349,8 +349,8 @@ to the rule that gates prompting a coding agent, which is the CEO's alone
 sitting at a computer gets no terminal, and is told
 `Only the CEO, Dana, can use a desk's computer`.
 
-The session lasts while the CEO sits there. Standing up (`E`, a step, or the
-panel's `Stand up`), leaving, or handing the CEO role on ends it: its agent is
+The session lasts while the CEO sits there. Standing up (a step, or the panel's
+`Stand up`), leaving, or handing the CEO role on ends it: its agent is
 stopped and its worktree discarded, whatever is in it, and the slot goes back
 to the floor for issue work. Nothing carries over to the next sitting, which
 starts a fresh session; what the CEO wants kept, the CEO has the agent commit

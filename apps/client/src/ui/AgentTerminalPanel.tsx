@@ -514,7 +514,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
           </>
         ) : (
           <>
-            <span className="hud__keys">E</span> to stand up and end the session
+            Step away with <span className="hud__keys">W A S D</span> or use Stand up to end the session
           </>
         )}
         ; scroll the terminal
