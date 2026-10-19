@@ -694,8 +694,8 @@ export const OFFICE_LAYOUT: OfficeLayout = {
   ],
   boards: [
     // The private offices' front wall, between their two doorways and facing
-    // south down the desk rows: every open-floor seat looks north at it, and an
-    // arriving player spawns facing it. As wide as the wall allows with a
+    // south down the desk rows: every open-floor seat looks north at it, and a
+    // player coming in off the lobby walks towards it. As wide as the wall allows with a
     // clear half metre either side to the door frames, so it reads from the
     // back row.
     {
