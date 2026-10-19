@@ -346,8 +346,9 @@ tab opens it at once in the terminal panel, as `Your desk's computer`, where
 the CEO prompts it and answers its choice screens with the key pad exactly as
 for any coding agent. The panel's terminal is sized to the panel, as it opens
 and whenever the window is resized, so the agent wraps its output to the
-width the CEO reads it at; an issue's agent keeps the runner's own size. It runs real commands on the runner's host, so it is held
-to the rule that gates prompting a coding agent, which is the CEO's alone
+width the CEO reads it at; an issue's agent keeps the runner's own size. It
+runs real commands on the runner's host, so it is held to the rule that gates
+prompting a coding agent, which is the CEO's alone
 (`deskTerminalRefusal` in `packages/shared/src/deskTerminal.ts`): anyone else
 sitting at a computer gets no terminal, and is told
 `Only the CEO, Dana, can use a desk's computer`.
