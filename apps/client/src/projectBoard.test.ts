@@ -348,19 +348,18 @@ describe("withIssueMoves", () => {
 
   it("lands a settled move on a snapshot showing the issue where it was dropped", () => {
     const stale = { ...board, stale: true };
-    expect(hasIssueMoveLanded(stale, { issueNumber: 3, state: "closed" }, 900)).toBe(true);
-    expect(hasIssueMoveLanded(stale, { issueNumber: 1, state: "open" }, 900)).toBe(true);
-    expect(hasIssueMoveLanded(stale, { issueNumber: 2, state: "open" }, 900)).toBe(true);
+    expect(hasIssueMoveLanded(stale, { issueNumber: 3, state: "closed" }, 0)).toBe(true);
+    expect(hasIssueMoveLanded(stale, { issueNumber: 1, state: "open" }, 0)).toBe(true);
+    expect(hasIssueMoveLanded(stale, { issueNumber: 2, state: "open" }, 0)).toBe(true);
   });
 
-  it("holds a settled move against a snapshot fetched before it, or a stale one", () => {
+  it("holds a settled move against the first fresh snapshot, which may predate it, and any stale one", () => {
     const close = { issueNumber: 1, state: "closed" } as const;
-    expect(hasIssueMoveLanded({ ...board, updatedAt: 800 }, close, 900)).toBe(false);
-    expect(hasIssueMoveLanded({ ...board, updatedAt: 950, stale: true }, close, 900)).toBe(false);
-    expect(hasIssueMoveLanded({ ...board, updatedAt: null }, close, 900)).toBe(false);
+    expect(hasIssueMoveLanded(board, close, 0)).toBe(false);
+    expect(hasIssueMoveLanded({ ...board, stale: true }, close, 1)).toBe(false);
   });
 
-  it("takes a fresh snapshot fetched after the move as GitHub's word, wherever it shows the issue", () => {
-    expect(hasIssueMoveLanded({ ...board, updatedAt: 950 }, { issueNumber: 1, state: "closed" }, 900)).toBe(true);
+  it("takes the second fresh snapshot as GitHub's word, wherever it shows the issue", () => {
+    expect(hasIssueMoveLanded(board, { issueNumber: 1, state: "closed" }, 1)).toBe(true);
   });
 });

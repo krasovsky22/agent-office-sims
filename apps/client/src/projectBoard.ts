@@ -389,19 +389,22 @@ export interface IssueMove {
 }
 
 /**
- * Whether a snapshot has caught up with a move GitHub took at `settledAt`:
- * it shows the issue where it was dropped, or it is a fresh fetch started
- * after the change, and so GitHub's word on where the issue is.
+ * Whether a snapshot has caught up with a move GitHub took: it shows the issue
+ * where it was dropped, or it is the second fresh one since the change, and so
+ * from a poll that began after it and is GitHub's word on where the issue is.
  *
- * A snapshot from a poll that began before the change, or a stale one
- * repeating old lists, would put the card back where it came from.
+ * The first fresh snapshot may come from a poll that began before the change,
+ * and a stale one repeats old lists; either would put the card back where it
+ * came from.
+ *
+ * @param freshSince fresh snapshots received since GitHub took the move, before this one.
  */
-export function hasIssueMoveLanded(snapshot: ProjectBoardSnapshot, move: IssueMove, settledAt: number): boolean {
+export function hasIssueMoveLanded(snapshot: ProjectBoardSnapshot, move: IssueMove, freshSince: number): boolean {
   const shown =
     move.state === ISSUE_STATE.closed
       ? snapshot.closed.some((issue) => issue.number === move.issueNumber)
       : openBoardIssue(snapshot, move.issueNumber) !== undefined;
-  return shown || (!snapshot.stale && snapshot.updatedAt !== null && snapshot.updatedAt > settledAt);
+  return shown || (!snapshot.stale && freshSince >= 1);
 }
 
 /**
