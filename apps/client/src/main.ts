@@ -975,7 +975,9 @@ function start(): void {
     }
     // The CEO sitting at a computer has its terminal; anyone else is told why not, once.
     const desk = room.desk();
-    const deskPanel = deskPanelFor(desk, localId, locallyHeldWith);
+    // A sitting lists only the prompts typed after it began.
+    const promptsAfter = hud.desk?.promptsAfter ?? hud.agentPrompts.at(-1)?.id ?? 0;
+    const deskPanel = deskPanelFor(desk, localId, locallyHeldWith, promptsAfter);
     if (!sameDeskPanel(deskPanel, hud.desk)) {
       publishHud({ desk: deskPanel });
     }

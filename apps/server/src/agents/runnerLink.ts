@@ -61,6 +61,7 @@ import {
   ISSUE_STATE_REJECTION,
   type IssueState,
   type IssueStateRejection,
+  LENT_TO_DESK_ACTIVITY,
   LIVE_AGENT_STATUS,
   type LiveAgentStatus,
   type LiveAgentTask,
@@ -258,9 +259,6 @@ export interface RunnerDeskSlot extends RunnerSlotRef {
   /** It holds nothing: idle, with no issue, standing run or desk. */
   readonly free: boolean;
 }
-
-/** What a slot lent to a desk does on the floor, instead of its session's activity. */
-export const LENT_TO_DESK_ACTIVITY = "At the CEO's desk";
 
 /** What a slot's status shows as on the floor. */
 const FLOOR_STATUS: Readonly<Record<RunnerSlotStatus, LiveAgentStatus>> = {
