@@ -305,8 +305,7 @@ export const OFFICE_DECOR: readonly WallDecorSpec[] = [
 
   // The AI manager's office. Behind its desk, the wall whoever comes in to
   // see it faces: a shelf of books and a trophy with a picture over it,
-  // between two framed certificates. A whiteboard for the standups, which
-  // gather in front of the desk.
+  // between two framed certificates, and a whiteboard on the side wall.
   {
     id: "decor-manager-shelf",
     kind: "shelf",

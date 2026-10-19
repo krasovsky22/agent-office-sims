@@ -75,7 +75,7 @@ export const CLIENT_MESSAGE = {
   standingRemove: "standing:remove",
   /** Have a standing task check its trigger now; only the CEO is listened to. */
   standingCheckNow: "standing:check-now",
-  /** Call a standup: every agent gathers in the manager's room. Only the CEO is listened to; see `standup.ts`. */
+  /** Call a standup: every agent gathers in the conference room. Only the CEO is listened to; see `standup.ts`. */
   standupStart: "standup:start",
   /** End the standup: every agent goes back to work. Only the CEO is listened to. */
   standupEnd: "standup:end",

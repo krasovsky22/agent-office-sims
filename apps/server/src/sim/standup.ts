@@ -1,5 +1,5 @@
 /**
- * One room's standup: the CEO calls it, every agent gathers in the manager's
+ * One room's standup: the CEO calls it, every agent gathers in the conference
  * room and gives an update in turn, the CEO answers blockers and gives
  * directions, and when the CEO ends it everyone goes back to work.
  *
@@ -10,9 +10,10 @@
  * tab, a late joiner's or a reloaded one's included, shows the same meeting.
  *
  * - **Gather.** The crew (`./liveAgents.ts`) walks every agent from its chair
- *   to a place in front of the manager's desk. Their work is not touched:
- *   nothing here changes an issue's work or stops an agent, so no task is lost
- *   or started again. The runners are told a standup is on, through
+ *   to the conference room and sits it on a chair of its own at the table,
+ *   or stands it at an end of the table once every chair is taken. Their
+ *   work is not touched: nothing here changes an issue's work or stops an
+ *   agent, so no task is lost or started again. The runners are told a standup is on, through
  *   {@link StandupHost.hold}, and pause their agents at a safe point, the mock
  *   between steps and a real agent once its current turn is done.
  * - **Updates.** Once everyone has arrived, or after {@link GATHER_TIMEOUT_MS}
@@ -193,7 +194,7 @@ export class StandupMeeting {
   }
 
   /**
-   * Calls a standup: every agent on the floor gathers in the manager's room.
+   * Calls a standup: every agent on the floor gathers in the conference room.
    * `announce` says so in the AI Manager's conversation; the manager, asked to
    * call one, says it in its own reply instead.
    *
@@ -230,7 +231,7 @@ export class StandupMeeting {
     this.host.hold(true);
     this.host.log?.("standup-start", { by: caller.name, agents: agents.length });
     if (announce) {
-      this.host.report(`${caller.name} called a standup: ${countAgents(agents.length)} to my desk, and each gives an update in turn.`);
+      this.host.report(`${caller.name} called a standup: ${countAgents(agents.length)} to the conference room, and each gives an update in turn.`);
     }
     return undefined;
   }
@@ -270,7 +271,7 @@ export class StandupMeeting {
     switch (rejection) {
       case undefined:
         return action === "start"
-          ? `✓ Standup called: ${countAgents(this.host.state.standup.order.length)} on the way to my desk.`
+          ? `✓ Standup called: ${countAgents(this.host.state.standup.order.length)} on the way to the conference room.`
           : `✓ Standup over: everyone is going back to work.${this.queuedNote()}`;
       case STANDUP_REJECTION.forbidden:
         return "✗ You are no longer the CEO, so I didn't.";

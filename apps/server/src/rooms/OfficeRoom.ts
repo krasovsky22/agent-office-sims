@@ -64,7 +64,7 @@
  * `sim/concierge.ts` watches the lobby on the tick.
  *
  * Nor is the standup, beyond its handlers and its step on the tick: the
- * meeting in `sim/standup.ts` gathers the crew in the manager's room, takes
+ * meeting in `sim/standup.ts` gathers the crew in the conference room, takes
  * the agents' updates in turn and passes the CEO's directions on as prompts,
  * and tells the runners a standup is on so they pause their agents for it.
  *

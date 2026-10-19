@@ -33,10 +33,12 @@
  * are `stickerNotes.ts`'s rules, shared with the clients that draw them.
  *
  * During a standup ({@link LiveAgentCrew.gather}) every agent, working or
- * not, gets up and walks to a place of its own in front of the manager's
- * desk, and stands there facing it; nobody chats. Once it ends
- * ({@link LiveAgentCrew.dismiss}) a working agent goes back to the chair it
- * left, if nobody has taken it meanwhile, and an idle one wanders off again.
+ * not, gets up, walks to the conference room and sits on a chair of its own
+ * at the table, through the same interaction as at a desk, or stands at an
+ * end of the table facing it once every chair is taken; nobody chats. Once it
+ * ends ({@link LiveAgentCrew.dismiss}) everyone gets up: a working agent goes
+ * back to the chair it left, if nobody has taken it meanwhile, and an idle one
+ * wanders off again.
  *
  * All of it is synchronous and runs inside the room's tick. What the agents are
  * meant to be doing arrives from the feed as a finished list; the tick reads it
@@ -190,8 +192,10 @@ interface AgentBody {
   noteRetryAt: number;
   /** Its place at the standup, while one is on and a place is free for it. */
   spot: StandupSpot | undefined;
-  /** It has reached {@link spot}. */
+  /** It has reached {@link spot}, and sits on it if it is a chair. */
   atSpot: boolean;
+  /** Standup places it walked to and was refused, skipped until the standup ends. */
+  readonly refusedSpots: Set<StandupSpot>;
   /** The chair it got up from for the standup, which it goes back to; `""` for none. */
   homeSeatId: string;
   /** It is walking to the coffee machine, to pour one when it gets there. */
@@ -223,7 +227,7 @@ export class LiveAgentCrew {
   private readonly conversations = new Set<Conversation>();
   private readonly entrances: readonly Vec2[];
   private entranceCursor = 0;
-  /** The places in front of the manager's desk while a standup is on; `undefined` otherwise. */
+  /** The places in the conference room while a standup is on; `undefined` otherwise. */
   private standupSpots: readonly StandupSpot[] | undefined;
 
   public constructor(private readonly host: LiveAgentHost) {
@@ -261,7 +265,7 @@ export class LiveAgentCrew {
 
   /**
    * Calls every agent to the standup: from the next tick each one gets up,
-   * walks to a place in front of the manager's desk and waits there, an agent
+   * walks to a place in the conference room and waits there, an agent
    * that arrives meanwhile included. Its work carries on as its runner or
    * orchestrator says; only the body moves.
    */
@@ -281,6 +285,7 @@ export class LiveAgentCrew {
     for (const body of this.bodies.values()) {
       body.spot = undefined;
       body.atSpot = false;
+      body.refusedSpots.clear();
       // A sticky-note errand the standup broke off starts again from the board, not from here.
       body.errand = undefined;
       body.route = [];
@@ -291,7 +296,7 @@ export class LiveAgentCrew {
     }
   }
 
-  /** Whether an agent, by occupant key, stands at its place at the standup. */
+  /** Whether an agent, by occupant key, is at its place at the standup. */
   public isGathered(key: string): boolean {
     for (const body of this.bodies.values()) {
       if (body.key === key) {
@@ -356,6 +361,7 @@ export class LiveAgentCrew {
       noteRetryAt: now,
       spot: undefined,
       atSpot: false,
+      refusedSpots: new Set(),
       homeSeatId: "",
       coffeeRun: false,
     };
@@ -606,12 +612,13 @@ export class LiveAgentCrew {
   }
 
   /**
-   * One tick of a standup: out of its chair, to its place, and facing the
-   * manager once there. The chair it left is remembered to go back to.
+   * One tick of a standup: out of its desk's chair, to its place, and sat on
+   * it if it is a conference chair or facing the table if not. The chair it
+   * left is remembered to go back to.
    */
   private stepStandup(body: AgentBody, now: number, deltaSeconds: number): void {
     const { occupant } = body;
-    if (occupant.interactableId !== "") {
+    if (occupant.interactableId !== "" && occupant.interactableId !== body.spot?.seatId) {
       if (occupant.interactableId === body.seatId) {
         body.homeSeatId = occupant.interactableId;
       }
@@ -626,7 +633,7 @@ export class LiveAgentCrew {
       body.seatId = "";
       body.route = [];
     }
-    const spot = body.spot ?? this.freeSpot();
+    const spot = body.spot ?? this.freeSpot(body);
     if (spot === undefined) {
       // More agents than places: it waits where it is.
       this.standStill(body);
@@ -635,28 +642,56 @@ export class LiveAgentCrew {
     if (body.spot !== spot) {
       body.spot = spot;
       body.atSpot = false;
-      body.route = this.routeTo(occupant, spot);
-    }
-    if (!body.atSpot && (body.route.length === 0 || this.walk(body, deltaSeconds))) {
-      body.atSpot = true;
+      const seat = spot.seatId === "" ? undefined : interactableById(this.host.layout, spot.seatId);
+      body.route = this.routeTo(occupant, seat?.exit ?? spot);
     }
     if (body.atSpot) {
-      if (occupant.yaw !== spot.yaw) {
-        occupant.yaw = spot.yaw;
+      if (spot.seatId === "") {
+        this.faceSpot(body, spot);
       }
-      this.standStill(body);
+      return;
     }
+    if (body.route.length > 0 && !this.walk(body, deltaSeconds)) {
+      return;
+    }
+    if (spot.seatId === "") {
+      body.atSpot = true;
+      this.faceSpot(body, spot);
+      return;
+    }
+    if (requestInteract(this.host.interaction, body.key, spot.seatId, now).result === "held") {
+      body.atSpot = true;
+      return;
+    }
+    // Somebody sat down in it first: on to the next free place.
+    body.refusedSpots.add(spot);
+    body.spot = undefined;
   }
 
-  /** The first standup place no agent has, nearest the desk first. */
-  private freeSpot(): StandupSpot | undefined {
+  private faceSpot(body: AgentBody, spot: StandupSpot): void {
+    if (body.occupant.yaw !== spot.yaw) {
+      body.occupant.yaw = spot.yaw;
+    }
+    this.standStill(body);
+  }
+
+  /**
+   * The first standup place no agent has, nor anyone sits on, and this one
+   * was not refused; the chairs come first.
+   */
+  private freeSpot(body: AgentBody): StandupSpot | undefined {
     const taken = new Set<StandupSpot>();
     for (const other of this.bodies.values()) {
       if (other.spot !== undefined) {
         taken.add(other.spot);
       }
     }
-    return this.standupSpots?.find((spot) => !taken.has(spot));
+    return this.standupSpots?.find(
+      (spot) =>
+        !taken.has(spot) &&
+        !body.refusedSpots.has(spot) &&
+        (spot.seatId === "" || this.host.interaction.holds.holderOf(spot.seatId) === undefined),
+    );
   }
 
   private stepIdle(body: AgentBody, now: number, deltaSeconds: number): void {

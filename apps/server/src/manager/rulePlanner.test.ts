@@ -502,7 +502,7 @@ describe("planFromRules: standups", () => {
     "AI Manager, gather everyone for a standup",
   ])("calls one for %j", (message) => {
     expect(ask(message)).toEqual({
-      reply: "Calling a standup: everyone to my desk, and each of them gives an update in turn.",
+      reply: "Calling a standup: everyone to the conference room, and each of them gives an update in turn.",
       assignments: [],
       standup: "start",
       tokensUsed: 0,
@@ -537,7 +537,7 @@ describe("planFromRules: standups", () => {
 
   it("says what each agent said at the last one, and whether its blocker was resolved", () => {
     expect(ask("how did the standup go?").reply).toBe(
-      "There hasn't been a standup yet. Say “call a standup” and I'll gather everyone at my desk.",
+      "There hasn't been a standup yet. Say “call a standup” and I'll gather everyone in the conference room.",
     );
     const view: OfficeView = {
       ...VIEW,

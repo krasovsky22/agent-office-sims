@@ -131,7 +131,7 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   const standup = readStandup(message);
   if (standup !== undefined) {
     return standup === "start"
-      ? { reply: "Calling a standup: everyone to my desk, and each of them gives an update in turn.", assignments: [], standup }
+      ? { reply: "Calling a standup: everyone to the conference room, and each of them gives an update in turn.", assignments: [], standup }
       : { reply: "Ending the standup.", assignments: [], standup };
   }
   const standing = standingAnswer(message, view);
@@ -241,7 +241,7 @@ function readStandup(message: string): PlannedStandup | undefined {
 function standupSummary(view: OfficeView): string {
   const { standup } = view;
   if (standup.calledBy === "") {
-    return "There hasn't been a standup yet. Say “call a standup” and I'll gather everyone at my desk.";
+    return "There hasn't been a standup yet. Say “call a standup” and I'll gather everyone in the conference room.";
   }
   const heading = standup.active
     ? `A standup is on, called by ${standup.calledBy}: ${standup.updates.length} of ${standup.order.length} updates so far.`

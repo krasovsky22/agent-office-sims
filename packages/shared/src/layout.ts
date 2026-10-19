@@ -651,12 +651,11 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     // The CEO's, turned to face its door, with the back wall behind the chair.
     desk("desk-ceo", -5.1, -9, Math.PI, 2.2, 0.9),
     // Down the middle of the conference room, its length north-south, so it is
-    // sat at from the west and from the east.
+    // sat at from the west and from the east; the standups are held at it.
     { ...desk("table-meeting", 8, -6.2, -QUARTER_TURN, 6.4, 1.4), meeting: true },
 
     // The AI manager's, in its own office: turned to face the door, so whoever
-    // comes in walks straight up to it, with the floor in front of it left
-    // clear for a standup.
+    // comes in walks straight up to it.
     desk(MANAGER_DESK_ID, 1.225, -9.2, Math.PI),
   ],
   props: [

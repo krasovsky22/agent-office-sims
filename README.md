@@ -72,8 +72,9 @@ on its issue, waits on a person, opens its pull request (with the link) or
 cannot carry on (with the runner's reason), and when one of the orchestrator's
 agents starts or stops. Everyone can read the conversation; only the CEO can instruct it.
 The CEO can also call a standup, from the HUD or by telling the AI Manager
-"call a standup": every agent walks to the manager's desk, each gives an update
-in turn on what it has worked on and what blocks it, read off its real state,
+"call a standup": every agent walks to the conference room and sits at its
+table, each gives an update in turn on what it has worked on and what blocks
+it, read off its real state,
 the CEO answers blockers and gives directions, and when the CEO ends it everyone
 goes back to their desks and their work, which the standup never stops; see
 [The standup](#the-standup).
@@ -269,8 +270,8 @@ orchestrator picks an assignment up, and when the agent starts on it or does not
 
 ### The standup
 
-A standup gathers every live agent on the floor in the manager's room, its
-office, for an update each, and is the CEO's alone to call, run and end: the
+A standup gathers every live agent on the floor in the conference room, sat
+round its table, for an update each, and is the CEO's alone to call, run and end: the
 rule is `mayRunStandup` in `packages/shared/src/standup.ts`, which the server
 checks on every command and the HUD asks only to disable its controls and say
 why. The CEO calls one with the roster's `Call a standup` button, or by telling
@@ -279,14 +280,17 @@ with the panel's `End standup` button, or "end the standup" or "the standup's
 over". Anyone else's command is refused with that reason; one while a standup
 is already on, with none on, or with no agents on the floor is refused too.
 The AI Manager adds a line saying how it went, `✓ Standup called: 2 agents on
-the way to my desk.`, as it does for an assignment, and answers "how did the
+the way to the conference room.`, as it does for an assignment, and answers "how did the
 standup go?" with what each agent said at the last one.
 
-- **Gather.** Every agent, working or not, gets up from its chair and walks to
-  a place of its own in rows in front of the manager's desk, facing the
-  manager, with the aisle up the middle to the desk left clear for the CEO.
-  The places are derived from the layout, like the seats
-  (`standupSpots`), and an agent that comes onto the floor meanwhile joins in.
+- **Gather.** Every agent, working or not, gets up from its desk and walks to
+  the conference room, where it sits on a chair of its own at the long table,
+  through the same interaction a player sits down with, so it never takes a
+  chair somebody already holds. With every chair taken, by players or by
+  agents (the table seats eight, and the floor can hold nine), the rest stand
+  past the ends of the table, facing it. The places are derived from the
+  layout, like the seats (`standupSpots`), and an agent that comes onto the
+  floor meanwhile joins in.
   Nobody chats while it is on. Nothing is done to the agents' work: no issue's
   work moves, and no agent is stopped or started again.
 - **Pause.** The runner hears a standup is on in its sync reply and pauses its
@@ -1403,7 +1407,7 @@ Then confirm all twenty-five:
     seconds later. Once `<first>`'s beacon lights on
     `Permission: Bash pnpm test`, Milo's roster shows `Call a standup`
     disabled, `Only the CEO calls a standup`; Dana clicks it. Both mocks get up
-    and walk to the manager's office, where they stand in rows facing the AI Manager, and
+    and walk to the conference room, where each sits on a chair of its own at the table, and
     the standup panel opens in both tabs. Once they have arrived each gives its
     update in turn, in a bubble, in the panel and in the AI Manager's
     conversation: `<first>`'s issue in progress with
@@ -1648,7 +1652,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/concierge.ts    the concierge at reception: who it is, where it stands, what counts as the lobby, its welcome
   src/agentPrompt.ts  the CEO's prompts and choice-screen keys to the coding agents: the one gate, the keys, and why one was refused
   src/agentProfile.ts an agent's name, title and description: default names, the CEO-only gate, caps in sync bytes, the edit message
-  src/standup.ts      the standup: the CEO-only gate, why a command was refused, the places in the manager's room, what came of a direction
+  src/standup.ts      the standup: the CEO-only gate, why a command was refused, the places in the conference room, what came of a direction
   src/deskTerminal.ts the CEO's desk terminal: which seats have a computer, the CEO-only gate, and the session's phases
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan

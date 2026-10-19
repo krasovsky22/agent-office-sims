@@ -1,6 +1,6 @@
 /**
  * The standup's shared rules: only the CEO runs one, the places the agents
- * stand at in the manager's room, the direction parser, and the standup's
+ * take in the conference room, the direction parser, and the standup's
  * state as a browser decodes it.
  */
 
@@ -9,8 +9,8 @@ import { describe, expect, it } from "vitest";
 
 import { isBlocked } from "./collision.js";
 import { OCCUPANT_RADIUS } from "./constants.js";
+import { interactableById } from "./interaction.js";
 import { INTERACTION_KIND, OFFICE_LAYOUT, interactables, roomAt } from "./layout.js";
-import { managerSeat } from "./manager.js";
 import { parseStandupDirectMessage } from "./messages.js";
 import { MAX_LIVE_AGENTS } from "./liveAgents.js";
 import { findPath } from "./nav.js";
@@ -26,43 +26,60 @@ describe("mayRunStandup", () => {
   });
 });
 
+const CONFERENCE_ROOM_ID = "meeting-room";
+
 describe("standupSpots", () => {
   const spots = standupSpots(OFFICE_LAYOUT);
-  const seat = managerSeat(OFFICE_LAYOUT);
-  const desk = interactables(OFFICE_LAYOUT).find((spec) => spec.kind === INTERACTION_KIND.manager);
+  const chairs = spots.filter((spot) => spot.seatId !== "");
+  const standing = spots.filter((spot) => spot.seatId === "");
+  const table = OFFICE_LAYOUT.desks.find((desk) => desk.meeting === true);
 
   it("has a place for every agent the floor can hold: an orchestrator's live agents and the runners' slots", () => {
     expect(spots.length).toBeGreaterThanOrEqual(MAX_LIVE_AGENTS + MAX_RUNNER_SLOTS);
   });
 
-  it("puts every place in the manager's room, clear of everything, with room between them", () => {
+  it("hands out every conference chair first, each at the chair's own pose", () => {
+    const tableSeats = interactables(OFFICE_LAYOUT).filter((spec) => spec.kind === INTERACTION_KIND.seat && spec.deskId === table?.id);
+    expect(tableSeats.length).toBeGreaterThan(0);
+    expect(chairs.map((spot) => spot.seatId)).toEqual(tableSeats.map((seat) => seat.id));
+    expect(spots.slice(0, chairs.length)).toEqual(chairs);
+    for (const spot of chairs) {
+      const seat = interactableById(OFFICE_LAYOUT, spot.seatId);
+      expect(spot).toMatchObject({ x: seat?.anchor.x, z: seat?.anchor.z });
+      expect(Math.cos(spot.yaw - (seat?.anchor.yaw ?? Number.NaN))).toBeCloseTo(1);
+    }
+  });
+
+  it("puts every place in the conference room, a standing one clear of everything, with room between them", () => {
     for (const spot of spots) {
-      expect(roomAt(OFFICE_LAYOUT, spot)?.id).toBe(roomAt(OFFICE_LAYOUT, desk?.anchor ?? spot)?.id);
-      expect(isBlocked(spot, OCCUPANT_RADIUS, OFFICE_LAYOUT)).toBe(false);
+      expect(roomAt(OFFICE_LAYOUT, spot)?.id).toBe(CONFERENCE_ROOM_ID);
       for (const other of spots) {
         if (other !== spot) {
           expect(Math.hypot(other.x - spot.x, other.z - spot.z)).toBeGreaterThanOrEqual(OCCUPANT_RADIUS * 2);
         }
       }
     }
-  });
-
-  it("leaves the CEO's place at the desk free, and can be walked to from the open floor", () => {
-    for (const spot of spots) {
-      expect(Math.hypot((desk?.anchor.x ?? 0) - spot.x, (desk?.anchor.z ?? 0) - spot.z)).toBeGreaterThan(0.7);
-      expect(findPath({ x: -0.6, z: -0.2 }, spot, OFFICE_LAYOUT).length).toBeGreaterThan(0);
+    expect(standing.length).toBeGreaterThan(0);
+    for (const spot of standing) {
+      expect(isBlocked(spot, OCCUPANT_RADIUS, OFFICE_LAYOUT)).toBe(false);
     }
   });
 
-  it("turns everyone to face the manager in its chair, nearest the desk first", () => {
-    const toSeat = (spot: { x: number; z: number }) => Math.hypot((seat?.anchor.x ?? 0) - spot.x, (seat?.anchor.z ?? 0) - spot.z);
+  it("can be walked to from the open floor: a chair from behind it, a standing place itself", () => {
     for (const spot of spots) {
+      const target = spot.seatId === "" ? spot : interactableById(OFFICE_LAYOUT, spot.seatId)?.exit;
+      expect(target).toBeDefined();
+      expect(findPath({ x: -0.6, z: -0.2 }, target ?? spot, OFFICE_LAYOUT).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("turns everyone standing to face the table", () => {
+    for (const spot of standing) {
       const facing = { x: -Math.sin(spot.yaw), z: -Math.cos(spot.yaw) };
-      const towards = { x: (seat?.anchor.x ?? 0) - spot.x, z: (seat?.anchor.z ?? 0) - spot.z };
+      const towards = { x: (table?.x ?? 0) - spot.x, z: (table?.z ?? 0) - spot.z };
       const length = Math.hypot(towards.x, towards.z);
       expect(facing.x * (towards.x / length) + facing.z * (towards.z / length)).toBeGreaterThan(0.99);
     }
-    expect(toSeat(spots[0] ?? { x: 0, z: 0 })).toBeLessThan(toSeat(spots.at(-1) ?? { x: 0, z: 0 }));
   });
 });
 

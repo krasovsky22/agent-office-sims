@@ -1,16 +1,16 @@
 /**
- * The standup: who may call one, where the agents stand for it, and the words
+ * The standup: who may call one, where the agents sit for it, and the words
  * both sides use about it.
  *
  * The CEO calls a standup and ends it, from the HUD or by telling the AI
- * Manager; every agent on the floor walks to the manager's room and stands in
- * front of its desk, each gives an update in turn, the CEO answers blockers and
- * gives directions, and when the CEO ends it everyone goes back to work. What
- * the standup is doing is replicated state (`Standup` in `./state.ts`), run by
- * the server (`apps/server/src/sim/standup.ts`); this module is the part both
- * sides need, so the client can say why a button would be refused before the
- * server refuses it, and the server puts the agents where the client expects
- * to see them.
+ * Manager; every agent on the floor walks to the conference room and sits on a
+ * chair of its own at the table, each gives an update in turn, the CEO answers
+ * blockers and gives directions, and when the CEO ends it everyone goes back
+ * to work. What the standup is doing is replicated state (`Standup` in
+ * `./state.ts`), run by the server (`apps/server/src/sim/standup.ts`); this
+ * module is the part both sides need, so the client can say why a button
+ * would be refused before the server refuses it, and the server puts the
+ * agents where the client expects to see them.
  *
  * The rule is the work's: the CEO runs the office, so only the CEO calls,
  * ends or speaks at a standup. Everyone else sees it, the same as the CEO.
@@ -19,7 +19,6 @@
 import { isBlocked } from "./collision.js";
 import { OCCUPANT_RADIUS } from "./constants.js";
 import { INTERACTION_KIND, type OfficeLayout, type Vec2, interactables, localToWorld, roomAt } from "./layout.js";
-import { managerSeat } from "./manager.js";
 import { normalizeYaw } from "./state.js";
 import type { OfficeActor } from "./work.js";
 
@@ -80,48 +79,65 @@ export function mayRunStandup(actor: OfficeActor): boolean {
   return actor.isCeo;
 }
 
-/** Where one agent stands at a standup, facing the manager. */
+/**
+ * Where one agent is at a standup: sat on a conference chair, or, with every
+ * chair taken, stood at an end of the table facing it.
+ */
 export interface StandupSpot extends Vec2 {
   readonly yaw: number;
+  /** The chair it sits on, by interactable id; `""` for a place to stand. */
+  readonly seatId: string;
 }
 
-/** Rows behind the CEO's place at the manager's desk, and the places along each, in metres. */
-const SPOT_ROWS = [0.9, 1.8, 2.7] as const;
-const SPOT_OFFSETS = [-0.75, 0.75, -1.5, 1.5, -2.25, 2.25] as const;
+/**
+ * How far past each end of a meeting table the standing places are, and the
+ * places across that end, in metres.
+ */
+const STAND_BEYOND = 0.9;
+const STAND_ACROSS = [0, -0.75, 0.75] as const;
 
 const spotCache = new WeakMap<OfficeLayout, readonly StandupSpot[]>();
 
 /**
- * The places the agents stand at a standup: rows behind the spot where the
- * CEO talks to the manager, each facing the manager in its chair, with an
- * aisle left clear up the middle to the desk. Derived from the layout like
- * the seats are, so a change to the manager's room re-places them; a place a
- * body would not fit, or outside the manager's room, is left out. Nearest the
- * desk first, which is the order they are handed out in.
+ * The places the agents take at a standup, in the conference room: every
+ * chair at its meeting table first, in seat order, each the chair's own pose,
+ * then places to stand past either end of the table, facing it, for agents
+ * that find every chair taken. Derived from the layout like the seats are, so
+ * a change to the conference room re-places them; a standing place a body
+ * would not fit, or outside the room, is left out. The order is the one they
+ * are handed out in.
  *
- * Empty for a layout without the manager's desk.
+ * Empty for a layout without a meeting table.
  */
 export function standupSpots(layout: OfficeLayout): readonly StandupSpot[] {
   const cached = spotCache.get(layout);
   if (cached !== undefined) {
     return cached;
   }
-  const seat = managerSeat(layout);
-  const desk = interactables(layout).find((spec) => spec.kind === INTERACTION_KIND.manager);
-  const room = desk === undefined ? undefined : roomAt(layout, desk.anchor);
   const spots: StandupSpot[] = [];
-  if (seat !== undefined && desk !== undefined && room !== undefined) {
-    for (const row of SPOT_ROWS) {
-      for (const offset of SPOT_OFFSETS) {
-        const point = localToWorld(desk.anchor, desk.anchor.yaw, offset, row);
+  const standing: StandupSpot[] = [];
+  for (const table of layout.desks) {
+    const room = table.meeting === true ? roomAt(layout, table) : undefined;
+    if (room === undefined) {
+      continue;
+    }
+    for (const seat of interactables(layout)) {
+      if (seat.kind === INTERACTION_KIND.seat && seat.deskId === table.id) {
+        spots.push({ x: seat.anchor.x, z: seat.anchor.z, yaw: normalizeYaw(seat.anchor.yaw), seatId: seat.id });
+      }
+    }
+    for (const end of [-1, 1]) {
+      for (const across of STAND_ACROSS) {
+        const point = localToWorld(table, table.yaw, end * (table.width / 2 + STAND_BEYOND), across);
         if (isBlocked(point, OCCUPANT_RADIUS, layout) || roomAt(layout, point)?.id !== room.id) {
           continue;
         }
-        const yaw = normalizeYaw(Math.atan2(-(seat.anchor.x - point.x), -(seat.anchor.z - point.z)));
-        spots.push({ x: point.x, z: point.z, yaw });
+        const yaw = normalizeYaw(Math.atan2(-(table.x - point.x), -(table.z - point.z)));
+        standing.push({ x: point.x, z: point.z, yaw, seatId: "" });
       }
     }
   }
+  spots.push(...standing);
   spotCache.set(layout, spots);
   return spots;
 }
