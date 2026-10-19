@@ -9,31 +9,37 @@ Prototype. Built with TypeScript, Three.js, and Colyseus.
 The walking skeleton: a shared office you can walk around with other people,
 with smooth remote movement and collision both sides agree on, and enough
 expression to tell each other you are there — emotes and text chat, each drawn
-above the speaker's head and relayed through the server. The floor plan is a
-whole floor — desk rows in the open plan, a meeting room, a kitchen, the CEO's
-corner office and the lobby, joined by a corridor — and it fronts a New York
-street: a main entrance from the pavement into the lobby, with a reception desk
-facing it, and glass along the whole street side, through which cars and yellow
-cabs drive both ways past brick walk-ups and glass towers, stopping at the lights
-by the crossing outside the door. It is furnished now,
+above the speaker's head and relayed through the server. The floor plan is the
+first floor of a building on a New York street, under a ceiling, laid out after
+a reference office plan: desk rows in the open plan, the CEO's office and the AI
+Manager's side by side across its north side, a lounge with a sofa, armchairs
+and a coffee table, a conference room with a long table seated down both sides,
+and a kitchen. A main entrance from the pavement opens into the building's
+lobby, with a reception desk facing it, lifts down the hall (placeholders,
+nobody rides them) and, to the left of the lifts, the door into the office. Glass
+runs along the whole street side, through which cars and yellow cabs drive both
+ways past brick walk-ups and glass towers, stopping at the lights by the
+crossing outside the door, and from the street the office's own building rises
+above it. It is furnished now,
 with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
 one shadow-casting light that follows the in-game clock, sun by day and moon by
 night, with the room light turning warmer and the desk screens glowing brighter
 as the outside light falls, and the sky, the street lamps and the windows across
 the street following the same clock. Some of it can be used: walk up to a desk chair, the
 kitchen's coffee machine or the project board and a prompt offers the action,
-which the server grants or refuses. The project board, on the open floor's north
-wall facing the desk rows, is this repository's own GitHub issues, grouped open,
+which the server grants or refuses. The project board, on the private offices'
+front wall facing the desk rows, is this repository's own GitHub issues, grouped open,
 in progress and recently closed, beside its open pull requests, each with its
 labels (`wave-1`, `client`…), polled by the server and shown to everyone the
 same. Its open issues are the work the office does, and what an agent is doing
 about each issue — who has it, in progress, handed in for review, done — is
 replicated state with its rules enforced on the server, shown on the board's
-cards. Two sticker boards beside it show the same work as anime-style sticky
-notes: one note per issue an agent may take on the issues board, west of the
-project board. An agent starting an issue walks there, takes its note and
-props it on its desk while it works. Once it hands in a pull request it pins
-the note, now naming the pull request, on the pull requests board to the east.
+cards. Two sticker boards facing each other across the lounge show the same
+work as anime-style sticky notes: one note per issue an agent may take on the
+issues board, on the lounge's west wall. An agent starting an issue walks there,
+takes its note and props it on its desk while it works. Once it hands in a pull
+request it pins the note, now naming the pull request, on the pull requests
+board across the lounge.
 A note whose work stops or is taken back goes back on the issues board. The game server never writes to GitHub. The work does: any open issue a
 maintainer has not labelled `agent-restricted`, handed by the CEO to one of the runner's
 coding agents, is worked in a git worktree of its own and handed in as a pull
@@ -44,7 +50,7 @@ repository can be on the floor too: an orchestrator or a runner reports each one
 to the server, and it walks in, sits at a free desk and types while it has a
 task, and gets up to wander and chat with the other idle agents while it has
 none. And someone is in charge of all of them: the AI Manager, a
-crimson body at its own desk in the lobby. The CEO walks up and talks to it —
+crimson body at its own desk in its office. The CEO walks up and talks to it —
 "what's open?", "what's the status of #12?", "which PRs are open?", "what is
 Claude 1 doing?", "assign the jumping ticket", "put someone on #39", "have
 Claude 1 do #39" — and it answers from the office's live state and the project
@@ -158,7 +164,7 @@ to the right edge while the AI Manager's conversation, the board close-up or an
 agent's terminal is open, so neither covers the other; see
 [The standup](#the-standup).
 
-At the manager's desk in the lobby, `E` opens the conversation with the AI Manager
+At the manager's desk in its office, `E` opens the conversation with the AI Manager
 and puts the keyboard in its message box: `Enter` sends, `Esc` closes, and
 stepping away closes it too. Only the CEO's messages are taken; anyone else's
 panel says who can, and the server refuses theirs with that reason.
@@ -243,8 +249,8 @@ orchestrator picks an assignment up, and when the agent starts on it or does not
 
 ### The standup
 
-A standup gathers every live agent on the floor in the manager's room, the
-lobby, for an update each, and is the CEO's alone to call, run and end: the
+A standup gathers every live agent on the floor in the manager's room, its
+office, for an update each, and is the CEO's alone to call, run and end: the
 rule is `mayRunStandup` in `packages/shared/src/standup.ts`, which the server
 checks on every command and the HUD asks only to disable its controls and say
 why. The CEO calls one with the roster's `Call a standup` button, or by telling
@@ -1120,9 +1126,9 @@ Then confirm all twenty-two:
     it leaves after the timeout, its chair free again. The same report without
     the secret gets `401` and changes nothing.
 14. **The manager answers the CEO, and only the CEO.** Both tabs show
-    the AI Manager, a crimson body seated at its desk in the lobby, with a
+    the AI Manager, a crimson body seated at its desk in its office, with a
     `Ready` badge, listed under **Manager** in the roster.
-    Walk Dana into the lobby to the desk, press `E` at `Talk to the manager`, and
+    Walk Dana into the manager's office to the desk, press `E` at `Talk to the manager`, and
     ask `what is everyone working on?`: the badge turns `Thinking…` for a moment
     and the answer lists every live agent and what it is doing, from the live
     office, or says nobody is on the floor.
@@ -1279,7 +1285,7 @@ Then confirm all twenty-two:
     seconds later. Once `Mock 1`'s beacon lights on
     `Permission: Bash pnpm test`, Milo's roster shows `Call a standup`
     disabled, `Only the CEO calls a standup`; Dana clicks it. Both mocks get up
-    and walk to the lobby, where they stand in rows facing the AI Manager, and
+    and walk to the manager's office, where they stand in rows facing the AI Manager, and
     the standup panel opens in both tabs. Once they have arrived each gives its
     update in turn, in a bubble, in the panel and in the AI Manager's
     conversation: `Mock 1`'s issue in progress with
@@ -1538,7 +1544,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/lighting.ts   the office's lights, set from that curve every frame
   src/scene/street.ts     the street outside the glass: road, lights, lamps, buildings, cars
   src/scene/traffic.ts    the cars: lanes, following distance and the lights at the crossing
-  src/scene/skyline.ts    the buildings round the street, generated from a seed
+  src/scene/skyline.ts    the buildings round the street, generated from a seed, and the office's own above it
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
@@ -1609,7 +1615,8 @@ Ten things are worth knowing before changing anything:
 - **The furniture is data too, and only some of it collides.** `shared/props.ts`
   derives every prop from the floor plan — a chair and a screen per workstation, a
   frame in every doorway gap, a plant in each room — so a layout change furnishes
-  itself. Walls, desks, the chairs, the lobby's reception counter and the
+  itself. Walls, desks, the chairs, the lobby's reception counter, the lounge's
+  sofa, armchairs and coffee table, the conference room's sideboard and the
   kitchen's furniture — the coffee machine, the counter's cabinets, the table and
   its chairs — are solid; screens,
   plants, door frames and the microwave on the counter are not. A chair's

@@ -11,7 +11,14 @@ import { describe, expect, it } from "vitest";
 
 import { INTERACT_RANGE, MAX_MANAGER_MESSAGE_LENGTH, MAX_MANAGER_REPLY_LENGTH } from "./constants.js";
 import { authorizeInteract, interactableById, nearestInteractable, promptFor } from "./interaction.js";
-import { INTERACTION_KIND, MANAGER_DESK_ID, MANAGER_INTERACTABLE_ID, OFFICE_LAYOUT, roomAt } from "./layout.js";
+import {
+  INTERACTION_KIND,
+  MANAGER_DESK_ID,
+  MANAGER_INTERACTABLE_ID,
+  MANAGER_OFFICE_ROOM_ID,
+  OFFICE_LAYOUT,
+  roomAt,
+} from "./layout.js";
 import {
   MANAGER_NAME,
   MANAGER_OCCUPANT_ID,
@@ -26,13 +33,13 @@ import { ANIMATION_STATE, MANAGER_STATUS, OCCUPANT_KIND, isAiManager } from "./s
 const NOBODY = () => undefined;
 
 describe("the manager's desk", () => {
-  it("stands in the lobby, with one chair", () => {
+  it("stands in the manager's own office, with one chair", () => {
     const desk = OFFICE_LAYOUT.desks.find((spec) => spec.id === MANAGER_DESK_ID);
     expect(desk).toBeDefined();
     if (desk === undefined) {
       return;
     }
-    expect(roomAt(OFFICE_LAYOUT, desk)?.id).toBe("lobby");
+    expect(roomAt(OFFICE_LAYOUT, desk)?.id).toBe(MANAGER_OFFICE_ROOM_ID);
     expect(managerSeat(OFFICE_LAYOUT)?.deskId).toBe(MANAGER_DESK_ID);
   });
 
@@ -45,7 +52,7 @@ describe("the manager's desk", () => {
     // From where the CEO stands, the manager is what is in reach, not its chair.
     expect(nearestInteractable(OFFICE_LAYOUT, spec.anchor, INTERACT_RANGE, NOBODY)?.id).toBe(MANAGER_INTERACTABLE_ID);
     expect(promptFor(spec)).toBe("Talk to the manager");
-    expect(roomAt(OFFICE_LAYOUT, spec.anchor)?.id).toBe("lobby");
+    expect(roomAt(OFFICE_LAYOUT, spec.anchor)?.id).toBe(MANAGER_OFFICE_ROOM_ID);
   });
 
   it("is free to talk at for anyone in reach, since a conversation holds nobody", () => {

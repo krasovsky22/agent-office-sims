@@ -24,6 +24,7 @@ import {
   IssueWork,
   LIVE_AGENT_STATUS,
   LiveAgent,
+  MANAGER_OFFICE_ROOM_ID,
   OCCUPANT_RADIUS,
   OFFICE_LAYOUT,
   type Occupant,
@@ -699,7 +700,7 @@ describe("a standup", () => {
     for (const body of [alpha, bravo]) {
       expect(body.interactableId).toBe("");
       expect(atSpot(body)).toBe(true);
-      expect(roomAt(OFFICE_LAYOUT, body)?.id).toBe("lobby");
+      expect(roomAt(OFFICE_LAYOUT, body)?.id).toBe(MANAGER_OFFICE_ROOM_ID);
       expect(body.animation).toBe(ANIMATION_STATE.idle);
     }
     expect(Math.hypot(alpha.x - bravo.x, alpha.z - bravo.z)).toBeGreaterThan(0.5);

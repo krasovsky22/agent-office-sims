@@ -8,7 +8,8 @@
  *
  * The plan is described on the ground plane: X runs east, Z runs south, and Y
  * (height) only ever comes from a `height` field. Collision is a 2D problem
- * here because nothing in this milestone can be stepped over or crawled under.
+ * here because nothing in this milestone can be stepped over or crawled under,
+ * and the ceiling is out of everyone's reach.
  */
 
 import {
@@ -81,6 +82,11 @@ export interface DeskSpec {
   readonly width: number;
   readonly depth: number;
   readonly height: number;
+  /**
+   * Set on a meeting table: seated down both long sides rather than one, with
+   * no screen in front of anybody, and drawn as a table rather than a desk.
+   */
+  readonly meeting?: true;
 }
 
 /**
@@ -89,7 +95,16 @@ export interface DeskSpec {
  * Desks have their own spec because the rows of them are the floor plan's main
  * structure; everything else solid that is not a wall or a desk is a prop.
  */
-export type PropKind = "coffee" | "cabinet" | "table" | "diningChair" | "reception";
+export type PropKind =
+  | "coffee"
+  | "cabinet"
+  | "table"
+  | "diningChair"
+  | "reception"
+  | "sofa"
+  | "armchair"
+  | "coffeeTable"
+  | "sideboard";
 
 /**
  * A solid furnishing other than a desk, positioned the same way a desk is.
@@ -154,6 +169,27 @@ export interface WallBoardSpec {
   readonly height: number;
   /** Height of the board's bottom edge above the floor. */
   readonly elevation: number;
+}
+
+/**
+ * A lift door set into a wall, for the building's lift lobby.
+ *
+ * A placeholder: nobody rides it, so nothing about it is interactive and
+ * nothing collides with it, the wall it is set into already does. It is
+ * positioned like a {@link WallBoardSpec}, by the centre of its face on the
+ * wall's surface, with `yaw` the way the face looks.
+ */
+export interface LiftSpec {
+  readonly id: string;
+  /** The room the doors open into. */
+  readonly roomId: string;
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+  /** Width of the door opening, frame excluded. */
+  readonly width: number;
+  /** Height of the door opening. */
+  readonly height: number;
 }
 
 /** A named region of the floor. Nothing collides with a room. */
@@ -335,6 +371,7 @@ export interface OfficeLayout {
   readonly props: readonly PropSpec[];
   readonly tabletop: readonly TabletopSpec[];
   readonly boards: readonly WallBoardSpec[];
+  readonly lifts: readonly LiftSpec[];
   readonly rooms: readonly RoomSpec[];
   readonly doorways: readonly DoorwaySpec[];
   readonly waypoints: readonly WaypointSpec[];
@@ -349,6 +386,13 @@ export interface OfficeLayout {
   readonly fixtures: readonly InteractableSpec[];
   /** The street outside, or `undefined` for a floor with no outside. */
   readonly street: StreetSpec | undefined;
+  /**
+   * Height of the ceiling over the whole floor slab, or `undefined` for a
+   * floor open to the sky. Nothing on the floor reaches it, so it never
+   * collides; it is here so the client draws it and keeps the camera under it
+   * from the same number the walls are built to.
+   */
+  readonly ceiling: number | undefined;
 }
 
 const WALL_HEIGHT = 3;
@@ -356,6 +400,10 @@ const WALL_HEIGHT = 3;
 /** Height of the railing along the kerb: waist high, so the street is seen over it. */
 const RAILING_HEIGHT = 1.05;
 const DESK_HEIGHT = 0.75;
+
+/** The lounge's soft seating, in its own frame: the seat faces -Z. */
+const SOFA = { width: 2, depth: 0.85, height: 0.9 } as const;
+const ARMCHAIR = { width: 0.9, depth: 0.85, height: 0.9 } as const;
 
 /** Quarter turn, the only yaw granularity the shipped layout uses. */
 const QUARTER_TURN = Math.PI / 2;
@@ -390,6 +438,15 @@ export const SIDEWALK_ROOM_ID = "sidewalk";
 /** The room the desk rows stand in, where the live agents work. */
 export const OPEN_FLOOR_ROOM_ID = "open-floor";
 
+/** The corner of the open floor with the soft seating and the sticker boards. */
+export const LOUNGE_ROOM_ID = "lounge";
+
+/** The AI manager's private office, where the standup gathers. */
+export const MANAGER_OFFICE_ROOM_ID = "manager-office";
+
+/** The building's entrance hall, with reception and the lifts. */
+export const LOBBY_ROOM_ID = "lobby";
+
 /** The open floor's wall board that shows this repository's own GitHub issues and pull requests. */
 export const PROJECT_BOARD_ID = "project-board";
 
@@ -402,7 +459,7 @@ export const ISSUES_STICKER_BOARD_ID = "issues-sticker-board";
 /** The sticker board an agent pins an issue's note on once it has handed in its pull request. */
 export const PULL_REQUESTS_STICKER_BOARD_ID = "pull-requests-sticker-board";
 
-/** The AI manager's desk in the lobby, where it sits for good. */
+/** The AI manager's desk in its office, where it sits for good. */
 export const MANAGER_DESK_ID = "desk-manager";
 
 /** The spot across the manager's desk where the CEO stands to talk to it. */
@@ -465,7 +522,7 @@ function counterRun(prefix: string, first: Vec2, yaw: number, count: number): Pr
 }
 
 /**
- * One row of identical desks, evenly spaced about x = 0.
+ * One row of identical desks, one at each of `xs`.
  *
  * The rows are the open floor's structure, so they are generated rather than
  * written out: a row written by hand is a row where one desk ends up a
@@ -476,32 +533,35 @@ function deskRow(prefix: string, z: number, yaw: number, xs: readonly number[]):
 }
 
 /** Where the desks in every open-floor row sit along X. */
-const DESK_ROW_XS = [-9, -5.4, -1.8, 1.8, 5.4, 9] as const;
+const DESK_ROW_XS = [-9.8, -7.4, -5, -2.6, -0.2, 2.2] as const;
 
 /**
- * The prototype office floor: one storey, six named rooms, and the pavement
- * outside its front door.
+ * The prototype office: the first floor of a building on a New York street,
+ * laid out after a reference floor plan, with the building's lobby across its
+ * south side and the pavement outside its front door.
  *
- * Reading from the north wall south:
+ * Reading it from the street, which is to the east:
  *
- * - A band of enclosed rooms, `z` from -11.7 to -5: the CEO's corner office in
- *   the north-west, then the meeting room, then the kitchen, then the entrance
- *   lobby in the north-east. Each is divided from the next by a solid wall and
- *   opens south onto the corridor through a doorway; the lobby's opening is the
- *   full width of the room, since that is the way in, and the AI manager's
- *   desk faces it.
- * - An east-west corridor, `z` from -4.7 to -2.7, running the whole width of
- *   the building and serving every door in that band.
- * - The open floor, `z` from -2.4 south, holding three rows of desks that all
- *   face the project board on its north partition. That partition separates
- *   it from the corridor, broken by two doorways so the walk from a desk to a
- *   meeting is short from either end of the room.
- *
- * - The street front, on the east: the shell's east wall is glass from end to
- *   end bar the main entrance, which opens from the pavement into the lobby
- *   with the reception counter facing it from across the room. The pavement
- *   runs the length of the building between the glass and a railing along the
- *   kerb; past the kerb is the {@link StreetSpec | street}, which is scenery.
+ * - The main entrance opens from the pavement into the lobby, a hall along the
+ *   building's south wall. Reception stands just inside, facing the door, in
+ *   front of a feature wall with the office's name on it. Down the hall the
+ *   lifts are set into a core on the north wall — placeholders, nobody rides
+ *   them — and to the left of the lifts a door leads north into the office.
+ * - That door comes in at the south-west corner of the open floor, the office's
+ *   main room, which holds three rows of desks facing north. Across its north
+ *   side stand two private offices side by side, the CEO's and the AI
+ *   manager's, and the project board hangs on their front wall between their
+ *   doors, so every desk looks at it.
+ * - West of the private offices the open floor opens into the lounge: a sofa
+ *   against the west wall, two armchairs round a coffee table, and the two
+ *   sticker boards facing each other across it.
+ * - The east side, on the street, is the conference room, a long table seated
+ *   down both sides and a sideboard along its south wall, with the kitchen
+ *   south of it; each opens west onto the open floor.
+ * - The shell's east wall is glass from end to end bar the main entrance. The
+ *   pavement runs the length of the building between the glass and a railing
+ *   along the kerb; past the kerb is the {@link StreetSpec | street}, which is
+ *   scenery. A ceiling covers the whole floor at the walls' height.
  *
  * Every interior doorway is 1.4m clear, which is twice an occupant's diameter: wide
  * enough that two people pass, narrow enough to read as a door. Walls are
@@ -509,7 +569,7 @@ const DESK_ROW_XS = [-9, -5.4, -1.8, 1.8, 5.4, 9] as const;
  * guarantee a fast mover cannot cross.
  */
 export const OFFICE_LAYOUT: OfficeLayout = {
-  name: "Ground Floor",
+  name: "First Floor",
   floor: rect(-12, -12, 12, 12),
   walls: [
     // Shell.
@@ -517,8 +577,8 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     wall("wall-south", -12, 11.7, 12, 12),
     wall("wall-west", -12, -12, -11.7, 12),
     // The street front, glazed either side of the main entrance into the lobby.
-    windowWall("wall-east-north", 11.7, -12, 12, -7.5),
-    windowWall("wall-east-south", 11.7, -5.7, 12, 12),
+    windowWall("wall-east-north", 11.7, -12, 12, 8.35),
+    windowWall("wall-east-south", 11.7, 10.15, 12, 12),
 
     // The pavement outside: a railing along the kerb and across each end,
     // where the neighbouring buildings' fronts begin.
@@ -526,97 +586,102 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     railing("railing-north", 12, -12.3, 15.5, -12),
     railing("railing-south", 12, 12, 15.5, 12.3),
 
-    // Dividers between the rooms in the north band. Each runs south to the
-    // corridor, so it doubles as the jamb of the doorway beside it.
-    wall("wall-ceo-east", -6, -11.7, -5.7, -4.7),
-    wall("wall-meeting-east", 0, -11.7, 0.3, -4.7),
-    wall("wall-kitchen-east", 6, -11.7, 6.3, -4.7),
+    // The private offices' side walls: the lounge's east wall, and the wall
+    // between the two offices. Each runs to the offices' front wall.
+    wall("wall-ceo-west", -6.7, -11.7, -6.4, -4.7),
+    wall("wall-ceo-east", -1.85, -11.7, -1.55, -4.7),
 
-    // South wall of the CEO office, with a doorway onto the corridor.
-    wall("wall-ceo-south-west", -11.7, -5, -9.4, -4.7),
-    wall("wall-ceo-south-east", -8, -5, -6, -4.7),
+    // The private offices' front wall onto the open floor, a doorway into each
+    // at its outer end, leaving the middle clear for the project board.
+    wall("wall-ceo-south-west", -6.4, -5, -6.1, -4.7),
+    wall("wall-ceo-south-east", -4.7, -5, -1.85, -4.7),
+    wall("wall-manager-south-west", -1.55, -5, 2.1, -4.7),
+    wall("wall-manager-south-east", 3.5, -5, 4, -4.7),
 
-    // South wall of the meeting room, with a doorway onto the corridor.
-    wall("wall-meeting-south-west", -5.7, -5, -3.55, -4.7),
-    wall("wall-meeting-south-east", -2.15, -5, 0, -4.7),
+    // The open floor's east wall, with a doorway into the conference room and
+    // one into the kitchen; the last stretch is the jamb of the kitchen's.
+    wall("wall-meeting-west-north", 4, -11.7, 4.3, -4.4),
+    wall("wall-meeting-west-south", 4, -3, 4.3, 5),
+    wall("wall-kitchen-west-south", 4, 6.4, 4.3, 6.8),
+    // Between the conference room and the kitchen.
+    wall("wall-meeting-south", 4.3, -0.6, 11.7, -0.3),
 
-    // South wall of the kitchen, with a doorway onto the corridor.
-    wall("wall-kitchen-south-west", 0.3, -5, 2.45, -4.7),
-    wall("wall-kitchen-south-east", 3.85, -5, 6, -4.7),
-
-    // The lobby has no south wall: its whole width opens onto the corridor.
-
-    // Partition between the corridor and the open floor, broken by a doorway
-    // at each end of the desk rows.
-    wall("wall-partition-west", -11.7, -2.7, -6.7, -2.4),
-    wall("wall-partition-centre", -5.3, -2.7, 5.3, -2.4),
-    wall("wall-partition-east", 6.7, -2.7, 11.7, -2.4),
+    // The office's south wall, which is the lobby's north wall, broken by the
+    // office door at its west end, clear of the end desk's chair.
+    wall("wall-lobby-west", -11.7, 6.5, -11.3, 6.8),
+    wall("wall-lobby-east", -9.9, 6.5, 11.7, 6.8),
+    // The lift core, against it east of the office door, and the feature wall
+    // behind reception, free-standing so the hall runs round it either side.
+    wall("wall-lifts", -8.4, 6.8, -4, 8),
+    wall("wall-reception", 7.4, 8.05, 7.7, 10.45),
   ],
   desks: [
     // Open floor. Every desk here faces north, so everyone sitting at one looks
-    // at the project board on the partition. Each chair backs onto the aisle
-    // south of its row, which is also where its occupant stands up.
-    ...deskRow("desk-north", 0.5, 0, DESK_ROW_XS),
-    ...deskRow("desk-middle", 4.5, 0, DESK_ROW_XS),
-    ...deskRow("desk-south", 8.5, 0, DESK_ROW_XS),
-
-    // One more desk at each end of the aisle between the middle and south rows,
-    // outboard of the rows and facing the board like them. The chair stays
-    // clear of the south row's end desk, so its occupant can still walk out.
-    desk("desk-west-wall", -10.4, 6.5, 0),
-    desk("desk-east-wall", 10.4, 6.5, 0),
+    // at the project board on the private offices' front wall. Each chair backs
+    // onto the aisle south of its row, which is also where its occupant stands up.
+    ...deskRow("desk-north", -2.2, 0, DESK_ROW_XS),
+    ...deskRow("desk-middle", 0.9, 0, DESK_ROW_XS),
+    ...deskRow("desk-south", 4, 0, DESK_ROW_XS),
 
     // Private rooms.
-    desk("desk-ceo", -9, -8.5, 0, 2.2, 0.9),
-    desk("table-meeting", -2.85, -8.5, 0, 3.2, 1.4),
+    desk("desk-ceo", -4.1, -8.5, 0, 2.2, 0.9),
+    // Down the middle of the conference room, its length north-south, so it is
+    // sat at from the west and from the east.
+    { ...desk("table-meeting", 8, -6.2, -QUARTER_TURN, 6.4, 1.4), meeting: true },
 
-    // The AI manager's, in the lobby: turned to face the way in, so whoever
-    // arrives from the corridor walks straight up to it.
-    desk(MANAGER_DESK_ID, 9, -9.2, Math.PI),
+    // The AI manager's, in its own office: turned to face the door, so whoever
+    // comes in walks straight up to it, with the floor in front of it left
+    // clear for a standup.
+    desk(MANAGER_DESK_ID, 1.225, -9.2, Math.PI),
   ],
   props: [
     // Against the kitchen's north wall, facing south into the room and straight
-    // down the walk from the door, with room to stand in front of it.
+    // up the walk from the door, with room to stand in front of it.
     {
       id: "coffee-machine",
       kind: "coffee",
-      x: 3.15,
-      z: -11.1,
+      x: 5.3,
+      z: 0.05,
       yaw: Math.PI,
       width: 0.9,
       depth: 0.7,
       height: 1.5,
     },
 
-    // The kitchen counter: an L of base cabinets in the north-west corner,
-    // backed onto the north wall west of the coffee machine and then down the
-    // west wall, both legs facing into the room. The door-to-machine walk runs
-    // east of all of it.
-    ...counterRun("kitchen-cabinet-north", { x: 2.175, z: -11.4 }, Math.PI, 3),
-    ...counterRun("kitchen-cabinet-west", { x: 0.6, z: -10.725 }, -QUARTER_TURN, 3),
+    // The kitchen counter: a run of base cabinets backed onto the north wall
+    // east of the coffee machine, facing into the room.
+    ...counterRun("kitchen-cabinet-north", { x: 8.45, z: 0 }, Math.PI, 4),
 
-    // A table for four in the kitchen's east half, a clear body's width east
-    // of the walk from the door to the coffee machine.
-    prop("kitchen-table", "table", 4.9, -8, 0, { width: 1.2, depth: 0.8, height: 0.75 }),
-    prop("kitchen-chair-1", "diningChair", 4.6, -8.65, Math.PI, DINING_CHAIR),
-    prop("kitchen-chair-2", "diningChair", 5.2, -8.65, Math.PI, DINING_CHAIR),
-    prop("kitchen-chair-3", "diningChair", 4.6, -7.35, 0, DINING_CHAIR),
-    prop("kitchen-chair-4", "diningChair", 5.2, -7.35, 0, DINING_CHAIR),
+    // A table for four in the kitchen's east half, by the window.
+    prop("kitchen-table", "table", 9.2, 3.4, 0, { width: 1.2, depth: 0.8, height: 0.75 }),
+    prop("kitchen-chair-1", "diningChair", 8.9, 2.75, Math.PI, DINING_CHAIR),
+    prop("kitchen-chair-2", "diningChair", 9.5, 2.75, Math.PI, DINING_CHAIR),
+    prop("kitchen-chair-3", "diningChair", 8.9, 4.05, 0, DINING_CHAIR),
+    prop("kitchen-chair-4", "diningChair", 9.5, 4.05, 0, DINING_CHAIR),
 
-    // Reception, against the lobby's west wall and turned to face the main
-    // entrance across the room: the first thing anyone coming in off the
-    // street sees. Clear of the lobby's opening onto the corridor, so the walk
-    // from the door to the rest of the office passes in front of it.
-    prop("reception-desk", "reception", 7, -6.75, -QUARTER_TURN, { width: 1.8, depth: 0.6, height: 1.05 }),
+    // The sideboard along the conference room's south wall, facing the table.
+    prop("meeting-sideboard", "sideboard", 8, -0.85, 0, { width: 2.4, depth: 0.5, height: 0.8 }),
+
+    // The lounge: a sofa against the west wall, a coffee table in front of it
+    // and two armchairs across the table, all facing in round it.
+    prop("lounge-sofa", "sofa", -11.275, -6.3, -QUARTER_TURN, SOFA),
+    prop("lounge-table", "coffeeTable", -9.7, -6.3, QUARTER_TURN, { width: 1.1, depth: 0.6, height: 0.45 }),
+    prop("lounge-armchair-1", "armchair", -8.3, -6.9, QUARTER_TURN, ARMCHAIR),
+    prop("lounge-armchair-2", "armchair", -8.3, -5.7, QUARTER_TURN, ARMCHAIR),
+
+    // Reception, just inside the main entrance and turned to face it: the
+    // first thing anyone coming in off the street sees, backed by the feature
+    // wall. The hall to the lifts runs round it on the north side.
+    prop("reception-desk", "reception", 8.6, 9.25, -QUARTER_TURN, { width: 1.8, depth: 0.6, height: 1.05 }),
   ],
   tabletop: [
-    // On the middle of the counter's north leg, pushed back against the wall.
+    // On the counter's second cabinet, pushed back against the wall.
     {
       id: "kitchen-microwave",
       kind: "microwave",
       on: "kitchen-cabinet-north-2",
-      x: 1.425,
-      z: -11.45,
+      x: 7.7,
+      z: -0.05,
       yaw: Math.PI,
       width: 0.55,
       depth: 0.4,
@@ -624,207 +689,216 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     },
   ],
   boards: [
-    // The open floor's partition, between its two doorways and facing south
-    // down the desk rows: every open-floor seat looks north at it, and an
-    // arriving player spawns facing it. As wide as the partition allows with a
-    // clear metre either side to the door frames, so it reads from the back row.
+    // The private offices' front wall, between their two doorways and facing
+    // south down the desk rows: every open-floor seat looks north at it, and an
+    // arriving player spawns facing it. As wide as the wall allows with a
+    // clear half metre either side to the door frames, so it reads from the
+    // back row.
     {
       id: PROJECT_BOARD_ID,
-      roomId: "open-floor",
-      x: 0,
-      z: -2.4,
+      roomId: OPEN_FLOOR_ROOM_ID,
+      x: -1.2,
+      z: -4.7,
       yaw: Math.PI,
-      width: 8.4,
+      width: 6,
       height: 2.6,
       elevation: 0.3,
     },
-    // The two sticker boards, one on each partition stretch outside the
-    // doorways, so issues are picked up at the west end of the floor and the
-    // pull requests pinned at the east. Kept clear of the door frames and of the
-    // open floor's plant in its north-east corner, with the reading spot in
-    // front of each a clear walk from the doorway's waypoint.
+    // The two sticker boards face each other across the lounge, issues on the
+    // shell's west wall and pull requests on the CEO office's, so an agent
+    // takes a note from one and later pins it on the other a few steps away,
+    // with the sofa clear to the south of both.
     {
       id: ISSUES_STICKER_BOARD_ID,
-      roomId: "open-floor",
-      x: -8.9,
-      z: -2.4,
-      yaw: Math.PI,
-      width: 3.6,
+      roomId: LOUNGE_ROOM_ID,
+      x: -11.7,
+      z: -9.4,
+      yaw: -QUARTER_TURN,
+      width: 3,
       height: 2.1,
       elevation: 0.45,
     },
     {
       id: PULL_REQUESTS_STICKER_BOARD_ID,
-      roomId: "open-floor",
-      x: 8.9,
-      z: -2.4,
-      yaw: Math.PI,
-      width: 3.6,
+      roomId: LOUNGE_ROOM_ID,
+      x: -6.7,
+      z: -9.4,
+      yaw: QUARTER_TURN,
+      width: 3,
       height: 2.1,
       elevation: 0.45,
     },
   ],
+  // Two lift doors in the face of the core, opening south into the lobby.
+  lifts: [
+    { id: "lift-west", roomId: LOBBY_ROOM_ID, x: -7.3, z: 8, yaw: Math.PI, width: 1.1, height: 2.2 },
+    { id: "lift-east", roomId: LOBBY_ROOM_ID, x: -5.1, z: 8, yaw: Math.PI, width: 1.1, height: 2.2 },
+  ],
   rooms: [
-    { id: "ceo-office", name: "CEO Office", bounds: rect(-11.7, -11.7, -6, -5) },
-    { id: "meeting-room", name: "Meeting Room", bounds: rect(-5.7, -11.7, 0, -5) },
-    { id: "kitchen", name: "Kitchen", bounds: rect(0.3, -11.7, 6, -5) },
-    { id: "lobby", name: "Lobby", bounds: rect(6.3, -11.7, 11.7, -5) },
-    { id: "corridor", name: "Corridor", bounds: rect(-11.7, -4.7, 11.7, -2.7) },
-    { id: "open-floor", name: "Open Floor", bounds: rect(-11.7, -2.4, 11.7, 11.7) },
+    { id: "ceo-office", name: "CEO Office", bounds: rect(-6.4, -11.7, -1.85, -5) },
+    { id: MANAGER_OFFICE_ROOM_ID, name: "AI Manager's Office", bounds: rect(-1.55, -11.7, 4, -5) },
+    { id: "meeting-room", name: "Conference Room", bounds: rect(4.3, -11.7, 11.7, -0.6) },
+    { id: "kitchen", name: "Kitchen", bounds: rect(4.3, -0.3, 11.7, 6.5) },
+    // Open to the open floor along its whole south side: no wall between them.
+    { id: LOUNGE_ROOM_ID, name: "Lounge", bounds: rect(-11.7, -11.7, -6.7, -4.7) },
+    { id: OPEN_FLOOR_ROOM_ID, name: "Open Floor", bounds: rect(-11.7, -4.7, 4, 6.5) },
+    { id: LOBBY_ROOM_ID, name: "Lobby", bounds: rect(-11.7, 6.8, 11.7, 11.7) },
     { id: SIDEWALK_ROOM_ID, name: "Sidewalk", bounds: rect(12, -12, 15.5, 12) },
   ],
   doorways: [
-    { id: "door-ceo", centre: { x: -8.7, z: -4.85 }, width: 1.4, axis: "x", connects: ["ceo-office", "corridor"] },
-    { id: "door-meeting", centre: { x: -2.85, z: -4.85 }, width: 1.4, axis: "x", connects: ["meeting-room", "corridor"] },
-    { id: "door-kitchen", centre: { x: 3.15, z: -4.85 }, width: 1.4, axis: "x", connects: ["kitchen", "corridor"] },
-    { id: "door-lobby", centre: { x: 9, z: -4.85 }, width: 5.4, axis: "x", connects: ["lobby", "corridor"] },
-    { id: "door-floor-west", centre: { x: -6, z: -2.55 }, width: 1.4, axis: "x", connects: ["corridor", "open-floor"] },
-    { id: "door-floor-east", centre: { x: 6, z: -2.55 }, width: 1.4, axis: "x", connects: ["corridor", "open-floor"] },
-    { id: "door-entrance", centre: { x: 11.85, z: -6.6 }, width: 1.8, axis: "z", connects: ["lobby", SIDEWALK_ROOM_ID] },
+    { id: "door-ceo", centre: { x: -5.4, z: -4.85 }, width: 1.4, axis: "x", connects: ["ceo-office", OPEN_FLOOR_ROOM_ID] },
+    {
+      id: "door-manager",
+      centre: { x: 2.8, z: -4.85 },
+      width: 1.4,
+      axis: "x",
+      connects: [MANAGER_OFFICE_ROOM_ID, OPEN_FLOOR_ROOM_ID],
+    },
+    { id: "door-meeting", centre: { x: 4.15, z: -3.7 }, width: 1.4, axis: "z", connects: ["meeting-room", OPEN_FLOOR_ROOM_ID] },
+    { id: "door-kitchen", centre: { x: 4.15, z: 5.7 }, width: 1.4, axis: "z", connects: ["kitchen", OPEN_FLOOR_ROOM_ID] },
+    { id: "door-office", centre: { x: -10.6, z: 6.65 }, width: 1.4, axis: "x", connects: [OPEN_FLOOR_ROOM_ID, LOBBY_ROOM_ID] },
+    { id: "door-entrance", centre: { x: 11.85, z: 9.25 }, width: 1.8, axis: "z", connects: [LOBBY_ROOM_ID, SIDEWALK_ROOM_ID] },
   ],
   // Every link is axis-aligned and clear of the geometry, so a body can follow
   // one by walking straight at the next node.
   waypoints: [
-    // CEO office.
-    { id: "wp-ceo-desk", x: -8.7, z: -6.8, links: ["wp-ceo-door"] },
-    { id: "wp-ceo-door", x: -8.7, z: -4.85, links: ["wp-ceo-desk", "wp-corridor-ceo"] },
+    // Lounge: between the two sticker boards, and down its east side, past
+    // the armchairs, to the open floor.
+    { id: "wp-lounge-boards", x: -9.2, z: -9.4, links: ["wp-lounge-east"] },
+    { id: "wp-lounge-east", x: -7.25, z: -9.4, links: ["wp-lounge-boards", "wp-floor-front-lounge"] },
 
-    // Meeting room.
-    { id: "wp-meeting-table", x: -2.85, z: -6.4, links: ["wp-meeting-door", "wp-meeting-east"] },
-    { id: "wp-meeting-door", x: -2.85, z: -4.85, links: ["wp-meeting-table", "wp-corridor-meeting"] },
-    // Round the table's east end to the far wall, which the table hides from
-    // the door.
-    { id: "wp-meeting-east", x: -0.6, z: -6.4, links: ["wp-meeting-table", "wp-meeting-north"] },
-    { id: "wp-meeting-north", x: -0.6, z: -10.7, links: ["wp-meeting-east"] },
+    // CEO office.
+    { id: "wp-ceo-desk", x: -5.4, z: -6.8, links: ["wp-ceo-door"] },
+    { id: "wp-ceo-door", x: -5.4, z: -4.85, links: ["wp-ceo-desk", "wp-floor-front-ceo"] },
+
+    // The AI manager's office, and round the east end of its desk to its chair.
+    { id: "wp-manager-door", x: 2.8, z: -4.85, links: ["wp-manager-centre", "wp-floor-front-manager"] },
+    { id: "wp-manager-centre", x: 2.8, z: -8.2, links: ["wp-manager-door", "wp-manager-desk-back"] },
+    { id: "wp-manager-desk-back", x: 2.8, z: -10.9, links: ["wp-manager-centre"] },
+
+    // Conference room: in at the door, and a loop round the table, which
+    // hides each side's chairs from the other.
+    { id: "wp-meeting-door", x: 4.15, z: -3.7, links: ["wp-floor-front-east", "wp-meeting-west"] },
+    {
+      id: "wp-meeting-west",
+      x: 5.6,
+      z: -3.7,
+      links: ["wp-meeting-door", "wp-meeting-north-west", "wp-meeting-south-west"],
+    },
+    { id: "wp-meeting-north-west", x: 5.6, z: -10.6, links: ["wp-meeting-west", "wp-meeting-north-east"] },
+    { id: "wp-meeting-north-east", x: 10.6, z: -10.6, links: ["wp-meeting-north-west", "wp-meeting-east"] },
+    { id: "wp-meeting-east", x: 10.6, z: -6.2, links: ["wp-meeting-north-east", "wp-meeting-south-east"] },
+    { id: "wp-meeting-south-east", x: 10.6, z: -2, links: ["wp-meeting-east", "wp-meeting-south-west"] },
+    { id: "wp-meeting-south-west", x: 5.6, z: -2, links: ["wp-meeting-south-east", "wp-meeting-west"] },
 
     // Kitchen.
-    { id: "wp-kitchen-coffee", x: 3.15, z: -10, links: ["wp-kitchen-door"] },
-    { id: "wp-kitchen-door", x: 3.15, z: -4.85, links: ["wp-kitchen-coffee", "wp-corridor-kitchen"] },
+    { id: "wp-kitchen-door", x: 4.15, z: 5.7, links: ["wp-floor-back-east", "wp-kitchen-centre"] },
+    { id: "wp-kitchen-centre", x: 5.3, z: 5.7, links: ["wp-kitchen-door", "wp-kitchen-coffee"] },
+    { id: "wp-kitchen-coffee", x: 5.3, z: 1.6, links: ["wp-kitchen-centre"] },
 
-    // Lobby, and round the east end of the manager's desk to its chair.
-    { id: "wp-lobby-centre", x: 9, z: -8, links: ["wp-lobby-door", "wp-lobby-east"] },
-    { id: "wp-lobby-door", x: 9, z: -4.85, links: ["wp-lobby-centre", "wp-corridor-lobby"] },
+    // Open floor: a walk along the front, under the project board and past
+    // every door off it; an aisle behind each desk row; and an aisle down each
+    // side joining them. Two nodes along the middle of each aisle as well, each
+    // between two desks, so every chair has one within a few steps along its
+    // own aisle.
     {
-      id: "wp-lobby-east",
-      x: 10.8,
-      z: -8,
-      links: ["wp-lobby-centre", "wp-lobby-desk-back", "wp-lobby-entrance"],
+      id: "wp-floor-front-west",
+      x: -11.15,
+      z: -3.7,
+      links: ["wp-floor-front-lounge", "wp-floor-aisle-north-west"],
     },
-    { id: "wp-lobby-desk-back", x: 10.8, z: -10.9, links: ["wp-lobby-east"] },
+    {
+      id: "wp-floor-front-lounge",
+      x: -7.25,
+      z: -3.7,
+      links: ["wp-floor-front-west", "wp-lounge-east", "wp-floor-front-ceo"],
+    },
+    { id: "wp-floor-front-ceo", x: -5.4, z: -3.7, links: ["wp-floor-front-lounge", "wp-ceo-door", "wp-floor-front"] },
+    { id: "wp-floor-front", x: -1.2, z: -3.7, links: ["wp-floor-front-ceo", "wp-floor-front-manager"] },
+    {
+      id: "wp-floor-front-manager",
+      x: 2.8,
+      z: -3.7,
+      links: ["wp-floor-front", "wp-manager-door", "wp-floor-front-east"],
+    },
+    {
+      id: "wp-floor-front-east",
+      x: 3.5,
+      z: -3.7,
+      links: ["wp-floor-front-manager", "wp-meeting-door", "wp-floor-aisle-north-east"],
+    },
+
+    {
+      id: "wp-floor-aisle-north-west",
+      x: -11.15,
+      z: -0.2,
+      links: ["wp-floor-front-west", "wp-floor-aisle-north-mid", "wp-floor-aisle-south-west"],
+    },
+    { id: "wp-floor-aisle-north-mid", x: -6.2, z: -0.2, links: ["wp-floor-aisle-north-west", "wp-floor-aisle-north"] },
+    { id: "wp-floor-aisle-north", x: -1.4, z: -0.2, links: ["wp-floor-aisle-north-mid", "wp-floor-aisle-north-east"] },
+    {
+      id: "wp-floor-aisle-north-east",
+      x: 3.5,
+      z: -0.2,
+      links: ["wp-floor-aisle-north", "wp-floor-front-east", "wp-floor-aisle-south-east"],
+    },
+
+    {
+      id: "wp-floor-aisle-south-west",
+      x: -11.15,
+      z: 2.88,
+      links: ["wp-floor-aisle-north-west", "wp-floor-aisle-south-mid", "wp-floor-back-west"],
+    },
+    { id: "wp-floor-aisle-south-mid", x: -6.2, z: 2.88, links: ["wp-floor-aisle-south-west", "wp-floor-aisle-south"] },
+    { id: "wp-floor-aisle-south", x: -1.4, z: 2.88, links: ["wp-floor-aisle-south-mid", "wp-floor-aisle-south-east"] },
+    {
+      id: "wp-floor-aisle-south-east",
+      x: 3.5,
+      z: 2.88,
+      links: ["wp-floor-aisle-south", "wp-floor-aisle-north-east", "wp-floor-back-east"],
+    },
+
+    { id: "wp-floor-back-west", x: -11.15, z: 5.7, links: ["wp-floor-aisle-south-west", "wp-floor-back-door"] },
+    { id: "wp-floor-back-door", x: -10.6, z: 5.7, links: ["wp-floor-back-west", "wp-office-door", "wp-floor-back-mid"] },
+    { id: "wp-floor-back-mid", x: -6.2, z: 5.7, links: ["wp-floor-back-door", "wp-floor-back"] },
+    { id: "wp-floor-back", x: -1.4, z: 5.7, links: ["wp-floor-back-mid", "wp-floor-back-east"] },
+    {
+      id: "wp-floor-back-east",
+      x: 3.5,
+      z: 5.7,
+      links: ["wp-floor-back", "wp-floor-aisle-south-east", "wp-kitchen-door"],
+    },
+
+    // Out through the office door into the lobby, along the hall past the
+    // lifts, round the north side of reception, and out of the main entrance.
+    { id: "wp-office-door", x: -10.6, z: 6.65, links: ["wp-floor-back-door", "wp-lobby-west"] },
+    { id: "wp-lobby-west", x: -10.6, z: 9.4, links: ["wp-office-door", "wp-lobby-lifts"] },
+    { id: "wp-lobby-lifts", x: -6.2, z: 9.4, links: ["wp-lobby-west", "wp-lobby-centre"] },
+    { id: "wp-lobby-centre", x: 6.6, z: 9.4, links: ["wp-lobby-lifts", "wp-lobby-north"] },
+    { id: "wp-lobby-north", x: 6.6, z: 7.4, links: ["wp-lobby-centre", "wp-lobby-east"] },
+    { id: "wp-lobby-east", x: 10.8, z: 7.4, links: ["wp-lobby-north", "wp-lobby-entrance"] },
 
     // In through the main entrance from the pavement, and up and down it.
-    { id: "wp-lobby-entrance", x: 10.8, z: -6.6, links: ["wp-lobby-east", "wp-entrance-door"] },
-    { id: "wp-entrance-door", x: 11.85, z: -6.6, links: ["wp-lobby-entrance", "wp-sidewalk-door"] },
+    { id: "wp-lobby-entrance", x: 10.8, z: 9.25, links: ["wp-lobby-east", "wp-entrance-door"] },
+    { id: "wp-entrance-door", x: 11.85, z: 9.25, links: ["wp-lobby-entrance", "wp-sidewalk-door"] },
     {
       id: "wp-sidewalk-door",
       x: 13.7,
-      z: -6.6,
+      z: 9.25,
       links: ["wp-entrance-door", "wp-sidewalk-north", "wp-sidewalk-south"],
     },
     { id: "wp-sidewalk-north", x: 13.7, z: -10.8, links: ["wp-sidewalk-door"] },
     { id: "wp-sidewalk-south", x: 13.7, z: 10.8, links: ["wp-sidewalk-door"] },
-
-    // Corridor, one node off each doorway so a turn lands on a node.
-    { id: "wp-corridor-ceo", x: -8.7, z: -3.7, links: ["wp-ceo-door", "wp-corridor-west-door"] },
-    {
-      id: "wp-corridor-west-door",
-      x: -6,
-      z: -3.7,
-      links: ["wp-corridor-ceo", "wp-corridor-meeting", "wp-floor-west-door"],
-    },
-    {
-      id: "wp-corridor-meeting",
-      x: -2.85,
-      z: -3.7,
-      links: ["wp-corridor-west-door", "wp-meeting-door", "wp-corridor-kitchen"],
-    },
-    {
-      id: "wp-corridor-kitchen",
-      x: 3.15,
-      z: -3.7,
-      links: ["wp-corridor-meeting", "wp-kitchen-door", "wp-corridor-east-door"],
-    },
-    {
-      id: "wp-corridor-east-door",
-      x: 6,
-      z: -3.7,
-      links: ["wp-corridor-kitchen", "wp-floor-east-door", "wp-corridor-lobby"],
-    },
-    { id: "wp-corridor-lobby", x: 9, z: -3.7, links: ["wp-corridor-east-door", "wp-lobby-door"] },
-
-    // Open floor: a spine along the north edge, then one node per aisle end.
-    {
-      id: "wp-floor-west-door",
-      x: -6,
-      z: -1.6,
-      links: ["wp-corridor-west-door", "wp-floor-north", "wp-floor-north-west"],
-    },
-    {
-      id: "wp-floor-north",
-      x: 0,
-      z: -1.6,
-      links: ["wp-floor-west-door", "wp-floor-east-door", "wp-floor-aisle-north"],
-    },
-    { id: "wp-floor-east-door", x: 6, z: -1.6, links: ["wp-corridor-east-door", "wp-floor-north", "wp-floor-north-east"] },
-
-    // In front of each sticker board, and down the aisle end beside it to the
-    // desk rows, so an agent fetching or pinning a note walks straight between
-    // the board and its desk rather than round through the middle of the floor.
-    { id: "wp-floor-north-west", x: -7.2, z: -1.6, links: ["wp-floor-west-door", "wp-floor-aisle-north-west"] },
-    { id: "wp-floor-north-east", x: 7.2, z: -1.6, links: ["wp-floor-east-door", "wp-floor-aisle-north-east"] },
-
-    { id: "wp-floor-aisle-north-west", x: -7.2, z: 2.5, links: ["wp-floor-aisle-north", "wp-floor-north-west"] },
-    {
-      id: "wp-floor-aisle-north",
-      x: 0,
-      z: 2.5,
-      links: [
-        "wp-floor-north",
-        "wp-floor-aisle-north-west",
-        "wp-floor-aisle-north-east",
-        "wp-floor-aisle-south",
-      ],
-    },
-    { id: "wp-floor-aisle-north-east", x: 7.2, z: 2.5, links: ["wp-floor-aisle-north", "wp-floor-north-east"] },
-
-    { id: "wp-floor-aisle-south-west", x: -7.2, z: 6.5, links: ["wp-floor-aisle-south"] },
-    {
-      id: "wp-floor-aisle-south",
-      x: 0,
-      z: 6.5,
-      links: [
-        "wp-floor-aisle-north",
-        "wp-floor-aisle-south-west",
-        "wp-floor-aisle-south-east",
-        "wp-floor-back",
-      ],
-    },
-    { id: "wp-floor-aisle-south-east", x: 7.2, z: 6.5, links: ["wp-floor-aisle-south"] },
-
-    { id: "wp-floor-back-west", x: -7.2, z: 10.5, links: ["wp-floor-back", "wp-floor-back-west-wall"] },
-    {
-      id: "wp-floor-back",
-      x: 0,
-      z: 10.5,
-      links: ["wp-floor-aisle-south", "wp-floor-back-west", "wp-floor-back-east"],
-    },
-    { id: "wp-floor-back-east", x: 7.2, z: 10.5, links: ["wp-floor-back", "wp-floor-back-east-wall"] },
-
-    // Behind the side-wall desks, round the end of the south row: the end desk
-    // hides each of their chairs from the aisle nodes.
-    { id: "wp-floor-back-west-wall", x: -10.4, z: 10.5, links: ["wp-floor-back-west"] },
-    { id: "wp-floor-back-east-wall", x: 10.4, z: 10.5, links: ["wp-floor-back-east"] },
   ],
-  // The aisle between the first two desk rows, facing north up the floor. Far
-  // enough from the partition that the third-person camera gets its full boom,
-  // so an arriving player sees the office rather than the inside of a wall.
+  // The aisle between the first two desk rows, facing north up the floor at
+  // the project board, each between two desks so no chair is in reach.
   spawnPoints: [
-    { x: 0, z: 2.5, yaw: 0 },
-    { x: -3.6, z: 2.5, yaw: 0 },
-    { x: 3.6, z: 2.5, yaw: 0 },
-    { x: -7.2, z: 2.5, yaw: 0 },
-    { x: 7.2, z: 2.5, yaw: 0 },
-    { x: 0, z: 3, yaw: 0 },
+    { x: -1.4, z: -0.2, yaw: 0 },
+    { x: -3.8, z: -0.2, yaw: 0 },
+    { x: 1, z: -0.2, yaw: 0 },
+    { x: -6.2, z: -0.2, yaw: 0 },
+    { x: -8.6, z: -0.2, yaw: 0 },
+    { x: -1.4, z: 2.88, yaw: 0 },
   ],
   fixtures: [
     // Across the manager's desk from its chair, facing it. The desk and the
@@ -832,7 +906,7 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     {
       id: MANAGER_INTERACTABLE_ID,
       kind: INTERACTION_KIND.manager,
-      anchor: { x: 9, z: -8.2, yaw: 0 },
+      anchor: { x: 1.225, z: -8.2, yaw: 0 },
       volume: undefined,
       exit: undefined,
       deskId: undefined,
@@ -842,7 +916,8 @@ export const OFFICE_LAYOUT: OfficeLayout = {
   // A two-way avenue, two lanes each way, driving on the right: the near lanes
   // run south past the windows and the far ones north. It runs on well past
   // where the client's fog has swallowed it, so nobody on the pavement sees
-  // where it ends or where the cars wrap round.
+  // where it ends or where the cars wrap round. The crossing is outside the
+  // main entrance.
   street: {
     road: rect(15.8, -280, 26.2, 280),
     lanes: [
@@ -851,9 +926,10 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       { x: 22.3, direction: -1 },
       { x: 24.9, direction: -1 },
     ],
-    crossingZ: -6.6,
+    crossingZ: 9.25,
     farFrontX: 30,
   },
+  ceiling: WALL_HEIGHT,
 };
 
 /**
@@ -872,12 +948,23 @@ export function localToWorld(origin: Vec2, yaw: number, localX: number, localZ: 
 }
 
 /**
+ * A yaw turned half round, kept within (-PI, PI] so a facing derived from
+ * the layout is never a full turn off the range everyone else's yaw is in.
+ */
+function turnedRound(yaw: number): number {
+  const turned = yaw - Math.PI;
+  return turned <= -Math.PI ? turned + 2 * Math.PI : turned;
+}
+
+/**
  * The places to sit at a desk.
  *
  * Seat count comes from the desk's width, so a 1.6 m desk gets one and a 3.2 m
- * meeting table gets two without either number being written down. The
- * occupant sits on the desk's +Z side and faces it, which is -Z local — so a
- * desk's yaw is also the yaw of everyone sitting at it.
+ * table gets two without either number being written down. The occupant sits
+ * on the desk's +Z side and faces it, which is -Z local — so a desk's yaw is
+ * also the yaw of everyone sitting at it. A meeting table is sat at from its
+ * -Z side as well, by a second row turned half round to face back across it;
+ * that row comes after the first.
  *
  * Both the chair props and the seat interactables come from here, which is
  * what keeps the chair you see and the chair you sit in at one position.
@@ -885,24 +972,28 @@ export function localToWorld(origin: Vec2, yaw: number, localX: number, localZ: 
 export function workstations(spec: DeskSpec): readonly Workstation[] {
   const seats = Math.max(1, Math.round(spec.width / SEAT_PITCH));
   const pitch = spec.width / seats;
+  const sides = spec.meeting === true ? [1, -1] : [1];
   const result: Workstation[] = [];
-  for (let seat = 0; seat < seats; seat += 1) {
-    const localX = (seat - (seats - 1) / 2) * pitch;
-    const position = localToWorld(spec, spec.yaw, localX, spec.depth / 2 + CHAIR_GAP);
-    // Straight back from the desk, so getting up never stands anyone inside the
-    // desk or the neighbouring chair.
-    const exit = localToWorld(
-      spec,
-      spec.yaw,
-      localX,
-      spec.depth / 2 + CHAIR_GAP + DESK_CHAIR.depth / 2 + OCCUPANT_RADIUS + STAND_UP_GAP,
-    );
-    result.push({
-      localX,
-      seat: { x: position.x, z: position.z, yaw: spec.yaw },
-      chair: footprintAabb(position, spec.yaw, DESK_CHAIR.width, DESK_CHAIR.depth),
-      exit,
-    });
+  for (const side of sides) {
+    const yaw = side > 0 ? spec.yaw : turnedRound(spec.yaw);
+    for (let seat = 0; seat < seats; seat += 1) {
+      const localX = (seat - (seats - 1) / 2) * pitch;
+      const position = localToWorld(spec, spec.yaw, localX, side * (spec.depth / 2 + CHAIR_GAP));
+      // Straight back from the desk, so getting up never stands anyone inside the
+      // desk or the neighbouring chair.
+      const exit = localToWorld(
+        spec,
+        spec.yaw,
+        localX,
+        side * (spec.depth / 2 + CHAIR_GAP + DESK_CHAIR.depth / 2 + OCCUPANT_RADIUS + STAND_UP_GAP),
+      );
+      result.push({
+        localX,
+        seat: { x: position.x, z: position.z, yaw },
+        chair: footprintAabb(position, yaw, DESK_CHAIR.width, DESK_CHAIR.depth),
+        exit,
+      });
+    }
   }
   return result;
 }
@@ -935,6 +1026,10 @@ const PROP_INTERACTION: Record<PropKind, InteractionKind | undefined> = {
   table: undefined,
   diningChair: undefined,
   reception: undefined,
+  sofa: undefined,
+  armchair: undefined,
+  coffeeTable: undefined,
+  sideboard: undefined,
 };
 
 const interactableCache = new WeakMap<OfficeLayout, readonly InteractableSpec[]>();
@@ -996,7 +1091,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
     all.push({
       id: spec.id,
       kind,
-      anchor: { x: position.x, z: position.z, yaw: spec.yaw - Math.PI },
+      anchor: { x: position.x, z: position.z, yaw: turnedRound(spec.yaw) },
       volume: undefined,
       exit: undefined,
       deskId: undefined,
@@ -1009,7 +1104,7 @@ export function interactables(layout: OfficeLayout): readonly InteractableSpec[]
     all.push({
       id: board.id,
       kind: INTERACTION_KIND.board,
-      anchor: { x: position.x, z: position.z, yaw: board.yaw - Math.PI },
+      anchor: { x: position.x, z: position.z, yaw: turnedRound(board.yaw) },
       volume: undefined,
       exit: undefined,
       deskId: undefined,
@@ -1256,37 +1351,65 @@ function overlapsObstacle(point: Vec2, boxes: readonly Aabb2[]): boolean {
 /** How far either side of a board's face it is sampled for a wall and a room. */
 const BOARD_PROBE = MIN_OBSTACLE_THICKNESS / 2;
 
+/** Something mounted flat on a wall and facing into a room: a board or a lift's doors. */
+interface WallMount {
+  readonly id: string;
+  readonly roomId: string;
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+}
+
 /**
- * Checks that every board hangs on a wall and faces into the room it names.
+ * Whether a wall mount is on a wall and faces into the room it names, as
+ * problem strings in `words`' terms.
+ */
+function describeMountProblems(
+  layout: OfficeLayout,
+  mount: WallMount,
+  words: { readonly noun: string; readonly faces: string; readonly face: string; readonly hung: string },
+): string[] {
+  const problems: string[] = [];
+  if (!layout.rooms.some((room) => room.id === mount.roomId)) {
+    problems.push(`${words.noun} ${mount.id} ${words.faces} unknown room ${mount.roomId}`);
+  }
+  const forwardX = -Math.sin(mount.yaw);
+  const forwardZ = -Math.cos(mount.yaw);
+  const behind = { x: mount.x - forwardX * BOARD_PROBE, z: mount.z - forwardZ * BOARD_PROBE };
+  const inFront = {
+    x: mount.x + forwardX * (BOARD_PROBE + OCCUPANT_RADIUS),
+    z: mount.z + forwardZ * (BOARD_PROBE + OCCUPANT_RADIUS),
+  };
+  if (!layout.walls.some((spec) => containsPoint(spec.footprint, behind))) {
+    problems.push(`${words.noun} ${mount.id} is not ${words.hung} a wall`);
+  }
+  if (roomAt(layout, inFront)?.id !== mount.roomId) {
+    problems.push(`${words.noun} ${mount.id} does not ${words.face} into room ${mount.roomId}`);
+  }
+  return problems;
+}
+
+/**
+ * Checks that every board hangs on a wall and faces into the room it names,
+ * and every lift is set into a wall and opens into its room.
  *
- * A board is placed by hand, so the mistake to catch is one turned the wrong
- * way round — facing into the wall it is mounted on — or left hanging in the
+ * Both are placed by hand, so the mistake to catch is one turned the wrong way
+ * round — facing into the wall it is mounted on — or left hanging in the
  * middle of a room.
  */
 function describeBoardProblems(layout: OfficeLayout): string[] {
   const problems: string[] = [];
-  const roomIds = new Set(layout.rooms.map((room) => room.id));
-
   for (const board of layout.boards) {
-    if (!roomIds.has(board.roomId)) {
-      problems.push(`board ${board.id} faces unknown room ${board.roomId}`);
-    }
     if (board.width <= 0 || board.height <= 0 || board.elevation < 0) {
       problems.push(`board ${board.id} has a non-positive size or a negative elevation`);
     }
-    const forwardX = -Math.sin(board.yaw);
-    const forwardZ = -Math.cos(board.yaw);
-    const behind = { x: board.x - forwardX * BOARD_PROBE, z: board.z - forwardZ * BOARD_PROBE };
-    const inFront = {
-      x: board.x + forwardX * (BOARD_PROBE + OCCUPANT_RADIUS),
-      z: board.z + forwardZ * (BOARD_PROBE + OCCUPANT_RADIUS),
-    };
-    if (!layout.walls.some((spec) => containsPoint(spec.footprint, behind))) {
-      problems.push(`board ${board.id} is not hung on a wall`);
+    problems.push(...describeMountProblems(layout, board, { noun: "board", faces: "faces", face: "face", hung: "hung on" }));
+  }
+  for (const lift of layout.lifts) {
+    if (lift.width <= 0 || lift.height <= 0) {
+      problems.push(`lift ${lift.id} has a non-positive size`);
     }
-    if (roomAt(layout, inFront)?.id !== board.roomId) {
-      problems.push(`board ${board.id} does not face into room ${board.roomId}`);
-    }
+    problems.push(...describeMountProblems(layout, lift, { noun: "lift", faces: "opens", face: "open", hung: "set into" }));
   }
   return problems;
 }

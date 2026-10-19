@@ -26,7 +26,7 @@ import {
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-import { type BuildingSpec, type BuildingStyle, seededRandom, skylineOf } from "./skyline.js";
+import { type BuildingSpec, type BuildingStyle, seededRandom, skylineOf, upperStoreysOf } from "./skyline.js";
 import {
   CROSSING_HALF_WIDTH,
   type Car,
@@ -211,15 +211,28 @@ function facadeTextures(style: BuildingStyle, random: () => number): { map: THRE
   return { map: repeating(colour.canvas, true), glow: repeating(glow.canvas, true) };
 }
 
+/** BoxGeometry's index entries for its -Y face: two triangles, after the +X, -X and +Y faces. */
+const UNDERSIDE_INDICES = { start: 18, count: 6 } as const;
+
 /**
  * One building's box, its facades mapped so a window bay is the same size on
  * every building and its roof samples plain wall.
+ *
+ * Without an underside: nobody sees a building from beneath, except the
+ * office's own upper storeys from the office, where it would fight the
+ * ceiling for every pixel.
  */
 function buildingGeometry(building: BuildingSpec): THREE.BufferGeometry {
   const width = building.maxX - building.minX;
   const depth = building.maxZ - building.minZ;
+  const base = building.base ?? 0;
   const geometry = new THREE.BoxGeometry(width, building.height, depth);
-  geometry.translate((building.minX + building.maxX) / 2, building.height / 2, (building.minZ + building.maxZ) / 2);
+  geometry.translate((building.minX + building.maxX) / 2, base + building.height / 2, (building.minZ + building.maxZ) / 2);
+  const index = Array.from(geometry.getIndex()?.array ?? []);
+  index.splice(UNDERSIDE_INDICES.start, UNDERSIDE_INDICES.count);
+  geometry.setIndex(index);
+  // The per-face groups would now point at the wrong faces, and one material draws them all.
+  geometry.clearGroups();
 
   const uv = geometry.getAttribute("uv");
   const tileWidth = BAY_WIDTH * TILE_BAYS;
@@ -247,9 +260,13 @@ function buildingGeometry(building: BuildingSpec): THREE.BufferGeometry {
   return geometry;
 }
 
-/** The buildings, merged into one mesh per style, plus the water tanks on the walk-ups. */
+/**
+ * The buildings, the office's own upper storeys among them, merged into one
+ * mesh per style, plus the water tanks on the walk-ups.
+ */
 function addBuildings(group: THREE.Group, layout: OfficeLayout, glowing: THREE.MeshLambertMaterial[]): void {
-  const buildings = skylineOf(layout);
+  const upper = upperStoreysOf(layout);
+  const buildings = [...skylineOf(layout), ...(upper === undefined ? [] : [upper])];
   const random = seededRandom(7);
   for (const style of ["brick", "glass"] as const) {
     const ofStyle = buildings.filter((building) => building.style === style);

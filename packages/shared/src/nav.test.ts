@@ -63,11 +63,12 @@ const FIXTURE_LAYOUT: OfficeLayout = {
     wall("closet-east", 9.7, 1, 10, 5.7),
   ],
   desks: [{ id: "desk-west", x: -6, z: 0, yaw: 0, width: 1.6, depth: 0.8, height: 0.75 }],
-  // Nav never reads props, boards or doorways; they are empty so the fixture is
-  // a complete layout without stating anything nav would never look at.
+  // Nav never reads props, boards, lifts or doorways; they are empty so the
+  // fixture is a complete layout without stating anything nav would never look at.
   props: [],
   tabletop: [],
   boards: [],
+  lifts: [],
   doorways: [],
   // Nav never reads rooms; they are here so the fixture is a complete layout
   // and so the "outside every room" case can be stated with `roomAt`.
@@ -88,6 +89,7 @@ const FIXTURE_LAYOUT: OfficeLayout = {
   spawnPoints: [{ x: -3, z: 0, yaw: 0 }],
   fixtures: [],
   street: undefined,
+  ceiling: undefined,
 };
 
 /** A position inside the sealed closet, clear of its walls by a body radius. */
@@ -242,10 +244,10 @@ describe("findPath", () => {
  */
 describe("OFFICE_LAYOUT", () => {
   const R = OCCUPANT_RADIUS;
-  const AT_CEO_DESK = { x: -8.7, z: -6.8 };
-  const AT_MEETING_TABLE = { x: -2.85, z: -6.8 };
-  const CEO_DOORWAY = { x: -8.7, z: -4.85 };
-  const FLOOR_WEST = { x: -7.2, z: 2.5 };
+  const AT_CEO_DESK = { x: -5.4, z: -6.8 };
+  const AT_MEETING_TABLE = { x: 5.6, z: -6.2 };
+  const CEO_DOORWAY = { x: -5.4, z: -4.85 };
+  const FLOOR_WEST = { x: -10.4, z: -0.2 };
 
   it("joins direct neighbours", () => {
     expect(findWaypointPath("wp-ceo-desk", "wp-ceo-door", OFFICE_LAYOUT)).toEqual([
@@ -254,21 +256,23 @@ describe("OFFICE_LAYOUT", () => {
     ]);
   });
 
-  it("routes from the CEO desk to the meeting table across the corridor", () => {
+  it("routes from the CEO desk to the conference table along the front of the open floor", () => {
     expect(findPath(AT_CEO_DESK, AT_MEETING_TABLE, OFFICE_LAYOUT, R)).toEqual([
       "wp-ceo-desk",
       "wp-ceo-door",
-      "wp-corridor-ceo",
-      "wp-corridor-west-door",
-      "wp-corridor-meeting",
+      "wp-floor-front-ceo",
+      "wp-floor-front",
+      "wp-floor-front-manager",
+      "wp-floor-front-east",
       "wp-meeting-door",
-      "wp-meeting-table",
+      "wp-meeting-west",
     ]);
   });
 
   it("routes across the open floor, start and goal in the same room", () => {
-    expect(findPath(FLOOR_WEST, { x: 7.2, z: 2.5 }, OFFICE_LAYOUT, R)).toEqual([
+    expect(findPath(FLOOR_WEST, { x: 3, z: -0.2 }, OFFICE_LAYOUT, R)).toEqual([
       "wp-floor-aisle-north-west",
+      "wp-floor-aisle-north-mid",
       "wp-floor-aisle-north",
       "wp-floor-aisle-north-east",
     ]);
@@ -278,10 +282,9 @@ describe("OFFICE_LAYOUT", () => {
     expect(roomAt(OFFICE_LAYOUT, CEO_DOORWAY)).toBeUndefined();
     expect(findPath(CEO_DOORWAY, FLOOR_WEST, OFFICE_LAYOUT, R)).toEqual([
       "wp-ceo-door",
-      "wp-corridor-ceo",
-      "wp-corridor-west-door",
-      "wp-floor-west-door",
-      "wp-floor-north-west",
+      "wp-floor-front-ceo",
+      "wp-floor-front-lounge",
+      "wp-floor-front-west",
       "wp-floor-aisle-north-west",
     ]);
   });
@@ -311,28 +314,28 @@ describe("OFFICE_LAYOUT", () => {
 
 describe("isClearLine", () => {
   it("is clear along an aisle and blocked through a wall", () => {
-    expect(isClearLine({ x: -7.2, z: 2.5 }, { x: 7.2, z: 2.5 }, OFFICE_LAYOUT)).toBe(true);
-    // From the open floor north through the partition into the corridor.
-    expect(isClearLine({ x: 0, z: -1.6 }, { x: 0, z: -3.7 }, OFFICE_LAYOUT)).toBe(false);
-    // The same crossing through the west doorway.
-    expect(isClearLine({ x: -6, z: -1.6 }, { x: -6, z: -3.7 }, OFFICE_LAYOUT)).toBe(true);
+    expect(isClearLine({ x: -11.15, z: -0.2 }, { x: 3.5, z: -0.2 }, OFFICE_LAYOUT)).toBe(true);
+    // From the open floor north through the private offices' front wall.
+    expect(isClearLine({ x: -1.2, z: -3.7 }, { x: -1.2, z: -6.5 }, OFFICE_LAYOUT)).toBe(false);
+    // The same crossing through the CEO office's doorway.
+    expect(isClearLine({ x: -5.4, z: -3.7 }, { x: -5.4, z: -6.5 }, OFFICE_LAYOUT)).toBe(true);
   });
 
   it("accounts for the body's radius", () => {
-    // Along the partition's south face: a point clears it, a body does not.
-    const a = { x: -4, z: -2.2 };
-    const b = { x: 4, z: -2.2 };
+    // Along the front wall's south face: a point clears it, a body does not.
+    const a = { x: -4, z: -4.5 };
+    const b = { x: 1.5, z: -4.5 };
     expect(isClearLine(a, b, OFFICE_LAYOUT, 0.1)).toBe(true);
     expect(isClearLine(a, b, OFFICE_LAYOUT, OCCUPANT_RADIUS)).toBe(false);
   });
 
   it("is blocked through the CEO office wall and by a desk the body is too wide to clear", () => {
-    // From the corridor straight into the CEO office, through its south wall.
-    expect(isClearLine({ x: -10.5, z: -3.7 }, { x: -10.5, z: -6.5 }, OFFICE_LAYOUT)).toBe(false);
+    // From the open floor straight into the CEO office, beside its doorway.
+    expect(isClearLine({ x: -3, z: -3.7 }, { x: -3, z: -6.5 }, OFFICE_LAYOUT)).toBe(false);
     const desk = OFFICE_LAYOUT.desks.find((spec) => spec.id === "desk-north-3");
     if (desk === undefined) {
       throw new Error("the layout has no desk-north-3");
     }
-    expect(isClearLine({ x: desk.x, z: -1.6 }, { x: desk.x, z: 2.5 }, OFFICE_LAYOUT)).toBe(false);
+    expect(isClearLine({ x: desk.x, z: -3.7 }, { x: desk.x, z: -0.2 }, OFFICE_LAYOUT)).toBe(false);
   });
 });

@@ -24,6 +24,7 @@
  * walk-through on purpose.
  */
 
+import { OCCUPANT_RADIUS } from "./constants.js";
 import {
   type Aabb2,
   DESK_CHAIR,
@@ -36,6 +37,7 @@ import {
   collisionBoxes,
   groundsOf,
   localToWorld,
+  roomAt,
   seatInteractableId,
   workstations,
 } from "./layout.js";
@@ -58,7 +60,11 @@ export type AssetPropKind =
   | "microwave"
   | "table"
   | "diningChair"
-  | "reception";
+  | "reception"
+  | "sofa"
+  | "armchair"
+  | "coffeeTable"
+  | "sideboard";
 
 /** An exact box a model should be stretched to fill. */
 export interface PropFit {
@@ -114,8 +120,9 @@ const PLANT_INSET = 0.8;
 /**
  * Widest wall gap still treated as a doorway.
  *
- * The shipped plan has 1.4 m doorways and one 8.7 m opening onto the bullpen
- * that is a thoroughfare, not a door. This is the line between them.
+ * The shipped plan has 1.4 m doorways and a 1.8 m main entrance; an opening
+ * much wider than that is a thoroughfare, not a door. This is the line
+ * between them.
  */
 const DOORWAY_MAX_SPAN = 2;
 
@@ -153,13 +160,15 @@ function nearBox(box: Aabb2, point: { x: number; z: number }, margin: number): b
  * desk prop
  * is fitted to the layout's own `width`/`depth`/`height`, which is the same box
  * `layout.ts`'s `deskAabb` hands the collision resolver — so the desk you can
- * see and the desk that stops you are one shape.
+ * see and the desk that stops you are one shape. A meeting table is drawn as a
+ * table and has chairs round it but no screens.
  */
 function deskProps(spec: DeskSpec): AssetPropSpec[] {
+  const meeting = spec.meeting === true;
   const props: AssetPropSpec[] = [
     {
       id: `prop-${spec.id}`,
-      kind: "desk",
+      kind: meeting ? "table" : "desk",
       x: spec.x,
       y: 0,
       z: spec.z,
@@ -178,6 +187,9 @@ function deskProps(spec: DeskSpec): AssetPropSpec[] {
       yaw: seat.yaw,
       fit: { width: DESK_CHAIR.width, depth: DESK_CHAIR.depth, height: DESK_CHAIR.height },
     });
+    if (meeting) {
+      return;
+    }
 
     // The screen stands on the desktop at the far edge, turned to face the seat.
     const monitor = localToWorld(spec, spec.yaw, localX, MONITOR_INSET - spec.depth / 2);
@@ -280,6 +292,19 @@ function doorProps(layout: OfficeLayout): AssetPropSpec[] {
   return props;
 }
 
+/** Distance from a point to the segment between `a` and `b`. */
+function distanceToSegment(
+  point: { x: number; z: number },
+  a: { x: number; z: number },
+  b: { x: number; z: number },
+): number {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const lengthSquared = dx * dx + dz * dz;
+  const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.z - a.z) * dz) / lengthSquared));
+  return Math.hypot(point.x - (a.x + dx * t), point.z - (a.z + dz * t));
+}
+
 /** Room corners, tried in this order, rotated per room so the office varies. */
 const CORNERS = [
   { x: -1, z: -1 },
@@ -291,15 +316,27 @@ const CORNERS = [
 /**
  * One plant per room, in the first corner that is clear of the world.
  *
- * Corners are tried in a rotating order so the four rooms do not all grow a
- * plant in the same corner, and a corner already occupied by a desk is skipped —
- * which is what keeps this derivation safe when the floor plan changes under it.
+ * Corners are tried in a rotating order so the rooms do not all grow a plant in
+ * the same corner. A corner already occupied by a desk, or claimed by a room
+ * listed before this one, is skipped, and one beside a route the agents walk
+ * is passed over for one that is not — which is what keeps this derivation
+ * safe when the floor plan changes under it.
  */
 function plantProps(layout: OfficeLayout): AssetPropSpec[] {
   const boxes = collisionBoxes(layout);
   const props: AssetPropSpec[] = [];
+  const byId = new Map(layout.waypoints.map((node) => [node.id, node]));
+  // Within a body's reach of a link the agents walk, from one node to the next.
+  const onRoute = (point: { x: number; z: number }) =>
+    layout.waypoints.some((node) =>
+      node.links.some((id) => {
+        const other = byId.get(id) ?? node;
+        return distanceToSegment(point, node, other) < PROP_CLEARANCE + OCCUPANT_RADIUS;
+      }),
+    );
 
   layout.rooms.forEach((room, index) => {
+    const free: { x: number; z: number; yaw: number }[] = [];
     for (let step = 0; step < CORNERS.length; step += 1) {
       const corner = CORNERS[(index + step) % CORNERS.length];
       if (corner === undefined) {
@@ -307,19 +344,17 @@ function plantProps(layout: OfficeLayout): AssetPropSpec[] {
       }
       const x = corner.x < 0 ? room.bounds.minX + PLANT_INSET : room.bounds.maxX - PLANT_INSET;
       const z = corner.z < 0 ? room.bounds.minZ + PLANT_INSET : room.bounds.maxZ - PLANT_INSET;
-      if (boxes.some((box) => nearBox(box, { x, z }, PROP_CLEARANCE))) {
+      if (boxes.some((box) => nearBox(box, { x, z }, PROP_CLEARANCE)) || roomAt(layout, { x, z })?.id !== room.id) {
         continue;
       }
-      props.push({
-        id: `prop-plant-${room.id}`,
-        kind: "plant",
-        x,
-        y: 0,
-        z,
-        // Turned to face the middle of the room it stands in.
-        yaw: Math.atan2(-corner.x, -corner.z),
-      });
-      return;
+      // Turned to face the middle of the room it stands in.
+      free.push({ x, z, yaw: Math.atan2(-corner.x, -corner.z) });
+    }
+    // Out of the agents' way if any corner is; a room whose every corner is
+    // on a route still gets its plant.
+    const spot = free.find((candidate) => !onRoute(candidate)) ?? free[0];
+    if (spot !== undefined) {
+      props.push({ id: `prop-plant-${room.id}`, kind: "plant", x: spot.x, y: 0, z: spot.z, yaw: spot.yaw });
     }
   });
 
@@ -329,8 +364,8 @@ function plantProps(layout: OfficeLayout): AssetPropSpec[] {
 /**
  * The pieces with nowhere to be derived from.
  *
- * Kitchen furniture does not follow from a wall or a desk, so the layout places
- * it by hand, in `layout.props` and `layout.tabletop`, against the shipped
+ * Kitchen, lounge and reception furniture does not follow from a wall or a
+ * desk, so the layout places it by hand, in `layout.props` and `layout.tabletop`, against the shipped
  * floor plan specifically. This just carries those placements over into render
  * props, fitted to the exact box the layout already states, with each piece of
  * tabletop dressing lifted onto the prop it names.
@@ -460,7 +495,7 @@ export function describePropProblems(
 ): string[] {
   const problems: string[] = [];
   const boxes = collisionBoxes(layout);
-  // Kitchen furniture stands against a wall or round a table by design, and
+  // Hand-placed furniture stands against a wall or round a table by design, and
   // `layout.ts` already holds it clear of everything solid — so it is
   // deliberately excluded, unlike a plant, which needs room to walk up to.
   const freeStanding = new Set<AssetPropKind>(["plant"]);

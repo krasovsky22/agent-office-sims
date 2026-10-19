@@ -6,7 +6,7 @@
 import { OFFICE_LAYOUT, type Aabb2, groundExtent } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { skylineOf } from "./skyline.js";
+import { skylineOf, upperStoreysOf } from "./skyline.js";
 
 function overlaps(a: Aabb2, b: Aabb2): boolean {
   return a.minX < b.maxX && b.minX < a.maxX && a.minZ < b.maxZ && b.minZ < a.maxZ;
@@ -54,5 +54,20 @@ describe("skylineOf", () => {
 
   it("is empty for a floor with no street", () => {
     expect(skylineOf({ ...OFFICE_LAYOUT, street: undefined })).toEqual([]);
+  });
+});
+
+describe("upperStoreysOf", () => {
+  it("stands the office's own building on its ceiling, over exactly its footprint", () => {
+    const upper = upperStoreysOf(OFFICE_LAYOUT);
+    expect(upper).toBeDefined();
+    expect(upper?.base).toBe(OFFICE_LAYOUT.ceiling);
+    expect(upper && { minX: upper.minX, minZ: upper.minZ, maxX: upper.maxX, maxZ: upper.maxZ }).toEqual(OFFICE_LAYOUT.floor);
+    expect(upper?.height).toBeGreaterThan(10);
+  });
+
+  it("is nothing for a floor with no street or no ceiling", () => {
+    expect(upperStoreysOf({ ...OFFICE_LAYOUT, street: undefined })).toBeUndefined();
+    expect(upperStoreysOf({ ...OFFICE_LAYOUT, ceiling: undefined })).toBeUndefined();
   });
 });

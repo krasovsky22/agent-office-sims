@@ -508,7 +508,7 @@ function ManagerRow({ entry, unread }: { entry: RosterEntry; unread: number }) {
         {appearance.label}
       </span>
       <span className="hud__task">
-        {unread > 0 ? `${unread} new — ` : ""}talk to it at its desk in the lobby
+        {unread > 0 ? `${unread} new — ` : ""}talk to it at its desk in its office
       </span>
     </li>
   );

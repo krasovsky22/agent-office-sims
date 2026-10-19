@@ -220,10 +220,13 @@ describe("screenFaceOf", () => {
     expect(face!.matrix.determinant()).toBeGreaterThan(0);
   });
 
-  it("puts every seat's screen on its own monitor, facing the seat", async () => {
+  it("puts every workstation seat's screen on its own monitor, facing the seat", async () => {
     const model = await monitorModel();
     const face = screenFaceOf(new Map([["monitor", model]]))!;
-    const seats = interactables(OFFICE_LAYOUT).filter((spec) => spec.kind === INTERACTION_KIND.seat);
+    // A meeting table's seats have no screen in front of them.
+    const seats = interactables(OFFICE_LAYOUT).filter(
+      (spec) => spec.kind === INTERACTION_KIND.seat && monitorOfSeat(OFFICE_LAYOUT, spec.id) !== undefined,
+    );
     expect(seats.length).toBeGreaterThan(0);
 
     for (const seat of seats) {
