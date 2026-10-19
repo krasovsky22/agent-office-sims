@@ -16,8 +16,8 @@
  * - {@link mayActOnWork}, the one place authority is decided, reading the
  *   {@link WORK_ACTION_AUTHORITY} table: the CEO hands the work out and judges
  *   it, and the agent an issue was given to does the work on it.
- *   Beside it, {@link isAgentReady}, which issues a real coding agent may be
- *   given at all.
+ *   Beside it, {@link isAgentRestricted}, which issues a maintainer has kept
+ *   from the real coding agents.
  * - {@link applyWorkCommand}, which validates a parsed command against the
  *   live office and the project board and mutates the work, or rejects it and
  *   leaves everything untouched.
@@ -269,17 +269,17 @@ export function mayActOnWork(query: WorkPermissionQuery): boolean {
 }
 
 /**
- * Whether an issue may go to a live coding agent: it carries the office's
- * eligibility label, which only a maintainer can put on it. GitHub's label
- * names are not case-sensitive. An office that asks for no label (`""`) takes
- * any issue.
+ * Whether an issue is kept from the live coding agents: it carries the
+ * office's restriction label, which only a maintainer can put on it. Any other
+ * issue may go to an agent. GitHub's label names are not case-sensitive. An
+ * office with no restriction label (`""`) restricts nothing.
  */
-export function isAgentReady(issue: Pick<BoardIssue, "labels">, label: string): boolean {
+export function isAgentRestricted(issue: Pick<BoardIssue, "labels">, label: string): boolean {
   if (label === "") {
-    return true;
+    return false;
   }
-  const wanted = label.toLowerCase();
-  return issue.labels.some((candidate) => candidate.name.toLowerCase() === wanted);
+  const unwanted = label.toLowerCase();
+  return issue.labels.some((candidate) => candidate.name.toLowerCase() === unwanted);
 }
 
 /** A change the board panel may offer on work in hand, and the command that makes it. */
@@ -338,8 +338,8 @@ export const WORK_REJECTION = {
   unknownAssignee: "unknown-assignee",
   /** A hand-in with no deliverable attached, or an attachment with no text. */
   missingArtifact: "missing-artifact",
-  /** The issue does not carry the label that makes it a real coding agent's to take. */
-  notEligible: "not-eligible",
+  /** The issue carries the label that keeps the real coding agents off it. */
+  restricted: "restricted",
 } as const;
 
 export type WorkRejection = (typeof WORK_REJECTION)[keyof typeof WORK_REJECTION];
@@ -399,10 +399,10 @@ export interface WorkCommandContext {
   /** Defaults to {@link mayActOnWork}. */
   readonly permit?: WorkPermission;
   /**
-   * The label an issue needs before it is given to an agent, the replicated
-   * `agentIssueLabel`; see {@link isAgentReady}. Absent or `""`, none.
+   * The label that keeps an issue from the agents, the replicated
+   * `agentRestrictLabel`; see {@link isAgentRestricted}. Absent or `""`, none.
    */
-  readonly issueLabel?: string;
+  readonly restrictLabel?: string;
 }
 
 export type WorkCommandResult =
@@ -471,8 +471,9 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
  * had started.
  *
  * Only an {@link isIssueAssignee} does issues, and only one the board shows
- * open with the office's label, {@link isAgentReady}: giving work in hand to
- * another agent puts that one to work too, so it is checked again.
+ * open without the office's restriction label, {@link isAgentRestricted}:
+ * giving work in hand to another agent puts that one to work too, so it is
+ * checked again.
  */
 function assignWork(
   work: IssueWork | undefined,
@@ -492,11 +493,11 @@ function assignWork(
   if (assignee === undefined || !isIssueAssignee(assignee)) {
     return reject(WORK_REJECTION.unknownAssignee);
   }
-  const label = context.issueLabel ?? "";
+  const label = context.restrictLabel ?? "";
   if (label !== "" && work?.assigneeId !== payload.assigneeId) {
     const listed = issue ?? openBoardIssue(context.board, payload.issueNumber);
-    if (listed === undefined || !isAgentReady(listed, label)) {
-      return reject(WORK_REJECTION.notEligible);
+    if (listed === undefined || isAgentRestricted(listed, label)) {
+      return reject(WORK_REJECTION.restricted);
     }
   }
 

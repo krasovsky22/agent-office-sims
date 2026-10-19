@@ -415,9 +415,9 @@ export class RoomConnection {
     this.room?.send(CLIENT_MESSAGE.emote, { emote } satisfies EmoteMessage);
   }
 
-  /** The label an issue needs before it can go to a live coding agent; `""` before the state arrives. */
-  public agentIssueLabel(): string {
-    return this.room?.state.agentIssueLabel ?? "";
+  /** The label that keeps an issue from the live coding agents; `""` before the state arrives. */
+  public agentRestrictLabel(): string {
+    return this.room?.state.agentRestrictLabel ?? "";
   }
 
   /** Tells the AI manager something. The conversation broadcast is the reply. */

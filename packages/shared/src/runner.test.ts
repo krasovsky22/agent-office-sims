@@ -19,7 +19,8 @@ import {
   SIMULATED_PULL_REQUEST,
   isSimulatedPullRequestArtifact,
   parseRunnerSync,
-  readAgentIssueLabel,
+  readAgentRestrictLabel,
+  retiredAgentIssueLabelNotice,
   simulatedPullRequestArtifact,
   toRunnerCommand,
 } from "./runner.js";
@@ -280,16 +281,24 @@ describe("toRunnerCommand", () => {
   });
 });
 
-describe("readAgentIssueLabel", () => {
-  it("defaults to agent-ready, and keeps a label trimmed", () => {
-    expect(readAgentIssueLabel(undefined)).toBe("agent-ready");
-    expect(readAgentIssueLabel("  ")).toBe("agent-ready");
-    expect(readAgentIssueLabel(" ready for agents ")).toBe("ready for agents");
+describe("readAgentRestrictLabel", () => {
+  it("defaults to agent-restricted, and keeps a label trimmed", () => {
+    expect(readAgentRestrictLabel(undefined)).toBe("agent-restricted");
+    expect(readAgentRestrictLabel("  ")).toBe("agent-restricted");
+    expect(readAgentRestrictLabel(" humans only ")).toBe("humans only");
   });
 
   it("refuses a name GitHub would not give a label", () => {
-    expect(() => readAgentIssueLabel("x".repeat(51))).toThrow(/REAL_AGENT_ISSUE_LABEL/);
-    expect(() => readAgentIssueLabel("agent\nready")).toThrow(/REAL_AGENT_ISSUE_LABEL/);
+    expect(() => readAgentRestrictLabel("x".repeat(51))).toThrow(/REAL_AGENT_RESTRICT_LABEL/);
+    expect(() => readAgentRestrictLabel("agent\nrestricted")).toThrow(/REAL_AGENT_RESTRICT_LABEL/);
+  });
+});
+
+describe("retiredAgentIssueLabelNotice", () => {
+  it("says the old label setting is ignored only when it is set", () => {
+    expect(retiredAgentIssueLabelNotice({})).toBeUndefined();
+    expect(retiredAgentIssueLabelNotice({ REAL_AGENT_ISSUE_LABEL: " " })).toBeUndefined();
+    expect(retiredAgentIssueLabelNotice({ REAL_AGENT_ISSUE_LABEL: "agent-ready" })).toMatch(/^REAL_AGENT_ISSUE_LABEL is ignored/);
   });
 });
 

@@ -74,7 +74,7 @@ const BOARD: ProjectBoardSnapshot = {
   repository: REPO,
   updatedAt: 1,
   stale: false,
-  open: [issue(39, "Night shift", "agent-ready"), issue(40, "Fix the login redirect loop"), issue(41, "Draft the roadmap", "agent-ready")],
+  open: [issue(39, "Night shift"), issue(40, "Fix the login redirect loop", "agent-restricted"), issue(41, "Draft the roadmap")],
   counts: { open: 3, inProgress: 0, pullRequests: 0 },
 };
 
@@ -104,7 +104,7 @@ beforeAll(async () => {
     liveAgents: link,
     runnerEvents: link,
     runnerCommands: link,
-    agentIssueLabel: "agent-ready",
+    agentRestrictLabel: "agent-restricted",
   } satisfies Partial<OfficeRoomOptions>);
   await server.listen(0);
   const address = server.transport.server?.address();
@@ -206,7 +206,7 @@ describe("the AI Manager and the mock runner's coding agents", () => {
 
     // "Someone" is a coding agent too, and the work rules still decide what one may be given.
     expect(await ask(dana, "put someone on #40")).toBe(
-      "Here's how that went:\n✗ #40 “Fix the login redirect loop”: it does not carry the label that marks it ready for the coding agents.",
+      "Here's how that went:\n✗ #40 “Fix the login redirect loop”: it carries the label that keeps the coding agents off it.",
     );
     expect(serverRoom(dana).state.work.size).toBe(0);
 

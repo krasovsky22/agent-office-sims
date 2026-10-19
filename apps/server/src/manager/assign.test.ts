@@ -26,8 +26,11 @@ import { type AssignContext, MAX_ASSIGNMENTS_PER_PLAN, carryOut } from "./assign
 import { LiveAssignmentQueue } from "./liveAssignments.js";
 import { readOfficeView } from "./officeView.js";
 
-function issue(number: number, title: string, closedAt: number | null = null): BoardIssue {
-  return { number, title, body: "", labels: [], assignees: [], pullRequests: [], closedAt };
+/** The restriction label #10, #11 and #39 carry; an office restricts nothing until a test names it. */
+const RESTRICTED = "agent-restricted";
+
+function issue(number: number, title: string, closedAt: number | null = null, labels: readonly string[] = []): BoardIssue {
+  return { number, title, body: "", labels: labels.map((name) => ({ name, color: "" })), assignees: [], pullRequests: [], closedAt };
 }
 
 const SNAPSHOT: ProjectBoardSnapshot = {
@@ -35,7 +38,12 @@ const SNAPSHOT: ProjectBoardSnapshot = {
   repository: "o/r",
   updatedAt: 1,
   stale: false,
-  open: [issue(10, "Fix the login redirect loop"), issue(11, "Write the onboarding email"), issue(15, "Draft the Q3 roadmap"), issue(39, "Night shift")],
+  open: [
+    issue(10, "Fix the login redirect loop", null, [RESTRICTED]),
+    issue(11, "Write the onboarding email", null, [RESTRICTED]),
+    issue(15, "Draft the Q3 roadmap"),
+    issue(39, "Night shift", null, [RESTRICTED]),
+  ],
   closed: [issue(12, "Old thing", 5)],
   pullRequests: [{ number: 46, title: "Show live agents", labels: [], author: "crew", draft: false, checks: "unknown" }],
   counts: { open: 4, inProgress: 0, pullRequests: 1 },
@@ -268,12 +276,12 @@ describe("carryOut: issues for the runners' coding agents", () => {
     ]);
   });
 
-  it("passes on the work rules' refusals: the eligibility label, the CEO", () => {
+  it("passes on the work rules' refusals: the restriction label, the CEO", () => {
     const { state, queue, context } = office({ takers: ["Slot 1"] });
-    state.agentIssueLabel = "agent-ready";
+    state.agentRestrictLabel = RESTRICTED;
     expect(carryOut([{ work: "#39", agent: ANY_CODING_AGENT }, { work: "#10", agent: "Slot 1" }], context(undefined, "assign #39 and #10"))).toEqual([
-      "✗ #39 “Night shift”: it does not carry the label that marks it ready for the coding agents.",
-      "✗ #10 “Fix the login redirect loop”: it does not carry the label that marks it ready for the coding agents.",
+      "✗ #39 “Night shift”: it carries the label that keeps the coding agents off it.",
+      "✗ #10 “Fix the login redirect loop”: it carries the label that keeps the coding agents off it.",
     ]);
     const exec = player("session-milo", "Milo", PLAYER_ROLE.exec);
     state.occupants.set(exec.id, exec);
@@ -286,7 +294,7 @@ describe("carryOut: issues for the runners' coding agents", () => {
 
   it("gives an issue for “someone” the coding agents may not take to the orchestrator's agents instead", () => {
     const { state, queue, context } = office({ takers: ["Slot 1"] });
-    state.agentIssueLabel = "agent-ready";
+    state.agentRestrictLabel = RESTRICTED;
     expect(carryOut([{ work: "#10", agent: "" }], context(undefined, "put someone on #10"))).toEqual([
       "✓ #10 “Fix the login redirect loop” → Crewmate; queued for the orchestrator to hand over.",
     ]);
@@ -294,13 +302,13 @@ describe("carryOut: issues for the runners' coding agents", () => {
     expect(queue?.collect()).toEqual([expect.objectContaining({ agentId: "crew-1", item: expect.objectContaining({ number: 10 }) })]);
 
     expect(carryOut([{ work: "#11", agent: "" }], context(undefined, "put someone on #11"))).toEqual([
-      "✗ #11 “Write the onboarding email”: every live agent is busy or already has something next; name one and I'll queue it anyway. No coding agent could take it either: it does not carry the label that marks it ready for the coding agents.",
+      "✗ #11 “Write the onboarding email”: every live agent is busy or already has something next; name one and I'll queue it anyway. No coding agent could take it either: it carries the label that keeps the coding agents off it.",
     ]);
 
     const alone = office({ takers: ["Slot 1"], orchestrator: false });
-    alone.state.agentIssueLabel = "agent-ready";
+    alone.state.agentRestrictLabel = RESTRICTED;
     expect(carryOut([{ work: "#10", agent: "" }], alone.context(undefined, "assign #10"))).toEqual([
-      "✗ #10 “Fix the login redirect loop”: it does not carry the label that marks it ready for the coding agents.",
+      "✗ #10 “Fix the login redirect loop”: it carries the label that keeps the coding agents off it.",
     ]);
   });
 

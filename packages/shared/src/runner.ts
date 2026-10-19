@@ -61,30 +61,44 @@ export const RUNNER_SYNC_PATH = "/agents/runner/sync";
 export const MAX_RUNNER_SYNC_BYTES = 16 * 1024;
 
 /**
- * The label a maintainer puts on an issue to make it a real coding agent's to
- * take, when `REAL_AGENT_ISSUE_LABEL` names no other. The server checks it
- * before it hands an issue out, and the runner checks it again on GitHub
- * before its agent starts, so neither has to trust the other about it.
+ * The label a maintainer puts on an issue to keep the real coding agents off
+ * it, when `REAL_AGENT_RESTRICT_LABEL` names no other. Every other open issue
+ * is theirs to take. The server checks it before it hands an issue out, and
+ * the runner checks it again on GitHub before its agent starts, so neither has
+ * to trust the other about it.
  */
-export const DEFAULT_AGENT_ISSUE_LABEL = "agent-ready";
+export const DEFAULT_AGENT_RESTRICT_LABEL = "agent-restricted";
 
 /**
- * Reads `REAL_AGENT_ISSUE_LABEL` as the server and the runner both do: the
- * label trimmed, or {@link DEFAULT_AGENT_ISSUE_LABEL} when unset.
+ * Reads `REAL_AGENT_RESTRICT_LABEL` as the server and the runner both do: the
+ * label trimmed, or {@link DEFAULT_AGENT_RESTRICT_LABEL} when unset.
  *
  * @throws for a name GitHub would not give a label: longer than
  * {@link MAX_LABEL_LENGTH}, or holding a control character.
  */
-export function readAgentIssueLabel(raw: string | undefined): string {
+export function readAgentRestrictLabel(raw: string | undefined): string {
   const label = raw?.trim() ?? "";
   if (label === "") {
-    return DEFAULT_AGENT_ISSUE_LABEL;
+    return DEFAULT_AGENT_RESTRICT_LABEL;
   }
   // eslint-disable-next-line no-control-regex -- control characters are exactly what is refused
   if (label.length > MAX_LABEL_LENGTH || /[\u0000-\u001f\u007f]/.test(label)) {
-    throw new Error(`REAL_AGENT_ISSUE_LABEL must be a GitHub label name of at most ${MAX_LABEL_LENGTH} characters, got "${label}"`);
+    throw new Error(`REAL_AGENT_RESTRICT_LABEL must be a GitHub label name of at most ${MAX_LABEL_LENGTH} characters, got "${label}"`);
   }
   return label;
+}
+
+/**
+ * The one line the server and the runner log at startup when the retired
+ * `REAL_AGENT_ISSUE_LABEL` is still set, or `undefined` when it is not. It used
+ * to name the label an issue needed before an agent could take it; agents now
+ * take any open issue without `REAL_AGENT_RESTRICT_LABEL`, so an old
+ * deployment keeps starting and is only told the setting does nothing.
+ */
+export function retiredAgentIssueLabelNotice(env: Readonly<Record<string, string | undefined>>): string | undefined {
+  return (env["REAL_AGENT_ISSUE_LABEL"]?.trim() ?? "") === ""
+    ? undefined
+    : "REAL_AGENT_ISSUE_LABEL is ignored: agents take any open issue unless it carries the REAL_AGENT_RESTRICT_LABEL label";
 }
 
 /** What one of a runner's slots is doing. */

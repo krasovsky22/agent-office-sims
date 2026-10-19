@@ -35,7 +35,7 @@ import {
   actorOf,
   applyWorkCommand,
   describeWorkProblems,
-  isAgentReady,
+  isAgentRestricted,
   isIssueAssignee,
   mayActOnWork,
   mayAssignWork,
@@ -512,7 +512,7 @@ describe("work command parsers", () => {
 });
 
 describe("work for a real coding agent", () => {
-  function gated(at: Office, command: WorkCommand, actorId = CEO_ID, issueLabel = "agent-ready"): WorkCommandResult {
+  function gated(at: Office, command: WorkCommand, actorId = CEO_ID, restrictLabel = "agent-restricted"): WorkCommandResult {
     const actor = at.occupants.get(actorId);
     if (actor === undefined) {
       throw new Error(`${actorId} is not in the office`);
@@ -523,7 +523,7 @@ describe("work for a real coding agent", () => {
       board: at.board,
       actor: actorOf(actor),
       now: T0 + 1,
-      issueLabel,
+      restrictLabel,
     });
   }
 
@@ -533,26 +533,27 @@ describe("work for a real coding agent", () => {
 
   it("takes the CEO, and only the CEO, to assign", () => {
     const at = office();
-    at.board = snapshot({ open: [labelled(1, "agent-ready")] });
+    at.board = snapshot({ open: [labelled(1, "client")] });
     expect(gated(at, assign(1, "agent-1"), EXEC_ID)).toEqual({ ok: false, rejection: WORK_REJECTION.forbidden });
     expect(gated(at, assign(1, "agent-1")).ok).toBe(true);
   });
 
-  it("takes only an issue carrying the label, whatever its case, to hand out or hand on", () => {
+  it("refuses an issue carrying the restriction label, whatever its case, to hand out or hand on", () => {
     const at = office();
-    at.board = snapshot({ open: [labelled(1, "client"), labelled(2, "Agent-Ready")], inProgress: [] });
-    expect(gated(at, assign(1, "agent-1"))).toEqual({ ok: false, rejection: WORK_REJECTION.notEligible });
+    at.board = snapshot({ open: [labelled(1, "client", "Agent-Restricted"), labelled(2)], inProgress: [] });
+    expect(gated(at, assign(1, "agent-1"))).toEqual({ ok: false, rejection: WORK_REJECTION.restricted });
     expect(at.work.size).toBe(0);
     expect(gated(at, assign(2, "agent-1")).ok).toBe(true);
-    // The label taken off since: it may not go to another agent.
-    at.board = snapshot({ open: [labelled(2)], inProgress: [] });
-    expect(gated(at, assign(2, "agent-2"))).toEqual({ ok: false, rejection: WORK_REJECTION.notEligible });
+    // The label put on since: it may not go to another agent.
+    at.board = snapshot({ open: [labelled(2, "agent-restricted")], inProgress: [] });
+    expect(gated(at, assign(2, "agent-2"))).toEqual({ ok: false, rejection: WORK_REJECTION.restricted });
     expect(at.work.get(workKey(2))?.assigneeId).toBe("agent-1");
-    // An office that asks for no label takes any open issue.
-    at.board = snapshot({ open: [labelled(1, "client")], inProgress: [] });
+    // An office with no restriction label takes any open issue.
+    at.board = snapshot({ open: [labelled(1, "agent-restricted")], inProgress: [] });
     expect(gated(at, assign(1, "agent-1"), CEO_ID, "").ok).toBe(true);
-    expect(isAgentReady(labelled(5), "")).toBe(true);
-    expect(isAgentReady(labelled(5), "agent-ready")).toBe(false);
+    expect(isAgentRestricted(labelled(5, "agent-restricted"), "")).toBe(false);
+    expect(isAgentRestricted(labelled(5), "agent-restricted")).toBe(false);
+    expect(isAgentRestricted(labelled(5, "AGENT-RESTRICTED"), "agent-restricted")).toBe(true);
   });
 
   it("takes the CEO, and only the CEO, to send a review back or start work again", () => {

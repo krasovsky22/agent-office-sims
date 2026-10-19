@@ -8,7 +8,7 @@
  * (`../agents/runnerWork.ts`): `started` claims it, `pr-opened` hands it in
  * with the pull request as its deliverable, and `failed` writes the runner's
  * reason as the agent's note. Every refusal the runner makes after the
- * assignment — the eligibility label re-checked on GitHub, a slot already
+ * assignment — the restriction label re-checked on GitHub, a slot already
  * busy, a spent budget — arrives as such a reason and is passed on as
  * written; the refusals the office makes itself, such as the label's, are in
  * the reply to the assignment instead (`./assign.ts`).

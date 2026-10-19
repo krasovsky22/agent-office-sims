@@ -79,7 +79,7 @@ import {
   type CeoChangedEvent,
   type ChatEvent,
   CLIENT_MESSAGE,
-  DEFAULT_AGENT_ISSUE_LABEL,
+  DEFAULT_AGENT_RESTRICT_LABEL,
   type EmoteEvent,
   HumanPlayer,
   type IssueWork,
@@ -199,11 +199,11 @@ export interface OfficeRoomOptions {
   /** What the runners' agents have spent today; absent when no runner is configured. */
   readonly runnerSpend?: RunnerSpendSource;
   /**
-   * The label an issue needs before it can go to a live coding agent.
-   * Defaults to {@link DEFAULT_AGENT_ISSUE_LABEL}; never none, since Colyseus
+   * The label that keeps an issue from the live coding agents.
+   * Defaults to {@link DEFAULT_AGENT_RESTRICT_LABEL}; never none, since Colyseus
    * merges a client's join options into these.
    */
-  readonly agentIssueLabel?: string;
+  readonly agentRestrictLabel?: string;
   /** The runner slots' terminal screens; absent when no runner is configured. */
   readonly screens?: ScreenSource;
   /** Every runner's standing tasks, mirrored; absent when no runner is configured. */
@@ -212,12 +212,12 @@ export interface OfficeRoomOptions {
   readonly runnerStandup?: RunnerStandupHold;
 }
 
-/** Reads the eligibility label off the room's options, bounded for the same reason as the grace period. */
-function issueLabelOf(options: Partial<OfficeRoomOptions> | undefined): string {
-  const label = options?.agentIssueLabel;
+/** Reads the restriction label off the room's options, bounded for the same reason as the grace period. */
+function restrictLabelOf(options: Partial<OfficeRoomOptions> | undefined): string {
+  const label = options?.agentRestrictLabel;
   return typeof label === "string" && label.trim() !== "" && label.length <= MAX_LABEL_LENGTH
     ? label
-    : DEFAULT_AGENT_ISSUE_LABEL;
+    : DEFAULT_AGENT_RESTRICT_LABEL;
 }
 
 /**
@@ -310,7 +310,7 @@ export class OfficeRoom extends Room<OfficeState> {
 
     const roomOptions = options as Partial<OfficeRoomOptions> | undefined;
     this.reconnectGraceSeconds = graceSecondsOf(roomOptions);
-    this.state.agentIssueLabel = issueLabelOf(roomOptions);
+    this.state.agentRestrictLabel = restrictLabelOf(roomOptions);
 
     const source = roomOptions?.projectBoard;
     if (isProjectBoardSource(source)) {

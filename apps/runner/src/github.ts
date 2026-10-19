@@ -3,7 +3,7 @@
  * What the runner itself asks of GitHub about a task: whether its issue may
  * be worked, and which pull request its work is in.
  *
- * The server already refuses an issue without the eligibility label, and the
+ * The server already refuses an issue with the restriction label, and the
  * runner asks GitHub again before its agent starts, so an agent spends nothing
  * on an issue on the word of a server alone.
  *
@@ -95,7 +95,7 @@ export interface TaskGithub {
 export interface TaskGithubOptions {
   /** `owner/name`. */
   readonly repo: string;
-  /** The label an issue needs, `REAL_AGENT_ISSUE_LABEL`. */
+  /** The label that keeps agents off an issue, `REAL_AGENT_RESTRICT_LABEL`. */
   readonly label: string;
   /** The environment for a `gh` or `git` call, with the runner's GitHub identity in it. */
   readonly env: () => Promise<NodeJS.ProcessEnv>;
@@ -139,9 +139,9 @@ export function createTaskGithub(options: TaskGithubOptions): TaskGithub {
         return `#${issueNumber} is not open on GitHub`;
       }
       const labels = Array.isArray(issue.labels) ? (issue.labels as { name?: unknown }[]) : [];
-      const wanted = label.toLowerCase();
-      if (!labels.some((candidate) => typeof candidate.name === "string" && candidate.name.toLowerCase() === wanted)) {
-        return `#${issueNumber} is not labelled ${label} on GitHub, so no agent may work it`;
+      const unwanted = label.toLowerCase();
+      if (labels.some((candidate) => typeof candidate.name === "string" && candidate.name.toLowerCase() === unwanted)) {
+        return `#${issueNumber} is labelled ${label} on GitHub, so no agent may work it`;
       }
       return undefined;
     },

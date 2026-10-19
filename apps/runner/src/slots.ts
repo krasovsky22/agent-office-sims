@@ -11,7 +11,7 @@
  * agent starts and closed once its work ends; see `./slotWorktrees.ts`.
  *
  * A task is GitHub's issue, and handing it in is a pull request. Before an
- * agent starts, the issue is checked on GitHub for the eligibility label. Once
+ * agent starts, the issue is checked on GitHub for the restriction label. Once
  * the agent opens its pull request the work is handed in, but the slot keeps
  * the task, the agent waiting at its prompt, so the server can send it back
  * for rework with a prompt; the server stops it once the work is done. A turn

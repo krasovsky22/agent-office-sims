@@ -66,7 +66,7 @@ function setup() {
   let nextId = 1;
   const link = new RunnerLink({ repository: REPO, timeoutMs: 30_000, commandId: () => `command-${nextId++}` });
   const state = new OfficeState();
-  state.agentIssueLabel = "agent-ready";
+  state.agentRestrictLabel = "agent-restricted";
   const ceo = new HumanPlayer();
   ceo.id = CEO;
   ceo.name = "Dana";
@@ -83,7 +83,7 @@ function setup() {
     agent.canTakeIssues = true;
     state.occupants.set(id, agent);
   }
-  let snapshot = board([issue(39, "agent-ready"), issue(40, "agent-ready"), issue(41, "client")]);
+  let snapshot = board([issue(39, "client"), issue(40), issue(41, "agent-restricted")]);
   const loop: { work?: RunnerWork } = {};
   const host: WorkHost = {
     state,
@@ -157,9 +157,9 @@ describe("RunnerWork outward: the CEO's word to the slots", () => {
     ]);
   });
 
-  it("refuses, and sends nothing, for an unlabelled issue", () => {
+  it("refuses, and sends nothing, for a restricted issue", () => {
     const { ceoDoes, pending } = setup();
-    expect(ceoDoes(assign(41))).toEqual({ ok: false, rejection: WORK_REJECTION.notEligible });
+    expect(ceoDoes(assign(41))).toEqual({ ok: false, rejection: WORK_REJECTION.restricted });
     expect(pending()).toEqual([]);
   });
 
@@ -232,8 +232,8 @@ describe("RunnerWork outward: the CEO's word to the slots", () => {
       [event("started", 39), event("pr-opened", 39, { pr: PR })].map((item) => ({ runnerId: "box", event: item })),
     );
     const closed = board([], [
-      { ...issue(39, "agent-ready"), closedAt: 3 },
-      { ...issue(40, "agent-ready"), closedAt: 3 },
+      { ...issue(39, "client"), closedAt: 3 },
+      { ...issue(40), closedAt: 3 },
     ]);
     setBoard(closed);
     const shipped: never[] = [];
@@ -317,9 +317,9 @@ describe("RunnerWork inward: the runner's events as the agent's moves", () => {
     expect(work?.outputArtifact).toBe(`PR #95: Night shift, https://github.com/${REPO}/pull/95`);
 
     runnerWork.receive([
-      { runnerId: "box", event: event("failed", 40, { slotId: "slot-2", message: "#40 is not labelled agent-ready on GitHub" }) },
+      { runnerId: "box", event: event("failed", 40, { slotId: "slot-2", message: "#40 is labelled agent-restricted on GitHub" }) },
     ]);
-    expect(state.work.get(workKey(40))?.note).toBe("#40 is not labelled agent-ready on GitHub");
+    expect(state.work.get(workKey(40))?.note).toBe("#40 is labelled agent-restricted on GitHub");
   });
 
   it("has the AI Manager explain a start the runner refused because its budget is spent, and only that kind of failure", () => {

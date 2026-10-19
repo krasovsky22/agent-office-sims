@@ -31,7 +31,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { STANDING_OFF, formatUsd } from "@sim/shared";
+import { STANDING_OFF, formatUsd, retiredAgentIssueLabelNotice } from "@sim/shared";
 
 import { claudeAdapter } from "./agents/claude.js";
 import { HookServer } from "./agents/hookServer.js";
@@ -146,7 +146,7 @@ async function createAgent(runnerConfig: RunnerConfig): Promise<{ agent: Agent; 
         hooks: await HookServer.start(),
         github: { env: app.env(), scrub: GITHUB_TOKEN_ENV },
       });
-      return { agent, github: createTaskGithub({ repo: runnerConfig.repo, label: runnerConfig.issueLabel, env: () => githubEnv(app) }) };
+      return { agent, github: createTaskGithub({ repo: runnerConfig.repo, label: runnerConfig.restrictLabel, env: () => githubEnv(app) }) };
     }
   }
 }
@@ -283,6 +283,10 @@ log(
     `for ${config.repo}, syncing with ${config.serverUrl.origin}`,
 );
 log(`data in ${config.dataDir}; a task stops after ${config.taskTimeoutMs / 60_000} minutes`);
+const retiredLabel = retiredAgentIssueLabelNotice(process.env);
+if (retiredLabel !== undefined) {
+  log(retiredLabel);
+}
 log(
   config.dailyBudgetUsd === undefined
     ? "no daily budget (RUNNER_DAILY_BUDGET_USD is not set): spend is counted, and nothing is refused"
@@ -301,7 +305,7 @@ if (config.agent === "mock") {
   }
 } else {
   log(`agents run ${config.agent} with ${config.model === undefined ? "its default model" : `model ${config.model}`}`);
-  log(`issues need the "${config.issueLabel}" label; agents push and open pull requests as ${githubIdentity()}`);
+  log(`agents take any open issue without the "${config.restrictLabel}" label; they push and open pull requests as ${githubIdentity()}`);
   if (config.agentPermissions === "all") {
     // Opted into, and easy to forget it is on: every agent can run anything here, and no prompt will say so.
     for (const line of [

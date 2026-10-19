@@ -95,10 +95,10 @@ describe("rejectionText", () => {
     expect(rejectionText(WORK_REJECTION.forbidden)).toContain("CEO");
   });
 
-  it("names the label an issue refused for want of it needs", () => {
-    expect(rejectionText(WORK_REJECTION.notEligible, "agent-ready")).toBe(
-      "That issue is not marked ready for the coding agents: a maintainer has to label it agent-ready first.",
+  it("names the label that kept a refused issue from the agents", () => {
+    expect(rejectionText(WORK_REJECTION.restricted, "agent-restricted")).toBe(
+      "That issue is restricted from the coding agents: a maintainer has to remove its agent-restricted label first.",
     );
-    expect(rejectionText(WORK_REJECTION.notEligible)).toBe("That issue is not marked ready for the coding agents.");
+    expect(rejectionText(WORK_REJECTION.restricted)).toBe("That issue is restricted from the coding agents.");
   });
 });
