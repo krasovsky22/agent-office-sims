@@ -496,7 +496,10 @@ function assignWork(
   const label = context.restrictLabel ?? "";
   if (label !== "" && work?.assigneeId !== payload.assigneeId) {
     const listed = issue ?? openBoardIssue(context.board, payload.issueNumber);
-    if (listed === undefined || isAgentRestricted(listed, label)) {
+    if (listed === undefined) {
+      return reject(WORK_REJECTION.unknownIssue);
+    }
+    if (isAgentRestricted(listed, label)) {
       return reject(WORK_REJECTION.restricted);
     }
   }

@@ -548,6 +548,10 @@ describe("work for a real coding agent", () => {
     at.board = snapshot({ open: [labelled(2, "agent-restricted")], inProgress: [] });
     expect(gated(at, assign(2, "agent-2"))).toEqual({ ok: false, rejection: WORK_REJECTION.restricted });
     expect(at.work.get(workKey(2))?.assigneeId).toBe("agent-1");
+    // Off the board's listing, it cannot be checked, and is not said to carry the label.
+    at.board = snapshot({ open: [], inProgress: [] });
+    expect(gated(at, assign(2, "agent-2"))).toEqual({ ok: false, rejection: WORK_REJECTION.unknownIssue });
+    expect(at.work.get(workKey(2))?.assigneeId).toBe("agent-1");
     // An office with no restriction label takes any open issue.
     at.board = snapshot({ open: [labelled(1, "agent-restricted")], inProgress: [] });
     expect(gated(at, assign(1, "agent-1"), CEO_ID, "").ok).toBe(true);
