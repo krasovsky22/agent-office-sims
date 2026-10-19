@@ -6,12 +6,13 @@
  * skeleton and its own node transforms while sharing everything the GPU holds.
  * That is what keeps twenty avatars affordable.
  *
- * Bodies come in four looks. A remote player wears the model as authored; the
+ * Bodies come in five looks. A remote player wears the model as authored; the
  * local player gets a lighter copy of its materials, so you can spot yourself;
  * every live coding agent shares one recoloured copy of the shell, so an agent
  * is never mistaken for a person and a floor of them costs one extra material,
  * not one per agent; and the AI manager wears another, so the one in charge is
- * picked out at once.
+ * picked out at once, and the concierge at reception a third, so the one
+ * welcoming you in is not mistaken for anyone who works there.
  *
  * The load is allowed to fail. Nothing here throws anything the caller cannot
  * handle by leaving the avatar as the capsule it was built as.
@@ -56,8 +57,11 @@ const LIVE_AGENT_SHELL_COLOUR = 0x8a6cf0;
 /** The AI manager's shell: crimson, the one body in the office in charge of the rest. */
 const MANAGER_SHELL_COLOUR = 0xcf3d4f;
 
+/** The concierge's shell: teal, a front-of-house colour no one else wears. */
+const CONCIERGE_SHELL_COLOUR = 0x1f9e8f;
+
 /** Which coat of paint a body is stamped out with. */
-export type AvatarLook = "local" | "remote" | "liveAgent" | "manager";
+export type AvatarLook = "local" | "remote" | "liveAgent" | "manager" | "concierge";
 
 /** A body ready to be added to an avatar's group, with the clips that drive it. */
 export interface AvatarModelInstance {
@@ -93,6 +97,7 @@ export function prepareAvatarModel(gltf: GLTF): AvatarModel {
   // the life of the page, like the template's own materials.
   const liveAgentPaint = new Map<THREE.Material, THREE.Material>();
   const managerPaint = new Map<THREE.Material, THREE.Material>();
+  const conciergePaint = new Map<THREE.Material, THREE.Material>();
 
   return {
     createInstance: (look: AvatarLook): AvatarModelInstance => {
@@ -104,6 +109,8 @@ export function prepareAvatarModel(gltf: GLTF): AvatarModel {
         repaint(root, liveAgentPaint, paintLiveAgentShell);
       } else if (look === "manager") {
         repaint(root, managerPaint, paintManagerShell);
+      } else if (look === "concierge") {
+        repaint(root, conciergePaint, paintConciergeShell);
       }
       return {
         root,
@@ -179,6 +186,9 @@ const paintLiveAgentShell = paintShell(LIVE_AGENT_SHELL_COLOUR);
 
 /** The AI manager's paint. */
 const paintManagerShell = paintShell(MANAGER_SHELL_COLOUR);
+
+/** The concierge's paint. */
+const paintConciergeShell = paintShell(CONCIERGE_SHELL_COLOUR);
 
 /**
  * Swaps a body's materials for painted copies, reusing any already in `copies`.

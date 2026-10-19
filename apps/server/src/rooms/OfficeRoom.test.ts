@@ -17,11 +17,15 @@ import { Server, matchMaker } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
   type BoardIssue,
+  CONCIERGE_NAME,
+  CONCIERGE_OCCUPANT_ID,
   type CeoChangedEvent,
+  type ChatEvent,
   CLIENT_MESSAGE,
   EMPTY_BOARD_LISTS,
   IssueWork,
   NO_RUNNER_SPEND,
+  OCCUPANT_KIND,
   OFFICE_ROOM_NAME,
   type OfficeState,
   PLAYER_ROLE,
@@ -33,6 +37,7 @@ import {
   WORK_STATUS,
   type WorkRejectedEvent,
   type WorkStatus,
+  conciergeWelcome,
   isCeo,
   workKey,
 } from "@sim/shared";
@@ -137,6 +142,9 @@ function listen(tab: Tab, room: Room<OfficeState>): void {
   // Registered so the client library does not warn about them; unused here.
   room.onMessage(SERVER_MESSAGE.throttled, () => undefined);
   room.onMessage(SERVER_MESSAGE.projectBoard, () => undefined);
+  // The concierge's wave and welcome, to anyone who walks into the lobby.
+  room.onMessage(SERVER_MESSAGE.emote, () => undefined);
+  room.onMessage(SERVER_MESSAGE.chat, () => undefined);
 }
 
 /** Opens a fresh office as its first, and so CEO, occupant. */
@@ -467,6 +475,37 @@ describe("the runners' books", () => {
     await settled(() => milo.room.state.spendRunners === 2);
     expect(milo.room.state).toMatchObject({ budgeted: false, budgetSpent: true });
     runnerSpend = NO_RUNNER_SPEND;
+
+    await milo.room.leave();
+    await dana.room.leave();
+  });
+});
+
+describe("the concierge at reception", () => {
+  it("is in every tab's office, and welcomes a player who walks into the lobby by name", async () => {
+    const dana = await openOffice("Dana");
+    const milo = await joinOffice(dana, "Milo");
+    const heard: ChatEvent[] = [];
+    milo.room.onMessage<ChatEvent>(SERVER_MESSAGE.chat, (event) => {
+      heard.push(event);
+    });
+
+    const concierge = milo.room.state.occupants.get(CONCIERGE_OCCUPANT_ID);
+    expect(concierge?.kind).toBe(OCCUPANT_KIND.concierge);
+    expect(concierge?.name).toBe(CONCIERGE_NAME);
+    // Not a player, so it never takes the CEO's role from the first to join.
+    expect(roleOf(dana, dana.room.sessionId)).toBe(PLAYER_ROLE.ceo);
+
+    // Put straight into the lobby, as walking in through the main entrance would.
+    const body = serverRoom(dana).state.occupants.get(dana.room.sessionId);
+    if (body === undefined) {
+      throw new Error("Dana is not in the office");
+    }
+    body.x = 10.8;
+    body.z = 9.25;
+    await settled(() => heard.length > 0);
+
+    expect(heard).toEqual([{ occupantId: CONCIERGE_OCCUPANT_ID, text: conciergeWelcome("Dana") }]);
 
     await milo.room.leave();
     await dana.room.leave();

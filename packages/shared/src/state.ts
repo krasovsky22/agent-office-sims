@@ -5,7 +5,8 @@
  * the office, not just for players. The map holds three siblings of it:
  * {@link HumanPlayer}, one per browser, {@link LiveAgent}, moved by the server
  * on a real coding agent's behalf, and {@link AiManager}, the one manager who
- * hands the work out.
+ * hands the work out, plus one plain occupant, the concierge at reception,
+ * who has nothing to replicate beyond a body and a name.
  * All are read through the same map, so anything that
  * only needs a body and a name — the renderer, the board's assignee lookup —
  * treats them alike, and only what is particular to one kind narrows by `kind`.
@@ -39,12 +40,15 @@ import { STARTING_MINUTE_OF_DAY } from "./clock.js";
  *
  * `liveAgent` is one of the real coding agents working on this repository,
  * reported by its orchestrator or runner. `manager` is the AI manager the CEO
- * talks to, who hands the live agents their work.
+ * talks to, who hands the live agents their work. `concierge` is the scripted
+ * host at the lobby's reception desk, who welcomes people in and does nothing
+ * else.
  */
 export const OCCUPANT_KIND = {
   human: "human",
   liveAgent: "live-agent",
   manager: "manager",
+  concierge: "concierge",
 } as const;
 
 export type OccupantKind = (typeof OCCUPANT_KIND)[keyof typeof OCCUPANT_KIND];

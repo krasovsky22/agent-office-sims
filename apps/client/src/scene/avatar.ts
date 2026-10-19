@@ -210,6 +210,8 @@ const LIVE_AGENT_CAPTION_COLOUR = "#c9bcff";
 const MANAGER_BODY_COLOUR = 0xcf3d4f;
 /** The manager's title on its nameplate: the same crimson, lifted to read on the dark pill. */
 const MANAGER_TITLE_COLOUR = "#ff9aa5";
+/** The fallback capsule's version of the concierge's teal shell in `avatarModel.ts`. */
+const CONCIERGE_BODY_COLOUR = 0x1f9e8f;
 const FACING_COLOUR = 0x5e6470;
 const CEO_MARKER_COLOUR = 0xf0c650;
 
@@ -395,6 +397,7 @@ const CAPSULE_COLOUR: Record<AvatarLook, number> = {
   remote: REMOTE_BODY_COLOUR,
   liveAgent: LIVE_AGENT_BODY_COLOUR,
   manager: MANAGER_BODY_COLOUR,
+  concierge: CONCIERGE_BODY_COLOUR,
 };
 
 /** The capsule: the body an avatar has before the model arrives, or instead of it. */
@@ -512,7 +515,9 @@ export class Avatar {
       ? "liveAgent"
       : isManager
         ? "manager"
-        : options.isLocal
+        : options.kind === OCCUPANT_KIND.concierge
+          ? "concierge"
+          : options.isLocal
           ? "local"
           : "remote";
 
