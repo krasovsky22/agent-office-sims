@@ -43,7 +43,7 @@ function withBoard(board: WallBoardSpec): OfficeLayout {
 }
 
 /** The aisle between the first two desk rows, where players spawn facing north. */
-const FLOOR_AISLE = { x: 0, z: 2.5 };
+const FLOOR_AISLE = { x: -1.4, z: -0.2 };
 
 /** Nobody is holding anything. */
 const NOBODY = () => undefined;
@@ -86,7 +86,7 @@ describe("the open floor's project board", () => {
     );
     expect(seats.length).toBeGreaterThan(0);
     for (const seat of seats) {
-      // Yaw 0 faces -Z, toward the partition the board hangs on.
+      // Yaw 0 faces -Z, toward the wall the board hangs on.
       expect(Math.cos(seat.anchor.yaw), seat.id).toBeCloseTo(1);
       expect(seat.anchor.z, seat.id).toBeGreaterThan(board.z);
     }
@@ -157,7 +157,7 @@ describe("board placement checks", () => {
 
   it("report a board left hanging in the middle of a room", () => {
     const board = projectBoard();
-    expect(describeLayoutProblems(withBoard({ ...board, z: 3 }))).toEqual([
+    expect(describeLayoutProblems(withBoard({ ...board, z: 1.88 }))).toEqual([
       `board ${board.id} is not hung on a wall`,
     ]);
   });

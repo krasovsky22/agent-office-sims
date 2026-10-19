@@ -11,6 +11,8 @@
  * Three runs of them, all fronting the street the layout describes: the block
  * across the road, a skyline of towers further back over its roofs, and the
  * office's own neighbours either side of it, their fronts flush with its glass.
+ * And one more, the office's own building above the floor the game is on, so
+ * from the street the office reads as its first floor.
  */
 
 import type { OfficeLayout } from "@sim/shared";
@@ -23,6 +25,8 @@ export interface BuildingSpec {
   readonly maxX: number;
   readonly maxZ: number;
   readonly height: number;
+  /** Height its walls start at, when that is not the ground. */
+  readonly base?: number;
   readonly style: BuildingStyle;
   /** sRGB hex the facade texture is tinted with. */
   readonly colour: number;
@@ -43,6 +47,12 @@ const SKYLINE_SETBACK = 32;
 
 /** Reach of the skyline row along the street, beyond the drawn road. */
 const SKYLINE_OVERHANG = 30;
+
+/** How tall the office's building stands above the office's ceiling. */
+const UPPER_STOREYS_HEIGHT = 34;
+
+/** The office building's curtain wall: the blue-grey of the glass towers round it. */
+const UPPER_STOREYS_COLOUR = 0x6b8597;
 
 /** A small seeded generator, so the city is the same city every load. */
 export function seededRandom(seed: number): () => number {
@@ -165,4 +175,27 @@ export function skylineOf(layout: OfficeLayout, seed = 1115): readonly BuildingS
       glassShare: 0.25,
     }),
   ];
+}
+
+/**
+ * The storeys of the office's own building above the office: its footprint,
+ * from the ceiling up. None for a floor with no street to see it from, or no
+ * ceiling to stand it on.
+ */
+export function upperStoreysOf(layout: OfficeLayout): BuildingSpec | undefined {
+  if (layout.street === undefined || layout.ceiling === undefined) {
+    return undefined;
+  }
+  const { floor } = layout;
+  return {
+    minX: floor.minX,
+    minZ: floor.minZ,
+    maxX: floor.maxX,
+    maxZ: floor.maxZ,
+    height: UPPER_STOREYS_HEIGHT,
+    base: layout.ceiling,
+    style: "glass",
+    colour: UPPER_STOREYS_COLOUR,
+    waterTank: false,
+  };
 }

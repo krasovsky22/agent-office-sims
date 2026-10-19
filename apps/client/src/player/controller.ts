@@ -73,7 +73,12 @@ const FOCUS_EASE_SECONDS = 0.6;
 
 const CAMERA_PITCH_MIN = 0.08;
 const CAMERA_PITCH_MAX = 1.1;
-const CAMERA_PITCH_DEFAULT = 0.45;
+/**
+ * Shallow enough that, with the boom stopped under the ceiling, the camera
+ * still stands far enough back to show the room ahead rather than the desk in
+ * front of the player.
+ */
+const CAMERA_PITCH_DEFAULT = 0.3;
 
 /** Radians of camera rotation per pixel of mouse travel. */
 const LOOK_SENSITIVITY = 0.0026;
@@ -120,21 +125,41 @@ interface Box3 {
   readonly maxZ: number;
 }
 
+/** How thick the ceiling is taken to be, for stopping the boom against it. */
+const CEILING_THICKNESS = 0.3;
+
 /**
- * The walls, as padded 3D boxes, for shortening the camera boom.
+ * The walls and the ceiling, as padded 3D boxes, for shortening the camera
+ * boom.
  *
- * Only walls: desks are knee height and the camera flies well above them, so
- * including them would make the view lurch every time the boom passed over one.
- * Built once — the layout does not change at runtime.
+ * The ceiling is what keeps the camera indoors under it, so the office is seen
+ * as the room it is rather than from over its roof; outside, on the pavement,
+ * the boom is free. Not desks: they are knee height and the camera flies well
+ * above them, so including them would make the view lurch every time the boom
+ * passed over one. Built once — the layout does not change at runtime.
  */
-const CAMERA_OCCLUDERS: readonly Box3[] = OFFICE_LAYOUT.walls.map((spec) => ({
-  minX: spec.footprint.minX - CAMERA_WALL_PADDING,
-  minY: -CAMERA_WALL_PADDING,
-  minZ: spec.footprint.minZ - CAMERA_WALL_PADDING,
-  maxX: spec.footprint.maxX + CAMERA_WALL_PADDING,
-  maxY: spec.height + CAMERA_WALL_PADDING,
-  maxZ: spec.footprint.maxZ + CAMERA_WALL_PADDING,
-}));
+const CAMERA_OCCLUDERS: readonly Box3[] = [
+  ...OFFICE_LAYOUT.walls.map((spec) => ({
+    minX: spec.footprint.minX - CAMERA_WALL_PADDING,
+    minY: -CAMERA_WALL_PADDING,
+    minZ: spec.footprint.minZ - CAMERA_WALL_PADDING,
+    maxX: spec.footprint.maxX + CAMERA_WALL_PADDING,
+    maxY: spec.height + CAMERA_WALL_PADDING,
+    maxZ: spec.footprint.maxZ + CAMERA_WALL_PADDING,
+  })),
+  ...(OFFICE_LAYOUT.ceiling === undefined
+    ? []
+    : [
+        {
+          minX: OFFICE_LAYOUT.floor.minX,
+          minY: OFFICE_LAYOUT.ceiling - CAMERA_WALL_PADDING,
+          minZ: OFFICE_LAYOUT.floor.minZ,
+          maxX: OFFICE_LAYOUT.floor.maxX,
+          maxY: OFFICE_LAYOUT.ceiling + CEILING_THICKNESS,
+          maxZ: OFFICE_LAYOUT.floor.maxZ,
+        },
+      ]),
+];
 
 /**
  * A view the camera can lean into instead of its boom: where the eye is, and

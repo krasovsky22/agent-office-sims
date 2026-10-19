@@ -49,7 +49,7 @@ describe("standupSpots", () => {
   it("leaves the CEO's place at the desk free, and can be walked to from the open floor", () => {
     for (const spot of spots) {
       expect(Math.hypot((desk?.anchor.x ?? 0) - spot.x, (desk?.anchor.z ?? 0) - spot.z)).toBeGreaterThan(0.7);
-      expect(findPath({ x: 0, z: 2.5 }, spot, OFFICE_LAYOUT).length).toBeGreaterThan(0);
+      expect(findPath({ x: -1.4, z: -0.2 }, spot, OFFICE_LAYOUT).length).toBeGreaterThan(0);
     }
   });
 

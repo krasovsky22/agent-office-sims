@@ -36,6 +36,7 @@ import {
   collisionBoxes,
   groundsOf,
   localToWorld,
+  roomAt,
   seatInteractableId,
   workstations,
 } from "./layout.js";
@@ -58,7 +59,11 @@ export type AssetPropKind =
   | "microwave"
   | "table"
   | "diningChair"
-  | "reception";
+  | "reception"
+  | "sofa"
+  | "armchair"
+  | "coffeeTable"
+  | "sideboard";
 
 /** An exact box a model should be stretched to fill. */
 export interface PropFit {
@@ -114,8 +119,9 @@ const PLANT_INSET = 0.8;
 /**
  * Widest wall gap still treated as a doorway.
  *
- * The shipped plan has 1.4 m doorways and one 8.7 m opening onto the bullpen
- * that is a thoroughfare, not a door. This is the line between them.
+ * The shipped plan has 1.4 m doorways and a 1.8 m main entrance; an opening
+ * much wider than that is a thoroughfare, not a door. This is the line
+ * between them.
  */
 const DOORWAY_MAX_SPAN = 2;
 
@@ -153,13 +159,15 @@ function nearBox(box: Aabb2, point: { x: number; z: number }, margin: number): b
  * desk prop
  * is fitted to the layout's own `width`/`depth`/`height`, which is the same box
  * `layout.ts`'s `deskAabb` hands the collision resolver — so the desk you can
- * see and the desk that stops you are one shape.
+ * see and the desk that stops you are one shape. A meeting table is drawn as a
+ * table and has chairs round it but no screens.
  */
 function deskProps(spec: DeskSpec): AssetPropSpec[] {
+  const meeting = spec.meeting === true;
   const props: AssetPropSpec[] = [
     {
       id: `prop-${spec.id}`,
-      kind: "desk",
+      kind: meeting ? "table" : "desk",
       x: spec.x,
       y: 0,
       z: spec.z,
@@ -178,6 +186,9 @@ function deskProps(spec: DeskSpec): AssetPropSpec[] {
       yaw: seat.yaw,
       fit: { width: DESK_CHAIR.width, depth: DESK_CHAIR.depth, height: DESK_CHAIR.height },
     });
+    if (meeting) {
+      return;
+    }
 
     // The screen stands on the desktop at the far edge, turned to face the seat.
     const monitor = localToWorld(spec, spec.yaw, localX, MONITOR_INSET - spec.depth / 2);
@@ -291,9 +302,10 @@ const CORNERS = [
 /**
  * One plant per room, in the first corner that is clear of the world.
  *
- * Corners are tried in a rotating order so the four rooms do not all grow a
- * plant in the same corner, and a corner already occupied by a desk is skipped —
- * which is what keeps this derivation safe when the floor plan changes under it.
+ * Corners are tried in a rotating order so the rooms do not all grow a plant in
+ * the same corner, and a corner already occupied by a desk, or claimed by a
+ * room listed before this one, is skipped — which is what keeps this
+ * derivation safe when the floor plan changes under it.
  */
 function plantProps(layout: OfficeLayout): AssetPropSpec[] {
   const boxes = collisionBoxes(layout);
@@ -307,7 +319,7 @@ function plantProps(layout: OfficeLayout): AssetPropSpec[] {
       }
       const x = corner.x < 0 ? room.bounds.minX + PLANT_INSET : room.bounds.maxX - PLANT_INSET;
       const z = corner.z < 0 ? room.bounds.minZ + PLANT_INSET : room.bounds.maxZ - PLANT_INSET;
-      if (boxes.some((box) => nearBox(box, { x, z }, PROP_CLEARANCE))) {
+      if (boxes.some((box) => nearBox(box, { x, z }, PROP_CLEARANCE)) || roomAt(layout, { x, z })?.id !== room.id) {
         continue;
       }
       props.push({
@@ -329,8 +341,8 @@ function plantProps(layout: OfficeLayout): AssetPropSpec[] {
 /**
  * The pieces with nowhere to be derived from.
  *
- * Kitchen furniture does not follow from a wall or a desk, so the layout places
- * it by hand, in `layout.props` and `layout.tabletop`, against the shipped
+ * Kitchen, lounge and reception furniture does not follow from a wall or a
+ * desk, so the layout places it by hand, in `layout.props` and `layout.tabletop`, against the shipped
  * floor plan specifically. This just carries those placements over into render
  * props, fitted to the exact box the layout already states, with each piece of
  * tabletop dressing lifted onto the prop it names.
@@ -460,7 +472,7 @@ export function describePropProblems(
 ): string[] {
   const problems: string[] = [];
   const boxes = collisionBoxes(layout);
-  // Kitchen furniture stands against a wall or round a table by design, and
+  // Hand-placed furniture stands against a wall or round a table by design, and
   // `layout.ts` already holds it clear of everything solid — so it is
   // deliberately excluded, unlike a plant, which needs room to walk up to.
   const freeStanding = new Set<AssetPropKind>(["plant"]);

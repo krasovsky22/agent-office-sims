@@ -17,16 +17,15 @@ const R = OCCUPANT_RADIUS;
 const SOUTH_WALL_FACE = 11.7;
 const EAST_WALL_FACE = 11.7;
 const NORTH_WALL_FACE = -11.7;
-const PARTITION_NORTH_FACE = -2.7;
-const PARTITION_SOUTH_FACE = -2.4;
-const MEETING_EAST_WALL_FACE = 0;
-const DESK_ROW_SOUTH_FACE = 0.9;
-const DESK_ROW_CHAIR_SOUTH_FACE = 1.765;
-const CEO_CHAIR_SOUTH_FACE = -7.185;
-const COFFEE_MACHINE_SOUTH_FACE = -10.75;
+const OFFICES_FRONT_SOUTH_FACE = -4.7;
+const MANAGER_EAST_WALL_FACE = 4;
+const DESK_ROW_SOUTH_FACE = 1.3;
+const DESK_ROW_CHAIR_SOUTH_FACE = 2.165;
+const CEO_DESK_SOUTH_FACE = -8.05;
+const COFFEE_MACHINE_SOUTH_FACE = 0.4;
 
-/** Start and travel of the diagonal that wedges into the meeting room corner. */
-const CORNER_START = { x: -1, z: -10 };
+/** Start and travel of the diagonal that wedges into the manager's office corner. */
+const CORNER_START = { x: 2.8, z: -10.2 };
 const CORNER_DELTA = { x: 5, z: -5 };
 
 function move(from: { x: number; z: number }, delta: { x: number; z: number }) {
@@ -57,65 +56,65 @@ const cases: readonly Case[] = [
   {
     // Beside the chair rather than behind it: the chair is solid too.
     name: "head-on into a desk stops a radius short",
-    from: { x: 2.55, z: 2.5 },
+    from: { x: 0.5, z: 2.88 },
     delta: { x: 0, z: -3 },
-    expect: { x: 2.55, z: DESK_ROW_SOUTH_FACE + R },
+    expect: { x: 0.5, z: DESK_ROW_SOUTH_FACE + R },
   },
   {
     name: "head-on into a chair stops a radius short",
-    from: { x: 1.8, z: 2.5 },
+    from: { x: -0.2, z: 2.88 },
     delta: { x: 0, z: -3 },
-    expect: { x: 1.8, z: DESK_ROW_CHAIR_SOUTH_FACE + R },
+    expect: { x: -0.2, z: DESK_ROW_CHAIR_SOUTH_FACE + R },
   },
   {
     name: "oblique approach to the east wall keeps the along-wall component",
-    from: { x: 10, z: 2.5 },
+    from: { x: 10.5, z: 2 },
     delta: { x: 3, z: 2 },
-    expect: { x: EAST_WALL_FACE - R, z: 4.5 },
+    expect: { x: EAST_WALL_FACE - R, z: 4 },
   },
   {
-    name: "oblique approach to the partition slides east along it",
-    from: { x: 0, z: -4 },
-    delta: { x: 2, z: 1 },
-    expect: { x: 2, z: PARTITION_NORTH_FACE - R },
+    name: "oblique approach to the private offices' front wall slides east along it",
+    from: { x: -1.2, z: -4 },
+    delta: { x: 2, z: -1 },
+    expect: { x: 0.8, z: OFFICES_FRONT_SOUTH_FACE + R },
   },
   {
-    name: "diagonal into the meeting room's inside corner stops on both faces",
+    name: "diagonal into the manager's office's inside corner stops on both faces",
     from: CORNER_START,
     delta: CORNER_DELTA,
-    expect: { x: MEETING_EAST_WALL_FACE - R, z: NORTH_WALL_FACE + R },
+    expect: { x: MANAGER_EAST_WALL_FACE - R, z: NORTH_WALL_FACE + R },
   },
   {
+    // Up between two desks and their chairs in each row, then into the wall.
     name: "a step long enough to cross a wall is still stopped by it",
-    from: { x: -10.7, z: 0 },
+    from: { x: 1, z: 2.88 },
     delta: { x: 0, z: -20 },
-    expect: { x: -10.7, z: PARTITION_SOUTH_FACE + R },
+    expect: { x: 1, z: OFFICES_FRONT_SOUTH_FACE + R },
   },
   {
     name: "an absurd step is stopped by the same wall",
-    from: { x: -10.7, z: 0 },
+    from: { x: 1, z: 2.88 },
     delta: { x: 0, z: -1000 },
-    expect: { x: -10.7, z: PARTITION_SOUTH_FACE + R },
+    expect: { x: 1, z: OFFICES_FRONT_SOUTH_FACE + R },
   },
   {
-    // Through the doorway and on to the CEO's chair, which stands in the way
-    // of the desk behind it.
+    // Through the doorway and on to the CEO's desk.
     name: "a doorway is passable",
-    from: { x: -8.7, z: -3.7 },
+    from: { x: -5.1, z: -3.7 },
     delta: { x: 0, z: -6 },
-    expect: { x: -8.7, z: CEO_CHAIR_SOUTH_FACE + R },
+    expect: { x: -5.1, z: CEO_DESK_SOUTH_FACE + R },
   },
   {
     name: "head-on into a prop stops a radius short",
-    from: { x: 3.15, z: -10 },
+    from: { x: 5.3, z: 1.6 },
     delta: { x: 0, z: -2 },
-    expect: { x: 3.15, z: COFFEE_MACHINE_SOUTH_FACE + R },
+    expect: { x: 5.3, z: COFFEE_MACHINE_SOUTH_FACE + R },
   },
   {
     name: "unobstructed movement is untouched",
-    from: { x: 0, z: 6.5 },
-    delta: { x: 1, z: -1 },
-    expect: { x: 1, z: 5.5 },
+    from: { x: -1.2, z: -3.7 },
+    delta: { x: 1, z: 0.5 },
+    expect: { x: -0.2, z: -3.2 },
   },
 ];
 
@@ -160,7 +159,7 @@ describe("resolveMove", () => {
    * correction shows up as rubber-banding.
    */
   it("lands in the same place however the travel is divided", () => {
-    const from = { x: 10, z: 2.5 };
+    const from = { x: 10.5, z: 2 };
     const total = { x: WALK_SPEED, z: WALK_SPEED };
 
     const once = move(from, total);
@@ -188,12 +187,13 @@ describe("resolveMove", () => {
     const starts = [
       { x: 0, z: 9 },
       CORNER_START,
-      { x: 0, z: -4 },
-      { x: 10, z: 2.5 },
-      { x: -10.7, z: 0 },
-      { x: 3.15, z: -10 },
-      { x: -8.7, z: -6.8 },
-      { x: 9, z: -8 },
+      { x: -1.2, z: -4 },
+      { x: 10.5, z: 2 },
+      { x: 1, z: 2.88 },
+      { x: 5.3, z: 1.6 },
+      { x: -5.4, z: -6.8 },
+      { x: 2.8, z: -8.2 },
+      { x: -9.2, z: -9.4 },
     ];
     const distances = [0.05, 0.5, 4, 40];
 
@@ -217,7 +217,7 @@ describe("resolveMove", () => {
   it("keeps an occupant inside the building", () => {
     for (let step = 0; step < 36; step += 1) {
       const angle = (step / 36) * Math.PI * 2;
-      const result = move({ x: 0, z: 2.5 }, { x: Math.cos(angle) * 200, z: Math.sin(angle) * 200 });
+      const result = move({ x: -1.2, z: 2.88 }, { x: Math.cos(angle) * 200, z: Math.sin(angle) * 200 });
       expect(result.x).toBeGreaterThan(OFFICE_LAYOUT.floor.minX);
       expect(result.x).toBeLessThan(OFFICE_LAYOUT.floor.maxX);
       expect(result.z).toBeGreaterThan(OFFICE_LAYOUT.floor.minZ);

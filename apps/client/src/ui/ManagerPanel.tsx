@@ -1,5 +1,5 @@
 /**
- * The conversation with the AI manager, opened with `E` at its desk in the lobby.
+ * The conversation with the AI manager, opened with `E` at its desk in its office.
  *
  * Everyone in the office may read it; only the CEO gets a composer that does
  * anything, and anyone else is told who can, from `managerAccess.ts`, which

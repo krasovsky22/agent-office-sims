@@ -9,10 +9,16 @@
  * furniture is not: `props.ts` draws that from the asset kit, and the grey desk
  * boxes this file makes are the fallback it replaces. See {@link OfficeView}.
  *
- * The street wall is glazed — a sill, glass and a header, so the street shows
+ * The outer walls are glazed — a sill, glass and a header, so the outside shows
  * through — and the pavement's railings are rails on posts; both still block
  * exactly the footprint the layout gives them, so seeing through a wall never
  * means walking through it.
+ *
+ * The ceiling closes the box over the whole floor slab, with light panels let
+ * into it, and faces only downwards: the camera is kept under it indoors
+ * (`player/controller.ts`), and from anywhere above, the upper storeys drawn
+ * round it outside (`street.ts`) are what show. The lifts in the lobby are
+ * doors on the wall and nothing more.
  *
  * Only the floor receives shadows and only the furniture and the avatars cast
  * them: the walls are a closed box around the camera, so shadowing them would
@@ -20,7 +26,7 @@
  * nothing you can see. The lights themselves are `lighting.ts`'s.
  */
 
-import { type InteractableSpec, type OfficeLayout, type WallSpec, interactables } from "@sim/shared";
+import { type InteractableSpec, type LiftSpec, type OfficeLayout, type WallSpec, interactables } from "@sim/shared";
 import * as THREE from "three";
 
 const FLOOR_COLOUR = 0x4a4a50;
@@ -30,6 +36,22 @@ const FIXTURE_COLOUR = 0xe6e8ee;
 const FRAME_COLOUR = 0x3b3f46;
 const GLASS_COLOUR = 0xb4d2e4;
 const RAILING_COLOUR = 0x1c2420;
+const CEILING_COLOUR = 0xd9d8d2;
+const LIGHT_PANEL_COLOUR = 0xfff6e2;
+const STEEL_COLOUR = 0xa7adb3;
+const LIFT_FRAME_COLOUR = 0x5b6168;
+const LIFT_INDICATOR_COLOUR = 0xffb547;
+
+/** Spacing of the light panels let into the ceiling, and each panel's size. */
+const LIGHT_PANEL_SPACING = 3;
+const LIGHT_PANEL_SIZE = { width: 1.2, depth: 0.6 } as const;
+/** How far below the ceiling a panel hangs, so the two never fight for a pixel. */
+const LIGHT_PANEL_DROP = 0.01;
+
+/** How far a lift's frame and doors stand proud of the wall they are set into. */
+const LIFT_FRAME_DEPTH = 0.06;
+const LIFT_FRAME_WIDTH = 0.12;
+const LIFT_DOOR_DEPTH = 0.03;
 
 /** Top of a window's sill and bottom of its header, above the floor. */
 const SILL_HEIGHT = 0.9;
@@ -211,8 +233,140 @@ function addFixture(parent: THREE.Object3D, spec: InteractableSpec, material: TH
 }
 
 /**
- * Adds the floor, the walls, the grey desk boxes and the hand-placed fixtures
- * to a scene.
+ * The ceiling over the floor slab, a plane facing down, and a grid of light
+ * panels just under it, every one clear of the walls so none is half buried
+ * in one. Nothing for a floor open to the sky.
+ */
+function addCeiling(parent: THREE.Object3D, layout: OfficeLayout): void {
+  const height = layout.ceiling;
+  if (height === undefined) {
+    return;
+  }
+  const floor = centreOf(layout.floor);
+  const ceiling = new THREE.Mesh(
+    new THREE.PlaneGeometry(floor.width, floor.depth),
+    new THREE.MeshLambertMaterial({ color: CEILING_COLOUR }),
+  );
+  // Turned to face the floor, so from above it is culled and looks through.
+  ceiling.rotation.x = Math.PI / 2;
+  ceiling.position.set(floor.x, height, floor.z);
+  ceiling.name = "ceiling";
+  parent.add(ceiling);
+
+  const panels: THREE.Matrix4[] = [];
+  const halfWidth = LIGHT_PANEL_SIZE.width / 2;
+  const halfDepth = LIGHT_PANEL_SIZE.depth / 2;
+  const columns = Math.floor(floor.width / LIGHT_PANEL_SPACING);
+  const rows = Math.floor(floor.depth / LIGHT_PANEL_SPACING);
+  for (let column = 0; column < columns; column += 1) {
+    for (let row = 0; row < rows; row += 1) {
+      const x = layout.floor.minX + (column + 0.5) * (floor.width / columns);
+      const z = layout.floor.minZ + (row + 0.5) * (floor.depth / rows);
+      const clear = !layout.walls.some(
+        ({ footprint }) =>
+          x - halfWidth < footprint.maxX &&
+          x + halfWidth > footprint.minX &&
+          z - halfDepth < footprint.maxZ &&
+          z + halfDepth > footprint.minZ,
+      );
+      if (clear) {
+        panels.push(
+          new THREE.Matrix4().compose(
+            new THREE.Vector3(x, height - LIGHT_PANEL_DROP, z),
+            new THREE.Quaternion(),
+            new THREE.Vector3(LIGHT_PANEL_SIZE.width, LIGHT_PANEL_DROP, LIGHT_PANEL_SIZE.depth),
+          ),
+        );
+      }
+    }
+  }
+  // Lit from within, so they read as lights whatever the hour.
+  addUprights(parent, "ceiling-lights", panels, new THREE.MeshBasicMaterial({ color: LIGHT_PANEL_COLOUR }));
+}
+
+/** Materials every lift shares. */
+interface LiftMaterials {
+  readonly frame: THREE.Material;
+  readonly door: THREE.Material;
+  readonly seam: THREE.Material;
+  readonly indicator: THREE.Material;
+}
+
+/** A box in a lift's own frame, which faces -Z from the wall's surface at z = 0. */
+function addLocalBox(
+  parent: THREE.Object3D,
+  material: THREE.Material,
+  centre: { readonly x: number; readonly y: number; readonly z: number },
+  size: { readonly x: number; readonly y: number; readonly z: number },
+): void {
+  const mesh = new THREE.Mesh(UNIT_BOX, material);
+  mesh.scale.set(size.x, size.y, size.z);
+  mesh.position.set(centre.x, centre.y, centre.z);
+  parent.add(mesh);
+}
+
+/**
+ * One lift: a steel frame round the opening, a pair of closed doors with the
+ * seam between them, a floor indicator over the frame and a call button
+ * beside it. A placeholder, so nothing about it moves.
+ */
+function addLift(parent: THREE.Object3D, spec: LiftSpec, materials: LiftMaterials): void {
+  const lift = new THREE.Group();
+  lift.name = spec.id;
+  lift.position.set(spec.x, 0, spec.z);
+  lift.rotation.y = spec.yaw;
+  const halfWidth = spec.width / 2;
+  const frameZ = -LIFT_FRAME_DEPTH / 2;
+  // Jambs and head.
+  for (const side of [-1, 1]) {
+    addLocalBox(
+      lift,
+      materials.frame,
+      { x: side * (halfWidth + LIFT_FRAME_WIDTH / 2), y: spec.height / 2, z: frameZ },
+      { x: LIFT_FRAME_WIDTH, y: spec.height, z: LIFT_FRAME_DEPTH },
+    );
+  }
+  addLocalBox(
+    lift,
+    materials.frame,
+    { x: 0, y: spec.height + LIFT_FRAME_WIDTH / 2, z: frameZ },
+    { x: spec.width + LIFT_FRAME_WIDTH * 2, y: LIFT_FRAME_WIDTH, z: LIFT_FRAME_DEPTH },
+  );
+  // The two leaves, closed, and the dark line where they meet.
+  for (const side of [-1, 1]) {
+    addLocalBox(
+      lift,
+      materials.door,
+      { x: (side * halfWidth) / 2, y: spec.height / 2, z: -LIFT_DOOR_DEPTH / 2 },
+      { x: halfWidth - 0.005, y: spec.height, z: LIFT_DOOR_DEPTH },
+    );
+  }
+  addLocalBox(lift, materials.seam, { x: 0, y: spec.height / 2, z: -LIFT_DOOR_DEPTH / 2 }, { x: 0.01, y: spec.height, z: LIFT_DOOR_DEPTH + 0.002 });
+  // Which floor it is at, over the head, and the button to call it, beside the frame.
+  addLocalBox(
+    lift,
+    materials.indicator,
+    { x: 0, y: spec.height + LIFT_FRAME_WIDTH + 0.12, z: frameZ },
+    { x: 0.36, y: 0.14, z: LIFT_FRAME_DEPTH },
+  );
+  addLocalBox(
+    lift,
+    materials.frame,
+    { x: halfWidth + LIFT_FRAME_WIDTH + 0.2, y: 1.1, z: frameZ },
+    { x: 0.1, y: 0.2, z: LIFT_FRAME_DEPTH },
+  );
+  addLocalBox(
+    lift,
+    materials.indicator,
+    { x: halfWidth + LIFT_FRAME_WIDTH + 0.2, y: 1.1, z: frameZ - LIFT_FRAME_DEPTH / 2 },
+    { x: 0.04, y: 0.04, z: 0.01 },
+  );
+  parent.add(lift);
+}
+
+/**
+ * Adds the floor, the walls, the ceiling, the lifts, the grey desk boxes and
+ * the hand-placed fixtures to a scene.
  *
  * @returns a handle on the world, so a caller can remove the whole office in one
  * call and swap the grey desks for the prop kit's.
@@ -256,6 +410,17 @@ export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): OfficeVie
   }
   addUprights(office, "window-mullions", mullions, materials.frame);
   addUprights(office, "railing-posts", posts, materials.railing);
+
+  addCeiling(office, layout);
+  const liftMaterials: LiftMaterials = {
+    frame: new THREE.MeshLambertMaterial({ color: LIFT_FRAME_COLOUR }),
+    door: new THREE.MeshLambertMaterial({ color: STEEL_COLOUR }),
+    seam: new THREE.MeshLambertMaterial({ color: FRAME_COLOUR }),
+    indicator: new THREE.MeshBasicMaterial({ color: LIFT_INDICATOR_COLOUR }),
+  };
+  for (const spec of layout.lifts) {
+    addLift(office, spec, liftMaterials);
+  }
 
   const greyDesks = new THREE.Group();
   greyDesks.name = "grey-desks";

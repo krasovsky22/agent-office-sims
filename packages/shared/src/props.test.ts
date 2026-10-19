@@ -49,9 +49,11 @@ describe("the shipped office's props", () => {
 
   it("covers every kind the asset kit has to supply", () => {
     expect([...kinds(OFFICE_PROPS)].sort()).toEqual([
+      "armchair",
       "cabinet",
       "chair",
       "coffee",
+      "coffeeTable",
       "desk",
       "diningChair",
       "door",
@@ -59,6 +61,8 @@ describe("the shipped office's props", () => {
       "monitor",
       "plant",
       "reception",
+      "sideboard",
+      "sofa",
       "table",
     ]);
   });
@@ -74,12 +78,15 @@ describe("the shipped office's props", () => {
     }
   });
 
-  it("gives every desk in the layout a desk prop fitted to its collision box", () => {
-    expect(countOf("desk", OFFICE_PROPS)).toBe(OFFICE_LAYOUT.desks.length);
+  it("gives every desk in the layout a desk prop, or a table for a meeting table, fitted to its collision box", () => {
+    const meetingTables = OFFICE_LAYOUT.desks.filter((spec) => spec.meeting === true);
+    expect(meetingTables.length).toBeGreaterThan(0);
+    expect(countOf("desk", OFFICE_PROPS)).toBe(OFFICE_LAYOUT.desks.length - meetingTables.length);
 
     for (const spec of OFFICE_LAYOUT.desks) {
       const prop = OFFICE_PROPS.find((candidate) => candidate.id === `prop-${spec.id}`);
       expect(prop, spec.id).toBeDefined();
+      expect(prop?.kind, spec.id).toBe(spec.meeting === true ? "table" : "desk");
       expect(prop?.fit).toEqual({ width: spec.width, depth: spec.depth, height: spec.height });
       expect(prop?.x).toBe(spec.x);
       expect(prop?.z).toBe(spec.z);
@@ -87,18 +94,22 @@ describe("the shipped office's props", () => {
     }
   });
 
-  it("seats a workstation desk once and the meeting table twice", () => {
+  it("seats a workstation desk once and the meeting table down both sides", () => {
     const seats = (deskId: string) =>
       OFFICE_PROPS.filter((prop) => prop.kind === "chair" && prop.id.startsWith(`prop-${deskId}-`));
 
     expect(seats("desk-north-1")).toHaveLength(1);
     expect(seats("desk-ceo")).toHaveLength(1);
-    expect(seats("table-meeting")).toHaveLength(2);
+    expect(seats("table-meeting")).toHaveLength(8);
   });
 
-  it("stands every monitor on a desktop, facing its seat", () => {
+  it("stands every monitor on a desktop, facing its seat, and none on the meeting table", () => {
     const monitors = OFFICE_PROPS.filter((prop) => prop.kind === "monitor");
-    expect(monitors.length).toBe(countOf("chair", OFFICE_PROPS));
+    const meetingChairs = OFFICE_PROPS.filter(
+      (prop) => prop.kind === "chair" && prop.id.startsWith("prop-table-meeting-"),
+    );
+    expect(monitors.length).toBe(countOf("chair", OFFICE_PROPS) - meetingChairs.length);
+    expect(monitors.some((prop) => prop.id.startsWith("prop-table-meeting-"))).toBe(false);
 
     const deskHeights = new Set(OFFICE_LAYOUT.desks.map((spec) => spec.height));
     for (const monitor of monitors) {
@@ -117,15 +128,14 @@ describe("the shipped office's props", () => {
 
   it("finds a door frame in each doorway gap and none in the open thoroughfare", () => {
     const doors = OFFICE_PROPS.filter((prop) => prop.kind === "door");
-    // One fewer than the layout's doorway count: the lobby's doorway is a gap
-    // in the wall shell itself, not between two walls, so there is nothing for
-    // the gap-finding derivation to pair up.
-    expect(doors).toHaveLength(OFFICE_LAYOUT.doorways.length - 1);
+    // Every doorway in the plan is a gap between two walls, so each gets one,
+    // and the lounge, open to the floor along its whole side, gets none.
+    expect(doors).toHaveLength(OFFICE_LAYOUT.doorways.length);
 
-    // The CEO office's doorway onto the corridor, which is also where the
+    // The CEO office's doorway onto the open floor, which is also where the
     // navigation waypoints put their door node.
     const ceoDoor = doors.find((prop) => prop.id === "prop-door-wall-ceo-south-west");
-    expect(ceoDoor?.x).toBeCloseTo(-8.7);
+    expect(ceoDoor?.x).toBeCloseTo(-5.4);
     expect(ceoDoor?.z).toBeCloseTo(-4.85);
     expect(ceoDoor?.fit?.width).toBeCloseTo(1.4);
 
@@ -167,14 +177,14 @@ describe("prop derivation", () => {
     const many = derivedProps(OFFICE_LAYOUT);
 
     expect(countOf("desk", one)).toBe(1);
-    expect(countOf("desk", many)).toBe(OFFICE_LAYOUT.desks.length);
+    expect(countOf("desk", many)).toBe(OFFICE_LAYOUT.desks.filter((spec) => spec.meeting !== true).length);
   });
 
   it("furnishes a desk the shipped layout has never seen", () => {
     const invented: DeskSpec = {
       id: "desk-invented",
       x: 0,
-      z: 6.5,
+      z: 2.5,
       yaw: 0,
       width: 1.6,
       depth: 0.8,
@@ -221,9 +231,15 @@ describe("monitorOfSeat", () => {
     expect(monitor?.kind).toBe("monitor");
   });
 
-  it("gives every seat in the office its own monitor, on its own desk, in front of it", () => {
+  it("gives every workstation seat in the office its own monitor, on its own desk, in front of it", () => {
     const monitors = new Set<string>();
-    for (const seat of seats) {
+    const meeting = (deskId: string | undefined) =>
+      OFFICE_LAYOUT.desks.find((spec) => spec.id === deskId)?.meeting === true;
+    const workSeats = seats.filter((seat) => !meeting(seat.deskId));
+    for (const seat of seats.filter((candidate) => meeting(candidate.deskId))) {
+      expect(monitorOfSeat(OFFICE_LAYOUT, seat.id), seat.id).toBeUndefined();
+    }
+    for (const seat of workSeats) {
       const monitor = monitorOfSeat(OFFICE_LAYOUT, seat.id);
       expect(monitor, seat.id).toBeDefined();
       monitors.add(monitor!.id);
@@ -235,7 +251,7 @@ describe("monitorOfSeat", () => {
       expect(monitorLocal.x, seat.id).toBeCloseTo(seatLocal.x);
       expect(Math.sign(monitorLocal.z), seat.id).toBe(-Math.sign(seatLocal.z));
     }
-    expect(monitors.size).toBe(seats.length);
+    expect(monitors.size).toBe(workSeats.length);
   });
 
   it("follows the layout, not the shipped desks", () => {

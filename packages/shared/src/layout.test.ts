@@ -22,10 +22,17 @@ import {
 } from "./constants.js";
 import {
   INTERACTION_KIND,
+  ISSUES_STICKER_BOARD_ID,
+  LOBBY_ROOM_ID,
+  LOUNGE_ROOM_ID,
+  MANAGER_OFFICE_ROOM_ID,
   OFFICE_LAYOUT,
+  OPEN_FLOOR_ROOM_ID,
+  PULL_REQUESTS_STICKER_BOARD_ID,
   type OfficeLayout,
   type PropSpec,
   type Vec2,
+  type WallSpec,
   type WaypointSpec,
   containsPoint,
   describeLayoutProblems,
@@ -154,11 +161,12 @@ describe("OFFICE_LAYOUT rooms", () => {
   /** A node inside each room, which is what "reaching the room" means here. */
   const destinations: readonly (readonly [string, string])[] = [
     ["ceo-office", "wp-ceo-desk"],
-    ["meeting-room", "wp-meeting-table"],
+    ["manager-office", "wp-manager-centre"],
+    ["meeting-room", "wp-meeting-east"],
     ["kitchen", "wp-kitchen-coffee"],
-    ["lobby", "wp-lobby-centre"],
-    ["corridor", "wp-corridor-ceo"],
+    ["lounge", "wp-lounge-boards"],
     ["open-floor", "wp-floor-back"],
+    ["lobby", "wp-lobby-lifts"],
     ["sidewalk", "wp-sidewalk-door"],
   ];
 
@@ -344,12 +352,14 @@ describe("OFFICE_LAYOUT kitchen", () => {
   it("turns the coffee machine to face into the room and serves it from the front", () => {
     const machine = kitchenProp("coffee-machine");
     const forward = { x: -Math.sin(machine.yaw), z: -Math.cos(machine.yaw) };
-    // Just past the front face is kitchen floor; just past the back is wall.
+    // A body's width past the front face is kitchen floor; just past the back is wall.
     const reach = machine.depth / 2 + R;
     const inFront = { x: machine.x + forward.x * reach, z: machine.z + forward.z * reach };
-    const behind = { x: machine.x - forward.x * reach, z: machine.z - forward.z * reach };
+    const backReach = machine.depth / 2 + 0.05;
+    const behind = { x: machine.x - forward.x * backReach, z: machine.z - forward.z * backReach };
     expect(roomAt(OFFICE_LAYOUT, inFront)?.id).toBe("kitchen");
     expect(roomAt(OFFICE_LAYOUT, behind)).toBeUndefined();
+    expect(OFFICE_LAYOUT.walls.some((spec) => containsPoint(spec.footprint, behind))).toBe(true);
 
     const coffee = interactables(OFFICE_LAYOUT).find((spec) => spec.id === "coffee-machine");
     expect(coffee).toBeDefined();
@@ -370,34 +380,41 @@ describe("OFFICE_LAYOUT kitchen", () => {
     );
   });
 
-  it("leaves the straight walk from the door to the coffee machine clear", () => {
+  it("leaves the walk from the door to the coffee machine clear", () => {
     const coffee = interactables(OFFICE_LAYOUT).find((spec) => spec.id === "coffee-machine");
     expect(coffee).toBeDefined();
     if (coffee === undefined) {
       return;
     }
+    // In at the door, a step into the room, then straight up to the machine.
     const door = waypoint("wp-kitchen-door");
-    const arrived = walkTo(door, coffee.anchor);
+    const turn = waypoint("wp-kitchen-centre");
+    const arrived = walkTo(walkRoute(door, ["wp-kitchen-centre"]), coffee.anchor);
     expect(distanceBetween(arrived, coffee.anchor)).toBeLessThanOrEqual(ARRIVAL_TOLERANCE);
-    // Not one of the new furnishings sits on that line, so it is clear by a body's width.
-    const walk = { minX: door.x - R, minZ: coffee.anchor.z, maxX: door.x + R, maxZ: door.z };
+    // Not one of the other furnishings sits on either leg, so both are clear by a body's width.
+    const legs = [
+      { minX: door.x - R, minZ: door.z - R, maxX: turn.x + R, maxZ: door.z + R },
+      { minX: turn.x - R, minZ: coffee.anchor.z, maxX: turn.x + R, maxZ: turn.z },
+    ];
     for (const spec of inKitchen.filter((candidate) => candidate.id !== "coffee-machine")) {
       const box = propAabb(spec);
-      const overlaps =
-        box.minX < walk.maxX && walk.minX < box.maxX && box.minZ < walk.maxZ && walk.minZ < box.maxZ;
-      expect(overlaps, spec.id).toBe(false);
+      for (const walk of legs) {
+        const overlaps =
+          box.minX < walk.maxX && walk.minX < box.maxX && box.minZ < walk.maxZ && walk.minZ < box.maxZ;
+        expect(overlaps, spec.id).toBe(false);
+      }
     }
   });
 
   it("would refuse a cabinet pushed into the wall, into a neighbour, or into the doorway", () => {
     const cabinet = kitchenProp("kitchen-cabinet-north-1");
     expect(describeLayoutProblems(withProp({ ...cabinet, z: cabinet.z - 0.1 }))).toContain(
-      "prop kitchen-cabinet-north-1 overlaps wall wall-north",
+      "prop kitchen-cabinet-north-1 overlaps wall wall-meeting-south",
     );
     expect(describeLayoutProblems(withProp({ ...cabinet, x: cabinet.x - 0.1 }))).toContain(
       "prop kitchen-cabinet-north-1 overlaps prop kitchen-cabinet-north-2",
     );
-    expect(describeLayoutProblems(withProp({ ...cabinet, x: 3.15, z: -5.5 }))).toContain(
+    expect(describeLayoutProblems(withProp({ ...cabinet, x: 4.6, z: 5.8 }))).toContain(
       "prop kitchen-cabinet-north-1 stands in doorway door-kitchen",
     );
   });
@@ -474,6 +491,22 @@ describe("OFFICE_LAYOUT street front", () => {
     expect(glazed + entrance.width).toBeCloseTo(OFFICE_LAYOUT.floor.maxZ - OFFICE_LAYOUT.floor.minZ);
   });
 
+  it("glazes the west wall all but behind the issues sticker board", () => {
+    const westWall = OFFICE_LAYOUT.walls.filter(
+      (spec) => spec.footprint.minX >= OFFICE_LAYOUT.floor.minX &&
+        spec.footprint.maxX <= OFFICE_LAYOUT.floor.minX + MIN_OBSTACLE_THICKNESS + 1e-9,
+    );
+    const length = (spec: WallSpec) => spec.footprint.maxZ - spec.footprint.minZ;
+    expect(westWall.reduce((sum, spec) => sum + length(spec), 0)).toBeCloseTo(OFFICE_LAYOUT.floor.maxZ - OFFICE_LAYOUT.floor.minZ);
+    const board = OFFICE_LAYOUT.boards.find((spec) => spec.id === ISSUES_STICKER_BOARD_ID)!;
+    const solid = westWall.filter((spec) => spec.style === undefined);
+    expect(solid.length).toBe(1);
+    expect(solid[0]!.footprint.minZ).toBeLessThanOrEqual(board.z - board.width / 2);
+    expect(solid[0]!.footprint.maxZ).toBeGreaterThanOrEqual(board.z + board.width / 2);
+    const glazed = westWall.filter((spec) => spec.style === "window").reduce((sum, spec) => sum + length(spec), 0);
+    expect(glazed).toBeGreaterThan((OFFICE_LAYOUT.floor.maxZ - OFFICE_LAYOUT.floor.minZ) / 2);
+  });
+
   it("keeps everyone on the pavement, off the road", () => {
     const starts = [
       { x: 13.7, z: -6.6 },
@@ -500,5 +533,94 @@ describe("OFFICE_LAYOUT street front", () => {
     expect(street.farFrontX).toBeGreaterThan(street.road.maxX);
     expect(street.crossingZ).toBeGreaterThan(street.road.minZ);
     expect(street.crossingZ).toBeLessThan(street.road.maxZ);
+  });
+});
+
+describe("OFFICE_LAYOUT building", () => {
+  const room = (id: string) => {
+    const found = OFFICE_LAYOUT.rooms.find((candidate) => candidate.id === id);
+    if (found === undefined) {
+      throw new Error(`the shipped layout has no ${id}`);
+    }
+    return found;
+  };
+  const doorway = (id: string) => {
+    const found = OFFICE_LAYOUT.doorways.find((candidate) => candidate.id === id);
+    if (found === undefined) {
+      throw new Error(`the shipped layout has no ${id}`);
+    }
+    return found;
+  };
+
+  it("puts a ceiling over the whole floor at the height of its walls, out of everyone's reach", () => {
+    const walls = OFFICE_LAYOUT.walls.filter((spec) => spec.style !== "railing");
+    expect(OFFICE_LAYOUT.ceiling).toBe(Math.max(...walls.map((spec) => spec.height)));
+    for (const board of OFFICE_LAYOUT.boards) {
+      expect(board.elevation + board.height, board.id).toBeLessThan(OFFICE_LAYOUT.ceiling ?? 0);
+    }
+    for (const lift of OFFICE_LAYOUT.lifts) {
+      expect(lift.height, lift.id).toBeLessThan(OFFICE_LAYOUT.ceiling ?? 0);
+    }
+  });
+
+  /**
+   * The way in, in the order a visitor meets it: off the street through the
+   * main entrance, past reception, down the hall to the lifts, and through
+   * the door to the left of them into the office.
+   */
+  it("leads in from the street past reception to the lifts, with the office door to their left", () => {
+    const lobby = room(LOBBY_ROOM_ID);
+    const entrance = doorway("door-entrance");
+    const office = doorway("door-office");
+    expect([...entrance.connects].sort()).toEqual([LOBBY_ROOM_ID, SIDEWALK_ROOM_ID].sort());
+    expect([...office.connects].sort()).toEqual([LOBBY_ROOM_ID, OPEN_FLOOR_ROOM_ID].sort());
+
+    const reception = OFFICE_LAYOUT.props.find((spec) => spec.kind === "reception");
+    expect(reception && roomAt(OFFICE_LAYOUT, reception)?.id).toBe(LOBBY_ROOM_ID);
+    expect(OFFICE_LAYOUT.lifts.length).toBeGreaterThan(0);
+    for (const lift of OFFICE_LAYOUT.lifts) {
+      expect(lift.roomId).toBe(LOBBY_ROOM_ID);
+      // Further in from the street than reception.
+      expect(Math.abs(lift.x - entrance.centre.x)).toBeGreaterThan(Math.abs((reception?.x ?? 0) - entrance.centre.x));
+      // Facing the lifts, left is a quarter turn anticlockwise from the way they face back.
+      const facing = { x: Math.sin(lift.yaw), z: Math.cos(lift.yaw) };
+      const left = { x: facing.z, z: -facing.x };
+      const toDoor = { x: office.centre.x - lift.x, z: office.centre.z - lift.z };
+      expect(left.x * toDoor.x + left.z * toDoor.z, lift.id).toBeGreaterThan(lift.width);
+    }
+    expect(containsPoint(lobby.bounds, { x: entrance.centre.x - 1, z: entrance.centre.z })).toBe(true);
+
+    // And the whole way can be walked, from the pavement to the desks.
+    const pavement = waypoint("wp-sidewalk-door");
+    walkRoute(pavement, routeBetween("wp-sidewalk-door", "wp-lobby-lifts"));
+    walkRoute(waypoint("wp-lobby-lifts"), routeBetween("wp-lobby-lifts", "wp-floor-aisle-north"));
+  });
+
+  it("furnishes the lounge with a sofa, armchairs and a coffee table, and hangs both sticker boards there", () => {
+    const inLounge = OFFICE_LAYOUT.props.filter((spec) => roomAt(OFFICE_LAYOUT, spec)?.id === LOUNGE_ROOM_ID);
+    const kinds = inLounge.map((spec) => spec.kind);
+    expect(kinds.filter((kind) => kind === "sofa")).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === "armchair")).toHaveLength(2);
+    expect(kinds.filter((kind) => kind === "coffeeTable")).toHaveLength(1);
+    expect(
+      OFFICE_LAYOUT.boards.filter((board) => board.roomId === LOUNGE_ROOM_ID).map((board) => board.id).sort(),
+    ).toEqual([ISSUES_STICKER_BOARD_ID, PULL_REQUESTS_STICKER_BOARD_ID].sort());
+  });
+
+  it("seats the conference room's table down both sides, with a sideboard along a wall", () => {
+    const table = OFFICE_LAYOUT.desks.find((spec) => spec.meeting === true);
+    expect(table && roomAt(OFFICE_LAYOUT, table)?.id).toBe("meeting-room");
+    const sideboard = OFFICE_LAYOUT.props.find((spec) => spec.kind === "sideboard");
+    expect(sideboard && roomAt(OFFICE_LAYOUT, sideboard)?.id).toBe("meeting-room");
+  });
+
+  it("gives the CEO and the AI manager an office each, side by side, off the open floor", () => {
+    const ceo = room("ceo-office");
+    const manager = room(MANAGER_OFFICE_ROOM_ID);
+    expect(ceo.bounds.minZ).toBe(manager.bounds.minZ);
+    expect(ceo.bounds.maxZ).toBe(manager.bounds.maxZ);
+    expect(manager.bounds.minX - ceo.bounds.maxX).toBeCloseTo(MIN_OBSTACLE_THICKNESS);
+    expect(doorway("door-ceo").connects).toContain(OPEN_FLOOR_ROOM_ID);
+    expect(doorway("door-manager").connects).toContain(OPEN_FLOOR_ROOM_ID);
   });
 });

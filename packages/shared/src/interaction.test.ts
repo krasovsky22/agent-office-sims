@@ -130,14 +130,24 @@ describe("the office's interactables", () => {
     }
   });
 
-  it("gives the meeting table one seat per chair rather than one in total", () => {
+  it("gives the meeting table one seat per chair down both sides rather than one in total", () => {
     const meeting = interactables(OFFICE_LAYOUT).filter((spec) =>
       spec.id.startsWith("seat-table-meeting-"),
     );
-    expect(meeting.map((spec) => spec.id)).toEqual([
-      "seat-table-meeting-1",
-      "seat-table-meeting-2",
-    ]);
+    expect(meeting.map((spec) => spec.id)).toEqual(
+      Array.from({ length: 8 }, (_, index) => `seat-table-meeting-${index + 1}`),
+    );
+    // Half on each side, each half turned to face the other across the table.
+    const table = OFFICE_LAYOUT.desks.find((spec) => spec.id === "table-meeting");
+    expect(table?.meeting).toBe(true);
+    const sides = meeting.map((spec) => Math.sign(spec.anchor.x - (table?.x ?? 0)));
+    expect(sides.filter((side) => side < 0)).toHaveLength(4);
+    expect(sides.filter((side) => side > 0)).toHaveLength(4);
+    for (const spec of meeting) {
+      const facing = { x: -Math.sin(spec.anchor.yaw), z: -Math.cos(spec.anchor.yaw) };
+      expect(facing.x * ((table?.x ?? 0) - spec.anchor.x), spec.id).toBeGreaterThan(0);
+      expect(Math.abs(spec.anchor.yaw), spec.id).toBeLessThanOrEqual(Math.PI);
+    }
   });
 
   it("seats the occupant clear of the desk and facing it", () => {
@@ -242,7 +252,7 @@ describe("nearestInteractable", () => {
   });
 
   it("finds nothing in the middle of the floor", () => {
-    expect(nearestInteractable(OFFICE_LAYOUT, { x: 0, z: 2 }, INTERACT_RANGE, NOBODY)).toBeUndefined();
+    expect(nearestInteractable(OFFICE_LAYOUT, { x: -9.2, z: -3.7 }, INTERACT_RANGE, NOBODY)).toBeUndefined();
   });
 
   it("prefers the closer of two interactables", () => {
