@@ -94,7 +94,7 @@ export function applyAs(host: WorkHost, actor: OfficeActor, command: WorkCommand
     board: host.board(),
     actor,
     now: host.now(),
-    issueLabel: host.state.agentIssueLabel,
+    restrictLabel: host.state.agentRestrictLabel,
   });
   if (result.ok) {
     host.observe?.({ actor, command, before, work: result.work });

@@ -351,7 +351,7 @@ function start(): void {
       .filter((view) => view.agentStatus !== undefined)
       .map((view) => ({ id: view.id, carriedIssue: view.carriedIssue }));
     stickerBoards.show(
-      stickerNotes(boardSnapshot, officeWork, carriers, room.agentIssueLabel()),
+      stickerNotes(boardSnapshot, officeWork, carriers, room.agentRestrictLabel()),
       (id) => room.occupantName(id),
       performance.now(),
     );
@@ -487,7 +487,7 @@ function start(): void {
     },
 
     onWorkRejected: (event) => {
-      showNotice(rejectionText(event.rejection, room.agentIssueLabel()));
+      showNotice(rejectionText(event.rejection, room.agentRestrictLabel()));
     },
 
     // Announced in the chat log, where everyone in the office is already

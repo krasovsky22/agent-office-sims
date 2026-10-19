@@ -35,7 +35,7 @@ function fake(answers: Record<string, string | Error>): { run: RunCommand; calls
 
 function github(answers: Record<string, string | Error>) {
   const { run, calls } = fake(answers);
-  return { github: createTaskGithub({ repo: REPO, label: "agent-ready", env: async () => ENV, run }), calls };
+  return { github: createTaskGithub({ repo: REPO, label: "agent-restricted", env: async () => ENV, run }), calls };
 }
 
 const TASK = {
@@ -65,20 +65,20 @@ describe("ownPr", () => {
 });
 
 describe("refusal", () => {
-  it("lets an open issue with the label be worked, asking as the runner's identity", async () => {
+  it("lets an open issue without the label be worked, asking as the runner's identity", async () => {
     const { github: gh, calls } = github({
-      "gh issue view 39": JSON.stringify({ state: "OPEN", labels: [{ name: "client" }, { name: "Agent-Ready" }] }),
+      "gh issue view 39": JSON.stringify({ state: "OPEN", labels: [{ name: "client" }] }),
     });
     expect(await gh.refusal(39)).toBeUndefined();
     expect(calls[0]?.args).toEqual(["issue", "view", "39", "--repo", REPO, "--json", "state,labels"]);
     expect(calls[0]?.env).toBe(ENV);
   });
 
-  it("refuses an issue without the label, a closed one, and one it could not check", async () => {
-    expect(await github({ "gh issue view": JSON.stringify({ state: "OPEN", labels: [{ name: "bug" }] }) }).github.refusal(39)).toBe(
-      "#39 is not labelled agent-ready on GitHub, so no agent may work it",
+  it("refuses an issue with the label, whatever its case, a closed one, and one it could not check", async () => {
+    expect(await github({ "gh issue view": JSON.stringify({ state: "OPEN", labels: [{ name: "bug" }, { name: "Agent-Restricted" }] }) }).github.refusal(39)).toBe(
+      "#39 is labelled agent-restricted on GitHub, so no agent may work it",
     );
-    expect(await github({ "gh issue view": JSON.stringify({ state: "CLOSED", labels: [{ name: "agent-ready" }] }) }).github.refusal(39)).toBe(
+    expect(await github({ "gh issue view": JSON.stringify({ state: "CLOSED", labels: [] }) }).github.refusal(39)).toBe(
       "#39 is not open on GitHub",
     );
     expect(await github({ "gh issue view": new Error("HTTP 401: Bad credentials") }).github.refusal(39)).toBe(

@@ -11,7 +11,7 @@
  * - **To one of the runners' coding agents**, a GitHub issue goes through
  *   `applyWorkCommand`, with the CEO who gave the instruction as the actor:
  *   the manager acts on the CEO's behalf and with exactly the CEO's authority,
- *   so the work's one gate decides — the CEO role, the eligibility label —
+ *   so the work's one gate decides — the CEO role, the restriction label —
  *   and an assignment the CEO could not make is not made. Once made, the
  *   runner starts the agent (`../agents/runnerWork.ts`).
  * - **To one of the orchestrator's live agents**, an issue or pull request
@@ -76,7 +76,7 @@ const REFUSAL_TEXT: Readonly<Record<WorkRejection, string>> = {
   [WORK_REJECTION.illegalTransition]: "it is finished, and finished work keeps who did it",
   [WORK_REJECTION.unknownAssignee]: "that agent can no longer take issues",
   [WORK_REJECTION.missingArtifact]: "it has no deliverable",
-  [WORK_REJECTION.notEligible]: "it does not carry the label that marks it ready for the coding agents",
+  [WORK_REJECTION.restricted]: "it carries the label that keeps the coding agents off it",
 };
 
 /**

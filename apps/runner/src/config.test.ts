@@ -57,10 +57,14 @@ describe("readConfig", () => {
     expect(read.taskTimeoutMs).toBe(60 * 60_000);
     expect(read.dailyBudgetUsd).toBeUndefined();
     expect(read.runnerId).toBe("build-box");
-    expect(read.issueLabel).toBe("agent-ready");
+    expect(read.restrictLabel).toBe("agent-restricted");
     expect(read.githubApp).toBeUndefined();
     expect(read.logLevel).toBe("info");
     expect(read.personalGithub).toBeUndefined();
+  });
+
+  it("ignores the retired REAL_AGENT_ISSUE_LABEL rather than refusing to start", () => {
+    expect(config({ REAL_AGENT_ISSUE_LABEL: "agent-ready" }).restrictLabel).toBe("agent-restricted");
   });
 
   it("reads every variable", () => {
@@ -200,11 +204,11 @@ describe("readConfig's GitHub App", () => {
         RUNNER_GITHUB_APP_ID: "123456",
         RUNNER_GITHUB_APP_INSTALLATION_ID: "7890",
         RUNNER_GITHUB_APP_PRIVATE_KEY_FILE: keyFile,
-        REAL_AGENT_ISSUE_LABEL: " ready-for-agents ",
+        REAL_AGENT_RESTRICT_LABEL: " humans-only ",
       }),
     );
     expect(read.githubApp).toEqual({ appId: "123456", installationId: "7890", privateKey: PEM });
-    expect(read.issueLabel).toBe("ready-for-agents");
+    expect(read.restrictLabel).toBe("humans-only");
   });
 
   it("is required for a claude agent, naming all three settings, and not for the mock", () => {

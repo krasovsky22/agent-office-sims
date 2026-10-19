@@ -83,18 +83,18 @@ const REJECTION_TEXT: Readonly<Record<WorkRejection, string>> = {
   [WORK_REJECTION.illegalTransition]: "That work cannot move there from where it is now.",
   [WORK_REJECTION.unknownAssignee]: "That agent is no longer in the office.",
   [WORK_REJECTION.missingArtifact]: "That work has no deliverable to hand in yet.",
-  [WORK_REJECTION.notEligible]: "That issue is not marked ready for the coding agents.",
+  [WORK_REJECTION.restricted]: "That issue is restricted from the coding agents.",
 };
 
 /**
  * What to tell the player when the server refuses one of their commands.
  *
- * @param issueLabel the office's eligibility label, the replicated
- *   `agentIssueLabel`, so an issue refused for want of it says which.
+ * @param restrictLabel the office's restriction label, the replicated
+ *   `agentRestrictLabel`, so an issue refused for carrying it says which.
  */
-export function rejectionText(rejection: WorkRejection, issueLabel = ""): string {
-  if (rejection === WORK_REJECTION.notEligible && issueLabel !== "") {
-    return `That issue is not marked ready for the coding agents: a maintainer has to label it ${issueLabel} first.`;
+export function rejectionText(rejection: WorkRejection, restrictLabel = ""): string {
+  if (rejection === WORK_REJECTION.restricted && restrictLabel !== "") {
+    return `That issue is restricted from the coding agents: a maintainer has to remove its ${restrictLabel} label first.`;
   }
   return REJECTION_TEXT[rejection];
 }

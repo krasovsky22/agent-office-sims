@@ -8,7 +8,7 @@
  * joins looks like a client bug.
  */
 
-import { readAgentIssueLabel } from "@sim/shared";
+import { readAgentRestrictLabel } from "@sim/shared";
 
 const DEFAULT_PORT = 2567;
 
@@ -99,8 +99,8 @@ export interface RunnerConfig {
    * route switched off. Server-side only, like the live agents' secret.
    */
   readonly secret: string | undefined;
-  /** The label an issue needs before the CEO can hand it to a runner's agent. */
-  readonly issueLabel: string;
+  /** The label that keeps an issue from a runner's agent; every other open issue may go to one. */
+  readonly restrictLabel: string;
 }
 
 export interface ServerConfig {
@@ -239,8 +239,8 @@ export function readLiveAgentsConfig(env: NodeJS.ProcessEnv = process.env): Live
  * - `RUNNER_SECRET`: optional, at least {@link MIN_LIVE_AGENTS_SECRET_LENGTH}
  *   characters, for the same reason. Without it the runner link's route does
  *   not exist and no runner's slots appear.
- * - `REAL_AGENT_ISSUE_LABEL`: the label an issue needs before it can be handed
- *   to a runner's agent, `agent-ready` by default; see `readAgentIssueLabel`.
+ * - `REAL_AGENT_RESTRICT_LABEL`: the label that keeps an issue from a runner's
+ *   agent, `agent-restricted` by default; see `readAgentRestrictLabel`.
  */
 export function readRunnerConfig(env: NodeJS.ProcessEnv = process.env): RunnerConfig {
   const raw = env["RUNNER_SECRET"]?.trim() ?? "";
@@ -251,7 +251,7 @@ export function readRunnerConfig(env: NodeJS.ProcessEnv = process.env): RunnerCo
       `RUNNER_SECRET must be at least ${MIN_LIVE_AGENTS_SECRET_LENGTH} characters, got ${secret.length}`,
     );
   }
-  return { secret, issueLabel: readAgentIssueLabel(env["REAL_AGENT_ISSUE_LABEL"]) };
+  return { secret, restrictLabel: readAgentRestrictLabel(env["REAL_AGENT_RESTRICT_LABEL"]) };
 }
 
 /**

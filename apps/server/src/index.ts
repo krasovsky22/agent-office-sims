@@ -37,6 +37,7 @@ import {
   RUNNER_SCREENS_PATH,
   RUNNER_SYNC_PATH,
   TICK_RATE_HZ,
+  retiredAgentIssueLabelNotice,
 } from "@sim/shared";
 
 import {
@@ -145,7 +146,7 @@ server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   ...(floor === undefined ? {} : { liveAgents: floor }),
   ...(liveAssignments === undefined ? {} : { liveAssignments }),
   ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink, runnerCommands: runnerLink, runnerSpend: runnerLink, runnerStandup: runnerLink }),
-  agentIssueLabel: runner.issueLabel,
+  agentRestrictLabel: runner.restrictLabel,
   ...(screens === undefined ? {} : { screens }),
   ...(standingMirror === undefined ? {} : { standing: standingMirror }),
 } satisfies OfficeRoomOptions);
@@ -185,6 +186,10 @@ console.log(
     ? "runner link: off (RUNNER_SECRET is not set)"
     : `runner link: POST ${RUNNER_SYNC_PATH} for ${projectBoard.repository}, ` +
         `up to ${MAX_RUNNER_SLOTS} slots, leaving after ${liveAgents.timeoutMs / 1000}s of silence; ` +
-        `screens on POST ${RUNNER_SCREENS_PATH}; issues need the "${runner.issueLabel}" label`,
+        `screens on POST ${RUNNER_SCREENS_PATH}; issues with the "${runner.restrictLabel}" label are kept from agents`,
 );
+const retiredLabel = retiredAgentIssueLabelNotice(process.env);
+if (retiredLabel !== undefined) {
+  console.log(retiredLabel);
+}
 /* eslint-enable no-console */

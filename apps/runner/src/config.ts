@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { isAbsolute, join } from "node:path";
 
-import { MAX_RUNNER_SLOTS, MAX_RUNNER_USD, readAgentIssueLabel } from "@sim/shared";
+import { MAX_RUNNER_SLOTS, MAX_RUNNER_USD, readAgentRestrictLabel } from "@sim/shared";
 
 import { MOCK_OUTCOMES, type MockOutcome } from "./agents/mock.js";
 import type { GithubAppConfig } from "./githubApp.js";
@@ -104,8 +104,8 @@ export interface RunnerConfig {
    * ones still waiting out the timeout.
    */
   readonly runnerId: string;
-  /** The label an issue must carry on GitHub before an agent starts on it. */
-  readonly issueLabel: string;
+  /** The label that keeps an agent from starting on an issue that carries it on GitHub. */
+  readonly restrictLabel: string;
   /**
    * The GitHub App the agents push and open pull requests as, with
    * `RUNNER_GITHUB_AUTH=app`. A real agent has exactly one of this and
@@ -149,8 +149,8 @@ export interface RunnerConfig {
  * - `RUNNER_TASK_TIMEOUT_MINUTES`: whole minutes, at least 1, defaulting to 60.
  * - `RUNNER_DAILY_BUDGET_USD`: US dollars, `0` or more, the agents may spend
  *   in a day before the runner refuses new starts; unset, no budget.
- * - `REAL_AGENT_ISSUE_LABEL`: the label an issue needs, as the server reads it,
- *   defaulting to `agent-ready`.
+ * - `REAL_AGENT_RESTRICT_LABEL`: the label that keeps agents off an issue, as
+ *   the server reads it, defaulting to `agent-restricted`.
  * - `RUNNER_GITHUB_AUTH`: one of {@link RUNNER_GITHUB_AUTHS}, defaulting to
  *   `app`; who a `claude` agent is on GitHub.
  * - `RUNNER_GITHUB_APP_ID`, `RUNNER_GITHUB_APP_INSTALLATION_ID` and
@@ -192,7 +192,7 @@ export function readConfig(
     taskTimeoutMs: readTaskTimeoutMinutes(env) * 60_000,
     dailyBudgetUsd,
     runnerId: runnerIdFor(host),
-    issueLabel: readAgentIssueLabel(env["REAL_AGENT_ISSUE_LABEL"]),
+    restrictLabel: readAgentRestrictLabel(env["REAL_AGENT_RESTRICT_LABEL"]),
     githubApp: auth === "app" ? readGithubApp(env, agent) : undefined,
     personalGithub: auth === "personal" && agent !== "mock" ? readPersonalGithub(env, ghToken) : undefined,
     logLevel: readLogLevel(env),

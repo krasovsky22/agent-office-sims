@@ -23,12 +23,12 @@ import {
 } from "./stickerNotes.js";
 import type { WorkData } from "./work.js";
 
-const LABEL = "agent-ready";
+const LABEL = "agent-restricted";
 const AGENT = "live-agent:runner:slot-1";
 const OTHER = "live-agent:runner:slot-2";
 const T0 = 1_700_000_000_000;
 
-function issue(number: number, labels: readonly string[] = [LABEL], title = `Issue ${number}`): BoardIssue {
+function issue(number: number, labels: readonly string[] = [], title = `Issue ${number}`): BoardIssue {
   return {
     number,
     title,
@@ -81,7 +81,7 @@ function noteFor(notes: readonly StickerNote[], issueNumber: number): StickerNot
 }
 
 describe("which issues have a note", () => {
-  it("gives every open agent-ready issue one on the issues board, in number order", () => {
+  it("gives every open issue agents may take one on the issues board, in number order", () => {
     const notes = stickerNotes(snapshot([issue(12), issue(3)], [issue(7)]), [], NOBODY_CARRIES, LABEL);
     expect(notes.map((note) => [note.issueNumber, note.place, note.mood])).toEqual([
       [3, NOTE_PLACE.issues, NOTE_MOOD.open],
@@ -92,7 +92,7 @@ describe("which issues have a note", () => {
 
   it("leaves out an open issue no agent may take, and matches the label as GitHub does, without case", () => {
     const notes = stickerNotes(
-      snapshot([issue(1, ["bug"]), issue(2, ["Agent-Ready"])]),
+      snapshot([issue(1, ["Agent-Restricted"]), issue(2, ["bug"])]),
       [],
       NOBODY_CARRIES,
       LABEL,
@@ -100,8 +100,8 @@ describe("which issues have a note", () => {
     expect(notes.map((note) => note.issueNumber)).toEqual([2]);
   });
 
-  it("takes every open issue when the office asks for no label", () => {
-    const notes = stickerNotes(snapshot([issue(1, []), issue(2, ["bug"])]), [], NOBODY_CARRIES, "");
+  it("takes every open issue when the office restricts nothing", () => {
+    const notes = stickerNotes(snapshot([issue(1, [LABEL]), issue(2, ["bug"])]), [], NOBODY_CARRIES, "");
     expect(notes.map((note) => note.issueNumber)).toEqual([1, 2]);
   });
 
@@ -112,7 +112,7 @@ describe("which issues have a note", () => {
 
   it("takes the title from the snapshot, which is the issue's current one", () => {
     const notes = stickerNotes(
-      snapshot([issue(4, [LABEL], "Renamed")]),
+      snapshot([issue(4, [], "Renamed")]),
       [work(4, WORK_STATUS.assigned, { title: "Old name" })],
       NOBODY_CARRIES,
       LABEL,

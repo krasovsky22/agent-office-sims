@@ -97,7 +97,7 @@ describe("describeChanges", () => {
 
     const assigned = observe(view([], [work(WORK_STATUS.assigned)]), []);
     for (const reason of [
-      "#39 is not labelled agent-ready on GitHub, so no agent may work it",
+      "#39 is labelled agent-restricted on GitHub, so no agent may work it",
       "The runner's daily budget of $5.00 is spent",
     ]) {
       const refused = observe(view([], [work(WORK_STATUS.assigned, { note: reason })]), []);

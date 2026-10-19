@@ -19,7 +19,7 @@ import { ISSUES_STICKER_BOARD_ID, PULL_REQUESTS_STICKER_BOARD_ID } from "./layou
 import type { ProjectBoardSnapshot } from "./projectBoard.js";
 import { isSimulatedPullRequestArtifact, pullRequestOfArtifact } from "./runner.js";
 import { WORK_STATUS } from "./state.js";
-import { type WorkData, isAgentReady } from "./work.js";
+import { type WorkData, isAgentRestricted } from "./work.js";
 
 /** Where a note is. */
 export const NOTE_PLACE = {
@@ -174,7 +174,7 @@ function pinnedMood(work: WorkData | undefined): NoteMood {
  * shipped), then the ones in agents' hands.
  *
  * An issue gets a note when it is open on GitHub and an agent may take it
- * ({@link isAgentReady} with the office's label), or when the office has work
+ * (not {@link isAgentRestricted} by the office's label), or when the office has work
  * on it — work outlives the snapshot listing its issue, so a note in hand or
  * up for review is never lost to a board poll or a list cap. Done work keeps
  * only the {@link MAX_SHIPPED_NOTES} most recent.
@@ -184,13 +184,13 @@ function pinnedMood(work: WorkData | undefined): NoteMood {
  * it on the pull requests board and everything else on the issues board.
  *
  * @param board the project board, `undefined` before its first snapshot.
- * @param issueLabel the replicated `agentIssueLabel`; `""` takes every open issue.
+ * @param restrictLabel the replicated `agentRestrictLabel`; `""` takes every open issue.
  */
 export function stickerNotes(
   board: ProjectBoardSnapshot | undefined,
   work: Iterable<WorkData>,
   carriers: Iterable<NoteCarrier>,
-  issueLabel: string,
+  restrictLabel: string,
 ): StickerNote[] {
   const workByIssue = new Map<number, WorkData>();
   for (const entry of work) {
@@ -205,7 +205,7 @@ export function stickerNotes(
 
   const titles = new Map<number, string>();
   for (const issue of [...(board?.open ?? []), ...(board?.inProgress ?? [])]) {
-    if (isAgentReady(issue, issueLabel) || workByIssue.has(issue.number)) {
+    if (!isAgentRestricted(issue, restrictLabel) || workByIssue.has(issue.number)) {
       titles.set(issue.number, issue.title);
     }
   }

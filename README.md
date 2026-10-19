@@ -34,8 +34,8 @@ notes: one note per issue an agent may take on the issues board, west of the
 project board. An agent starting an issue walks there, takes its note and
 props it on its desk while it works. Once it hands in a pull request it pins
 the note, now naming the pull request, on the pull requests board to the east.
-A note whose work stops or is taken back goes back on the issues board. The game server never writes to GitHub. The work does: an issue a
-maintainer has labelled `agent-ready`, handed by the CEO to one of the runner's
+A note whose work stops or is taken back goes back on the issues board. The game server never writes to GitHub. The work does: any open issue a
+maintainer has not labelled `agent-restricted`, handed by the CEO to one of the runner's
 coding agents, is worked in a git worktree of its own and handed in as a pull
 request that closes it, which the runner opens as a GitHub App (or, if its
 operator opts in, as their own GitHub login), and which only
@@ -168,7 +168,7 @@ and its deliverable. For the CEO the detail also offers the moves the server
 will accept: `Assign…` on an open issue nobody has picks a live agent that can
 take issues, and work in hand can be approved, sent back for rework, started
 again or unassigned. Each of those reaches a real coding agent, so the server
-also asks for the eligibility label; see
+also refuses an issue carrying the restriction label; see
 [From assignment to pull request](#from-assignment-to-pull-request).
 Everyone else sees the same detail with no controls.
 
@@ -386,14 +386,16 @@ and as that live agent, so one about work it no longer holds changes nothing:
 | --- | --- |
 | `started` | claimed: `assigned` to `in_progress` |
 | `pr-opened` | the pull request attached as its deliverable, `PR #N: title, url`, and handed in for `review`; a simulated one as `Simulated pull request, nothing on GitHub: title` |
-| `failed` | its note says why, e.g. `#39 is not labelled agent-ready on GitHub, so no agent may work it` |
+| `failed` | its note says why, e.g. `#39 is labelled agent-restricted on GitHub, so no agent may work it` |
 
-Only an issue carrying the maintainer's eligibility label goes to a slot:
-`REAL_AGENT_ISSUE_LABEL` on the server, `agent-ready` by default, compared
-without regard to case. An issue without it is refused with `not-eligible`,
-and the board says which label it needs; the label is replicated as
-`agentIssueLabel`. The runner checks it again on GitHub before an agent
-starts, so neither side takes the other's word for it. When a person merges
+Any open issue goes to a slot unless it carries the maintainer's restriction
+label: `REAL_AGENT_RESTRICT_LABEL` on the server, `agent-restricted` by
+default, compared without regard to case. An issue with it is refused with
+`restricted`, and the board says which label keeps it from the agents; the
+label is replicated as `agentRestrictLabel`. The runner checks it again on
+GitHub before an agent starts, so neither side takes the other's word for it.
+The retired `REAL_AGENT_ISSUE_LABEL`, which used to name a label every issue
+needed, is ignored with a line in the log if still set. When a person merges
 the pull request, the issue closes, and the board's next poll moves the work
 from `review` to `done`, the agent says `Shipped #39: <title>` in the chat, and
 its slot is stopped. The game server
@@ -611,7 +613,7 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_DAILY_BUDGET_USD` | none | US dollars, `0` or more, the agents may spend in a day before the runner refuses new starts; see [The runner's budget](#the-runners-budget). Unset, spend is counted and nothing is refused. |
 | `RUNNER_STANDING_DAILY_BUDGET_USD` | none | US dollars, `0` or more, all [standing tasks](#standing-tasks) together may spend in a day. For `RUNNER_AGENT=claude` it is also the opt-in: unset, the runner takes no standing tasks. Refused at boot when above `RUNNER_DAILY_BUDGET_USD`, so issue work always keeps the difference. |
 | `RUNNER_STANDING_MAX_CONCURRENT` | `1` | Standing runs at once across every task, from 1 to `RUNNER_MAX_AGENTS`. |
-| `REAL_AGENT_ISSUE_LABEL` | `agent-ready` | The label an issue must carry on GitHub before a real agent starts on it; the server's own setting, the same value on both. |
+| `REAL_AGENT_RESTRICT_LABEL` | `agent-restricted` | The label that keeps a real agent from starting on an issue that carries it on GitHub; the server's own setting, the same value on both. |
 | `RUNNER_GITHUB_AUTH` | `app` | Who a `claude` agent is on GitHub: `app`, the runner's GitHub App, or `personal`, your own login, with your full access; see [Your own GitHub login instead](#your-own-github-login-instead). The setting decides, whatever else is set: with `personal` the App's variables are ignored, and with `app` `RUNNER_GITHUB_TOKEN` is. |
 | `RUNNER_GITHUB_APP_ID` | none; required for `claude` with `app` | The GitHub App the agents push and open pull requests as; see [The runner's GitHub App](#the-runners-github-app). All three or none; the mock needs none. |
 | `RUNNER_GITHUB_APP_INSTALLATION_ID` | none; required for `claude` with `app` | Its installation on the repository. |
@@ -671,8 +673,8 @@ With `RUNNER_AGENT=claude`, each slot is named `Claude 1`, `Claude 2` and so
 on, and a `start` runs [Claude Code](https://code.claude.com/) in a terminal
 (a PTY) of its own, in the task's worktree. The runner refuses to start if
 `claude` is not on its `PATH`. Before it starts, the runner reads the issue
-with `gh issue view` and refuses one that is closed or does not carry
-`REAL_AGENT_ISSUE_LABEL`, reporting `failed` with the reason. Claude gets one
+with `gh issue view` and refuses one that is closed or carries
+`REAL_AGENT_RESTRICT_LABEL`, reporting `failed` with the reason. Claude gets one
 prompt, built from the issue's number and title alone: read the issue with
 `gh issue view`, implement and verify the change, commit it on the task's
 branch, push the branch with `git push -u origin HEAD`, and open a pull
@@ -826,10 +828,10 @@ To set one up, as the repository's owner:
    approving review, blocks force pushes and deletions, and gives the App no
    bypass. An agent can then push only its own branch, and its pull request
    waits for a person's review and merge.
-7. **Label the issues agents may work** with `agent-ready` (or the
-   `REAL_AGENT_ISSUE_LABEL` you chose on both the server and the runner). Only
-   people with triage access can label an issue, and the App can only read
-   them.
+7. **Label the issues agents must not work** with `agent-restricted` (or the
+   `REAL_AGENT_RESTRICT_LABEL` you chose on both the server and the runner);
+   every other open issue is theirs to take. Only people with triage access
+   can label an issue, and the App can only read them.
 
 How the tokens are minted: the runner signs a JWT with the private key (RS256,
 issued for nine minutes, its issuer the App ID), and trades it at
@@ -846,7 +848,7 @@ the label check and the pull request lookup, use the same token. Every token is
 masked out of the slots' screens as it is minted. Cloning and fetching still
 use the machine's own access, as above.
 
-To try the whole loop with Claude, label a test issue `agent-ready`, start the
+To try the whole loop with Claude, open a test issue without `agent-restricted`, start the
 runner with `RUNNER_AGENT=claude` and the App (or a personal login) configured,
 and assign the issue to a `Claude` slot from the board: the card goes to
 `in_progress`, then to `review` with the pull request on it, and merging that
@@ -1096,8 +1098,8 @@ Then confirm all twenty-two:
     do that." `apps/server/src/rooms/OfficeRoom.test.ts` checks exactly that
     against a live room. With the runner running, as in
     [Running the runner](#running-the-runner), Dana's `Assign…` on an open
-    issue lists `Mock 1` and `Mock 2`; giving one an issue labelled
-    `agent-ready` shows it assigned in both tabs, and `Unassign` frees it
+    issue lists `Mock 1` and `Mock 2`; giving one an issue not labelled
+    `agent-restricted` shows it assigned in both tabs, and `Unassign` frees it
     again. With no runner the picker says
     no agent in the office can take an issue right now.
 13. **Live agents are the same in both tabs.** Start the server with
@@ -1126,8 +1128,8 @@ Then confirm all twenty-two:
     open pull requests, all from the board the server already polls. Ask
     `which PRs are open?` for the pull requests with their authors and checks,
     and `what's the status of #N?` for one issue, naming any number on the
-    board. Then `put a coding agent on #N`, with an open issue labelled
-    `agent-ready` that nobody has: with the runner running, as in
+    board. Then `put a coding agent on #N`, with an open issue not labelled
+    `agent-restricted` that nobody has: with the runner running, as in
     [Running the runner](#running-the-runner), it goes to a mock slot and both
     tabs' boards show the issue assigned to it, and the AI Manager posts
     `Mock 1 started on #N` and `Mock 1 needs you on #N: Permission: Bash pnpm test`,
@@ -1137,7 +1139,7 @@ Then confirm all twenty-two:
     reason, or with `RUNNER_MOCK_OUTCOME=pr-opened`,
     `Mock 1 handed in #N … for your review as a simulated pull request: the mock agent opened nothing on GitHub.`,
     with no number and no link. `have Mock 2 do #N` names the
-    slot instead; an issue without the label is refused with that reason.
+    slot instead; an issue with the restriction label is refused with that reason.
     `put someone on #N` and `assign <a word from its title>` go to a free slot
     the same way; with no runner and no orchestrator the reply says there are
     no coding agents on the floor; with `LIVE_AGENTS_SECRET` set, no runner, and an idle agent
@@ -1161,7 +1163,7 @@ Then confirm all twenty-two:
     the one noted before it sat.
 16. **A working agent's terminal opens on `E`, in both tabs.** With the runner
     started as in [Running the runner](#running-the-runner), assign an
-    `agent-ready` issue to `Mock 1` and, once it sits, walk Dana to just behind
+    unrestricted issue to `Mock 1` and, once it sits, walk Dana to just behind
     its chair: the prompt reads `Watch the agent's terminal`, and standing
     still there the camera leans in over the agent's shoulder until its
     monitor fills the view and its lines can be read; a step eases it back.
@@ -1176,9 +1178,9 @@ Then confirm all twenty-two:
     with `RUNNER_SECRET`, and the runner with
     `RUNNER_MOCK_OUTCOME=pr-opened`, as in
     [Running the runner](#running-the-runner); have an open issue labelled
-    `agent-ready` and one without. Milo, not the CEO, is offered no `Assign…`
-    on either. Dana assigns the unlabelled issue: refused, saying it needs the
-    `agent-ready` label. She assigns the labelled one: within a couple of
+    `agent-restricted` and one without. Milo, not the CEO, is offered no `Assign…`
+    on either. Dana assigns the labelled issue: refused, saying a maintainer has
+    to remove its `agent-restricted` label. She assigns the unlabelled one: within a couple of
     seconds both tabs show it `In progress`, `Mock 1` sits and works it on its
     monitor, lights its `Needs you` beacon and waits in its chair until a
     prompt answers it, and then the card is `In review` with
@@ -1187,23 +1189,23 @@ Then confirm all twenty-two:
     `Send back` puts it `In progress` again and the mock works a rework turn
     and hands it in again. Close the issue on GitHub: within one poll both
     tabs show it `Done`, `Mock 1` says `Shipped #<n>` in the chat and is idle
-    again. Assign another labelled issue and, while the mock works it,
+    again. Assign another unrestricted issue and, while the mock works it,
     `Unassign` it: the slot stops at once and goes idle, and the runner's log
     says its worktree is kept, with the uncommitted change or commit it holds.
 18. **A spent runner budget refuses the next start, and the AI Manager says so.**
     Run the server as in step 17 and the runner with
     `RUNNER_MOCK_OUTCOME=pr-opened` and `RUNNER_DAILY_BUDGET_USD=0.15`. With
     the runner up, both tabs' rosters read `Agents' spend: $0.00 of $0.15 today`
-    under the live agents. Dana assigns a labelled issue to
+    under the live agents. Dana assigns an unrestricted issue to
     `Mock 1`: the spend climbs five cents a step in both tabs, and once the
     pull request is handed in it reads `$0.20 of $0.15 today — budget spent, no
-    new starts`, marked as a warning. She assigns another labelled issue to
+    new starts`, marked as a warning. She assigns another unrestricted issue to
     `Mock 2`: it never starts, its card notes the runner's daily budget is
     spent with the day's figures, the AI Manager's conversation explains it and how
     to try again, and the runner's log says the start was refused.
 19. **The CEO prompts a coding agent from its terminal, in both tabs.** Run
     the server with `RUNNER_SECRET` and the runner with
-    `RUNNER_MOCK_OUTCOME=question`, and assign an `agent-ready` issue to
+    `RUNNER_MOCK_OUTCOME=question`, and assign an unrestricted issue to
     `Mock 1` as in step 17, then open its terminal in both tabs as in step 16.
     Milo's panel says only the CEO can prompt it and his prompt box is
     disabled. Dana sends `hurry up` while the mock works: it is not
@@ -1253,7 +1255,7 @@ Then confirm all twenty-two:
     `Mock 1 did a simulated review of PR #<n> “<title>” … nothing was posted
     on GitHub.`; the row reads `Last: simulated PR #<n>` and `$0.20 of $2.00
     today` in both tabs, and nothing appears on the pull request. A draft
-    waits until it is marked ready. Assign an `agent-ready` issue to the slot
+    waits until it is marked ready. Assign an unrestricted issue to the slot
     while it reviews: it starts the issue at once, the AI Manager says the
     review gave way to issue work, and it runs again on the other slot.
     `Pause` makes the row `paused` in both tabs and its checks stop; `Resume`
@@ -1270,7 +1272,7 @@ Then confirm all twenty-two:
     preemption, the caps and a restart.
 22. **The CEO runs a standup, the same in both tabs.** Run the server with
     `RUNNER_SECRET` and the runner with `RUNNER_MOCK_OUTCOME=question`, as in
-    step 19, and assign `Mock 1` one labelled issue and `Mock 2` another a few
+    step 19, and assign `Mock 1` one unrestricted issue and `Mock 2` another a few
     seconds later. Once `Mock 1`'s beacon lights on
     `Permission: Bash pnpm test`, Milo's roster shows `Call a standup`
     disabled, `Only the CEO calls a standup`; Dana clicks it. Both mocks get up
@@ -1302,7 +1304,7 @@ Then confirm all twenty-two:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the standup's gate, places, turns, updates, directions and blockers, in a live room too, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the server's mirror, gate, announcements and the AI Manager's words for them, and their round trip from the AI Manager to the runner and back
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the standup's gate, places, turns, updates, directions and blockers, in a live room too, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue restriction label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the server's mirror, gate, announcements and the AI Manager's words for them, and their round trip from the AI Manager to the runner and back
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -1343,7 +1345,7 @@ public.
 | `LIVE_AGENTS_SECRET` | server | runtime | No. The shared secret an agent orchestrator reports with and collects the manager's assignments with, at least 16 characters; without it no live agents appear. |
 | `LIVE_AGENTS_TIMEOUT_SECONDS` | server | runtime | No. Silence after which a live agent, or a runner with its slots, leaves, at least 5. Defaults to 60. |
 | `RUNNER_SECRET` | server | runtime | No. The shared secret an agent runner syncs with, at least 16 characters; without it the runner link is off. |
-| `REAL_AGENT_ISSUE_LABEL` | server | runtime | No. The label an issue needs before the CEO can hand it to a runner's agent, the same as the runner's. Defaults to `agent-ready`. |
+| `REAL_AGENT_RESTRICT_LABEL` | server | runtime | No. The label that keeps an issue from a runner's agent, the same as the runner's; every other open issue may go to one. Defaults to `agent-restricted`. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
 static file cannot be reconfigured afterwards. Changing it means rebuilding and

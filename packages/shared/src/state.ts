@@ -624,12 +624,12 @@ export class OfficeState extends Schema {
   declare public minuteOfDay: number;
   declare public tick: number;
   /**
-   * The GitHub label an issue needs before the CEO can hand it to a live
-   * coding agent, `agent-ready` unless the server says otherwise; `""` when
-   * the office asks for none. Replicated so the board can say why an issue
-   * would be refused.
+   * The GitHub label that keeps an issue from the live coding agents,
+   * `agent-restricted` unless the server says otherwise; `""` when the office
+   * restricts nothing. Every other open issue may go to an agent. Replicated
+   * so the board can say why an issue would be refused.
    */
-  declare public agentIssueLabel: string;
+  declare public agentRestrictLabel: string;
   /**
    * What the runners' real agents have spent today, in US dollars, all
    * runners together, and against their daily budgets added up; see
@@ -653,7 +653,7 @@ export class OfficeState extends Schema {
     this.standing = new MapSchema<StandingTask>();
     this.minuteOfDay = STARTING_MINUTE_OF_DAY;
     this.tick = 0;
-    this.agentIssueLabel = "";
+    this.agentRestrictLabel = "";
     this.spendRunners = 0;
     this.spentUsd = 0;
     this.budgeted = false;
@@ -669,7 +669,7 @@ defineTypes(OfficeState, {
   standing: { map: StandingTask },
   minuteOfDay: "uint16",
   tick: "uint32",
-  agentIssueLabel: "string",
+  agentRestrictLabel: "string",
   spendRunners: "uint8",
   spentUsd: "float64",
   budgeted: "boolean",

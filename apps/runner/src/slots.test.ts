@@ -408,7 +408,7 @@ describe("SlotPool", () => {
   it("refuses an issue GitHub says may not be worked, before it opens a workspace", async () => {
     const start = vi.fn();
     const slots = pool("failed", { label: "Spy", start }, workspaces(), {
-      refusal: async () => "#39 is not labelled agent-ready on GitHub, so no agent may work it",
+      refusal: async () => "#39 is labelled agent-restricted on GitHub, so no agent may work it",
       pullRequest: async () => undefined,
       pullRequestTitle: async () => "",
     });
@@ -423,7 +423,7 @@ describe("SlotPool", () => {
         slotId: "slot-1",
         issueNumber: 39,
         pr: undefined,
-        message: "#39 is not labelled agent-ready on GitHub, so no agent may work it",
+        message: "#39 is labelled agent-restricted on GitHub, so no agent may work it",
       },
     ]);
     expect(asked).toEqual(["close slot-1 #39"]);
