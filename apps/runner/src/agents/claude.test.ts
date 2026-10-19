@@ -200,6 +200,12 @@ describe("claudeAdapter", () => {
     expect(plan.args).toEqual(["--settings", setup.settings, "--permission-mode", "acceptEdits", "--", "- fix the lift"]);
   });
 
+  it("launches a desk session at its prompt, with no prompt and no --", () => {
+    const adapter = claudeAdapter();
+    const setup = adapter.prepare(dataDir());
+    expect(adapter.launch({ prompt: "", cwd: "/work", setup }).args).toEqual(["--settings", setup.settings, "--permission-mode", "acceptEdits"]);
+  });
+
   it("passes RUNNER_MODEL as --model, ahead of the prompt", () => {
     const adapter = claudeAdapter({ model: "sonnet" });
     const setup = adapter.prepare(dataDir());

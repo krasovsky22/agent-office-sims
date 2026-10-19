@@ -620,6 +620,51 @@ defineTypes(Standup, {
   directions: [StandupDirection],
 });
 
+/**
+ * The CEO's desk terminal (`./deskTerminal.ts`): the desk the CEO sits at,
+ * the coding agent lent to it, and how its session stands. State rather than
+ * a broadcast, so every tab draws the session's terminal on that desk's
+ * monitor, and the CEO's own tab opens the panel, from the same record. Only
+ * the CEO has one, so there is one, empty while the CEO sits at no computer.
+ */
+export class DeskTerminal extends Schema {
+  /** The seat's interactable id; `""` while there is no session. */
+  declare public seatId: string;
+  /** The CEO sitting there, by occupant id. */
+  declare public ownerId: string;
+  /** The lent agent's occupant key, whose screen the desk shows; `""` until one is lent. */
+  declare public agentId: string;
+  /** A `DeskTerminalPhase`. */
+  declare public phase: string;
+  /** The session waits on a choice on its screen, which takes keys rather than a prompt. */
+  declare public needsInput: boolean;
+  /** What its agent is doing, or what it waits on. */
+  declare public activity: string;
+  /** Why it ended, in the `ended` phase. */
+  declare public note: string;
+
+  public constructor() {
+    super();
+    this.seatId = "";
+    this.ownerId = "";
+    this.agentId = "";
+    this.phase = "";
+    this.needsInput = false;
+    this.activity = "";
+    this.note = "";
+  }
+}
+
+defineTypes(DeskTerminal, {
+  seatId: "string",
+  ownerId: "string",
+  agentId: "string",
+  phase: "string",
+  needsInput: "boolean",
+  activity: "string",
+  note: "string",
+});
+
 export class OfficeState extends Schema {
   declare public occupants: MapSchema<Occupant>;
   /** The agents' work on the project board's issues, keyed by {@link workKey}. */
@@ -655,6 +700,8 @@ export class OfficeState extends Schema {
   declare public budgetSpent: boolean;
   /** The standup, on or the last one held; see `./standup.ts`. */
   declare public standup: Standup;
+  /** The CEO's desk terminal; see `./deskTerminal.ts`. */
+  declare public desk: DeskTerminal;
 
   public constructor() {
     super();
@@ -670,6 +717,7 @@ export class OfficeState extends Schema {
     this.budgetUsd = 0;
     this.budgetSpent = false;
     this.standup = new Standup();
+    this.desk = new DeskTerminal();
   }
 }
 
@@ -686,6 +734,7 @@ defineTypes(OfficeState, {
   budgetUsd: "float64",
   budgetSpent: "boolean",
   standup: Standup,
+  desk: DeskTerminal,
 });
 
 const TAU = Math.PI * 2;

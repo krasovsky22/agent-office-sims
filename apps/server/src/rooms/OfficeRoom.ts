@@ -66,6 +66,10 @@
  * the agents' updates in turn and passes the CEO's directions on as prompts,
  * and tells the runners a standup is on so they pause their agents for it.
  *
+ * Nor is the CEO's desk terminal, beyond its step on the tick: the CEO
+ * sitting at a desk with a computer is lent a runner's slot to prompt there,
+ * and given it back on standing up, by `agents/deskTerminal.ts`.
+ *
  * Nor are the runner slots' terminal screens, beyond passing them on: the
  * store in `agents/screens.ts` hands the room each batch of frames it accepts,
  * which goes straight out to every client, and the room sends each joining
@@ -110,6 +114,7 @@ import {
 } from "@sim/shared";
 
 import { AgentPrompts } from "../agents/agentPrompts.js";
+import { DeskTerminal, isDeskRunner } from "../agents/deskTerminal.js";
 import { type LiveAgentSource, isLiveAgentSource } from "../agents/registry.js";
 import {
   type RunnerEventInbox,
@@ -295,6 +300,8 @@ export class OfficeRoom extends Room<OfficeState> {
 
   /** The CEO's standup; assigned in `onCreate`. */
   private standup!: StandupMeeting;
+  /** The CEO's desk terminal; assigned in `onCreate`. */
+  private deskTerminal!: DeskTerminal;
   private runnerStandup: RunnerStandupHold | undefined;
 
   public override onCreate(options?: unknown): void {
@@ -450,6 +457,12 @@ export class OfficeRoom extends Room<OfficeState> {
       standup: this.standup,
       allowCall: (client) => this.spend(client, CLIENT_MESSAGE.standupStart),
       allowDirection: (client) => this.spend(client, CLIENT_MESSAGE.standupDirect),
+    });
+    this.deskTerminal = new DeskTerminal({
+      state: this.state,
+      layout: OFFICE_LAYOUT,
+      runner: isDeskRunner(roomOptions?.runnerCommands) ? roomOptions.runnerCommands : undefined,
+      log: recordOfficeEvent,
     });
     this.openManagersDesk(workHost, roomOptions);
 
@@ -630,7 +643,10 @@ export class OfficeRoom extends Room<OfficeState> {
     if (events !== undefined && events.length > 0) {
       this.runnerWork?.receive(events);
       this.standingAnnouncer?.receive(events);
+      this.deskTerminal.receive(events);
     }
+    // Every tick, so standing up hands the desk's agent back at once.
+    this.deskTerminal.step();
     if (this.standing !== undefined && this.standing.standingVersion() !== this.standingVersion) {
       this.standingVersion = this.standing.standingVersion();
       copyStandingTasks(this.state.standing, this.standing.standingTasks());

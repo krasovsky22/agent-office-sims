@@ -307,8 +307,10 @@ export function claudeAdapter(options: ClaudeOptions = {}): ProviderAdapter<Clau
       if (options.model !== undefined) {
         args.push("--model", options.model);
       }
-      // `--` so a prompt such as "- fix login" is never read as an option.
-      args.push("--", prompt);
+      // `--` so a prompt such as "- fix login" is never read as an option. A desk session has none.
+      if (prompt !== "") {
+        args.push("--", prompt);
+      }
       return { args };
     },
     // SessionStart fires as soon as Claude can take input: still silent, it is waiting on a person.

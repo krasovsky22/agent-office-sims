@@ -309,6 +309,48 @@ until the next is called, so a direction kept for after it is seen to arrive.
 Calling and ending are limited to four in a burst, one more every five seconds,
 and directions as prompts are.
 
+### The desk terminal
+
+Every desk with a monitor is a computer the CEO can use. Sitting down at one
+that no agent holds (any workstation but the AI Manager's) lends the desk one of
+the runners' idle coding agents: a fresh session of it, with no issue and no
+first prompt, started at its prompt in a scratch worktree of the default
+branch. Its terminal shows on that desk's monitor in every tab, and the CEO's
+tab opens it at once in the terminal panel, as `Your desk's computer`, where
+the CEO prompts it and answers its choice screens with the key pad exactly as
+for any coding agent. It runs real commands on the runner's host, so it is held
+to the rule that gates prompting a coding agent, which is the CEO's alone
+(`deskTerminalRefusal` in `packages/shared/src/deskTerminal.ts`): anyone else
+sitting at a computer gets no terminal, and is told
+`Only the CEO, Dana, can use a desk's computer`.
+
+The session lasts while the CEO sits there. Standing up (`E`, a step, or the
+panel's `Stand up`), leaving, or handing the CEO role on ends it: its agent is
+stopped and its worktree discarded, whatever is in it, and the slot goes back
+to the floor for issue work. Nothing carries over to the next sitting, which
+starts a fresh session; what the CEO wants kept, the CEO has the agent commit
+on a branch and push before standing up.
+
+Which slot is lent is the server's call (`apps/server/src/agents/deskTerminal.ts`),
+made on the tick: the first slot of any runner that is idle, holds no issue,
+standing run or desk, and has no work in the office assigned to it. While it is
+lent, its body on the floor wanders as an idle agent, `At the CEO's desk`, and
+takes no issues, so neither the board nor the AI Manager hands it work; its
+needs-you beacon stays off, since the CEO is the one at its screen. An issue's
+start for it anyway takes it back, as it does a standing run's slot, and a
+desk session takes a slot back from a standing run in turn. It has no task
+timeout and does not pause for a standup. What it spends is booked against the
+runner's daily budget like any agent's, and a desk is not lent past it.
+
+The panel says why while there is no terminal to prompt:
+`Starting a coding agent at this desk…` while the runner starts it, the
+monitor lit with `connecting…`; `Every coding agent is busy`, until one is free;
+`No agent runner is connected`, when none is, or the server has no
+`RUNNER_SECRET`; and `The session ended: <why>` when the runner refused it or
+its agent exited, the budget spent, say, until the CEO stands up and sits down
+again. Where it stands is replicated state (`DeskTerminal` in
+`packages/shared/src/state.ts`), so every tab draws the same desk.
+
 ### The runner link
 
 An agent runner is the separate process that owns real coding agents, kept out
@@ -330,10 +372,13 @@ curl -X POST localhost:2567/agents/runner/sync \
 
 Each sync carries the runner's whole state. `slots` lists every slot, at most
 4, each `idle`, `starting`, `working`, `needs-input` or `exited`, with an
-optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`).
-`events` lists what happened since the last answered sync, at most 8, each
+optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`),
+or a `desk` (`{"seatId"}`) while it is lent to the CEO's desk, which it holds
+instead of an issue or a standing run, its status and activity then the desk
+session's. `events` lists what happened since the last answered sync, at most 8, each
 `started`, `pr-opened`, `failed` or `finished`, with an optional `pr` and
-`message`; `prompts` says what came of the CEO's prompts, at most 8, each a
+`message`, or `desk-ended` (`slotId`, `seatId`, `message`) for a desk session
+that ended, or was refused, without the server asking; `prompts` says what came of the CEO's prompts, at most 8, each a
 `commandId`, its `slotId` and an `outcome`, `delivered`, `busy`, `needs-input`,
 `unavailable` or, for a key, `not-waiting`, or, for a standup's direction the
 runner keeps for later, `queued` and then `delivered` under the same command
@@ -418,7 +463,10 @@ is doing) or `key`
 (`key`, one of `up`, `down`, `enter`, `escape` or `1`–`9`, and `requestedBy`:
 a key the CEO pressed in the terminal panel, which the runner presses only
 while its agent waits on a person and reports in `prompts` as it does a
-prompt), each with an `id` and a `slotId`. A command comes back in every reply until a sync lists its id in
+prompt), or `desk-open` (`seatId`, `requestedBy`: lend the slot to the CEO
+sitting there, see [The desk terminal](#the-desk-terminal)) or `desk-close`
+(`seatId`, `reason`: the CEO stood up, ending only that desk's session), each
+with an `id` and a `slotId`. A command comes back in every reply until a sync lists its id in
 `acked`, and never after, so a lost reply loses nothing and a runner tells a
 repeat by its id. The one exception is a CEO's prompt or key the runner has not
 answered within 30 seconds: the server withdraws it if it is not yet acked,
@@ -492,7 +540,9 @@ a material. It reads `connecting…` until the first frame, shows the latest
 twenty-odd rows, and is repainted only when a frame changes it, at most every
 150 ms within 6 m of the camera, 600 ms within 14 m and 2 s beyond. It is
 taken down when the agent stands up or leaves, and nothing is drawn while no
-live agent sits, nor in the grey-box office, which has no monitors.
+live agent sits, nor in the grey-box office, which has no monitors. The CEO's
+desk shows the terminal of the agent lent to it the same way, while the CEO
+sits there.
 
 From the camera that follows a player, a seated agent's monitor is hidden
 behind the agent's head and the player's own avatar, so a player who stands
@@ -587,7 +637,10 @@ and commits it, and never pushes, so a mock task that gets that far leaves its
 worktree kept. Which slot holds which worktree is kept in
 `<RUNNER_DATA_DIR>/worktrees.json`. A restarted runner finds the worktrees its
 last run left mid-task and settles them the same way, and logs anything else in
-its worktrees folder as a stray that it leaves alone. To discard a kept
+its worktrees folder as a stray that it leaves alone. A desk session works in a
+scratch worktree of origin's default branch under `<RUNNER_DATA_DIR>/desks`,
+on no branch, discarded whatever is in it as the session ends; one a restart
+cut short is discarded at the next boot. To discard a kept
 worktree, run `git worktree remove --force <path>` and
 `git branch -D sims/issue-<n>-<slot>` in `<RUNNER_DATA_DIR>/repo` while the
 runner is stopped. Every git command runs inside the data dir with nothing
@@ -1032,7 +1085,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twenty-two:
+Then confirm all twenty-three:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -1301,7 +1354,21 @@ Then confirm all twenty-two:
     are where they were. `apps/server/src/rooms/standupHandlers.test.ts`
     checks the gate, the late joiner and the direction's round trip against a
     live room.
-23. **`pnpm typecheck` passes** across the whole repository.
+23. **The CEO's desk is a computer of the CEO's own.** With the server and the
+    mock runner as in step 19, Dana sits at an empty open-floor desk: her
+    panel opens as `Your desk's computer`, the desk's monitor lights with
+    `connecting…` in both tabs and then shows `mock agent at Dana's desk`, and
+    one of the mocks wanders off `At the CEO's desk` with no `Assign…` entry
+    on the board. She sends `List the routes.`: it reads
+    `Thinking: List the routes.`, then answers on both monitors and in her
+    panel. Milo sits at another desk: no terminal, and the notice
+    `Only the CEO, Dana, can use a desk's computer`. Dana stands up: the panel
+    closes, her desk's monitor goes dark in both tabs, and the mock is back in
+    the board's `Assign…` list. Stop the runner and Dana sits again: the panel
+    says `No agent runner is connected`. `apps/server/src/agents/deskTerminal.test.ts`
+    checks the lending, the hand-back and the gate against a real runner link,
+    and `apps/runner/src/slots.test.ts` the session on the runner's side.
+24. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
@@ -1475,6 +1542,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/agentPrompt.ts  the CEO's prompts and choice-screen keys to the coding agents: the one gate, the keys, and why one was refused
   src/standup.ts      the standup: the CEO-only gate, why a command was refused, the places in the manager's room, what came of a direction
+  src/deskTerminal.ts the CEO's desk terminal: which seats have a computer, the CEO-only gate, and the session's phases
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
   src/collision.ts    capsule-vs-AABB movement resolution
@@ -1493,6 +1561,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/agentPromptHandlers.ts  the CEO's prompts and keys to a coding agent, and the refusals sent back
   src/rooms/standingHandlers.ts  the CEO's standing task buttons, and the refusals sent back
   src/agents/standingMirror.ts   every runner's standing tasks, mirrored for the rooms
+  src/agents/deskTerminal.ts     the CEO's desk terminal: lending a free slot to the desk the CEO sits at, and taking it back
   src/agents/standingControl.ts  creating and managing standing tasks through the one gate
   src/agents/standingAnnouncer.ts  what the AI Manager says of each standing run
   src/manager/standingPlan.ts    the AI Manager's words for standing tasks, schedules read into cron
@@ -1503,11 +1572,12 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/config.ts           its RUNNER_* variables, refused at boot when wrong
   src/syncLoop.ts         the sync about once a second: acks, events, backoff
   src/syncClient.ts       one sync over HTTP, and reading back its commands
-  src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it
+  src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it, and slots lent to the CEO's desk
   src/budget.ts           the day's spend, and the daily budget that refuses new starts
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
+  src/deskWorktrees.ts    the desk sessions' scratch worktrees, discarded as each ends
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
-  src/agents/mock.ts      the mock agent: scripted progress, a commit and a permission menu that keys or a prompt answer, then failed, a question it waits on an answer to, or a simulated pull request it reworks on a prompt; it pauses between steps for a standup
+  src/agents/mock.ts      the mock agent: scripted progress, a commit and a permission menu that keys or a prompt answer, then failed, a question it waits on an answer to, or a simulated pull request it reworks on a prompt; it pauses between steps for a standup; at a desk, a pretend session that answers each prompt
   src/github.ts           the issue's label check, and finding or opening a task's pull request
   src/githubApp.ts        the runner's GitHub App: minting installation tokens and keeping them fresh for gh and git
   src/githubPersonal.ts   RUNNER_GITHUB_AUTH=personal: a person's token handed to gh and git instead of the App's
@@ -1553,7 +1623,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/agentPromptAccess.ts  whether the local player may prompt a coding agent, which keyboard keys its key pad takes, and why a prompt or key was refused
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to
-  src/ui/AgentTerminalPanel.tsx  a working agent's terminal at full size, opened behind its chair
+  src/ui/AgentTerminalPanel.tsx  a working agent's terminal at full size, opened behind its chair, or at the CEO's own desk
+  src/deskTerminalAccess.ts  what the local player's desk shows them: the CEO's terminal, why there is none yet, or why it is the CEO's alone
   src/standupAccess.ts    what the local player may do at a standup, and how its refusals, phase and directions read
   src/ui/StandupPanel.tsx the standup while one is on: the updates in turn, terminals and key pads, directions, and ending it
   src/terminalView.ts     the panel's terminal: scrollback and screen in small text, and scrolling it

@@ -25,6 +25,11 @@
  * real agent's runner takes them only once `RUNNER_STANDING_DAILY_BUDGET_USD`
  * is set.
  *
+ * A slot holding nothing can also be lent to a desk in the office, where the
+ * CEO sitting there prompts a fresh session of its agent directly; its
+ * worktree is a scratch one, discarded as the session ends
+ * (`./deskWorktrees.ts`).
+ *
  * A misconfigured runner exits at once with the reason; see `./config.ts`.
  */
 
@@ -40,6 +45,7 @@ import { createPtyAgent, findOnPath } from "./agents/ptyAgent.js";
 import type { Agent } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { type RunnerConfig, readConfig } from "./config.js";
+import { deskWorktrees } from "./deskWorktrees.js";
 import { NO_GITHUB, type TaskGithub, createTaskGithub, runCommand } from "./github.js";
 import { GITHUB_TOKEN_ENV, GithubAppCredentials, type GithubCredentials } from "./githubApp.js";
 import { PersonalGithubCredentials } from "./githubPersonal.js";
@@ -90,6 +96,7 @@ const worktrees = new Worktrees({
   log,
 });
 const workspaces = new SlotWorktrees({ worktrees, stateFile: join(config.dataDir, "worktrees.json"), log });
+const desks = deskWorktrees({ worktrees, root: join(config.dataDir, "desks"), log });
 
 const redactor = createRedactor(runnerSecrets(process.env, [config.secret]));
 
@@ -208,6 +215,7 @@ const pool = new SlotPool({
   count: config.maxAgents,
   agent,
   workspaces,
+  desks,
   taskTimeoutMs: config.taskTimeoutMs,
   github,
   redactor,

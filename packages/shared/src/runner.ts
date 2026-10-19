@@ -123,6 +123,8 @@ export const RUNNER_EVENT_KIND = {
   standingRun: "standing-run",
   /** The runner would not take a standing task's definition; see {@link RunnerStandingRefusedEvent}. */
   standingRefused: "standing-refused",
+  /** A desk session ended, or never started, without the server asking; see {@link RunnerDeskEndedEvent}. */
+  deskEnded: "desk-ended",
 } as const;
 
 export type RunnerEventKind = (typeof RUNNER_EVENT_KIND)[keyof typeof RUNNER_EVENT_KIND];
@@ -130,7 +132,7 @@ export type RunnerEventKind = (typeof RUNNER_EVENT_KIND)[keyof typeof RUNNER_EVE
 /** The kinds of event about a slot's work on an issue. */
 export type RunnerWorkEventKind = Exclude<
   RunnerEventKind,
-  typeof RUNNER_EVENT_KIND.standingRun | typeof RUNNER_EVENT_KIND.standingRefused
+  typeof RUNNER_EVENT_KIND.standingRun | typeof RUNNER_EVENT_KIND.standingRefused | typeof RUNNER_EVENT_KIND.deskEnded
 >;
 
 /**
@@ -158,6 +160,10 @@ export const RUNNER_COMMAND_KIND = {
   standingRemove: "standing-remove",
   /** Check a standing task's trigger now: poll GitHub, or run a schedule once. */
   standingCheckNow: "standing-check-now",
+  /** Lend an idle slot to the CEO's desk: a fresh agent the CEO prompts there; see {@link RunnerDeskOpenCommand}. */
+  deskOpen: "desk-open",
+  /** End the slot's desk session: the CEO stood up. */
+  deskClose: "desk-close",
 } as const;
 
 export type RunnerCommandKind = (typeof RUNNER_COMMAND_KIND)[keyof typeof RUNNER_COMMAND_KIND];
@@ -270,6 +276,18 @@ export interface RunnerSlotReport {
   readonly pr: RunnerPullRequest | undefined;
   /** Set while the slot is on a standing task's run, which it holds instead of an issue. */
   readonly standing?: RunnerSlotStanding | undefined;
+  /** Set while the slot is lent to a desk, which it holds instead of an issue or a standing run. */
+  readonly desk?: RunnerSlotDesk | undefined;
+}
+
+/**
+ * The desk a slot is lent to: a session of its agent that the CEO sitting
+ * there prompts directly, with no issue. Its status and activity are the
+ * session's.
+ */
+export interface RunnerSlotDesk {
+  /** The seat's interactable id in the office's layout. */
+  readonly seatId: string;
 }
 
 /** Something that happened in a slot, reported until a sync carrying it succeeds. */
@@ -322,11 +340,29 @@ export interface RunnerStandingRefusedEvent {
   readonly message: string;
 }
 
-export type RunnerEvent = RunnerWorkEvent | RunnerStandingRunEvent | RunnerStandingRefusedEvent;
+/**
+ * A desk session ended without the server asking for it, or was never
+ * started: refused (the slot was busy, the budget spent), its agent exited,
+ * or an issue's start took the slot back. Said once, so the CEO at the desk
+ * is told why its terminal went.
+ */
+export interface RunnerDeskEndedEvent {
+  readonly id: string;
+  readonly kind: typeof RUNNER_EVENT_KIND.deskEnded;
+  readonly slotId: string;
+  readonly seatId: string;
+  readonly message: string;
+}
 
-/** Whether an event is about a slot's work on an issue, rather than a standing task. */
+export type RunnerEvent = RunnerWorkEvent | RunnerStandingRunEvent | RunnerStandingRefusedEvent | RunnerDeskEndedEvent;
+
+/** Whether an event is about a slot's work on an issue, rather than a standing task or a desk session. */
 export function isRunnerWorkEvent(event: RunnerEvent): event is RunnerWorkEvent {
-  return event.kind !== RUNNER_EVENT_KIND.standingRun && event.kind !== RUNNER_EVENT_KIND.standingRefused;
+  return (
+    event.kind !== RUNNER_EVENT_KIND.standingRun &&
+    event.kind !== RUNNER_EVENT_KIND.standingRefused &&
+    event.kind !== RUNNER_EVENT_KIND.deskEnded
+  );
 }
 
 /** What a runner's agents have spent today, in US dollars, against its daily budget. */
@@ -435,6 +471,35 @@ export interface RunnerKeyCommand {
   readonly requestedBy: string;
 }
 
+/**
+ * Lend the slot to the CEO's desk: start a fresh session of its agent with no
+ * issue and no first prompt, in a scratch worktree of the default branch, for
+ * the CEO sitting at `seatId` to prompt from the office. Only an idle slot
+ * holding no issue and no standing run takes one; any other is refused with a
+ * {@link RunnerDeskEndedEvent}, as is one past the day's budget.
+ */
+export interface RunnerDeskOpenCommand {
+  readonly id: string;
+  readonly slotId: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.deskOpen;
+  readonly seatId: string;
+  /** The CEO at the desk, by name. */
+  readonly requestedBy: string;
+}
+
+/**
+ * End the slot's desk session at `seatId`, and nothing else: the CEO stood
+ * up, left, or is no longer the CEO. The session's agent is stopped and its
+ * scratch worktree discarded.
+ */
+export interface RunnerDeskCloseCommand {
+  readonly id: string;
+  readonly slotId: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.deskClose;
+  readonly seatId: string;
+  readonly reason: string;
+}
+
 /** Take a standing task's definition: a new task, or a newer version of one it holds. */
 export interface RunnerStandingSetCommand {
   readonly id: string;
@@ -452,7 +517,13 @@ export interface RunnerStandingTaskCommand {
 }
 
 /** The commands for one of a runner's slots. */
-export type RunnerSlotCommand = RunnerStartCommand | RunnerStopCommand | RunnerPromptCommand | RunnerKeyCommand;
+export type RunnerSlotCommand =
+  | RunnerStartCommand
+  | RunnerStopCommand
+  | RunnerPromptCommand
+  | RunnerKeyCommand
+  | RunnerDeskOpenCommand
+  | RunnerDeskCloseCommand;
 
 /** The commands for the runner's standing tasks, which address no slot. */
 export type RunnerStandingCommand = RunnerStandingSetCommand | RunnerStandingTaskCommand;
@@ -467,7 +538,9 @@ export function isRunnerSlotCommand<T extends { readonly kind: RunnerCommandKind
     command.kind === RUNNER_COMMAND_KIND.start ||
     command.kind === RUNNER_COMMAND_KIND.stop ||
     command.kind === RUNNER_COMMAND_KIND.prompt ||
-    command.kind === RUNNER_COMMAND_KIND.key
+    command.kind === RUNNER_COMMAND_KIND.key ||
+    command.kind === RUNNER_COMMAND_KIND.deskOpen ||
+    command.kind === RUNNER_COMMAND_KIND.deskClose
   );
 }
 
@@ -476,7 +549,9 @@ export type RunnerSlotCommandDraft =
   | Omit<RunnerStartCommand, "id">
   | Omit<RunnerStopCommand, "id">
   | Omit<RunnerPromptCommand, "id">
-  | Omit<RunnerKeyCommand, "id">;
+  | Omit<RunnerKeyCommand, "id">
+  | Omit<RunnerDeskOpenCommand, "id">
+  | Omit<RunnerDeskCloseCommand, "id">;
 
 /** A command before the server has given it an id. */
 export type RunnerCommandDraft =
@@ -525,6 +600,9 @@ const RUNNER_NAME = /^[A-Za-z0-9._-]{1,32}$/;
 /** A command's or an event's id. */
 const RUNNER_ITEM_ID = /^[A-Za-z0-9._:-]{1,64}$/;
 
+/** A seat's interactable id, as a desk session names it: `seat-<desk>-<n>`, see `./layout.ts`. */
+const SEAT_ID = /^[A-Za-z0-9._-]{1,64}$/;
+
 /** `owner/name`, in the characters GitHub allows in each. */
 const REPOSITORY = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 
@@ -553,6 +631,11 @@ export function isRunnerName(value: unknown): value is string {
 
 function isItemId(value: unknown): value is string {
   return typeof value === "string" && RUNNER_ITEM_ID.test(value);
+}
+
+/** Whether a value can be a seat's id in a desk session's command, report or event. */
+export function isDeskSeatId(value: unknown): value is string {
+  return typeof value === "string" && SEAT_ID.test(value);
 }
 
 function isIssueNumber(value: unknown): value is number {
@@ -689,11 +772,13 @@ function parseSlot(raw: unknown): RunnerSlotReport | undefined {
   const name = parseText(candidate["name"], MAX_NAME_LENGTH, sanitizeName);
   const activity = parseText(candidate["activity"], MAX_TITLE_LENGTH, sanitizeTitle);
   const standing = parseSlotStanding(candidate["standing"]);
-  // A standing run holds the slot instead of an issue, never beside one.
-  if (pr === null || name === undefined || activity === undefined || standing === null) {
+  const desk = parseSlotDesk(candidate["desk"]);
+  // A standing run or a desk holds the slot instead of an issue, never beside one or each other.
+  if (pr === null || name === undefined || activity === undefined || standing === null || desk === null) {
     return undefined;
   }
-  if (standing !== undefined && (issueNumber !== undefined && issueNumber !== null || pr !== undefined)) {
+  const holdsIssue = (issueNumber !== undefined && issueNumber !== null) || pr !== undefined;
+  if ((standing !== undefined && holdsIssue) || (desk !== undefined && (holdsIssue || standing !== undefined))) {
     return undefined;
   }
   return {
@@ -704,7 +789,17 @@ function parseSlot(raw: unknown): RunnerSlotReport | undefined {
     activity,
     pr,
     standing,
+    ...(desk === undefined ? {} : { desk }),
   };
+}
+
+/** `undefined` for a slot lent to no desk, `null` for one that says it is and is not readable. */
+function parseSlotDesk(raw: unknown): RunnerSlotDesk | undefined | null {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  const candidate = asRecord(raw);
+  return candidate !== undefined && isDeskSeatId(candidate["seatId"]) ? { seatId: candidate["seatId"] } : null;
 }
 
 /** `undefined` for a slot on no standing run, `null` for one that says it is and is not readable. */
@@ -733,6 +828,9 @@ function parseEvent(raw: unknown): RunnerEvent | undefined {
   }
   if (candidate["kind"] === RUNNER_EVENT_KIND.standingRefused) {
     return parseStandingRefusedEvent(candidate);
+  }
+  if (candidate["kind"] === RUNNER_EVENT_KIND.deskEnded) {
+    return parseDeskEndedEvent(candidate);
   }
   const { id, kind, slotId, issueNumber } = candidate;
   if (!isItemId(id) || !isEventKind(kind) || !isRunnerName(slotId) || !isIssueNumber(issueNumber)) {
@@ -798,6 +896,15 @@ function parseStandingRefusedEvent(candidate: Record<string, unknown>): RunnerSt
     return undefined;
   }
   return { id, kind: RUNNER_EVENT_KIND.standingRefused, taskId, name, message };
+}
+
+function parseDeskEndedEvent(candidate: Record<string, unknown>): RunnerDeskEndedEvent | undefined {
+  const { id, slotId, seatId } = candidate;
+  const message = parseText(candidate["message"], MAX_WORK_NOTE_LENGTH, sanitizeWorkNote);
+  if (!isItemId(id) || !isRunnerName(slotId) || !isDeskSeatId(seatId) || message === undefined) {
+    return undefined;
+  }
+  return { id, kind: RUNNER_EVENT_KIND.deskEnded, slotId, seatId, message };
 }
 
 /**
@@ -1012,6 +1119,14 @@ function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCom
     case RUNNER_COMMAND_KIND.key:
       return isAgentKey(draft.key)
         ? { id, slotId: draft.slotId, kind: draft.kind, key: draft.key, requestedBy: sanitizeName(draft.requestedBy) }
+        : undefined;
+    case RUNNER_COMMAND_KIND.deskOpen:
+      return isDeskSeatId(draft.seatId)
+        ? { id, slotId: draft.slotId, kind: draft.kind, seatId: draft.seatId, requestedBy: sanitizeName(draft.requestedBy) }
+        : undefined;
+    case RUNNER_COMMAND_KIND.deskClose:
+      return isDeskSeatId(draft.seatId)
+        ? { id, slotId: draft.slotId, kind: draft.kind, seatId: draft.seatId, reason: sanitizeWorkNote(draft.reason) }
         : undefined;
   }
 }

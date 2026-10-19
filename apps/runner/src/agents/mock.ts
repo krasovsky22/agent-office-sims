@@ -26,6 +26,9 @@
  * It pauses for a standup between one step and the next, saying so on its
  * screen, and carries on from that step once the standup is over.
  *
+ * Lent to the CEO's desk, it is a pretend session instead: it comes up at its
+ * prompt and answers each prompt after a step of pretend work, running nothing.
+ *
  * It does one real thing, writing a file in its worktree and committing it, so
  * a task's worktree is exercised end to end too: stopped before it writes, its
  * worktree is removed, and from then on kept, first with an uncommitted change
@@ -39,7 +42,7 @@ import { dirname, join } from "node:path";
 import type { AgentKey } from "@sim/shared";
 
 import { gitError } from "../worktrees.js";
-import type { Agent, AgentReporter, AgentRun, AgentTask } from "./types.js";
+import type { Agent, AgentReporter, AgentRun, AgentSession, AgentTask } from "./types.js";
 
 export const MOCK_OUTCOMES = ["failed", "pr-opened", "question"] as const;
 
@@ -86,6 +89,12 @@ export const MOCK_RESUMED = "Back from the standup.";
 
 /** What it prints when it is told no, ending its turn. */
 export const MOCK_DECLINED = "Declined. Waiting to be told what to do instead.";
+
+/** What a desk session says as it comes up. */
+export const MOCK_SESSION_HINT = "A pretend session: type a prompt in the office and it answers.";
+
+/** How a desk session's pretend turn ends, before the prompt's first line. */
+export const MOCK_SESSION_ANSWER = "Done (pretend, nothing was run)";
 
 /** The pretend US dollars each step it works costs: twenty cents for a task. */
 export const MOCK_STEP_USD = 0.05;
@@ -329,6 +338,54 @@ export function createMockAgent(options: MockAgentOptions): Agent {
           timer = setTimeout(next, stepMs);
         },
       };
+    },
+    startSession(session: AgentSession, reporter: AgentReporter): AgentRun {
+      return startMockSession(session, reporter, stepMs);
+    },
+  };
+}
+
+/**
+ * A desk session: it comes up at its prompt, and each prompt the CEO types is
+ * a short turn of pretend work that ends with an answer. It touches nothing,
+ * not even its worktree, and spends a pretend step's worth a turn, so a desk
+ * session can be watched and prompted without a real agent.
+ */
+function startMockSession(session: AgentSession, reporter: AgentReporter, stepMs: number): AgentRun {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
+  let turns = 0;
+  const prompt = (): void => reporter.output(`\r\n${BOLD}>${RESET} `);
+
+  timer = setTimeout(() => {
+    timer = undefined;
+    reporter.started();
+    reporter.output(`${BOLD}mock agent${RESET} at ${session.requestedBy}'s desk\r\n${DIM}${MOCK_SESSION_HINT}${RESET}\r\n`);
+    prompt();
+  }, stepMs);
+
+  return {
+    prompt(text) {
+      if (stopped || timer !== undefined) {
+        return;
+      }
+      const first = text.split("\n")[0] ?? "";
+      reporter.output(`${text.replace(/\n/g, "\r\n  ")}\r\n`);
+      reporter.progress(`Thinking: ${first}`);
+      reporter.output(`${CYAN}●${RESET} Thinking about it\r\n`);
+      timer = setTimeout(() => {
+        timer = undefined;
+        turns += 1;
+        reporter.spent(turns * MOCK_STEP_USD);
+        reporter.output(`${GREEN}✓${RESET} ${MOCK_SESSION_ANSWER}: ${first}\r\n`);
+        prompt();
+        reporter.turnDone();
+      }, stepMs);
+    },
+    stop() {
+      stopped = true;
+      clearTimeout(timer);
+      timer = undefined;
     },
   };
 }

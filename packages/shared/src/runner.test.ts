@@ -17,6 +17,7 @@ import {
   MAX_RUNNER_SLOTS,
   type RunnerWorkEvent,
   SIMULATED_PULL_REQUEST,
+  isRunnerWorkEvent,
   isSimulatedPullRequestArtifact,
   parseRunnerSync,
   readAgentRestrictLabel,
@@ -134,6 +135,20 @@ describe("parseRunnerSync", () => {
     expect(parsed?.events[0]?.message).toBe("line one line two");
   });
 
+  it("reads a slot lent to a desk, and why a desk session ended", () => {
+    const parsed = parseRunnerSync({
+      ...SYNC,
+      slots: [{ id: "slot-2", name: "Claude 2", status: "needs-input", activity: "Wants permission: Bash: rm", desk: { seatId: "seat-desk-a-1" } }],
+      events: [{ id: "event-9", kind: "desk-ended", slotId: "slot-1", seatId: "seat-desk-a-2", message: "Claude exited\nwith code 1" }],
+    });
+    expect(parsed?.slots[0]).toMatchObject({ id: "slot-2", status: "needs-input", issueNumber: undefined, desk: { seatId: "seat-desk-a-1" } });
+    expect(parsed?.events).toEqual([
+      { id: "event-9", kind: "desk-ended", slotId: "slot-1", seatId: "seat-desk-a-2", message: "Claude exited with code 1" },
+    ]);
+    // Not about any issue's work, so the work's side never reads it.
+    expect(parsed?.events.filter(isRunnerWorkEvent)).toEqual([]);
+  });
+
   it.each([
     ["not an object", "sync"],
     ["an array", []],
@@ -176,6 +191,12 @@ describe("parseRunnerSync", () => {
     ["a prompt outcome for no command", { ...SYNC, prompts: [{ slotId: "s", outcome: "delivered" }] }],
     ["a prompt outcome for a slot id with a colon", { ...SYNC, prompts: [{ commandId: "c", slotId: "s:1", outcome: "delivered" }] }],
     ["too many prompt outcomes", { ...SYNC, prompts: Array.from({ length: MAX_RUNNER_PROMPT_OUTCOMES + 1 }, (_, i) => ({ commandId: `c${i}`, slotId: "s", outcome: "busy" })) }],
+    ["a desk with no seat", { ...SYNC, slots: [{ id: "s", status: "idle", desk: {} }] }],
+    ["a desk whose seat is not an id", { ...SYNC, slots: [{ id: "s", status: "idle", desk: { seatId: "seat 1" } }] }],
+    ["a slot at a desk and on an issue", { ...SYNC, slots: [{ id: "s", status: "working", issueNumber: 39, desk: { seatId: "seat-desk-a-1" } }] }],
+    ["a slot at a desk and on a standing run", { ...SYNC, slots: [{ id: "s", status: "working", standing: { taskId: "task-1" }, desk: { seatId: "seat-desk-a-1" } }] }],
+    ["a desk event with no seat", { ...SYNC, events: [{ id: "e", kind: "desk-ended", slotId: "s", message: "" }] }],
+    ["a desk event with a message past a work note", { ...SYNC, events: [{ id: "e", kind: "desk-ended", slotId: "s", seatId: "seat-1", message: "m".repeat(281) }] }],
   ])("refuses a sync with %s", (_label, raw) => {
     expect(parseRunnerSync(raw)).toBeUndefined();
   });
@@ -268,6 +289,23 @@ describe("toRunnerCommand", () => {
     });
   });
 
+  it("builds the commands that lend a slot to a desk and take it back, sanitised", () => {
+    expect(toRunnerCommand("command-8", { kind: "desk-open", slotId: "slot-2", seatId: "seat-desk-a-1", requestedBy: "Dana\u0007" })).toEqual({
+      id: "command-8",
+      slotId: "slot-2",
+      kind: "desk-open",
+      seatId: "seat-desk-a-1",
+      requestedBy: "Dana",
+    });
+    expect(toRunnerCommand("command-9", { kind: "desk-close", slotId: "slot-2", seatId: "seat-desk-a-1", reason: "stood\nup" })).toEqual({
+      id: "command-9",
+      slotId: "slot-2",
+      kind: "desk-close",
+      seatId: "seat-desk-a-1",
+      reason: "stood up",
+    });
+  });
+
   it.each([
     ["a bad slot id", { kind: "stop", slotId: "slot:1", reason: "" }],
     ["a javascript: link", { kind: "start", slotId: "s", issueNumber: 1, title: "t", url: "javascript:x", note: "", requestedBy: "" }],
@@ -276,6 +314,8 @@ describe("toRunnerCommand", () => {
     ["an empty prompt", { kind: "prompt", slotId: "s", text: "\n\n", requestedBy: "" }],
     ["a stop for no issue", { kind: "stop", slotId: "s", reason: "", issueNumber: -1 }],
     ["a key that types text", { kind: "key", slotId: "s", key: "y" as "enter", requestedBy: "" }],
+    ["a desk that is not a seat id", { kind: "desk-open", slotId: "s", seatId: "seat/1", requestedBy: "" }],
+    ["a desk to close that is no seat", { kind: "desk-close", slotId: "s", seatId: "", reason: "" }],
   ] as const)("refuses a command with %s", (_label, draft) => {
     expect(toRunnerCommand("command-1", draft)).toBeUndefined();
   });

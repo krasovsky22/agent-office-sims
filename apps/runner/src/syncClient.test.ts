@@ -168,6 +168,19 @@ describe("readCommands", () => {
     expect(reply.unreadable).toEqual(["command-2"]);
   });
 
+  it("reads the commands that lend a slot to a desk and take it back", () => {
+    const reply = readCommands([
+      { id: "command-1", slotId: "slot-1", kind: "desk-open", seatId: "seat-desk-north-1-1", requestedBy: "Dana" },
+      { id: "command-2", slotId: "slot-1", kind: "desk-close", seatId: "seat-desk-north-1-1", reason: "the CEO stood up" },
+      { id: "command-3", slotId: "slot-1", kind: "desk-open", seatId: 7, requestedBy: "Dana" },
+    ]);
+    expect(reply.commands).toEqual([
+      { id: "command-1", slotId: "slot-1", kind: "desk-open", seatId: "seat-desk-north-1-1", requestedBy: "Dana" },
+      { id: "command-2", slotId: "slot-1", kind: "desk-close", seatId: "seat-desk-north-1-1", reason: "the CEO stood up" },
+    ]);
+    expect(reply.unreadable).toEqual(["command-3"]);
+  });
+
   it("sets aside a command it cannot read, by id, so it can be acked", () => {
     const reply = readCommands([
       { id: "command-1", slotId: "slot-1", kind: "dance" },
