@@ -5,6 +5,8 @@
  */
 
 import {
+  ISSUE_STATE,
+  ISSUE_STATE_REJECTION,
   OCCUPANT_KIND,
   type OfficeActor,
   WORK_ACTION,
@@ -14,7 +16,7 @@ import {
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { boardAccessFor, mayAct, rejectionText } from "./boardAccess.js";
+import { boardAccessFor, issueStateRejectionText, mayAct, rejectionText } from "./boardAccess.js";
 
 const DANA: OfficeActor = { id: "dana", kind: OCCUPANT_KIND.human, isCeo: true };
 const MILO: OfficeActor = { id: "milo", kind: OCCUPANT_KIND.human, isCeo: false };
@@ -30,6 +32,20 @@ describe("boardAccessFor", () => {
     expect(access.readOnly).toBe(true);
     expect(access.summary).toContain("read-only");
     expect(access.summary).toContain("Dana");
+  });
+
+  it("lets only the CEO drag cards to close and reopen, and only on a server that can write", () => {
+    expect(boardAccessFor(DANA, "Dana", true).mayChangeIssueState).toBe(true);
+    expect(boardAccessFor(DANA, "Dana", true).summary).toContain("dragging");
+    expect(boardAccessFor(DANA, "Dana", false).mayChangeIssueState).toBe(false);
+    expect(boardAccessFor(DANA, "Dana").mayChangeIssueState).toBe(false);
+    expect(boardAccessFor(MILO, "Dana", true).mayChangeIssueState).toBe(false);
+  });
+
+  it("tells the CEO why cards cannot be dragged to close or reopen while no runner can, and nobody else", () => {
+    expect(boardAccessFor(DANA, "Dana", false).issueStateNote).toContain("agent runner");
+    expect(boardAccessFor(DANA, "Dana", true).issueStateNote).toBeUndefined();
+    expect(boardAccessFor(MILO, "Dana", false).issueStateNote).toBeUndefined();
   });
 
   it("still explains itself before the CEO's name is known", () => {
@@ -100,5 +116,17 @@ describe("rejectionText", () => {
       "That issue is restricted from the coding agents: a maintainer has to remove its agent-restricted label first.",
     );
     expect(rejectionText(WORK_REJECTION.restricted)).toBe("That issue is restricted from the coding agents.");
+  });
+});
+
+describe("issueStateRejectionText", () => {
+  it("names the issue and what was not done", () => {
+    expect(issueStateRejectionText(ISSUE_STATE_REJECTION.refused, 7, ISSUE_STATE.closed)).toBe(
+      "GitHub refused to close #7. The runner's GitHub identity may not be allowed to change issues; a GitHub App needs Issues: Read and write.",
+    );
+    expect(issueStateRejectionText(ISSUE_STATE_REJECTION.unreachable, 7, ISSUE_STATE.open)).toContain("may not have been reopened");
+    expect(issueStateRejectionText(ISSUE_STATE_REJECTION.forbidden, 7, ISSUE_STATE.open)).toBe(
+      "Only the CEO can reopen issues.",
+    );
   });
 });

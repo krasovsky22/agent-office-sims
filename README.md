@@ -181,6 +181,18 @@ also refuses an issue carrying the restriction label; see
 [From assignment to pull request](#from-assignment-to-pull-request).
 Everyone else sees the same detail with no controls.
 
+The CEO can also drag an issue's card between the close-up's columns. Dropped
+on Closed, an open or in-progress issue is closed on GitHub; a closed one
+dropped on Open is reopened; an open issue nobody has dropped on In progress
+opens its detail with the `Assign…` picker. Pull requests are not picked up
+and their column takes nothing. The game server still writes nothing to
+GitHub: a connected runner closes or reopens the issue with its own GitHub
+identity (its App needs **Issues: Read and write** for it, or a personal
+login). The card moves at once; if GitHub or the runner says no, it goes back
+and the board says why, and the board's next poll, asked for at once, shows
+GitHub's own state. With no runner that can do it connected (none at all, or
+the mock), the CEO's board says so and the two drops are not offered.
+
 `1` to `5` fire the five emotes, which are also buttons in the chat panel.
 `Enter` moves focus to the chat box — and releases the mouse, since a captured
 pointer cannot click anything — then `Enter` sends and `Esc` abandons. Both give
@@ -848,7 +860,9 @@ To set one up, as the repository's owner:
    GitHub, it is never called.
 2. **Give it these repository permissions and no others:** **Contents: Read
    and write** (to push its branches), **Pull requests: Read and write** (to
-   open them), **Issues: Read-only** (to read the issue and its labels), and
+   open them), **Issues: Read and write** (to read the issue and its labels,
+   and to close or reopen one the CEO drags across the board; Read-only
+   is enough if nobody will), and
    Metadata: Read-only, which GitHub adds itself. Under **Where can this GitHub
    App be installed?** choose **Only on this account**, and create it.
 3. **Note its App ID** at the top of the App's General page, and under
@@ -1379,7 +1393,7 @@ Then confirm all twenty-four:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the agents' profiles: their default names, gate, sanitising, runner store and system prompt, in a live room too, the standup's gate, places, turns, updates, directions and blockers, in a live room too, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue restriction label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the server's mirror, gate, announcements and the AI Manager's words for them, and their round trip from the AI Manager to the runner and back
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the agents' profiles: their default names, gate, sanitising, runner store and system prompt, in a live room too, the standup's gate, places, turns, updates, directions and blockers, in a live room too, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue restriction label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, closing and reopening issues from the board: the gate, the drops it takes, the cards shown moved, the runner's command, its gh call and the answer back, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the server's mirror, gate, announcements and the AI Manager's words for them, and their round trip from the AI Manager to the runner and back
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -1535,6 +1549,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/state.ts        replicated Colyseus schema
   src/messages.ts     commands and events, with the parsers for the untrusted ones
   src/work.ts         the rules of the agents' work on GitHub issues: transitions, authority, commands
+  src/issueState.ts   closing and reopening issues from the board: the one gate, which drops it takes, why one was refused
   src/clock.ts        the in-game clock's start and speed, which the lighting reads
   src/projectBoard.ts the project board's GitHub snapshot, and which issues are open or gone
   src/liveAgents.ts   a live agent's report, its label, and the chairs it may take
@@ -1556,6 +1571,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/constants.ts    tick rate, speeds, radii, ranges, expression limits
 apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/workHandlers.ts  the CEO's work commands: assign, release, move
+  src/rooms/issueStateHandlers.ts  the CEO's drops on Closed and Open, sent to a runner, and the answer sent back
   src/sim/expression.ts   per-occupant emote, chat, manager-message and agent-prompt budgets
   src/sim/clock.ts        the in-game clock, stepped by the simulation tick
   src/sim/roles.ts        who holds the CEO role, and who inherits it
@@ -1577,6 +1593,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/config.ts           its RUNNER_* variables, refused at boot when wrong
   src/syncLoop.ts         the sync about once a second: acks, events, backoff
   src/syncClient.ts       one sync over HTTP, and reading back its commands
+  src/issueStates.ts      closing and reopening issues for the CEO with gh, and what came of each
   src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it, each slot's agent's profile
   src/profiles.ts         profiles.json: the CEO's edits to the agents' profiles, kept across restarts
   src/budget.ts           the day's spend, and the daily budget that refuses new starts
@@ -1621,7 +1638,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/stickerBoard.ts     what a sticky note says, its look, its cell on a board, and when it is seen changing hands
   src/scene/agentScreen.ts  a seated live agent's terminal, painted on its desk's monitor
   src/net/screens.ts      the live agents' terminals, built up from the server's frames
-  src/projectBoard.ts     the project board's columns, filters, and how an issue's work reads
+  src/projectBoard.ts     the project board's columns, filters, how an issue's work reads, and which column takes a dragged card
   src/ui/ProjectBoardPanel.tsx  the project board's close-up, with the agents' work and the CEO's controls
   src/managerAccess.ts    what the local player may say to the manager, and why
   src/standingAccess.ts   how a standing task reads in the roster, and whether its buttons are the local player's
@@ -1659,7 +1676,11 @@ Ten things are worth knowing before changing anything:
   is what everyone else sees.
 - **The work is server-authoritative, and has one gate; the server only reads GitHub.**
   The project board's issues come from GitHub and the game server never writes back to them:
-  no assignee, label, comment or state, and no token scope beyond reading.
+  no assignee, label, comment or state, and no token scope beyond reading. An
+  issue the CEO drags onto Closed or Open is closed or reopened by a runner,
+  with the runner's GitHub identity, as a command the server queues for it
+  (`issue-state` in `shared/runner.ts`); who may is `mayChangeIssueState` in
+  `shared/issueState.ts`, which asks the work's own gate.
   What the office does about an issue is an `IssueWork` in replicated state,
   keyed by the issue number. A client asks; the server decides.
   `shared/work.ts` holds the legal status transitions and `mayActOnWork`, the

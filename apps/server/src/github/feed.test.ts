@@ -166,4 +166,58 @@ describe("ProjectFeed", () => {
     expect(load).toHaveBeenCalledTimes(2);
     expect(feed.current()?.stale).toBe(false);
   });
+
+  it("polls again soon on a refresh, but not sooner than the gap after the last poll", async () => {
+    vi.useFakeTimers();
+    const load = vi.fn(scripted(LISTS));
+    const feed = new ProjectFeed({ repository: REPO, load, intervalMs: INTERVAL });
+
+    feed.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).toHaveBeenCalledTimes(1);
+
+    feed.refresh();
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(load).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(load).toHaveBeenCalledTimes(2);
+
+    // And the loop goes back to its interval afterwards.
+    await vi.advanceTimersByTimeAsync(INTERVAL - 1);
+    expect(load).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledTimes(3);
+    feed.stop();
+  });
+
+  it("follows a poll in flight with another when refreshed during it", async () => {
+    vi.useFakeTimers();
+    let release: (() => void) | undefined;
+    const load = vi.fn(
+      () =>
+        new Promise<ProjectBoardLists>((resolve) => {
+          release = () => resolve(LISTS);
+        }),
+    );
+    const feed = new ProjectFeed({ repository: REPO, load, intervalMs: INTERVAL });
+
+    feed.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).toHaveBeenCalledTimes(1);
+    feed.refresh();
+    await vi.advanceTimersByTimeAsync(1_000);
+    release?.();
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(load).toHaveBeenCalledTimes(2);
+    feed.stop();
+  });
+
+  it("ignores a refresh while stopped", async () => {
+    vi.useFakeTimers();
+    const load = vi.fn(scripted(LISTS));
+    const feed = new ProjectFeed({ repository: REPO, load, intervalMs: INTERVAL });
+    feed.refresh();
+    await vi.advanceTimersByTimeAsync(INTERVAL);
+    expect(load).not.toHaveBeenCalled();
+  });
 });

@@ -31,6 +31,12 @@
  * came of the CEO's prompts travels the same way, in the same inbox; the room
  * that sent a prompt is the one that knows it, and takes its first report.
  *
+ * The board's drops on Closed and Open ride the link as well: the game server
+ * never writes to GitHub, so closing or reopening an issue for the CEO is a
+ * command for a runner that says it can ({@link RunnerLink.changeIssueState}),
+ * carried out with that runner's own GitHub identity and answered on a later
+ * sync.
+ *
  * Each sync carries the runner's standing tasks too (`@sim/shared`'s
  * `standing.ts`), which go to the process-wide {@link StandingMirror}; a slot
  * on a standing run is on the floor with the pull request it reviews, or the
@@ -46,6 +52,9 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  ISSUE_STATE_REJECTION,
+  type IssueState,
+  type IssueStateRejection,
   LIVE_AGENT_STATUS,
   type LiveAgentStatus,
   type LiveAgentTask,
@@ -54,10 +63,12 @@ import {
   MAX_RUNNER_SLOTS,
   NO_RUNNER_SPEND,
   RUNNER_COMMAND_KIND,
+  RUNNER_ISSUE_STATE_OUTCOME,
   RUNNER_SLOT_STATUS,
   type RunnerCommand,
   type RunnerCommandDraft,
   type RunnerEvent,
+  type RunnerIssueStateOutcome,
   type RunnerPromptOutcome,
   type RunnerSlotReport,
   type RunnerSlotStatus,
@@ -71,6 +82,7 @@ import {
 } from "@sim/shared";
 
 import type { LiveAgentRecord, LiveAgentSource } from "./registry.js";
+import type { IssueStates } from "../rooms/issueStateHandlers.js";
 import type { StandingMirror } from "./standingMirror.js";
 
 /** What came of one sync. */
@@ -180,11 +192,15 @@ export interface RunnerLinkOptions {
   readonly standing?: StandingMirror;
   /** An open pull request's title on the project board, for a slot reviewing it; `undefined` when the board does not list it. */
   readonly pullTitle?: (number: number) => string | undefined;
+  /** How long a change to an issue's state waits on its runner before it is given up. Defaults to 20 seconds. */
+  readonly issueStateWaitMs?: number;
 }
 
 const DEFAULT_MAX_RUNNERS = 4;
 const DEFAULT_MAX_PENDING_COMMANDS = 32;
 const DEFAULT_SWEEP_INTERVAL_MS = 1000;
+/** Past a sync a second and `gh`'s own few seconds; well inside the client's own wait. */
+const DEFAULT_ISSUE_STATE_WAIT_MS = 20_000;
 
 /** Events one inbox holds before the oldest go; far more than a tick ever sees. */
 const MAX_INBOX_EVENTS = 256;
@@ -249,7 +265,22 @@ interface Runner {
   spend: RunnerSpendReport | undefined;
   /** Its standing tasks' names, by id, for a slot running one. */
   standingNames: ReadonlyMap<string, string>;
+  /** Whether its last sync said it closes and reopens issues. */
+  changesIssues: boolean;
 }
+
+/** A change to an issue's state sent to a runner, waiting for what came of it. */
+interface IssueStateWait {
+  readonly runnerId: string;
+  readonly settle: (rejection: IssueStateRejection | undefined) => void;
+}
+
+/** What each outcome a runner reports tells the CEO; `undefined` for the change made. */
+const ISSUE_STATE_REJECTIONS: Readonly<Record<RunnerIssueStateOutcome["outcome"], IssueStateRejection | undefined>> = {
+  [RUNNER_ISSUE_STATE_OUTCOME.done]: undefined,
+  [RUNNER_ISSUE_STATE_OUTCOME.refused]: ISSUE_STATE_REJECTION.refused,
+  [RUNNER_ISSUE_STATE_OUTCOME.failed]: ISSUE_STATE_REJECTION.unreachable,
+};
 
 interface Inbox {
   events: RunnerEventRecord[];
@@ -280,8 +311,10 @@ function sameRecords(a: readonly LiveAgentRecord[], b: readonly LiveAgentRecord[
   });
 }
 
-export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpendSource, RunnerStandupHold {
+export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpendSource, RunnerStandupHold, IssueStates {
   private readonly runners = new Map<string, Runner>();
+  /** Changes to issues' states sent and not yet answered, by command id. */
+  private readonly issueStateWaits = new Map<string, IssueStateWait>();
   /** The rooms holding a standup. */
   private readonly standups = new Set<string>();
   private readonly listeners = new Set<() => void>();
@@ -357,6 +390,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
         seenEvents: new Set(),
         spend: undefined,
         standingNames: new Map(),
+        changesIssues: false,
       };
       this.runners.set(sync.runnerId, runner);
     }
@@ -369,6 +403,13 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
     }
     this.receive(sync.runnerId, runner, sync.events);
     this.receivePrompts(sync.runnerId, sync.prompts ?? []);
+    runner.changesIssues = sync.changesIssues === true;
+    for (const { commandId, outcome } of sync.issueStates ?? []) {
+      const wait = this.issueStateWaits.get(commandId);
+      if (wait?.runnerId === sync.runnerId) {
+        wait.settle(ISSUE_STATE_REJECTIONS[outcome]);
+      }
+    }
     const standing = sync.standing ?? [];
     runner.standingNames = new Map(standing.map((task) => [task.id, task.name]));
     if (this.options.standing !== undefined) {
@@ -429,6 +470,44 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
    */
   public withdraw(runnerId: string, commandId: string): boolean {
     return this.runners.get(runnerId)?.outbox.delete(commandId) ?? false;
+  }
+
+  /** Whether a connected runner closes and reopens issues on GitHub. */
+  public canChangeIssues(): boolean {
+    return [...this.runners.values()].some((runner) => runner.changesIssues);
+  }
+
+  /**
+   * Has a runner that can close or reopen an issue on GitHub do it, for
+   * `requestedBy`, and resolves to what came of it: `undefined` when GitHub
+   * made the change, or why not. Never rejects.
+   *
+   * A runner that does not answer in time, or goes silent, is given up on as
+   * unreachable, and a command it has not taken yet is taken back so it does
+   * not close the issue after the CEO has been told it did not.
+   */
+  public changeIssueState(issueNumber: number, state: IssueState, requestedBy: string): Promise<IssueStateRejection | undefined> {
+    const runnerId = [...this.runners].find(([, runner]) => runner.changesIssues)?.[0];
+    if (runnerId === undefined) {
+      return Promise.resolve(ISSUE_STATE_REJECTION.unavailable);
+    }
+    const command = this.enqueue(runnerId, { kind: RUNNER_COMMAND_KIND.issueState, issueNumber, state, requestedBy });
+    if (command === undefined) {
+      return Promise.resolve(ISSUE_STATE_REJECTION.unreachable);
+    }
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.withdraw(runnerId, command.id);
+        settle(ISSUE_STATE_REJECTION.unreachable);
+      }, this.options.issueStateWaitMs ?? DEFAULT_ISSUE_STATE_WAIT_MS);
+      timer.unref();
+      const settle = (rejection: IssueStateRejection | undefined) => {
+        clearTimeout(timer);
+        this.issueStateWaits.delete(command.id);
+        resolve(rejection);
+      };
+      this.issueStateWaits.set(command.id, { runnerId, settle });
+    });
   }
 
   /** Whether a runner's last sync was taken, and it has not gone silent since. */
@@ -505,6 +584,9 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
         // that comes back starts from what it reports then.
         this.runners.delete(id);
         this.options.standing?.drop(id);
+        for (const wait of [...this.issueStateWaits.values()].filter((candidate) => candidate.runnerId === id)) {
+          wait.settle(ISSUE_STATE_REJECTION.unreachable);
+        }
         dropped ||= runner.records.length > 0;
       }
     }

@@ -9,7 +9,8 @@
  * The close-up also shows what the office's agents are doing about each issue
  * — who has it and how far they have got — and the CEO's controls for it. How
  * that work reads is decided here too; what the local player may do about it
- * is `boardAccess.ts`'s.
+ * is `boardAccess.ts`'s. So is what dropping a dragged card on another column
+ * means, and how the board shows a drop GitHub has not answered yet.
  *
  * Every string comes from the server's snapshot or replicated state, which the
  * server has already sanitized; both renderers take text rather than markup.
@@ -20,6 +21,8 @@ import {
   type BoardLabel,
   type BoardPullRequest,
   type CheckStatus,
+  ISSUE_STATE,
+  type IssueState,
   type ProjectBoardSnapshot,
   WORK_ACTION,
   WORK_STATUS,
@@ -333,4 +336,116 @@ export function boardIssue(snapshot: ProjectBoardSnapshot | undefined, issueNumb
     return undefined;
   }
   return [...snapshot.open, ...snapshot.inProgress, ...snapshot.closed].find((issue) => issue.number === issueNumber);
+}
+
+/**
+ * What dropping a dragged issue card on another column does: change the
+ * issue's state on GitHub, or hand it to an agent, which is what the In
+ * progress column is for in the office.
+ */
+export type BoardDrop =
+  | { readonly kind: "state"; readonly state: IssueState }
+  | { readonly kind: "assign" };
+
+/** What the local player may do, and the card's own facts, for {@link boardDrop}. */
+export interface BoardDropContext {
+  /** `BoardAccess.mayChangeIssueState`. */
+  readonly mayChangeState: boolean;
+  /** `BoardAccess.mayAssign`. */
+  readonly mayAssign: boolean;
+  /** Whether an agent in the office already has the issue. */
+  readonly hasWork: boolean;
+}
+
+/**
+ * What a drop of a card from `from` onto `to` would do, or `undefined` when
+ * that column does not take it.
+ *
+ * Open or In progress onto Closed closes the issue, and Closed onto Open
+ * reopens it. Open onto In progress asks which agent to give it to, the
+ * board's assign control, since the office has no "in progress" of its own to
+ * set on GitHub. Pull requests are neither picked up nor dropped on, and a card
+ * goes nowhere else: In progress back to Open would mean undoing GitHub's
+ * assignees or linked pull requests, which the board does not touch.
+ */
+export function boardDrop(from: BoardColumnKey, to: BoardColumnKey, context: BoardDropContext): BoardDrop | undefined {
+  if (to === "closed" && (from === "open" || from === "inProgress") && context.mayChangeState) {
+    return { kind: "state", state: ISSUE_STATE.closed };
+  }
+  if (to === "open" && from === "closed" && context.mayChangeState) {
+    return { kind: "state", state: ISSUE_STATE.open };
+  }
+  if (to === "inProgress" && from === "open" && context.mayAssign && !context.hasWork) {
+    return { kind: "assign" };
+  }
+  return undefined;
+}
+
+/** A card the local player dropped on Closed or Open, shown there before GitHub's state catches up. */
+export interface IssueMove {
+  readonly issueNumber: number;
+  readonly state: IssueState;
+}
+
+/**
+ * The snapshot as this tab's board shows it: with each move the player has
+ * made and the feed not yet polled back already applied.
+ *
+ * An issue moved to closed is stamped closed `now`; one reopened loses its
+ * closed date and goes back among the open issues, in progress if GitHub has
+ * someone on it. Counts move with the cards so the column totals agree with
+ * what is shown. A move whose issue the snapshot does not carry where it
+ * expects changes nothing.
+ */
+export function withIssueMoves(
+  snapshot: ProjectBoardSnapshot,
+  moves: readonly IssueMove[],
+  now: number,
+): ProjectBoardSnapshot {
+  let board = snapshot;
+  for (const move of moves) {
+    board = move.state === ISSUE_STATE.closed ? closeOnBoard(board, move.issueNumber, now) : reopenOnBoard(board, move.issueNumber);
+  }
+  return board;
+}
+
+function closeOnBoard(board: ProjectBoardSnapshot, issueNumber: number, now: number): ProjectBoardSnapshot {
+  const fromOpen = board.open.find((issue) => issue.number === issueNumber);
+  const fromInProgress = board.inProgress.find((issue) => issue.number === issueNumber);
+  const issue = fromOpen ?? fromInProgress;
+  if (issue === undefined) {
+    return board;
+  }
+  return {
+    ...board,
+    open: board.open.filter((candidate) => candidate !== issue),
+    inProgress: board.inProgress.filter((candidate) => candidate !== issue),
+    closed: [{ ...issue, closedAt: now }, ...board.closed],
+    counts: {
+      ...board.counts,
+      open: board.counts.open - (fromOpen === undefined ? 0 : 1),
+      inProgress: board.counts.inProgress - (fromOpen === undefined ? 1 : 0),
+    },
+  };
+}
+
+function reopenOnBoard(board: ProjectBoardSnapshot, issueNumber: number): ProjectBoardSnapshot {
+  const closed = board.closed.find((issue) => issue.number === issueNumber);
+  if (closed === undefined) {
+    return board;
+  }
+  const issue = { ...closed, closedAt: null };
+  const worked = issue.assignees.length > 0 || issue.pullRequests.length > 0;
+  const insert = (list: readonly BoardIssue[]) => [...list, issue].sort((a, b) => a.number - b.number);
+  return {
+    ...board,
+    open: worked ? board.open : insert(board.open),
+    inProgress: worked ? insert(board.inProgress) : board.inProgress,
+    closed: board.closed.filter((candidate) => candidate !== closed),
+    counts: {
+      ...board.counts,
+      open: board.counts.open + (worked ? 0 : 1),
+      inProgress: board.counts.inProgress + (worked ? 1 : 0),
+    },
+  };
 }

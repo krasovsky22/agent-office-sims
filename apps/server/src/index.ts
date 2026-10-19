@@ -31,6 +31,8 @@
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
+  type IssueState,
+  type IssueStateRejection,
   MAX_RUNNER_SLOTS,
   OFFICE_ROOM_NAME,
   RECONNECT_GRACE_SECONDS,
@@ -61,6 +63,7 @@ import { ProjectFeed } from "./github/feed.js";
 import { type RouteHandler, createHealthServer } from "./http.js";
 import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
+import type { IssueStates } from "./rooms/issueStateHandlers.js";
 
 const { port, allowedOrigins, projectBoard, liveAgents, runner, manager } = readConfig();
 
@@ -111,6 +114,23 @@ const runnerLink =
         pullTitle: (number) => projectFeed.current()?.pullRequests.find((pull) => pull.number === number)?.title,
       });
 // The slots' terminal screens, kept while the link reports each slot.
+// The CEO's drops on Closed and Open go to a runner, which changes the issue
+// with its own GitHub identity; the board should then show it without waiting
+// for the next poll.
+const issueStates: IssueStates | undefined =
+  runnerLink === undefined
+    ? undefined
+    : {
+        canChangeIssues: () => runnerLink.canChangeIssues(),
+        changeIssueState: async (issueNumber: number, state: IssueState, requestedBy: string): Promise<IssueStateRejection | undefined> => {
+          const rejection = await runnerLink.changeIssueState(issueNumber, state, requestedBy);
+          if (rejection === undefined) {
+            projectFeed.refresh();
+          }
+          return rejection;
+        },
+      };
+
 const screens = runnerLink === undefined ? undefined : new ScreenStore({ slots: runnerLink });
 if (runnerLink !== undefined && screens !== undefined && runner.secret !== undefined) {
   routes.set(RUNNER_SYNC_PATH, createRunnerEndpoint({ secret: runner.secret, link: runnerLink }));
@@ -147,6 +167,7 @@ server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   ...(liveAssignments === undefined ? {} : { liveAssignments }),
   ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink, runnerCommands: runnerLink, runnerSpend: runnerLink, runnerStandup: runnerLink }),
   agentRestrictLabel: runner.restrictLabel,
+  ...(issueStates === undefined ? {} : { issueStates }),
   ...(screens === undefined ? {} : { screens }),
   ...(standingMirror === undefined ? {} : { standing: standingMirror }),
 } satisfies OfficeRoomOptions);

@@ -30,6 +30,7 @@ import {
   MAX_MANAGER_REPLY_LENGTH,
   MAX_WORK_NOTE_LENGTH,
 } from "./constants.js";
+import { type IssueStateMessage, isIssueState } from "./issueState.js";
 import type { ManagerRejection } from "./manager.js";
 import { type StandingRejection, type StandingTaskAction, isStandingTaskId } from "./standing.js";
 import type { StandupRejection } from "./standup.js";
@@ -56,6 +57,8 @@ export const CLIENT_MESSAGE = {
   workRelease: "work:release",
   /** Move an issue's work to an adjacent status: approve it, send it back, retry it. */
   workMove: "work:move",
+  /** Close or reopen an issue on GitHub, from a card dragged across the board. See `issueState.ts`. */
+  issueState: "issue:state",
   /** Say something to the AI manager; only the CEO is listened to. */
   managerSay: "manager:say",
   /** Type a prompt into a coding agent's terminal; only the CEO is listened to. See `agentPrompt.ts`. */
@@ -101,6 +104,12 @@ export const SERVER_MESSAGE = {
    * {@link WorkRejectedEvent}.
    */
   workRejected: "work-rejected",
+  /**
+   * Sent only to the client that asked to close or reopen an issue, once
+   * GitHub has answered or the office refused without asking. Carries an
+   * `IssueStateResultEvent` from `issueState.ts`.
+   */
+  issueStateResult: "issue:state-result",
   /**
    * The CEO role passed to someone else because its holder left. Broadcast to
    * every client as a {@link CeoChangedEvent}; the role itself is replicated
@@ -821,6 +830,19 @@ export function parseWorkAssignMessage(raw: unknown): WorkAssignMessage | undefi
     return undefined;
   }
   return { issueNumber: candidate.issueNumber, assigneeId: candidate.assigneeId };
+}
+
+/**
+ * Validates a raw `issue:state` payload. Shape only: whether the sender may,
+ * and whether the board shows that issue in the other state, is
+ * `issueStateRejection`'s call.
+ */
+export function parseIssueStateMessage(raw: unknown): IssueStateMessage | undefined {
+  const candidate = asRecord(raw);
+  if (candidate === undefined || !isIssueNumber(candidate.issueNumber) || !isIssueState(candidate.state)) {
+    return undefined;
+  }
+  return { issueNumber: candidate.issueNumber, state: candidate.state };
 }
 
 /** Validates a raw `work:release` payload. */
