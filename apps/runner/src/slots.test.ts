@@ -100,7 +100,7 @@ function workspaces(fail?: string): SlotWorkspaces {
     },
     close: async (slotId, issueNumber, discard) => {
       if (discard !== undefined) {
-        await discard(fixture.developer);
+        await discard(`sims/issue-${issueNumber}-${slotId}`, fixture.developer);
       }
       asked.push(`close ${slotId} #${issueNumber}${discard === undefined ? "" : " discarding"}`);
     },
@@ -596,8 +596,8 @@ describe("SlotPool", () => {
   });
 
   it("discards a cancelled task: its pull request and branch on GitHub first, then its worktree whatever is in it", async () => {
-    const discard = vi.fn(async (workdir: string) => {
-      asked.push(`discard ${workdir === fixture.developer ? "its worktree" : workdir}`);
+    const discard = vi.fn(async (branch: string) => {
+      asked.push(`discard ${branch}`);
       return undefined;
     });
     const github: TaskGithub = { refusal: async () => undefined, pullRequest: async () => undefined, pullRequestTitle: async () => "", discard };
@@ -607,7 +607,7 @@ describe("SlotPool", () => {
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "the CEO cancelled the task", issueNumber: 39, discard: true });
     await settle();
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined });
-    expect(asked).toEqual(["open slot-1 #39", "discard its worktree", "close slot-1 #39 discarding"]);
+    expect(asked).toEqual(["open slot-1 #39", "discard sims/issue-39-slot-1", "close slot-1 #39 discarding"]);
     expect(workEvents(slots).at(-1)).toMatchObject({ kind: "failed", message: "Stopped: the CEO cancelled the task" });
   });
 
@@ -632,7 +632,7 @@ describe("SlotPool", () => {
     expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "the CEO cancelled the task", issueNumber: 39, discard: true });
     await settle();
-    expect(discard).toHaveBeenCalledWith(fixture.developer);
+    expect(discard).toHaveBeenCalledWith("sims/issue-39-slot-1", fixture.developer);
     expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39", "close slot-1 #39 discarding"]);
   });
 

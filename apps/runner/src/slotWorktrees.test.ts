@@ -103,17 +103,29 @@ describe("SlotWorktrees", () => {
     const path = await slots.open("slot-1", 39);
     fixture.commit(path, "work.txt");
     writeFileSync(join(path, "draft.txt"), "draft");
-    const discarded: string[] = [];
-    await slots.close("slot-1", 39, async (workdir) => {
-      discarded.push(workdir);
+    const discarded: string[][] = [];
+    await slots.close("slot-1", 39, async (branch, cwd) => {
+      discarded.push([branch, cwd]);
     });
-    expect(discarded).toEqual([path]);
+    expect(discarded).toEqual([["sims/issue-39-slot-1", join(fixture.dataDir, "repo")]]);
     expect(existsSync(path)).toBe(false);
     expect(fixture.git(join(fixture.dataDir, "repo"), "branch", "--list", "sims/*")).toBe("");
     expect(state()).toEqual({ worktrees: [] });
     expect(logged).toContain("slot-1 removed its worktree for #39: cancelled, discarding 1 uncommitted change, 1 unpushed commit");
     // Nothing of it comes back with the issue.
     expect(existsSync(join(await slots.open("slot-1", 39), "work.txt"))).toBe(false);
+  });
+
+  it("discards a cancelled task's branch on GitHub even once its worktree is gone", async () => {
+    const { slots } = boot();
+    await slots.open("slot-1", 39);
+    await slots.close("slot-1", 39);
+    expect(slots.current()).toEqual([]);
+    const discarded: string[] = [];
+    await slots.close("slot-1", 39, async (branch) => {
+      discarded.push(branch);
+    });
+    expect(discarded).toEqual(["sims/issue-39-slot-1"]);
   });
 
   it("discards a cancelled task's worktree before the same issue opens it again", async () => {

@@ -140,10 +140,11 @@ export interface SlotWorkspaces {
   open(slotId: string, issueNumber: number): Promise<string>;
   /**
    * The task is over, whether or not its directory was ever opened. A task
-   * that was cancelled passes `discard`, given the directory first if there is
-   * one, and then nothing in it is kept. Never rejects.
+   * that was cancelled passes `discard`, given the task's branch and a
+   * checkout to run in first, and then nothing in its directory is kept.
+   * Never rejects.
    */
-  close(slotId: string, issueNumber: number, discard?: (workdir: string) => Promise<void>): Promise<void>;
+  close(slotId: string, issueNumber: number, discard?: (branch: string, cwd: string) => Promise<void>): Promise<void>;
 }
 
 /** Where a slot's desk sessions work. */
@@ -1418,16 +1419,15 @@ export class SlotPool {
 
   /**
    * Throws a cancelled task's work away: its pull request and pushed branch
-   * on GitHub, then its worktree and branch, whatever is in them. Its branch
-   * is read off the worktree, so GitHub goes first; with no worktree, nothing
-   * was pushed.
+   * on GitHub, even once its worktree is gone, then its worktree and branch,
+   * whatever is in them.
    */
   private discardKept(slotId: string, issueNumber: number | undefined): void {
     if (issueNumber === undefined) {
       return;
     }
-    void this.options.workspaces.close(slotId, issueNumber, async (workdir) => {
-      const failed = await this.github.discard(workdir);
+    void this.options.workspaces.close(slotId, issueNumber, async (branch, cwd) => {
+      const failed = await this.github.discard(branch, cwd);
       this.log(
         failed === undefined
           ? `${slotId} discarded its work on #${issueNumber}`

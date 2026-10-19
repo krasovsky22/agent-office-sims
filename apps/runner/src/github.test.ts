@@ -147,15 +147,13 @@ describe("discard", () => {
 
   it("closes the branch's open pull request and deletes the branch from origin, as the runner's identity", async () => {
     const { github: gh, calls } = github({
-      "git rev-parse": branch,
       "gh pr list": '[{"number":96}]',
       "gh pr close": "",
       "git ls-remote": `abc123\trefs/heads/${branch}`,
       "git push": "",
     });
-    expect(await gh.discard(TASK.workdir)).toBeUndefined();
+    expect(await gh.discard(branch, TASK.workdir)).toBeUndefined();
     expect(calls.map((call) => `${call.file} ${call.args.slice(0, 3).join(" ")}`)).toEqual([
-      "git rev-parse --abbrev-ref HEAD",
       "gh pr list --repo",
       "gh pr close 96",
       "git ls-remote --heads origin",
@@ -166,16 +164,16 @@ describe("discard", () => {
   });
 
   it("deletes nothing for a branch never pushed, and touches no branch but a task's own", async () => {
-    const unpushed = github({ "git rev-parse": branch, "gh pr list": "[]", "git ls-remote": "" });
-    expect(await unpushed.github.discard(TASK.workdir)).toBeUndefined();
-    expect(unpushed.calls.map((call) => call.args[0])).toEqual(["rev-parse", "pr", "ls-remote"]);
-    const main = github({ "git rev-parse": "main" });
-    expect(await main.github.discard(TASK.workdir)).toBeUndefined();
-    expect(main.calls).toHaveLength(1);
+    const unpushed = github({ "gh pr list": "[]", "git ls-remote": "" });
+    expect(await unpushed.github.discard(branch, TASK.workdir)).toBeUndefined();
+    expect(unpushed.calls.map((call) => call.args[0])).toEqual(["pr", "ls-remote"]);
+    const main = github({});
+    expect(await main.github.discard("main", TASK.workdir)).toBeUndefined();
+    expect(main.calls).toHaveLength(0);
   });
 
   it("says what went wrong rather than rejecting", async () => {
-    const { github: gh } = github({ "git rev-parse": branch, "gh pr list": new Error("HTTP 401: Bad credentials") });
-    expect(await gh.discard(TASK.workdir)).toBe("HTTP 401: Bad credentials");
+    const { github: gh } = github({ "gh pr list": new Error("HTTP 401: Bad credentials") });
+    expect(await gh.discard(branch, TASK.workdir)).toBe("HTTP 401: Bad credentials");
   });
 });

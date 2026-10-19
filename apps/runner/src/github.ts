@@ -94,11 +94,11 @@ export interface TaskGithub {
   pullRequestTitle(number: number): Promise<string>;
   /**
    * Throws a cancelled task's work away on GitHub: closes the open pull
-   * request for its worktree's branch and deletes the branch from origin. Only
-   * a task's own `sims/` branch is touched. Says what went wrong, if anything;
-   * never rejects.
+   * request for its `branch` and deletes the branch from origin, run in `cwd`,
+   * a checkout of the repository. Only a task's own `sims/` branch is touched.
+   * Says what went wrong, if anything; never rejects.
    */
-  discard(workdir: string): Promise<string | undefined>;
+  discard(branch: string, cwd: string): Promise<string | undefined>;
 }
 
 export interface TaskGithubOptions {
@@ -192,9 +192,8 @@ export function createTaskGithub(options: TaskGithubOptions): TaskGithub {
       return { number, title, url };
     },
 
-    async discard(workdir) {
+    async discard(branch, workdir) {
       try {
-        const branch = await git(["rev-parse", "--abbrev-ref", "HEAD"], workdir);
         if (!branch.startsWith(BRANCH_PREFIX)) {
           return undefined;
         }
