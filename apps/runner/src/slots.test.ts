@@ -1443,6 +1443,19 @@ describe("SlotPool profiles", () => {
     ]);
   });
 
+  it("keeps a profile kept for a slot beyond the pool's count when saving an edit", () => {
+    const { agent } = spyAgent();
+    const beyond: AgentProfile = { name: "Ada", title: "Compiler Engineer", description: "Owns the parser." };
+    const { profiles, saved } = memoryProfiles(new Map([["slot-3", beyond]]));
+    profiledPool(agent, profiles).handle(profileCommand());
+    expect(saved).toEqual([
+      new Map([
+        ["slot-3", beyond],
+        ["slot-1", EDITED],
+      ]),
+    ]);
+  });
+
   it("leaves the session an agent is in alone: an edit applies from its next one", async () => {
     const { agent, tasks } = spyAgent();
     const { profiles } = memoryProfiles();

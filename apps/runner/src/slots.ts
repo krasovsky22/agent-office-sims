@@ -246,6 +246,8 @@ export class SlotPool {
   private readonly redactor: Redactor;
   private readonly github: TaskGithub;
   private readonly ledger: SpendLedger;
+  /** Profiles kept for slots beyond this pool's count, saved back unchanged so a smaller pool never loses them. */
+  private readonly keptOutsidePool: ReadonlyMap<string, AgentProfile>;
   /** A standup is on in the office, as the server last said. */
   private standup = false;
 
@@ -278,6 +280,8 @@ export class SlotPool {
         kept: [],
       };
     });
+    const inPool = new Set(this.slots.map((slot) => slot.id));
+    this.keptOutsidePool = new Map([...kept].filter(([id]) => !inPool.has(id)));
   }
 
   /** Each slot's id and terminal screen. */
@@ -481,7 +485,9 @@ export class SlotPool {
   private setProfile(slot: Slot, command: ProfileCommand): void {
     slot.profile = { name: fitBytes(command.name, MAX_NAME_LENGTH), title: command.title, description: command.description };
     slot.edited = true;
-    this.options.profiles?.save(new Map(this.slots.filter((each) => each.edited).map((each) => [each.id, each.profile])));
+    this.options.profiles?.save(
+      new Map([...this.keptOutsidePool, ...this.slots.filter((each) => each.edited).map((each) => [each.id, each.profile] as const)]),
+    );
     const busy = slot.run !== undefined || slot.standing !== undefined;
     this.log(
       `${slot.id} is now ${slot.profile.name}, ${slot.profile.title}, as ${command.requestedBy || "the CEO"} asked` +
