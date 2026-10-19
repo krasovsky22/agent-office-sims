@@ -43,6 +43,12 @@
  * schedule it runs, as its task. Commands for standing tasks address the
  * runner rather than a slot, and ride the same outbox.
  *
+ * A slot lent to the CEO's desk (`./deskTerminal.ts`) is on the floor too,
+ * idle and taking no issues while it is lent, so neither the board nor the
+ * manager hands it work; its session's own status and activity are read by
+ * the desk terminal through {@link RunnerLink.deskSlots}, not shown on its
+ * body.
+ *
  * Like the registry, everything here runs on Node's event loop, from an HTTP
  * request or this module's own sweep timer, and never inside a tick. The
  * slots reach the rooms through {@link LiveAgentSource}: a finished list, and
@@ -243,6 +249,19 @@ export function runnerSlotOf(agentId: string): RunnerSlotRef | undefined {
   return { runnerId: rest.slice(0, colon), slotId: rest.slice(colon + 1) };
 }
 
+/** A slot as the desk terminal reads it, at its runner's last sync. */
+export interface RunnerDeskSlot extends RunnerSlotRef {
+  readonly status: RunnerSlotStatus;
+  readonly activity: string;
+  /** The desk it is lent to, by seat id, if any. */
+  readonly seatId: string | undefined;
+  /** It holds nothing: idle, with no issue, standing run or desk. */
+  readonly free: boolean;
+}
+
+/** What a slot lent to a desk does on the floor, instead of its session's activity. */
+export const LENT_TO_DESK_ACTIVITY = "At the CEO's desk";
+
 /** What a slot's status shows as on the floor. */
 const FLOOR_STATUS: Readonly<Record<RunnerSlotStatus, LiveAgentStatus>> = {
   [RUNNER_SLOT_STATUS.idle]: LIVE_AGENT_STATUS.idle,
@@ -299,6 +318,7 @@ function sameRecord(a: LiveAgentRecord, b: LiveAgentRecord): boolean {
     a.description === b.description &&
     a.status === b.status &&
     a.activity === b.activity &&
+    a.canTakeIssues === b.canTakeIssues &&
     a.task?.title === b.task?.title &&
     a.task?.url === b.task?.url
   );
@@ -533,6 +553,33 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
     return held;
   }
 
+  /** Whether any runner's last sync was taken and it has not gone silent since. */
+  public hasRunners(): boolean {
+    return this.runners.size > 0;
+  }
+
+  /** Every slot of every runner, as the desk terminal reads it. */
+  public deskSlots(): RunnerDeskSlot[] {
+    const slots: RunnerDeskSlot[] = [];
+    for (const [runnerId, runner] of this.runners) {
+      for (const slot of runner.slots) {
+        slots.push({
+          runnerId,
+          slotId: slot.id,
+          status: slot.status,
+          activity: slot.activity,
+          seatId: slot.desk?.seatId,
+          free:
+            (slot.status === RUNNER_SLOT_STATUS.idle || slot.status === RUNNER_SLOT_STATUS.exited) &&
+            slot.issueNumber === undefined &&
+            slot.standing === undefined &&
+            slot.desk === undefined,
+        });
+      }
+    }
+    return slots;
+  }
+
   /** The issue a slot was holding at the runner's last sync, if any. */
   public slotIssue(runnerId: string, slotId: string): number | undefined {
     return this.runners.get(runnerId)?.slots.find((slot) => slot.id === slotId)?.issueNumber;
@@ -685,6 +732,17 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
 
   /** A slot as a live agent on the floor. */
   private record(runnerId: string, runner: Runner, slot: RunnerSlotReport): LiveAgentRecord {
+    if (slot.desk !== undefined) {
+      // Lent to the CEO: free on the floor, with no task, and given none while it is.
+      return {
+        id: runnerSlotAgentId(runnerId, slot.id),
+        name: slot.name,
+        status: LIVE_AGENT_STATUS.idle,
+        task: undefined,
+        activity: LENT_TO_DESK_ACTIVITY,
+        canTakeIssues: false,
+      };
+    }
     return {
       id: runnerSlotAgentId(runnerId, slot.id),
       name: slot.name,

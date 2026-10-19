@@ -28,6 +28,7 @@ import {
   type WorkData,
   authorizeInteract,
   describeLiveAgentTask,
+  deskTerminalSeat,
   heldAnimationFor,
   interactableById,
   nearestInteractable,
@@ -42,6 +43,7 @@ import * as THREE from "three";
 
 import { agentProfileAccessFor, agentProfileRejectionText } from "./agentProfileAccess.js";
 import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
+import { deskForbiddenText, deskPanelFor, deskScreenKey, sameDeskPanel } from "./deskTerminalAccess.js";
 import { standupAccessFor, standupRejectionText } from "./standupAccess.js";
 import { boardAccessFor, issueStateRejectionText, rejectionText } from "./boardAccess.js";
 import { DayClock } from "./dayClock.js";
@@ -734,6 +736,11 @@ function start(): void {
   // watching an agent holds nothing, so there is nothing for the server to know.
   let readingBoard = "";
 
+  // The desk panel's Stand up button, taken by the next frame as `E` would be.
+  let standUpRequested = false;
+  // The computer the local player last sat at and was told is the CEO's alone, so it is said once a sitting.
+  let toldDeskForbidden = "";
+
   // Who holds what, as the last patch said, for the shared rules to read.
   const holderOf = (interactableId: string) => room.holderOf(interactableId);
 
@@ -771,6 +778,9 @@ function start(): void {
             lastProfileAgentId = agentId;
             return room.sendAgentProfile(agentId, profile);
           },
+        },
+        standUp: () => {
+          standUpRequested = true;
         },
         standup: {
           start: () => room.sendStandupStart(),
@@ -916,9 +926,10 @@ function start(): void {
       }
       hiddenAgentId = hide;
     }
-    if (controller.takeReleaseRequest()) {
+    if (controller.takeReleaseRequest() || (standUpRequested && locallyHeldWith !== "")) {
       room.sendRelease();
     }
+    standUpRequested = false;
     // Stepping out of reach closes a close-up just as `E` does, and so does an
     // agent's screen stopping being offered when it stands up or leaves.
     if (target?.id !== readingBoard) {
@@ -958,6 +969,19 @@ function start(): void {
     const terminalAgentId = watchedSeat === undefined ? undefined : room.holderOf(watchedSeat);
     if (terminalAgentId !== hud.terminalAgentId) {
       publishHud({ terminalAgentId });
+    }
+    // The CEO sitting at a computer has its terminal; anyone else is told why not, once.
+    const desk = room.desk();
+    const deskPanel = deskPanelFor(desk, localId, locallyHeldWith);
+    if (!sameDeskPanel(deskPanel, hud.desk)) {
+      publishHud({ desk: deskPanel });
+    }
+    const deskSeat = deskTerminalSeat(OFFICE_LAYOUT, locallyHeldWith);
+    if (deskSeat === undefined) {
+      toldDeskForbidden = "";
+    } else if (room.viewOf(localId)?.isCeo === false && toldDeskForbidden !== deskSeat.id) {
+      toldDeskForbidden = deskSeat.id;
+      showNotice(deskForbiddenText(hud.roster.find((entry) => entry.isCeo)?.name));
     }
 
     room.sendPose(controller.pose, nowMs);
@@ -1013,6 +1037,11 @@ function start(): void {
         if (view?.agentStatus !== undefined && view.interactableId !== "") {
           agentScreens.show(id, view.interactableId, room.screenOf(id), nowMs, camera.position);
         }
+      }
+      // The CEO's desk shows its lent agent's terminal, in every tab, and is lit while one is on its way.
+      const deskKey = deskScreenKey(desk);
+      if (desk !== undefined && deskKey !== undefined) {
+        agentScreens.show(deskKey, desk.seatId, room.screenOf(deskKey), nowMs, camera.position);
       }
       agentScreens.sweep();
     }

@@ -41,6 +41,13 @@
  *
  * The standup panel shows an agent's terminal and key pad the same way, with
  * the pieces exported here.
+ *
+ * The CEO sitting at a desk with a computer gets the same panel on the coding
+ * agent lent to that desk (`deskTerminalAccess.ts`), opened by sitting down
+ * rather than with `E`: it reads as the desk's computer, says why while there
+ * is no terminal to prompt yet, takes its key pad's cue from the session
+ * rather than the agent's body on the floor, and its close button stands the
+ * CEO up, which ends the session.
  */
 
 import { AGENT_KEY_LABEL, type AgentKey, MAX_AGENT_PROMPT_LENGTH, MAX_SCREEN_ROWS, type AgentPromptEntry } from "@sim/shared";
@@ -48,6 +55,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { type AgentPromptAccess, agentKeyOfKeyboard } from "../agentPromptAccess.js";
 import type { TerminalLinks } from "../agentTerminal.js";
+import type { DeskPanelView } from "../deskTerminalAccess.js";
 import { KEYBOARD_OWNER_ATTRIBUTE, isTypingTarget } from "../keys.js";
 import type { TerminalScreen } from "../net/screens.js";
 import { SCREEN_PLACEHOLDER, paintScreen } from "../scene/agentScreen.js";
@@ -91,6 +99,8 @@ interface AgentTerminalPanelProps {
   /** The latest of the local player's prompts that was not typed, for any agent. */
   readonly refusal: AgentPromptRefusal | undefined;
   readonly actions: AgentTerminalActions;
+  /** Set when this is the CEO's own desk's computer, whose `close` stands the CEO up. */
+  readonly desk?: DeskPanelView | undefined;
 }
 
 /**
@@ -286,7 +296,10 @@ export function KeyPad({ name, press }: { readonly name: string; readonly press:
   );
 }
 
-export function AgentTerminalPanel({ agentId, agent, links, prompts, access, localId, refusal, actions }: AgentTerminalPanelProps) {
+/** What the panel says of the local player's access at their own desk's computer. */
+const DESK_ACCESS = "You are the CEO: this desk's computer is a coding agent of your own while you sit here. What you send is typed into it once it waits at its prompt; it runs on the runner's machine, and standing up ends the session.";
+
+export function AgentTerminalPanel({ agentId, agent, links, prompts, access, localId, refusal, actions, desk }: AgentTerminalPanelProps) {
   const { canvasRef, onWheel } = useTerminalCanvas(agentId, actions.screenOf);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const logRef = useRef<HTMLOListElement>(null);
@@ -295,7 +308,9 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
   // Refusals up to this one are old news: from before the panel opened, or settled by a prompt typed since.
   const [seenRefusalId, setSeenRefusalId] = useState(refusal?.id ?? 0);
   const name = agent?.name ?? "Agent";
-  const mayPrompt = access?.mayPrompt === true;
+  // At a desk with no terminal yet, there is nothing to type to.
+  const mayPrompt = access?.mayPrompt === true && desk?.agentId !== "";
+  const needsInput = desk === undefined ? agent?.needsInput === true : desk.needsInput;
   const latestEntryId = prompts.at(-1)?.id ?? 0;
   const myRefusal = refusal !== undefined && refusal.agentId === agentId && refusal.id > seenRefusalId ? refusal : undefined;
 
@@ -359,14 +374,16 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
   };
 
   return (
-    <section className="board terminal" aria-label={`${name}'s terminal`}>
+    <section className="board terminal" aria-label={desk === undefined ? `${name}'s terminal` : "Your desk's computer"}>
       <header className="board__header">
         <h2 className="board__title">
-          {name}
-          <span className="board__repo">{agent === undefined || agent.title === "" ? "Live agent" : agent.title}</span>
-          {agent?.needsInput === true ? (
+          {desk === undefined ? name : "Your desk's computer"}
+          <span className="board__repo">
+            {desk !== undefined ? (desk.agentId === "" ? "No agent yet" : name) : agent === undefined || agent.title === "" ? "Live agent" : agent.title}
+          </span>
+          {needsInput ? (
             <span className="hud__badge hud__badge--needs-you">Needs you</span>
-          ) : (
+          ) : desk?.agentId === "" ? null : (
             <span className="hud__badge hud__badge--agent">Working</span>
           )}
         </h2>
@@ -378,12 +395,20 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
             actions.close();
           }}
         >
-          Close
+          {desk === undefined ? "Close" : "Stand up"}
         </button>
       </header>
 
+      {desk === undefined || desk.message === "" ? null : (
+        <p className="hud__notice" role="status">
+          {desk.message}
+        </p>
+      )}
+
       <p className="terminal__facts">
-        {agent === undefined || agent.caption === "" ? null : (
+        {desk !== undefined ? (
+          desk.activity === "" ? null : <span className="terminal__caption">{desk.activity}</span>
+        ) : agent === undefined || agent.caption === "" ? null : (
           <span className="terminal__caption">{agent.caption}</span>
         )}
         {links.issue === undefined ? null : (
@@ -423,7 +448,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
         </ol>
       )}
 
-      {mayPrompt && agent?.needsInput === true ? <KeyPad name={name} press={press} /> : null}
+      {mayPrompt && needsInput ? <KeyPad name={name} press={press} /> : null}
       {myRefusal?.forKey === true ? (
         <p className="hud__notice" role="alert">
           {myRefusal.text}
@@ -432,7 +457,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
 
       {access === undefined ? null : (
         <p className={mayPrompt ? "hud__role" : "hud__role hud__role--readonly"} role="note">
-          {access.summary}
+          {desk !== undefined && access.mayPrompt ? DESK_ACCESS : access.summary}
         </p>
       )}
       <form
@@ -450,7 +475,13 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
           rows={2}
           value={draft}
           maxLength={MAX_AGENT_PROMPT_LENGTH}
-          placeholder={mayPrompt ? `Answer ${name}, or tell it what to do next` : "Only the CEO can prompt this agent"}
+          placeholder={
+            mayPrompt
+              ? `Answer ${name}, or tell it what to do next`
+              : desk?.agentId === ""
+                ? "No coding agent at this desk yet"
+                : "Only the CEO can prompt this agent"
+          }
           aria-label={`Prompt to ${name}`}
           autoComplete="off"
           disabled={!mayPrompt}
@@ -477,10 +508,19 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
       )}
 
       <p className="board__hint">
-        <span className="hud__keys">E</span> or <span className="hud__keys">Esc</span> to close; scroll the terminal
+        {desk === undefined ? (
+          <>
+            <span className="hud__keys">E</span> or <span className="hud__keys">Esc</span> to close
+          </>
+        ) : (
+          <>
+            <span className="hud__keys">E</span> to stand up and end the session
+          </>
+        )}
+        ; scroll the terminal
         or use <span className="hud__keys">PgUp</span> <span className="hud__keys">PgDn</span>, and{" "}
         <span className="hud__keys">End</span> to follow it live
-        {mayPrompt && agent?.needsInput === true ? (
+        {mayPrompt && needsInput ? (
           <>
             ; click the key pad to answer its screen with <span className="hud__keys">↑</span>{" "}
             <span className="hud__keys">↓</span>, <span className="hud__keys">1</span>–<span className="hud__keys">9</span> and{" "}

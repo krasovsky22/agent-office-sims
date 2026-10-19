@@ -46,8 +46,9 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { AgentProfileAccess } from "../agentProfileAccess.js";
 import type { AgentPromptAccess } from "../agentPromptAccess.js";
-import { terminalLinks } from "../agentTerminal.js";
+import { NO_LINKS, terminalLinks } from "../agentTerminal.js";
 import type { BoardAccess } from "../boardAccess.js";
+import type { DeskPanelView } from "../deskTerminalAccess.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ManagerAccess } from "../managerAccess.js";
@@ -193,6 +194,8 @@ export interface HudSnapshot {
   readonly managerAccess?: ManagerAccess | undefined;
   /** The live agent whose terminal the local player opened with `E` behind its chair, or `undefined`. */
   readonly terminalAgentId?: string | undefined;
+  /** The CEO's own desk's computer while the local player is the CEO sitting at one, or `undefined`. */
+  readonly desk?: DeskPanelView | undefined;
   /** What the runners' real agents have spent today; absent, or no runners, until a runner reports. */
   readonly runnerSpend?: RunnerSpendTotal | undefined;
   /** The prompts typed into the coding agents' terminals, oldest first, as the server relayed them. */
@@ -229,6 +232,8 @@ export interface HudActions {
   readonly projectBoard: ProjectBoardActions;
   readonly manager: ManagerPanelActions;
   readonly terminal: AgentTerminalActions;
+  /** Stands the local player up from their desk, which ends its session. */
+  readonly standUp: () => void;
   readonly standing: StandingActions;
   readonly standup: StandupActions & { readonly start: () => void };
   readonly profile: AgentProfileActions;
@@ -773,6 +778,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     managerUnread,
     managerAccess,
     terminalAgentId,
+    desk,
     runnerSpend,
     agentPrompts,
     agentPromptAccess,
@@ -789,7 +795,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
   // The CEO runs a standup from its panel and from the manager's desk at once, so
   // the standup docks to one side rather than covering another close-up.
-  const standupDocked = standup.active && (boardCloseUp || managerOpen || terminalAgentId !== undefined);
+  const standupDocked = standup.active && (boardCloseUp || managerOpen || terminalAgentId !== undefined || desk !== undefined);
+  const deskAgent = desk === undefined || desk.agentId === "" ? undefined : roster.find((entry) => entry.id === desk.agentId);
 
   return (
     <div className={standupDocked ? "hud hud--standup-docked" : "hud"}>
@@ -867,6 +874,22 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           localId={roster.find((entry) => entry.isLocal)?.id}
           refusal={agentPromptRefusal}
           actions={actions.terminal}
+        />
+      )}
+
+      {desk === undefined ? null : (
+        <AgentTerminalPanel
+          // A fresh panel per agent lent, so nothing painted for one is shown for the next.
+          key={`desk:${desk.agentId}`}
+          agentId={desk.agentId}
+          agent={deskAgent}
+          links={NO_LINKS}
+          prompts={desk.agentId === "" ? [] : agentPrompts.filter((entry) => entry.agentId === desk.agentId)}
+          access={agentPromptAccess}
+          localId={roster.find((entry) => entry.isLocal)?.id}
+          refusal={agentPromptRefusal}
+          actions={{ ...actions.terminal, close: actions.standUp }}
+          desk={desk}
         />
       )}
 

@@ -176,6 +176,14 @@ function readDraft(raw: Record<string, unknown>, slotId: string): RunnerCommandD
       }
       return { kind, slotId, name, title, description, requestedBy };
     }
+    case RUNNER_COMMAND_KIND.deskOpen: {
+      const { seatId, requestedBy } = raw;
+      return typeof seatId === "string" && typeof requestedBy === "string" ? { kind, slotId, seatId, requestedBy } : undefined;
+    }
+    case RUNNER_COMMAND_KIND.deskClose: {
+      const { seatId, reason } = raw;
+      return typeof seatId === "string" && typeof reason === "string" ? { kind, slotId, seatId, reason } : undefined;
+    }
     default:
       return undefined;
   }

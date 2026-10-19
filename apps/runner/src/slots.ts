@@ -62,6 +62,17 @@
  * sync. The title and description are its agent's system prompt, given as each
  * session or standing run starts, so an edit applies from the next one, never
  * to the session the agent is in.
+ *
+ * A slot holding nothing can also be lent to a desk in the office
+ * ({@link SlotPool.handle} with `desk-open`): a fresh session of its agent with
+ * no issue and no first prompt, in a scratch worktree of the default branch,
+ * that the CEO sitting at that desk prompts as any agent is prompted. It takes
+ * the slot from a standing run as an issue does, and gives the slot up to an
+ * issue's start in turn, since work the office assigned comes first. It has no
+ * task timeout and does not pause for a standup: the CEO sitting there is what
+ * bounds it, and the server closes it the moment the CEO stands up. Ending,
+ * however it ends, stops its agent and discards its worktree; a session that
+ * ends without the server asking says so with a `desk-ended` event.
  */
 
 import { randomUUID } from "node:crypto";
@@ -81,6 +92,7 @@ import {
   defaultAgentProfile,
   fitJsonBytes,
   type RunnerSlotStanding,
+  type RunnerDeskEndedEvent,
   type RunnerWorkEventKind,
   type RunnerPromptOutcome,
   type RunnerPromptOutcomeKind,
@@ -94,7 +106,7 @@ import {
 } from "@sim/shared";
 
 import { systemPrompt } from "./agents/prompt.js";
-import type { Agent, AgentReporter, AgentRun } from "./agents/types.js";
+import type { Agent, AgentReporter, AgentRun, AgentSession } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { NO_GITHUB, type TaskGithub } from "./github.js";
 import type { AgentProfiles } from "./profiles.js";
@@ -122,7 +134,19 @@ export interface SlotWorkspaces {
   close(slotId: string, issueNumber: number): Promise<void>;
 }
 
+/** Where a slot's desk sessions work. */
+export interface DeskWorkspaces {
+  /** A fresh scratch worktree of the default branch for the slot's desk session; rejects with why not. */
+  open(slotId: string): Promise<string>;
+  /** Discards it, whatever is in it. Never rejects. */
+  close(workdir: string): Promise<void>;
+}
+
+/** What a desk session's activity says while its worktree is made. */
+export const DESK_STARTING = "Making a scratch worktree";
+
 type StartCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.start }>;
+type DeskOpenCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.deskOpen }>;
 type PromptCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.prompt }>;
 type KeyCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.key }>;
 type ProfileCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.profile }>;
@@ -159,6 +183,19 @@ export interface StandingSlotLease {
   release(): void;
 }
 
+/** A desk session a slot is lent to. */
+interface DeskOnSlot {
+  readonly seatId: string;
+  readonly requestedBy: string;
+  agentRun: AgentRun;
+  /** Its scratch worktree, once made. */
+  workdir: string | undefined;
+  /** Cleared the moment it ends, so nothing its agent says afterwards lands. */
+  live: boolean;
+  /** What its agent has said it cost, in US dollars. */
+  spentUsd: number;
+}
+
 interface StandingOnSlot {
   readonly report: RunnerSlotStanding;
   readonly controller: AbortController;
@@ -173,6 +210,8 @@ export interface SlotPoolOptions {
   /** Where the CEO's edits to the agents' profiles are kept; every agent keeps its default without it. */
   readonly profiles?: AgentProfiles;
   readonly workspaces: SlotWorkspaces;
+  /** Where desk sessions work; without it, the slots are lent to no desk. */
+  readonly desks?: DeskWorkspaces;
   readonly taskTimeoutMs: number;
   /** The issue's label check and the task's pull request; none asked of GitHub by default. */
   readonly github?: TaskGithub;
@@ -200,6 +239,8 @@ interface Slot {
   run: ActiveRun | undefined;
   /** A standing task's run, which holds the slot instead of an issue until an issue's start takes it back. */
   standing: StandingOnSlot | undefined;
+  /** The desk it is lent to, which holds it instead of an issue until the server closes it or an issue's start takes it back. */
+  desk: DeskOnSlot | undefined;
   readonly screen: ScreenMirror;
   /** Standup directions kept for when its agent is next at its prompt, oldest first. */
   readonly kept: PromptCommand[];
@@ -238,7 +279,7 @@ export function fitBytes(value: string, maxBytes: number): string {
 
 export class SlotPool {
   private readonly slots: Slot[];
-  private readonly events: RunnerWorkEvent[] = [];
+  private readonly events: Array<RunnerWorkEvent | RunnerDeskEndedEvent> = [];
   private readonly promptOutcomes: RunnerPromptOutcome[] = [];
   private readonly eventId: () => string;
   private readonly log: (line: string) => void;
@@ -276,6 +317,7 @@ export class SlotPool {
         pr: undefined,
         run: undefined,
         standing: undefined,
+        desk: undefined,
         screen,
         kept: [],
       };
@@ -301,12 +343,15 @@ export class SlotPool {
       activity: slot.activity,
       pr: slot.pr,
       ...(slot.standing === undefined ? {} : { standing: slot.standing.report }),
+      ...(slot.desk === undefined ? {} : { desk: { seatId: slot.desk.seatId } }),
     }));
   }
 
   /** The slots free for a standing run: holding no run of any kind. */
   public freeForStanding(): readonly string[] {
-    return this.slots.filter((slot) => slot.run === undefined && slot.standing === undefined).map((slot) => slot.id);
+    return this.slots
+      .filter((slot) => slot.run === undefined && slot.standing === undefined && slot.desk === undefined)
+      .map((slot) => slot.id);
   }
 
   /**
@@ -318,7 +363,7 @@ export class SlotPool {
    */
   public leaseForStanding(slotId: string, standing: RunnerSlotStanding, activity: string): StandingSlotLease | undefined {
     const slot = this.slots.find((candidate) => candidate.id === slotId);
-    if (slot === undefined || slot.run !== undefined || slot.standing !== undefined) {
+    if (slot === undefined || slot.run !== undefined || slot.standing !== undefined || slot.desk !== undefined) {
       return undefined;
     }
     const held: StandingOnSlot = { report: standing, controller: new AbortController(), spentUsd: 0 };
@@ -381,7 +426,7 @@ export class SlotPool {
   }
 
   /** The events not yet delivered, oldest first. */
-  public pendingEvents(): readonly RunnerWorkEvent[] {
+  public pendingEvents(): ReadonlyArray<RunnerWorkEvent | RunnerDeskEndedEvent> {
     return this.events;
   }
 
@@ -462,7 +507,9 @@ export class SlotPool {
         this.end(slot, RUNNER_EVENT_KIND.failed, `Stopped: ${command.reason || "the server asked"}`);
         return;
       case RUNNER_COMMAND_KIND.prompt:
-        if (command.fromCeo === true) {
+        if (command.fromCeo === true && slot.desk !== undefined) {
+          this.promptDesk(slot, slot.desk, command);
+        } else if (command.fromCeo === true) {
           this.promptFromCeo(slot, command);
         } else {
           this.log(`${slot.id} given a prompt by the server${slot.run === undefined ? "" : ` on #${slot.run.issueNumber}`}`);
@@ -470,7 +517,22 @@ export class SlotPool {
         }
         return;
       case RUNNER_COMMAND_KIND.key:
-        this.keyFromCeo(slot, command);
+        if (slot.desk !== undefined) {
+          this.keyDesk(slot, slot.desk, command);
+        } else {
+          this.keyFromCeo(slot, command);
+        }
+        return;
+      case RUNNER_COMMAND_KIND.deskOpen:
+        this.openDesk(slot, command);
+        return;
+      case RUNNER_COMMAND_KIND.deskClose:
+        if (slot.desk?.seatId !== command.seatId) {
+          this.debug(`desk-close for ${slot.id} at ${command.seatId} ignored: it is not lent to that desk`);
+          return;
+        }
+        this.log(`${slot.id}'s desk session for ${slot.desk.requestedBy} closed: ${command.reason || "the server asked"}`);
+        this.endDesk(slot, undefined);
         return;
       case RUNNER_COMMAND_KIND.profile:
         this.setProfile(slot, command);
@@ -502,6 +564,9 @@ export class SlotPool {
         this.end(slot, RUNNER_EVENT_KIND.failed, "Stopped: the runner shut down");
       }
       this.endStanding(slot, STANDING_SLOT_END.shutdown);
+      if (slot.desk !== undefined) {
+        this.endDesk(slot, "The runner shut down");
+      }
     }
   }
 
@@ -510,6 +575,11 @@ export class SlotPool {
       // Issue work always comes first: the standing run gives way, and runs again later on a free slot.
       this.log(`${slot.id} gives its standing run for ${slot.standing.report.taskId} up to #${task.issueNumber}`);
       this.endStanding(slot, STANDING_SLOT_END.preempted);
+    }
+    if (slot.desk !== undefined) {
+      // As for a standing run: the office's issue work comes first.
+      this.log(`${slot.id} leaves ${slot.desk.requestedBy}'s desk for #${task.issueNumber}`);
+      this.endDesk(slot, `${slot.profile.name} was taken back for issue #${task.issueNumber}`);
     }
     if (slot.run !== undefined) {
       if (slot.run.issueNumber === task.issueNumber) {
@@ -982,6 +1052,246 @@ export class SlotPool {
     } else {
       // It ended while starting, before its slot had it to stop.
       agentRun.stop();
+    }
+  }
+
+  /**
+   * Lends the slot to a desk: a fresh session of its agent, at its prompt, for
+   * the CEO sitting there. Refused, with a `desk-ended` event saying why, for a
+   * slot holding an issue or lent to another desk, past the day's budget, or
+   * with an agent or a runner that takes no desk sessions.
+   */
+  private openDesk(slot: Slot, command: DeskOpenCommand): void {
+    if (slot.desk?.seatId === command.seatId) {
+      this.debug(`desk-open for ${slot.id} at ${command.seatId} ignored: it is already lent there`);
+      return;
+    }
+    const refusal = this.deskRefusal(slot);
+    if (refusal !== undefined) {
+      this.emitDesk(slot, command.seatId, refusal);
+      this.log(`desk session on ${slot.id} for ${command.requestedBy} refused: ${refusal}`);
+      return;
+    }
+    if (slot.standing !== undefined) {
+      this.log(`${slot.id} gives its standing run for ${slot.standing.report.taskId} up to ${command.requestedBy}'s desk`);
+      this.endStanding(slot, STANDING_SLOT_END.preempted);
+    }
+    const desk: DeskOnSlot = {
+      seatId: command.seatId,
+      requestedBy: command.requestedBy,
+      agentRun: { stop: () => undefined },
+      workdir: undefined,
+      live: true,
+      spentUsd: 0,
+    };
+    slot.desk = desk;
+    slot.status = RUNNER_SLOT_STATUS.starting;
+    slot.issueNumber = undefined;
+    slot.pr = undefined;
+    slot.activity = DESK_STARTING;
+    slot.screen.reset();
+    const { agent } = this.options;
+    this.log(
+      `${slot.id} lent to ${command.requestedBy}'s desk with the ${agent.label} agent` +
+        (agent.simulated === true ? ": a pretend session, nothing real is run" : ""),
+    );
+    void this.launchDesk(slot, desk);
+  }
+
+  /** Why the slot cannot be lent to a desk, or `undefined` when it can. */
+  private deskRefusal(slot: Slot): string | undefined {
+    if (slot.run !== undefined) {
+      return `${slot.profile.name} is busy with #${slot.run.issueNumber}`;
+    }
+    if (slot.desk !== undefined) {
+      return `${slot.profile.name} is at another desk`;
+    }
+    if (this.options.desks === undefined || this.options.agent.startSession === undefined) {
+      return `The ${this.options.agent.label} agent takes no desk sessions on this runner`;
+    }
+    return this.ledger.refusal();
+  }
+
+  /** Makes the desk session's worktree, then starts its agent there, unless it ended meanwhile. */
+  private async launchDesk(slot: Slot, desk: DeskOnSlot): Promise<void> {
+    const desks = this.options.desks;
+    const startSession = this.options.agent.startSession;
+    if (desks === undefined || startSession === undefined) {
+      return;
+    }
+    let workdir: string;
+    try {
+      workdir = await desks.open(slot.id);
+    } catch (error) {
+      if (desk.live) {
+        this.endDesk(slot, `No worktree: ${(error as Error).message}`);
+      }
+      return;
+    }
+    desk.workdir = workdir;
+    if (!desk.live) {
+      void desks.close(workdir);
+      return;
+    }
+    slot.activity = "Starting";
+    const report = (status: RunnerSlotStatus, activity: string): void => {
+      if (desk.live) {
+        slot.status = status;
+        slot.activity = fitBytes(this.redactor.redactText(activity), MAX_TITLE_LENGTH);
+      }
+    };
+    const reporter: AgentReporter = {
+      started: () => report(RUNNER_SLOT_STATUS.idle, ""),
+      progress: (activity) => report(RUNNER_SLOT_STATUS.working, activity),
+      needsInput: (reason) => {
+        report(RUNNER_SLOT_STATUS.needsInput, reason);
+        if (desk.live) {
+          this.log(`${slot.id} at ${desk.requestedBy}'s desk needs a person: ${slot.activity}`);
+        }
+      },
+      turnDone: () => report(RUNNER_SLOT_STATUS.idle, TURN_DONE),
+      output: (data) => {
+        if (desk.live) {
+          slot.screen.write(data);
+        }
+      },
+      // Nothing to hand in: a pull request it opens at the CEO's word is on GitHub for the CEO to see.
+      prOpened: (pr) => {
+        if (desk.live) {
+          this.log(`${slot.id} at ${desk.requestedBy}'s desk opened ${pr.simulated === true ? "a simulated pull request" : pr.url}`);
+        }
+      },
+      failed: (message) => {
+        if (desk.live) {
+          this.endDesk(slot, message);
+        }
+      },
+      exited: (message) => {
+        if (desk.live) {
+          this.endDesk(slot, message);
+        }
+      },
+      // Booked whether or not it is still live, as a task's is.
+      spent: (totalUsd) => {
+        if (Number.isFinite(totalUsd)) {
+          this.ledger.add(totalUsd - desk.spentUsd);
+          desk.spentUsd = totalUsd;
+          this.debug(`${slot.id} at ${desk.requestedBy}'s desk has spent ${formatUsd(totalUsd)}`);
+        }
+      },
+    };
+    const session: AgentSession = { requestedBy: desk.requestedBy, workdir, systemPrompt: systemPrompt(slot.profile) };
+    let agentRun: AgentRun;
+    try {
+      agentRun = startSession.call(this.options.agent, session, reporter);
+    } catch (error) {
+      this.endDesk(slot, `The agent did not start: ${(error as Error).message}`);
+      return;
+    }
+    const started = agentRun.process;
+    this.log(
+      started === undefined
+        ? `${slot.id} at ${desk.requestedBy}'s desk: the ${this.options.agent.label} agent runs inside the runner`
+        : `${slot.id} at ${desk.requestedBy}'s desk: started ${started.command}, pid ${started.pid}`,
+    );
+    if (desk.live) {
+      desk.agentRun = agentRun;
+    } else {
+      agentRun.stop();
+    }
+  }
+
+  /**
+   * A prompt the CEO typed at the desk: given only while its agent waits at
+   * its prompt, and reported either way. A standup's direction is not kept for
+   * a desk session, since the CEO is the one at its desk.
+   */
+  private promptDesk(slot: Slot, desk: DeskOnSlot, command: PromptCommand): void {
+    const outcome = this.deskPromptable(slot, desk);
+    if (outcome === RUNNER_PROMPT_OUTCOME.delivered) {
+      this.log(`${slot.id} at ${desk.requestedBy}'s desk prompted by ${command.requestedBy}`);
+      slot.status = RUNNER_SLOT_STATUS.working;
+      slot.activity = fitBytes(this.redactor.redactText(command.text.split("\n")[0] ?? ""), MAX_TITLE_LENGTH);
+      desk.agentRun.prompt?.(command.text);
+    } else {
+      this.log(`prompt for ${slot.id} at ${desk.requestedBy}'s desk from ${command.requestedBy} not typed: ${outcome}`);
+    }
+    this.reportOutcome(slot, command.id, outcome);
+  }
+
+  /** Whether the desk session's agent waits at its prompt, and if not, why; as {@link promptable} for a task. */
+  private deskPromptable(slot: Slot, desk: DeskOnSlot): RunnerPromptOutcomeKind {
+    if (!desk.live || desk.agentRun.prompt === undefined) {
+      return slot.status === RUNNER_SLOT_STATUS.starting ? RUNNER_PROMPT_OUTCOME.busy : RUNNER_PROMPT_OUTCOME.unavailable;
+    }
+    switch (slot.status) {
+      case RUNNER_SLOT_STATUS.idle:
+        return RUNNER_PROMPT_OUTCOME.delivered;
+      case RUNNER_SLOT_STATUS.needsInput:
+        return desk.agentRun.promptAnswersWait === true ? RUNNER_PROMPT_OUTCOME.delivered : RUNNER_PROMPT_OUTCOME.needsInput;
+      case RUNNER_SLOT_STATUS.starting:
+      case RUNNER_SLOT_STATUS.working:
+        return RUNNER_PROMPT_OUTCOME.busy;
+      case RUNNER_SLOT_STATUS.exited:
+        return RUNNER_PROMPT_OUTCOME.unavailable;
+    }
+  }
+
+  /** A key the CEO pressed at the desk: pressed only while its agent waits on a person, and reported either way. */
+  private keyDesk(slot: Slot, desk: DeskOnSlot, command: KeyCommand): void {
+    const label = AGENT_KEY_LABEL[command.key];
+    let outcome: RunnerPromptOutcomeKind;
+    if (!desk.live || desk.agentRun.key === undefined) {
+      outcome = RUNNER_PROMPT_OUTCOME.unavailable;
+    } else if (slot.status !== RUNNER_SLOT_STATUS.needsInput) {
+      outcome = RUNNER_PROMPT_OUTCOME.notWaiting;
+    } else {
+      outcome = RUNNER_PROMPT_OUTCOME.delivered;
+    }
+    if (outcome === RUNNER_PROMPT_OUTCOME.delivered) {
+      this.log(`${slot.id} at ${desk.requestedBy}'s desk: ${command.requestedBy} pressed ${label}`);
+      desk.agentRun.key?.(command.key);
+    } else {
+      this.log(`key ${label} for ${slot.id} at ${desk.requestedBy}'s desk not pressed: ${outcome}`);
+    }
+    this.reportOutcome(slot, command.id, outcome);
+  }
+
+  /**
+   * Ends the slot's desk session, stopping its agent and discarding its
+   * worktree, and leaves the slot idle. `message` says why when the server did
+   * not ask for it, as a `desk-ended` event; `undefined` when it did.
+   */
+  private endDesk(slot: Slot, message: string | undefined): void {
+    const desk = slot.desk;
+    if (desk === undefined) {
+      return;
+    }
+    desk.live = false;
+    desk.agentRun.stop();
+    slot.desk = undefined;
+    slot.status = RUNNER_SLOT_STATUS.idle;
+    slot.activity = "";
+    if (message !== undefined) {
+      this.emitDesk(slot, desk.seatId, message);
+      this.log(`${slot.id}'s desk session for ${desk.requestedBy} ended: ${this.redactor.redactText(message)}`);
+    }
+    this.log(`${slot.id} is back from ${desk.requestedBy}'s desk (${formatUsd(desk.spentUsd)} spent)`);
+    if (desk.workdir !== undefined) {
+      void this.options.desks?.close(desk.workdir);
+    }
+  }
+
+  private emitDesk(slot: Slot, seatId: string, message: string): void {
+    this.events.push({
+      id: this.eventId(),
+      kind: RUNNER_EVENT_KIND.deskEnded,
+      slotId: slot.id,
+      seatId,
+      message: fitBytes(this.redactor.redactText(message), MAX_WORK_NOTE_LENGTH),
+    });
+    if (this.events.length > MAX_PENDING_EVENTS) {
+      this.events.shift();
     }
   }
 

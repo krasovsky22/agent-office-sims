@@ -58,6 +58,7 @@ import {
   type ChatEvent,
   type ChatMessage,
   CLIENT_MESSAGE,
+  type DeskTerminal,
   type Emote,
   type EmoteEvent,
   type EmoteMessage,
@@ -436,6 +437,14 @@ export class RoomConnection {
    */
   public sendEmote(emote: Emote): void {
     this.room?.send(CLIENT_MESSAGE.emote, { emote } satisfies EmoteMessage);
+  }
+
+  /**
+   * The CEO's desk terminal as of the last patch, or `undefined` before the
+   * state arrives. Read in place by the game loop, which must not allocate.
+   */
+  public desk(): DeskTerminal | undefined {
+    return this.room?.state.desk;
   }
 
   /** The label that keeps an issue from the live coding agents; `""` before the state arrives. */

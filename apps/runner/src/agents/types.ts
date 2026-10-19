@@ -1,6 +1,7 @@
 /**
- * What a slot needs from an agent, whatever runs it: start it on an issue,
- * hear what it does, see what it prints, and stop it.
+ * What a slot needs from an agent, whatever runs it: start it on an issue, or
+ * at its prompt for a desk session, hear what it does, see what it prints, and
+ * stop it.
  *
  * A slot owns the bookkeeping (status, events, the task timeout, the runner's
  * spend), so an agent only says what happened. Once it has said how the work ended, or been
@@ -22,6 +23,20 @@ export interface AgentTask {
   /** The task's own git worktree, on a branch of its own: where the agent works. */
   readonly workdir: string;
   /** Its system prompt, from its slot's profile as the task starts; see `./prompt.ts`. */
+  readonly systemPrompt: string;
+}
+
+/**
+ * A desk session a start command did not make: the CEO sitting at a desk in
+ * the office is lent the slot's agent, with no issue and no first prompt, to
+ * prompt from there.
+ */
+export interface AgentSession {
+  /** The CEO at the desk, by name. */
+  readonly requestedBy: string;
+  /** A scratch worktree of the default branch: where the agent works. */
+  readonly workdir: string;
+  /** Its system prompt, from its slot's profile as the session starts; see `./prompt.ts`. */
   readonly systemPrompt: string;
 }
 
@@ -92,4 +107,9 @@ export interface Agent {
   /** It only pretends to work, as the mock does: nothing it does reaches GitHub, so the runner's log says so of every task. */
   readonly simulated?: boolean;
   start(task: AgentTask, reporter: AgentReporter): AgentRun;
+  /**
+   * Starts it at its prompt with no task, for a desk session, and waits there
+   * for the prompts the CEO types. Left out by an agent that only works issues.
+   */
+  startSession?(session: AgentSession, reporter: AgentReporter): AgentRun;
 }
