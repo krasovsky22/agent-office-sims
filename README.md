@@ -22,7 +22,8 @@ runs along the back wall and the whole street side, through which cars and
 yellow cabs drive both ways past brick walk-ups and glass towers, stopping at
 the lights by the crossing outside the door, and from the street the office's
 own building rises above it. It is furnished now,
-with desks, chairs, screens, plants and doors from a low-poly asset kit, lit by
+with desks, chairs, screens, plants and doors from a low-poly asset kit, Sims-style
+pictures, posters, clocks and whiteboards on the walls and a TV in the conference room, lit by
 one shadow-casting light that follows the in-game clock, sun by day and moon by
 night, with the room light turning warmer and the desk screens glowing brighter
 as the outside light falls, and the sky, the street lamps and the windows across
@@ -1566,6 +1567,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/standup.ts      the standup: the CEO-only gate, why a command was refused, the places in the manager's room, what came of a direction
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
+  src/decor.ts        the wall decor: pictures, posters, clocks, whiteboards, a shelf and the TV, each on the wall it names
   src/collision.ts    capsule-vs-AABB movement resolution
   src/nav.ts          pathfinding over the layout's waypoint graph
   src/interaction.ts  what each interactable does, and who may use it
@@ -1634,6 +1636,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/skyline.ts    the buildings round the street, generated from a seed, and the office's own above it
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
+  src/scene/wallDecor.ts  the wall decor from shared decor.ts, hung as instanced boxes, the clocks kept to the office's time
+  src/scene/wallArt.ts    the decor's artwork, painted on canvases: pictures, posters, clock faces, whiteboards, the TV's slide
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
   src/scene/stickerBoards.ts  the two sticker boards and their anime sticky notes, pinned, in hand and in flight
   src/stickerBoard.ts     what a sticky note says, its look, its cell on a board, and when it is seen changing hands

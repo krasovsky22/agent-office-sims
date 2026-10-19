@@ -18,6 +18,7 @@ import {
   LIVE_AGENT_STATUS,
   MANAGER_INTERACTABLE_ID,
   type ManagerEntry,
+  OFFICE_DECOR,
   OFFICE_LAYOUT,
   OFFICE_PROPS,
   type OfficeLayout,
@@ -54,6 +55,7 @@ import { AgentScreens } from "./scene/agentScreen.js";
 import { Avatar } from "./scene/avatar.js";
 import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
 import { buildWallBoard } from "./scene/wallBoard.js";
+import { buildWallDecor } from "./scene/wallDecor.js";
 import { buildLighting } from "./scene/lighting.js";
 import { buildOffice } from "./scene/office.js";
 import { loadPropKit, screenFaceOf, screenMaterialOf } from "./scene/propKit.js";
@@ -244,9 +246,11 @@ function start(): void {
   const office = buildOffice(scene, OFFICE_LAYOUT);
   const lighting = buildLighting(scene, OFFICE_LAYOUT);
   const street = buildStreet(scene, OFFICE_LAYOUT);
+  const wallDecor = buildWallDecor(scene, OFFICE_LAYOUT, OFFICE_DECOR, renderer.capabilities.getMaxAnisotropy());
   // Lit for opening time until the first patch says what time it really is.
   const dayClock = new DayClock();
   lighting.showMinute(STARTING_MINUTE_OF_DAY);
+  wallDecor.showMinute(STARTING_MINUTE_OF_DAY);
 
   const boardSpec = OFFICE_LAYOUT.boards.find((spec) => spec.id === PROJECT_BOARD_ID);
   const wallBoard =
@@ -1016,6 +1020,7 @@ function start(): void {
     const minuteOfDay = dayClock.minuteAt(nowMs);
     if (minuteOfDay !== undefined) {
       lighting.showMinute(minuteOfDay);
+      wallDecor.showMinute(minuteOfDay);
     }
     street?.update(deltaSeconds, lighting.daylight.interior);
 
