@@ -157,6 +157,38 @@ describe("OFFICE_LAYOUT waypoints", () => {
   });
 });
 
+describe("OFFICE_LAYOUT spawn points", () => {
+  const entrance = OFFICE_LAYOUT.doorways.find((door) => door.id === "door-entrance");
+
+  /** Players arrive off the street: on the pavement, looking at the main entrance. */
+  it("stand on the pavement in front of the main entrance, facing it", () => {
+    expect(entrance).toBeDefined();
+    if (entrance === undefined) {
+      return;
+    }
+    for (const spawn of OFFICE_LAYOUT.spawnPoints) {
+      const label = `spawn (${spawn.x}, ${spawn.z})`;
+      expect(roomAt(OFFICE_LAYOUT, spawn)?.id, label).toBe(SIDEWALK_ROOM_ID);
+      expect(Math.abs(spawn.z - entrance.centre.z), label).toBeLessThanOrEqual(entrance.width);
+      const toDoor = { x: entrance.centre.x - spawn.x, z: entrance.centre.z - spawn.z };
+      const facing = { x: -Math.sin(spawn.yaw), z: -Math.cos(spawn.yaw) };
+      const cos = (toDoor.x * facing.x + toDoor.z * facing.z) / Math.hypot(toDoor.x, toDoor.z);
+      expect(cos, label).toBeGreaterThan(0.8);
+    }
+  });
+
+  it("are far enough apart that arrivals do not overlap", () => {
+    const points = OFFICE_LAYOUT.spawnPoints;
+    for (const [i, a] of points.entries()) {
+      for (const b of points.slice(i + 1)) {
+        expect(distanceBetween(a, b), `(${a.x}, ${a.z}) to (${b.x}, ${b.z})`).toBeGreaterThanOrEqual(
+          2 * OCCUPANT_RADIUS,
+        );
+      }
+    }
+  });
+});
+
 describe("OFFICE_LAYOUT rooms", () => {
   /** A node inside each room, which is what "reaching the room" means here. */
   const destinations: readonly (readonly [string, string])[] = [
@@ -191,7 +223,7 @@ describe("OFFICE_LAYOUT rooms", () => {
       return;
     }
 
-    const start = "wp-floor-aisle-north";
+    const start = "wp-sidewalk-door";
     const atStart = walkTo(spawn, waypoint(start));
     expect(distanceBetween(atStart, waypoint(start))).toBeLessThanOrEqual(ARRIVAL_TOLERANCE);
 
@@ -214,7 +246,7 @@ describe("OFFICE_LAYOUT seats", () => {
     if (spawn === undefined) {
       return;
     }
-    const start = "wp-floor-aisle-north";
+    const start = "wp-sidewalk-door";
     const atStart = walkTo(spawn, waypoint(start));
 
     const seats = interactables(OFFICE_LAYOUT).filter((spec) => spec.kind === INTERACTION_KIND.seat);
@@ -253,7 +285,7 @@ describe("OFFICE_LAYOUT seats", () => {
     if (spawn === undefined) {
       return;
     }
-    const start = "wp-floor-aisle-north";
+    const start = "wp-sidewalk-door";
     const atStart = walkTo(spawn, waypoint(start));
 
     const others = interactables(OFFICE_LAYOUT).filter((spec) => spec.exit === undefined);

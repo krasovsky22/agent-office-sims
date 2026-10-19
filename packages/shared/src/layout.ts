@@ -894,15 +894,16 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { id: "wp-sidewalk-north", x: 13.7, z: -10.8, links: ["wp-sidewalk-door"] },
     { id: "wp-sidewalk-south", x: 13.7, z: 10.8, links: ["wp-sidewalk-door"] },
   ],
-  // The aisle between the first two desk rows, facing north up the floor at
-  // the project board, each between two desks so no chair is in reach.
+  // Out on the pavement in front of the main entrance, facing it, so everyone
+  // arrives off the street and walks in through the lobby. Spread up and down
+  // the door and out towards the kerb so arrivals never stand in one another.
   spawnPoints: [
-    { x: -1.4, z: -0.2, yaw: 0 },
-    { x: -3.8, z: -0.2, yaw: 0 },
-    { x: 1, z: -0.2, yaw: 0 },
-    { x: -6.2, z: -0.2, yaw: 0 },
-    { x: -8.6, z: -0.2, yaw: 0 },
-    { x: -1.4, z: 2.88, yaw: 0 },
+    { x: 14, z: 9.25, yaw: Math.PI / 2 },
+    { x: 14, z: 8.25, yaw: Math.PI / 2 },
+    { x: 14, z: 10.25, yaw: Math.PI / 2 },
+    { x: 14.9, z: 9.25, yaw: Math.PI / 2 },
+    { x: 14.9, z: 8.25, yaw: Math.PI / 2 },
+    { x: 14.9, z: 10.25, yaw: Math.PI / 2 },
   ],
   fixtures: [
     // Across the manager's desk from its chair, facing it. The desk and the
