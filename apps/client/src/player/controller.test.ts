@@ -11,6 +11,7 @@
 
 import {
   INTERACTION_KIND,
+  doorwayGaps,
   type InteractableSpec,
   OFFICE_LAYOUT,
   RECONCILE_THRESHOLD,
@@ -280,5 +281,42 @@ describe("PlayerController leaning in over a working agent's shoulder", () => {
     frames(1.5, other);
     expect(controller.leaningInto).toBe(other);
     expect(controller.leanedIn).toBe(1);
+  });
+});
+
+describe("PlayerController camera through a doorway", () => {
+  let controller: PlayerController;
+  let camera: THREE.PerspectiveCamera;
+
+  beforeEach(() => {
+    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("HTMLElement", class {});
+    camera = new THREE.PerspectiveCamera();
+    controller = new PlayerController(camera, new EventTarget() as HTMLCanvasElement);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("stops the boom at the wall over a doorway the player has just walked through", () => {
+    const gaps = doorwayGaps(OFFICE_LAYOUT);
+    expect(gaps.length).toBeGreaterThan(0);
+
+    for (const gap of gaps) {
+      // Across the wall: +Z for a wall running along X, +X for one running along Z.
+      const normalX = gap.yaw === 0 ? 0 : 1;
+      const normalZ = gap.yaw === 0 ? 1 : 0;
+
+      for (const side of [-1, 1]) {
+        const x = gap.x + normalX * side * 2.5;
+        const z = gap.z + normalZ * side * 2.5;
+        // The boom trails behind the player, so facing away from the doorway points it back through.
+        controller.teleport(x, z, Math.atan2(gap.x - x, gap.z - z));
+
+        const cameraSide = (camera.position.x - gap.x) * normalX + (camera.position.z - gap.z) * normalZ;
+        expect(Math.sign(cameraSide), `${gap.id} side ${side}`).toBe(side);
+      }
+    }
   });
 });

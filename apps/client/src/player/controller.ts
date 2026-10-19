@@ -30,6 +30,7 @@ import {
   RECONCILE_THRESHOLD,
   type ReportedAnimation,
   WALK_SPEED,
+  doorwayGaps,
   normalizeYaw,
   resolveMove,
   shortestYawDelta,
@@ -129,8 +130,8 @@ interface Box3 {
 const CEILING_THICKNESS = 0.3;
 
 /**
- * The walls and the ceiling, as padded 3D boxes, for shortening the camera
- * boom.
+ * The walls, the wall over each doorway, and the ceiling, as padded 3D boxes,
+ * for shortening the camera boom.
  *
  * The ceiling is what keeps the camera indoors under it, so the office is seen
  * as the room it is rather than from over its roof; outside, on the pavement,
@@ -147,6 +148,22 @@ const CAMERA_OCCLUDERS: readonly Box3[] = [
     maxY: spec.height + CAMERA_WALL_PADDING,
     maxZ: spec.footprint.maxZ + CAMERA_WALL_PADDING,
   })),
+  // Without the lintel the boom slips through the doorway over the frame and
+  // leaves the camera in the room behind, looking at a closed door.
+  ...doorwayGaps(OFFICE_LAYOUT)
+    .filter((gap) => gap.wallHeight > gap.frameHeight)
+    .map((gap) => {
+      const halfX = (gap.yaw === 0 ? gap.width : gap.depth) / 2;
+      const halfZ = (gap.yaw === 0 ? gap.depth : gap.width) / 2;
+      return {
+        minX: gap.x - halfX - CAMERA_WALL_PADDING,
+        minY: gap.frameHeight - CAMERA_WALL_PADDING,
+        minZ: gap.z - halfZ - CAMERA_WALL_PADDING,
+        maxX: gap.x + halfX + CAMERA_WALL_PADDING,
+        maxY: gap.wallHeight + CAMERA_WALL_PADDING,
+        maxZ: gap.z + halfZ + CAMERA_WALL_PADDING,
+      };
+    }),
   ...(OFFICE_LAYOUT.ceiling === undefined
     ? []
     : [
