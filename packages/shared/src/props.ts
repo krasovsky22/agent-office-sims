@@ -24,7 +24,6 @@
  * walk-through on purpose.
  */
 
-import { OCCUPANT_RADIUS } from "./constants.js";
 import {
   type Aabb2,
   DESK_CHAIR,
@@ -292,19 +291,6 @@ function doorProps(layout: OfficeLayout): AssetPropSpec[] {
   return props;
 }
 
-/** Distance from a point to the segment between `a` and `b`. */
-function distanceToSegment(
-  point: { x: number; z: number },
-  a: { x: number; z: number },
-  b: { x: number; z: number },
-): number {
-  const dx = b.x - a.x;
-  const dz = b.z - a.z;
-  const lengthSquared = dx * dx + dz * dz;
-  const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.z - a.z) * dz) / lengthSquared));
-  return Math.hypot(point.x - (a.x + dx * t), point.z - (a.z + dz * t));
-}
-
 /** Room corners, tried in this order, rotated per room so the office varies. */
 const CORNERS = [
   { x: -1, z: -1 },
@@ -317,26 +303,15 @@ const CORNERS = [
  * One plant per room, in the first corner that is clear of the world.
  *
  * Corners are tried in a rotating order so the rooms do not all grow a plant in
- * the same corner. A corner already occupied by a desk, or claimed by a room
- * listed before this one, is skipped, and one beside a route the agents walk
- * is passed over for one that is not — which is what keeps this derivation
- * safe when the floor plan changes under it.
+ * the same corner, and a corner already occupied by a desk, or claimed by a
+ * room listed before this one, is skipped — which is what keeps this
+ * derivation safe when the floor plan changes under it.
  */
 function plantProps(layout: OfficeLayout): AssetPropSpec[] {
   const boxes = collisionBoxes(layout);
   const props: AssetPropSpec[] = [];
-  const byId = new Map(layout.waypoints.map((node) => [node.id, node]));
-  // Within a body's reach of a link the agents walk, from one node to the next.
-  const onRoute = (point: { x: number; z: number }) =>
-    layout.waypoints.some((node) =>
-      node.links.some((id) => {
-        const other = byId.get(id) ?? node;
-        return distanceToSegment(point, node, other) < PROP_CLEARANCE + OCCUPANT_RADIUS;
-      }),
-    );
 
   layout.rooms.forEach((room, index) => {
-    const free: { x: number; z: number; yaw: number }[] = [];
     for (let step = 0; step < CORNERS.length; step += 1) {
       const corner = CORNERS[(index + step) % CORNERS.length];
       if (corner === undefined) {
@@ -347,14 +322,16 @@ function plantProps(layout: OfficeLayout): AssetPropSpec[] {
       if (boxes.some((box) => nearBox(box, { x, z }, PROP_CLEARANCE)) || roomAt(layout, { x, z })?.id !== room.id) {
         continue;
       }
-      // Turned to face the middle of the room it stands in.
-      free.push({ x, z, yaw: Math.atan2(-corner.x, -corner.z) });
-    }
-    // Out of the agents' way if any corner is; a room whose every corner is
-    // on a route still gets its plant.
-    const spot = free.find((candidate) => !onRoute(candidate)) ?? free[0];
-    if (spot !== undefined) {
-      props.push({ id: `prop-plant-${room.id}`, kind: "plant", x: spot.x, y: 0, z: spot.z, yaw: spot.yaw });
+      props.push({
+        id: `prop-plant-${room.id}`,
+        kind: "plant",
+        x,
+        y: 0,
+        z,
+        // Turned to face the middle of the room it stands in.
+        yaw: Math.atan2(-corner.x, -corner.z),
+      });
+      return;
     }
   });
 

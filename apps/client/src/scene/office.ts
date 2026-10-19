@@ -9,7 +9,7 @@
  * furniture is not: `props.ts` draws that from the asset kit, and the grey desk
  * boxes this file makes are the fallback it replaces. See {@link OfficeView}.
  *
- * The street wall is glazed — a sill, glass and a header, so the street shows
+ * The outer walls are glazed — a sill, glass and a header, so the outside shows
  * through — and the pavement's railings are rails on posts; both still block
  * exactly the footprint the layout gives them, so seeing through a wall never
  * means walking through it.

@@ -481,7 +481,7 @@ function wall(id: string, minX: number, minZ: number, maxX: number, maxZ: number
   return { id, footprint: rect(minX, minZ, maxX, maxZ), height: WALL_HEIGHT };
 }
 
-/** A shell wall glazed onto the street. */
+/** A shell wall glazed onto the outside. */
 function windowWall(id: string, minX: number, minZ: number, maxX: number, maxZ: number): WallSpec {
   return { ...wall(id, minX, minZ, maxX, maxZ), style: "window" };
 }
@@ -558,9 +558,10 @@ const DESK_ROW_XS = [-9.8, -7.4, -5, -2.6, -0.2, 2.2] as const;
  * - The east side, on the street, is the conference room, a long table seated
  *   down both sides and a sideboard along its south wall, with the kitchen
  *   south of it; each opens west onto the open floor.
- * - The shell's east wall is glass from end to end bar the main entrance. The
- *   pavement runs the length of the building between the glass and a railing
- *   along the kerb; past the kerb is the {@link StreetSpec | street}, which is
+ * - The shell's east wall is glass from end to end bar the main entrance, and
+ *   its west wall all but behind the issues sticker board; north and south it
+ *   backs onto the neighbouring buildings. The pavement runs the length of
+ *   the building between the street glass and a railing along the kerb; past the kerb is the {@link StreetSpec | street}, which is
  *   scenery. A ceiling covers the whole floor at the walls' height.
  *
  * Every interior doorway is 1.4m clear, which is twice an occupant's diameter: wide
@@ -575,7 +576,9 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     // Shell.
     wall("wall-north", -12, -12, 12, -11.7),
     wall("wall-south", -12, 11.7, 12, 12),
-    wall("wall-west", -12, -12, -11.7, 12),
+    // The back, glazed but for the stretch the issues sticker board hangs on.
+    wall("wall-west-north", -12, -12, -11.7, -7.9),
+    windowWall("wall-west-south", -12, -7.9, -11.7, 12),
     // The street front, glazed either side of the main entrance into the lobby.
     windowWall("wall-east-north", 11.7, -12, 12, 8.35),
     windowWall("wall-east-south", 11.7, 10.15, 12, 12),
