@@ -191,6 +191,8 @@ interface Slot {
   readonly id: string;
   /** Its agent's name, title and description, as the sync reports them. */
   profile: AgentProfile;
+  /** The CEO edited its profile, so it is kept rather than following the default. */
+  edited: boolean;
   status: RunnerSlotStatus;
   issueNumber: number | undefined;
   activity: string;
@@ -258,12 +260,14 @@ export class SlotPool {
     const kept = options.profiles?.load() ?? new Map<string, AgentProfile>();
     this.slots = Array.from({ length: options.count }, (_, index) => {
       const id = `slot-${index + 1}`;
-      const profile = kept.get(id) ?? defaultAgentProfile(options.runnerId ?? "runner", index);
+      const edited = kept.get(id);
+      const profile = edited ?? defaultAgentProfile(options.runnerId ?? "runner", index);
       const screen = new ScreenMirror(now);
       screen.write(`\u001b[2m${profile.name} is waiting for work.\u001b[0m\r\n`);
       return {
         id,
         profile: { ...profile, name: fitBytes(profile.name, MAX_NAME_LENGTH) },
+        edited: edited !== undefined,
         status: RUNNER_SLOT_STATUS.idle,
         issueNumber: undefined,
         activity: "",
@@ -476,7 +480,8 @@ export class SlotPool {
    */
   private setProfile(slot: Slot, command: ProfileCommand): void {
     slot.profile = { name: fitBytes(command.name, MAX_NAME_LENGTH), title: command.title, description: command.description };
-    this.options.profiles?.save(new Map(this.slots.map((each) => [each.id, each.profile])));
+    slot.edited = true;
+    this.options.profiles?.save(new Map(this.slots.filter((each) => each.edited).map((each) => [each.id, each.profile])));
     const busy = slot.run !== undefined || slot.standing !== undefined;
     this.log(
       `${slot.id} is now ${slot.profile.name}, ${slot.profile.title}, as ${command.requestedBy || "the CEO"} asked` +

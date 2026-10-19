@@ -1412,19 +1412,15 @@ describe("SlotPool profiles", () => {
     expect(slot(slots, "slot-2")).toMatchObject(EDITED);
   });
 
-  it("takes the CEO's edit: reports it, keeps every slot's profile, and gives it to the next run as its system prompt", async () => {
+  it("takes the CEO's edit: reports it, keeps only the edited profile, and gives it to the next run as its system prompt", async () => {
     const { agent, tasks } = spyAgent();
     const { profiles, saved } = memoryProfiles();
     const lines: string[] = [];
     const slots = profiledPool(agent, profiles, (line) => lines.push(line));
     slots.handle(profileCommand());
     expect(slot(slots)).toMatchObject(EDITED);
-    expect(saved).toEqual([
-      new Map([
-        ["slot-1", EDITED],
-        ["slot-2", defaultAgentProfile("runner-7", 1)],
-      ]),
-    ]);
+    expect(slot(slots, "slot-2")).toMatchObject(defaultAgentProfile("runner-7", 1));
+    expect(saved).toEqual([new Map([["slot-1", EDITED]])]);
     expect(lines).toEqual(["slot-1 is now Grace, Release Engineer, as Dana asked"]);
 
     slots.handle(START);
@@ -1432,6 +1428,19 @@ describe("SlotPool profiles", () => {
     expect(tasks[0]?.systemPrompt).toBe(systemPrompt(EDITED));
     expect(tasks[0]?.systemPrompt).toContain("your title is Release Engineer");
     expect(tasks[0]?.systemPrompt).toContain("Keeps the release branch green.\nNever skips the changelog.");
+  });
+
+  it("keeps a profile kept before alongside a new edit", () => {
+    const { agent } = spyAgent();
+    const before: AgentProfile = { name: "Linus", title: "Kernel Hacker", description: "Reviews patches." };
+    const { profiles, saved } = memoryProfiles(new Map([["slot-2", before]]));
+    profiledPool(agent, profiles).handle(profileCommand());
+    expect(saved).toEqual([
+      new Map([
+        ["slot-1", EDITED],
+        ["slot-2", before],
+      ]),
+    ]);
   });
 
   it("leaves the session an agent is in alone: an edit applies from its next one", async () => {

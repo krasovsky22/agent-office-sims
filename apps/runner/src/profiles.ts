@@ -29,7 +29,7 @@ export interface ProfileStoreOptions {
 export interface AgentProfiles {
   /** Every profile kept, by slot id. */
   load(): ReadonlyMap<string, AgentProfile>;
-  /** Keeps every slot's profile, replacing what was kept. */
+  /** Keeps the profiles the CEO edited, by slot id, replacing what was kept. */
   save(profiles: ReadonlyMap<string, AgentProfile>): void;
 }
 
