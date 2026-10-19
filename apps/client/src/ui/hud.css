@@ -357,6 +357,30 @@
   color: #eef0f4;
 }
 
+/* The camera switch: the one control in the status panel, so the only part of
+   it that takes the pointer; the rest lets a drag through to the office. */
+.hud__camera {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hud__cameraToggle {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(40, 40, 48, 0.8);
+  color: #eef0f4;
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.hud__cameraToggle:hover {
+  background: rgba(58, 58, 68, 0.9);
+}
+
 /* The chat scrollback.
 
    Three rules here exist to keep another player's message from reshaping the

@@ -56,6 +56,7 @@ import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
 import type { IssueMove } from "../projectBoard.js";
 import { type StandingAccess, type StandingTaskData, standingRow } from "../standingAccess.js";
 import type { ConnectionStatus } from "../net/room.js";
+import { CAMERA_MODE, type CameraMode } from "../player/cameraMode.js";
 import type { StandupAccess } from "../standupAccess.js";
 import { type AgentProfileActions, AgentProfileCard, type AgentProfileNotice } from "./AgentProfileCard.js";
 import { type AgentPromptRefusal, type AgentTerminalActions, AgentTerminalPanel } from "./AgentTerminalPanel.js";
@@ -218,6 +219,8 @@ export interface HudSnapshot {
   readonly agentProfileAccess?: AgentProfileAccess | undefined;
   /** Why the local player's latest edit to an agent's profile was not passed on, if one was not. */
   readonly agentProfileNotice?: AgentProfileNotice | undefined;
+  /** Which camera the local player is looking through. */
+  readonly cameraMode: CameraMode;
 }
 
 /** What the standing tasks' buttons do; the server decides whether it happens. */
@@ -229,6 +232,8 @@ export interface HudActions {
   readonly sendEmote: (emote: Emote) => void;
   /** Called with the raw input text; the server sanitizes it. */
   readonly sendChat: (text: string) => void;
+  /** Switches between first and third person, as `V` does. */
+  readonly toggleCamera: () => void;
   readonly projectBoard: ProjectBoardActions;
   readonly manager: ManagerPanelActions;
   readonly terminal: AgentTerminalActions;
@@ -260,6 +265,7 @@ const INITIAL: HudSnapshot = {
   managerUnread: 0,
   standingTasks: [],
   standup: NO_STANDUP,
+  cameraMode: CAMERA_MODE.thirdPerson,
 };
 
 export function createHudStore(): HudStore {
@@ -790,6 +796,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     standupNotice,
     agentProfileAccess,
     agentProfileNotice,
+    cameraMode,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
@@ -831,6 +838,23 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
             <span className="hud__keys">W A S D</span> to walk,{" "}
             <span className="hud__keys">E</span> to use what you are standing by, drag to look
             around, <span className="hud__keys">Enter</span> to chat.
+          </p>
+          <p className="hud__hint hud__camera">
+            <button
+              type="button"
+              className="hud__cameraToggle"
+              onClick={(event) => {
+                // Back to the office, so the next Space or Enter is not another click.
+                event.currentTarget.blur();
+                actions.toggleCamera();
+              }}
+            >
+              {cameraMode === CAMERA_MODE.firstPerson ? "Third person" : "First person"}
+            </button>
+            <span>
+              <span className="hud__keys">V</span> to switch
+              {cameraMode === CAMERA_MODE.thirdPerson ? ", scroll to zoom" : ""}
+            </span>
           </p>
           {debug === undefined ? null : (
             <p className="hud__hint">

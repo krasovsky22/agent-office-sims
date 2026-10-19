@@ -37,6 +37,11 @@
  *
  * The AI manager has a crimson shell, its title under its name, and a badge
  * over its head saying whether it is ready or thinking.
+ *
+ * The local player's own body is also what a first-person camera sees of it:
+ * everything but the arms is hidden, and the arms are raised into the bottom
+ * of the view, so the player sees their own hands walk, type and carry a cup,
+ * played by the same clips everyone else sees.
  */
 
 import {
@@ -142,6 +147,38 @@ const CAPSULE_SEATED_HEAD_DROP =
  * file; the loader strips the dot from bone names.
  */
 const HAND_BONE = "Palm2R";
+
+/** The rig's head bone, which a first-person camera sits just above. */
+const HEAD_BONE = "Head";
+
+/** From the head bone up to the middle of the robot's visor, where it sees from. */
+const EYE_ABOVE_HEAD_BONE = 0.28;
+
+/** Where a body without a head bone sees from: a little under its crown. */
+const CAPSULE_EYE_BELOW_CROWN = 0.25;
+
+/**
+ * Bones whose meshes stay drawn in first person: both arms from the shoulder
+ * down, and the skinned hands. A fact about this asset, like {@link HAND_BONE};
+ * a part is kept when it, or a bone it hangs from, is named with one of these.
+ */
+const FIRST_PERSON_PARTS = /^(Shoulder|UpperArm|LowerArm|Palm|Hand)/;
+
+/**
+ * How the arms are raised in first person, in radians: the upper arm swung
+ * forward about its local Z (mirrored on the left) and the elbow bent about
+ * its local X, both measured on the rig. Together they bring the hands up to
+ * about chest height, in front, which is where the bottom of the view is.
+ */
+const FIRST_PERSON_ARMS: readonly { readonly bone: string; readonly axis: THREE.Vector3; readonly angle: number }[] = [
+  { bone: "UpperArmR", axis: new THREE.Vector3(0, 0, 1), angle: 0.7 },
+  { bone: "UpperArmL", axis: new THREE.Vector3(0, 0, -1), angle: 0.7 },
+  { bone: "LowerArmR", axis: new THREE.Vector3(1, 0, 0), angle: 1 },
+  { bone: "LowerArmL", axis: new THREE.Vector3(1, 0, 0), angle: 1 },
+];
+
+/** Fraction of the gap the raised arms close per second, so sitting down lowers them rather than dropping them. */
+const ARM_RAISE_RATE = 8;
 
 /** Fraction of the remaining gap the head anchor closes per second. */
 const HEAD_ANCHOR_EASE_RATE = 8;
@@ -275,6 +312,14 @@ export interface AvatarOptions {
   readonly model: AvatarModel | undefined;
 }
 
+/** An arm bone a first-person view raises, and the turn the clips last gave it. */
+interface RaisedArm {
+  readonly bone: THREE.Object3D;
+  readonly clip: THREE.Quaternion;
+  readonly axis: THREE.Vector3;
+  readonly angle: number;
+}
+
 /** A body, however it happens to be drawn. */
 interface AvatarBody {
   readonly root: THREE.Object3D;
@@ -290,6 +335,8 @@ interface AvatarBody {
   readonly seatedHeadDrop: number;
   /** The bone a carried cup sits in; absent on the capsule, which has no hands. */
   readonly hand: THREE.Object3D | undefined;
+  /** The bone a first-person camera sits above; absent on the capsule. */
+  readonly head: THREE.Object3D | undefined;
   dispose: () => void;
 }
 
@@ -385,6 +432,7 @@ function createHumanoidBody(
     isHumanoid: true,
     seatedHeadDrop: instance.seatedHeadDrop,
     hand: instance.root.getObjectByName(HAND_BONE),
+    head: instance.root.getObjectByName(HEAD_BONE),
     dispose: () => {
       animator.dispose();
       instance.dispose();
@@ -425,6 +473,7 @@ function createCapsuleBody(look: AvatarLook): AvatarBody {
     isHumanoid: false,
     seatedHeadDrop: CAPSULE_SEATED_HEAD_DROP,
     hand: undefined,
+    head: undefined,
     dispose: () => {
       root.removeFromParent();
       material.dispose();
@@ -449,6 +498,11 @@ export class Avatar {
   private readonly coffee = new CoffeeCup();
   /** Kept across a change of body, so a body swapped in while hidden stays hidden. */
   private bodyHidden = false;
+  private firstPerson = false;
+  /** How far the arms are raised for first person this frame, 0 down to 1 up. */
+  private armRaise = 0;
+  /** Each raised arm bone and the turn the clips gave it, put back before the clips run again. */
+  private raisedArms: readonly RaisedArm[] = [];
   private readonly nameplate: THREE.Sprite;
   private readonly nameplateCanvas = document.createElement("canvas");
   private readonly nameplateTexture: THREE.CanvasTexture;
@@ -526,6 +580,7 @@ export class Avatar {
         ? createHumanoidBody(options.model, this.look, this.animation)
         : createCapsuleBody(this.look);
     this.group.add(this.body.root);
+    this.raisedArms = armsOf(this.body);
 
     this.group.add(this.coffee.group);
 
@@ -663,9 +718,48 @@ export class Avatar {
 
     const animator = this.body.animator;
     if (animator !== undefined) {
+      // Back to the clips' own turn first: a channel the mixer leaves alone
+      // this frame would otherwise be raised again on top of last frame's.
+      for (const arm of this.raisedArms) {
+        arm.bone.quaternion.copy(arm.clip);
+      }
       animator.setSpeed(this.speed);
       animator.update(deltaSeconds);
+      this.raiseArms(deltaSeconds);
     }
+  }
+
+  /**
+   * Draws the body as its owner sees it through a first-person camera: only
+   * the arms, raised into view while standing, and nothing over the head,
+   * which is where the camera is.
+   */
+  public setFirstPerson(firstPerson: boolean): void {
+    if (firstPerson === this.firstPerson) {
+      return;
+    }
+    this.firstPerson = firstPerson;
+    this.headAnchor.visible = !firstPerson;
+    this.applyFirstPersonParts();
+  }
+
+  /**
+   * Where the body sees from this frame, in world space: in the visor, so it
+   * follows the head down into a chair and bobs with the walk.
+   */
+  public eyePosition(target: THREE.Vector3): THREE.Vector3 {
+    const head = this.body.head;
+    if (head === undefined) {
+      return target.set(
+        this.group.position.x,
+        this.headAnchor.position.y - CAPSULE_EYE_BELOW_CROWN,
+        this.group.position.z,
+      );
+    }
+    this.group.updateMatrixWorld(true);
+    head.getWorldPosition(target);
+    target.y += EYE_ABOVE_HEAD_BONE;
+    return target;
   }
 
   /**
@@ -685,6 +779,8 @@ export class Avatar {
     this.body = next;
     this.body.root.visible = !this.bodyHidden;
     this.group.add(this.body.root);
+    this.raisedArms = armsOf(this.body);
+    this.applyFirstPersonParts();
   }
 
   /**
@@ -814,6 +910,43 @@ export class Avatar {
     this.body.root.position.y = seated ? CAPSULE_SEATED_LIFT : 0;
   }
 
+  /**
+   * Shows every part of the body, or in first person only the arms; a capsule
+   * has none, so it goes entirely.
+   *
+   * A skinned hand is culled against the bounds it had the first time it was
+   * drawn, which were usually with the arms hanging down: raised, the hands
+   * leave those bounds and vanish whenever the camera is as close as the eyes.
+   * In first person they are in view anyway, so they are never culled, and
+   * their bounds are worked out again on the way back.
+   */
+  private applyFirstPersonParts(): void {
+    const root = this.body.root;
+    root.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        node.visible = !this.firstPerson || isFirstPersonPart(node, root);
+      }
+      if (node instanceof THREE.SkinnedMesh) {
+        node.frustumCulled = !this.firstPerson;
+        if (!this.firstPerson) {
+          node.computeBoundingSphere();
+        }
+      }
+    });
+  }
+
+  /** Lifts the arms on top of whatever the clips posed them in, eased in and out. */
+  private raiseArms(deltaSeconds: number): void {
+    const target = this.firstPerson && !isSeated(this.animation) ? 1 : 0;
+    this.armRaise += (target - this.armRaise) * (1 - Math.exp(-ARM_RAISE_RATE * Math.max(deltaSeconds, 0)));
+    for (const arm of this.raisedArms) {
+      arm.clip.copy(arm.bone.quaternion);
+      if (this.armRaise > 0.001) {
+        arm.bone.quaternion.multiply(RAISE.setFromAxisAngle(arm.axis, arm.angle * this.armRaise));
+      }
+    }
+  }
+
   /** Keeps the lettering one size: a taller canvas makes a taller sprite. */
   private applyNameplateScale(): void {
     const unit = NAMEPLATE_HEIGHT / NAMEPLATE_CANVAS_HEIGHT;
@@ -823,6 +956,30 @@ export class Avatar {
       1,
     );
   }
+}
+
+/** Scratch for one arm's lift, so raising the arms allocates nothing per frame. */
+const RAISE = new THREE.Quaternion();
+
+/** The arm bones a first-person view raises, on a body that has them. */
+function armsOf(body: AvatarBody): RaisedArm[] {
+  if (!body.isHumanoid) {
+    return [];
+  }
+  return FIRST_PERSON_ARMS.flatMap(({ bone: name, axis, angle }) => {
+    const bone = body.root.getObjectByName(name);
+    return bone === undefined ? [] : [{ bone, clip: bone.quaternion.clone(), axis, angle }];
+  });
+}
+
+/** Whether a mesh is part of an arm: it, or a bone it hangs from below `root`, is named as one. */
+function isFirstPersonPart(mesh: THREE.Object3D, root: THREE.Object3D): boolean {
+  for (let node: THREE.Object3D | null = mesh; node !== null && node !== root; node = node.parent) {
+    if (FIRST_PERSON_PARTS.test(node.name)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Whether a state has the occupant off their feet. */
