@@ -29,6 +29,7 @@ import {
   type WorkData,
   type WorkMove,
   type WorkStatus,
+  openBoardIssue,
 } from "@sim/shared";
 
 export type BoardColumnKey = "open" | "inProgress" | "closed" | "pullRequests";
@@ -385,6 +386,22 @@ export function boardDrop(from: BoardColumnKey, to: BoardColumnKey, context: Boa
 export interface IssueMove {
   readonly issueNumber: number;
   readonly state: IssueState;
+}
+
+/**
+ * Whether a snapshot has caught up with a move GitHub took at `settledAt`:
+ * it shows the issue where it was dropped, or it is a fresh fetch started
+ * after the change, and so GitHub's word on where the issue is.
+ *
+ * A snapshot from a poll that began before the change, or a stale one
+ * repeating old lists, would put the card back where it came from.
+ */
+export function hasIssueMoveLanded(snapshot: ProjectBoardSnapshot, move: IssueMove, settledAt: number): boolean {
+  const shown =
+    move.state === ISSUE_STATE.closed
+      ? snapshot.closed.some((issue) => issue.number === move.issueNumber)
+      : openBoardIssue(snapshot, move.issueNumber) !== undefined;
+  return shown || (!snapshot.stale && snapshot.updatedAt !== null && snapshot.updatedAt > settledAt);
 }
 
 /**
