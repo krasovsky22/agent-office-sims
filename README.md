@@ -1654,6 +1654,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/skyline.ts    the buildings round the street, generated from a seed, and the office's own above it
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
+  src/scene/doors.ts     the doors in every doorway, swinging open for whoever comes near; decor, never collided with
   src/scene/wallDecor.ts  the wall decor from shared decor.ts, hung as instanced boxes, the clocks kept to the office's time
   src/scene/wallArt.ts    the decor's artwork, painted on canvases: pictures, posters, clock faces, whiteboards, the TV's slide
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
