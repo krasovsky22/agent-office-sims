@@ -19,6 +19,7 @@ import {
   readConfig,
   readManagerConfig,
   readPort,
+  readDataDir,
   readProjectBoardConfig,
   readRunnerConfig,
 } from "./config.js";
@@ -207,6 +208,18 @@ describe("readLiveAgentsConfig", () => {
     expect(() => readLiveAgentsConfig({ LIVE_AGENTS_TIMEOUT_SECONDS: value })).toThrow(
       /LIVE_AGENTS_TIMEOUT_SECONDS/,
     );
+  });
+});
+
+describe("readDataDir", () => {
+  it("defaults to the server package's own .data", () => {
+    expect(readDataDir({})).toMatch(/[/\\]apps[/\\]server[/\\]\.data$/);
+    expect(readDataDir({ SERVER_DATA_DIR: "  " })).toBe(readDataDir({}));
+  });
+
+  it("reads an absolute path and refuses a relative one", () => {
+    expect(readDataDir({ SERVER_DATA_DIR: " /var/lib/office " })).toBe("/var/lib/office");
+    expect(() => readDataDir({ SERVER_DATA_DIR: "data" })).toThrow(/SERVER_DATA_DIR/);
   });
 });
 
