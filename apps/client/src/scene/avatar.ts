@@ -619,6 +619,9 @@ export class Avatar {
    */
   public setCoffee(sips: number, atMachine: boolean, nowMs: number): void {
     this.coffee.update(sips, atMachine, nowMs, this.body.hand, HEAD_ANCHOR_Y - this.headAnchor.position.y);
+    if (this.bodyHidden) {
+      this.coffee.group.visible = false;
+    }
   }
 
   /** Advances the animation and whatever follows the pose. */
@@ -674,7 +677,7 @@ export class Avatar {
   }
 
   /**
-   * Hides the body, and only the body: what floats over its head still shows.
+   * Hides the body and the cup in its hand: what floats over its head still shows.
    * For a seated agent the camera has leaned in over, which is where its head is.
    */
   public setBodyHidden(hidden: boolean): void {
