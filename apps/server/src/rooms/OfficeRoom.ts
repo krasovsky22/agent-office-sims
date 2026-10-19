@@ -612,6 +612,7 @@ export class OfficeRoom extends Room<OfficeState> {
     this.stopWatchingLiveAgents?.();
     this.runnerEvents?.close();
     this.stopRelayingScreens?.();
+    this.deskTerminal.dispose();
     // A room closing mid-standup must not leave the runners' agents paused.
     this.runnerStandup?.holdForStandup(this.roomId, false);
   }

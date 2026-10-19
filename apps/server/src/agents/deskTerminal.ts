@@ -16,8 +16,10 @@
  *
  * It is declarative, as the work's reconciliation is (`./runnerWork.ts`): each
  * step compares where the CEO sits with what the runners report, and sends
- * only what closes the gap. A slot reporting a desk this room has no session
- * for, as after the room was closed and opened again, is closed too.
+ * only what closes the gap. A slot reporting a desk no room has lent it to,
+ * as after the room was closed and opened again, is closed too. Every room's
+ * terminal shares the one runner link, so which slot is lent to which desk is
+ * kept per link, not per room: no room lends, or closes, another's slot.
  *
  * Only the CEO is ever lent a slot, since what its agent runs, it runs on the
  * runner's host: the rule is `deskTerminalRefusal`, the prompt gate. Anyone
@@ -103,6 +105,13 @@ interface Sitting {
   readonly ownerName: string;
 }
 
+/** Every slot lent to a desk, by `runner:slot`, to its seat, per runner link, across rooms. */
+const lentByRunner = new WeakMap<DeskRunner, Map<string, string>>();
+
+function slotKey(slot: RunnerSlotRef): string {
+  return `${slot.runnerId}:${slot.slotId}`;
+}
+
 function sameSlot(a: RunnerSlotRef, b: RunnerSlotRef): boolean {
   return a.runnerId === b.runnerId && a.slotId === b.slotId;
 }
@@ -113,6 +122,13 @@ export class DeskTerminal {
   private readonly closing = new Set<string>();
 
   public constructor(private readonly options: DeskTerminalOptions) {}
+
+  /** Gives the session's slot back, as the room closes. */
+  public dispose(): void {
+    if (this.session !== undefined) {
+      this.close(this.session, "the room closed");
+    }
+  }
 
   /**
    * One step: closes the session if the CEO has left the desk, lends one if
@@ -149,7 +165,7 @@ export class DeskTerminal {
       if (session === undefined || lent === undefined || !sameSlot(lent, { runnerId, slotId: event.slotId }) || event.seatId !== session.seatId) {
         continue;
       }
-      session.lent = undefined;
+      this.lend(session, undefined);
       session.ended = event.message === "" ? DESK_SESSION_GONE : event.message;
       this.options.log?.("desk-terminal-ended", { seat: session.seatId, agent: event.slotId, why: session.ended });
     }
@@ -185,15 +201,16 @@ export class DeskTerminal {
       }
       if (slot !== undefined) {
         // It said nothing of why; its event, if one comes, is no longer news.
-        session.lent = undefined;
+        this.lend(session, undefined);
         session.ended = DESK_SESSION_GONE;
         return;
       }
       // Its runner went silent, and took the slot with it: lend another.
-      session.lent = undefined;
+      this.lend(session, undefined);
       session.opened = false;
     }
-    const free = slots.find((slot) => slot.free && !this.hasWork(slot));
+    const lentSlots = this.lentSlots();
+    const free = slots.find((slot) => slot.free && lentSlots?.has(slotKey(slot)) !== true && !this.hasWork(slot));
     if (free === undefined) {
       return;
     }
@@ -206,8 +223,34 @@ export class DeskTerminal {
     if (command === undefined) {
       return;
     }
-    session.lent = { runnerId: free.runnerId, slotId: free.slotId };
+    this.lend(session, { runnerId: free.runnerId, slotId: free.slotId });
     this.options.log?.("desk-terminal-lent", { seat: session.seatId, agent: free.slotId, by: session.ownerName });
+  }
+
+  /** The slots lent to a desk by any room on this runner link. */
+  private lentSlots(): Map<string, string> | undefined {
+    const runner = this.options.runner;
+    if (runner === undefined) {
+      return undefined;
+    }
+    let lent = lentByRunner.get(runner);
+    if (lent === undefined) {
+      lent = new Map();
+      lentByRunner.set(runner, lent);
+    }
+    return lent;
+  }
+
+  /** Lends the session a slot, or takes it back, in the session and in the link-wide record. */
+  private lend(session: Session, slot: RunnerSlotRef | undefined): void {
+    const lentSlots = this.lentSlots();
+    if (session.lent !== undefined) {
+      lentSlots?.delete(slotKey(session.lent));
+    }
+    session.lent = slot;
+    if (slot !== undefined) {
+      lentSlots?.set(slotKey(slot), session.seatId);
+    }
   }
 
   /** Whether the office has work for the slot's agent that it has not started on yet, so it is not free after all. */
@@ -225,8 +268,10 @@ export class DeskTerminal {
   private close(session: Session, reason: string): void {
     this.session = undefined;
     this.options.log?.("desk-terminal-closed", { seat: session.seatId, by: session.ownerName, why: reason });
-    if (session.lent !== undefined) {
-      this.sendClose(session.lent, session.seatId, reason);
+    const lent = session.lent;
+    if (lent !== undefined) {
+      this.lend(session, undefined);
+      this.sendClose(lent, session.seatId, reason);
     }
   }
 
@@ -235,8 +280,9 @@ export class DeskTerminal {
     this.options.runner?.enqueue(slot.runnerId, { kind: RUNNER_COMMAND_KIND.deskClose, slotId: slot.slotId, seatId, reason });
   }
 
-  /** Closes, once each, every slot reporting a desk that is not this session's. */
+  /** Closes, once each, every slot reporting a desk no room has lent it to. */
   private closeStrays(slots: readonly RunnerDeskSlot[]): void {
+    const lentSlots = this.lentSlots();
     const reporting = new Set<string>();
     for (const slot of slots) {
       if (slot.seatId === undefined) {
@@ -244,8 +290,7 @@ export class DeskTerminal {
       }
       const key = `${slot.runnerId}:${slot.slotId}@${slot.seatId}`;
       reporting.add(key);
-      const lent = this.session?.lent;
-      if ((lent !== undefined && sameSlot(lent, slot) && slot.seatId === this.session?.seatId) || this.closing.has(key)) {
+      if (lentSlots?.get(slotKey(slot)) === slot.seatId || this.closing.has(key)) {
         continue;
       }
       this.sendClose(slot, slot.seatId, "nobody sits at that desk");

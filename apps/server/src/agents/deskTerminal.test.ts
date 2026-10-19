@@ -198,4 +198,39 @@ describe("DeskTerminal", () => {
     desk.step();
     expect(sync([stray])).toEqual([{ id: "command-1", slotId: "slot-1", kind: "desk-close", seatId: SEAT, reason: "nobody sits at that desk" }]);
   });
+
+  it("neither closes nor lends again a slot another room on the same link lent, until that room closes", () => {
+    const { link, state, ceo, desk, sync, ack } = setup();
+    const otherState = new OfficeState();
+    const otherCeo = new HumanPlayer();
+    otherCeo.id = "session-other-ceo";
+    otherCeo.name = "Lee";
+    otherCeo.role = PLAYER_ROLE.ceo;
+    otherState.occupants.set(otherCeo.id, otherCeo);
+    const other = new DeskTerminal({ state: otherState, layout: OFFICE_LAYOUT, runner: link });
+    const OTHER_SEAT = "seat-desk-north-2-1";
+    sync([IDLE, { ...IDLE, id: "slot-2", name: "Claude 2" }]);
+    ceo.interactableId = SEAT;
+    otherCeo.interactableId = OTHER_SEAT;
+    desk.step();
+    other.step();
+    expect(sync([IDLE, { ...IDLE, id: "slot-2", name: "Claude 2" }])).toMatchObject([
+      { kind: "desk-open", slotId: "slot-1", seatId: SEAT },
+      { kind: "desk-open", slotId: "slot-2", seatId: OTHER_SEAT },
+    ]);
+
+    const both: RunnerSlotReport[] = [
+      { ...IDLE, desk: { seatId: SEAT } },
+      { ...IDLE, id: "slot-2", name: "Claude 2", desk: { seatId: OTHER_SEAT } },
+    ];
+    ack(both);
+    desk.step();
+    other.step();
+    expect(sync(both)).toEqual([]);
+    expect(state.desk.phase).toBe(DESK_TERMINAL_PHASE.open);
+    expect(otherState.desk.phase).toBe(DESK_TERMINAL_PHASE.open);
+
+    other.dispose();
+    expect(sync(both)).toEqual([{ id: "command-3", slotId: "slot-2", kind: "desk-close", seatId: OTHER_SEAT, reason: "the room closed" }]);
+  });
 });
