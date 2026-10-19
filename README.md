@@ -17,7 +17,7 @@ and a coffee table, a conference room with a long table seated down both sides,
 and a kitchen. A main entrance from the pavement opens into the building's
 lobby, with a reception desk facing it, lifts down the hall (placeholders,
 nobody rides them) and, to the left of the lifts, the door into the office. Glass
-runs along the whole street side, through which cars and yellow cabs drive both
+runs along the back wall and the whole street side, through which cars and yellow cabs drive both
 ways past brick walk-ups and glass towers, stopping at the lights by the
 crossing outside the door, and from the street the office's own building rises
 above it. It is furnished now,

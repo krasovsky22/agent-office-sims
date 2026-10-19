@@ -561,8 +561,9 @@ const DESK_ROW_XS = [-9.8, -7.4, -5, -2.6, -0.2, 2.2] as const;
  * - The shell's east wall is glass from end to end bar the main entrance, and
  *   its west wall all but behind the issues sticker board; north and south it
  *   backs onto the neighbouring buildings. The pavement runs the length of
- *   the building between the street glass and a railing along the kerb; past the kerb is the {@link StreetSpec | street}, which is
- *   scenery. A ceiling covers the whole floor at the walls' height.
+ *   the building between the street glass and a railing along the kerb; past
+ *   the kerb is the {@link StreetSpec | street}, which is scenery. A ceiling
+ *   covers the whole floor at the walls' height.
  *
  * Every interior doorway is 1.4m clear, which is twice an occupant's diameter: wide
  * enough that two people pass, narrow enough to read as a door. Walls are
