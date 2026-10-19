@@ -109,6 +109,14 @@ export class ScreenMirror {
     this.write("\u001bc");
   }
 
+  /** Gives the terminal a new size, as the agent's own is given; the next frame is a whole screen. */
+  public resize(cols: number, rows: number): void {
+    if (cols !== this.term.cols || rows !== this.term.rows) {
+      this.term.resize(cols, rows);
+      this.sendWhole();
+    }
+  }
+
   /** Makes the next frame a whole screen. */
   public sendWhole(): void {
     this.lastLines = [];

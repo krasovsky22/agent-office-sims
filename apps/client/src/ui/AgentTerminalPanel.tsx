@@ -59,7 +59,7 @@ import type { DeskPanelView } from "../deskTerminalAccess.js";
 import { KEYBOARD_OWNER_ATTRIBUTE, isTypingTarget } from "../keys.js";
 import type { TerminalScreen } from "../net/screens.js";
 import { SCREEN_PLACEHOLDER, paintScreen } from "../scene/agentScreen.js";
-import { TERMINAL_FONT_PX, type TerminalScroll, paintTerminal, scrollTerminal, wheelRows } from "../terminalView.js";
+import { TERMINAL_FONT_PX, type TerminalScroll, paintTerminal, scrollTerminal, terminalCells, wheelRows } from "../terminalView.js";
 import type { RosterEntry } from "./Hud.js";
 
 export interface AgentTerminalActions {
@@ -72,6 +72,8 @@ export interface AgentTerminalActions {
   readonly prompt: (agentId: string, text: string) => boolean;
   /** Asks for a key to be pressed on the choice screen the agent waits on; says whether it went out at all. */
   readonly key: (agentId: string, key: AgentKey) => boolean;
+  /** Says how many cells the desk's computer has room for, so its session's terminal is sized to fill it. */
+  readonly resizeDesk: (cols: number, rows: number) => void;
   /** Closes the panel; the caller unmounts it. */
   readonly close: () => void;
 }
@@ -296,11 +298,55 @@ export function KeyPad({ name, press }: { readonly name: string; readonly press:
   );
 }
 
+/** How long the canvas's size holds still before the desk's terminal is sized to it, so a dragged window sends one size. */
+const DESK_RESIZE_SETTLE_MS = 200;
+
+/**
+ * Sizes the desk session's terminal to the canvas as the panel opens and
+ * whenever the canvas changes size, so the agent wraps its output to the
+ * width the CEO reads it at rather than the runner's own, and again for each
+ * agent lent to the desk, the server keeping only its sitting's. Only at the desk:
+ * an issue's agent keeps the runner's size, which every tab shares.
+ */
+function useDeskTerminalSize(
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  /** The desk's agent, `undefined` away from a desk; a newly lent one is told the size afresh. */
+  deskAgentId: string | undefined,
+  resizeDesk: AgentTerminalActions["resizeDesk"],
+): void {
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (deskAgentId === undefined || canvas === null) {
+      return;
+    }
+    let sent = "";
+    let timer = 0;
+    const send = () => {
+      const { cols, rows } = terminalCells(canvas.clientWidth, canvas.clientHeight);
+      if (`${cols}x${rows}` !== sent) {
+        sent = `${cols}x${rows}`;
+        resizeDesk(cols, rows);
+      }
+    };
+    const observer = new ResizeObserver(() => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(send, DESK_RESIZE_SETTLE_MS);
+    });
+    observer.observe(canvas);
+    send();
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timer);
+    };
+  }, [canvasRef, deskAgentId, resizeDesk]);
+}
+
 /** What the panel says of the local player's access at their own desk's computer. */
 const DESK_ACCESS = "You are the CEO: this desk's computer is a coding agent of your own while you sit here. What you send is typed into it once it waits at its prompt; it runs on the runner's machine, and standing up ends the session.";
 
 export function AgentTerminalPanel({ agentId, agent, links, prompts, access, localId, refusal, actions, desk }: AgentTerminalPanelProps) {
   const { canvasRef, onWheel } = useTerminalCanvas(agentId, actions.screenOf);
+  useDeskTerminalSize(canvasRef, desk?.agentId, actions.resizeDesk);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const logRef = useRef<HTMLOListElement>(null);
   const [draft, setDraft] = useState("");

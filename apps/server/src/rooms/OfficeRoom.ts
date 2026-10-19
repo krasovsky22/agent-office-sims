@@ -111,6 +111,7 @@ import {
   managerSeat,
   normalizeYaw,
   parseChatMessage,
+  parseDeskTerminalSizeMessage,
   parseEmoteMessage,
   parseInteractMessage,
   parseJoinOptions,
@@ -530,6 +531,14 @@ export class OfficeRoom extends Room<OfficeState> {
 
     this.onMessage(CLIENT_MESSAGE.release, (client) => {
       releaseHold(this.interaction, client.sessionId, this.clock.currentTime);
+    });
+
+    this.onMessage(CLIENT_MESSAGE.deskTerminalSize, (client, raw: unknown) => {
+      // Kept, not acted on: the tick's step sends a changed size at most once.
+      const size = parseDeskTerminalSizeMessage(raw);
+      if (size !== undefined) {
+        this.deskTerminal.resize(client.sessionId, size.cols, size.rows);
+      }
     });
 
     this.onMessage(CLIENT_MESSAGE.emote, (client, raw: unknown) => {

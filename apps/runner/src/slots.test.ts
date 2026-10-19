@@ -48,6 +48,7 @@ import type { HandInTask, TaskGithub } from "./github.js";
 import type { AgentProfiles } from "./profiles.js";
 import { createRedactor } from "./redact.js";
 import { NO_PULL_REQUEST, type SlotWorkspaces, SlotPool, TURN_DONE, fitBytes } from "./slots.js";
+import { SCREEN_COLS, SCREEN_ROWS } from "./terminal.js";
 
 const REPO = "krasovsky22/agent-office-sims";
 const STEP_MS = 100;
@@ -1704,6 +1705,40 @@ describe("SlotPool desk sessions", () => {
     // Nothing about an issue, and no work events.
     expect(slots.pendingEvents()).toEqual([]);
     expect(slots.freeForStanding()).toEqual(["slot-2"]);
+  });
+
+  it("sizes the session's terminal and its agent to the CEO's panel, from the start if asked first, and back once it closes", async () => {
+    const resized: string[] = [];
+    const mock = createMockAgent({ outcome: "pr-opened", stepMs: STEP_MS });
+    const agent: Agent = {
+      ...mock,
+      startSession: (session, reporter) => ({
+        ...mock.startSession!(session, reporter),
+        resize: (cols, rows) => resized.push(`${cols}x${rows}`),
+      }),
+    };
+    const slots = deskPool({ agent });
+    const resize = (cols: number, rows: number, seatId = "seat-desk-north-1-1"): RunnerSlotCommand => ({
+      id: `command-${cols}`,
+      slotId: "slot-1",
+      kind: "desk-resize",
+      seatId,
+      cols,
+      rows,
+    });
+    slots.handle(resize(90, 25));
+    slots.handle(OPEN);
+    slots.handle(resize(150, 40));
+    const term = slots.screens()[0]![1].term;
+    expect([term.cols, term.rows]).toEqual([150, 40]);
+    await settle();
+    expect(resized).toEqual(["150x40"]);
+    slots.handle(resize(120, 30));
+    slots.handle(resize(60, 20, "seat-desk-north-1-2"));
+    expect(resized).toEqual(["150x40", "120x30"]);
+    expect([term.cols, term.rows]).toEqual([120, 30]);
+    slots.handle(CLOSE);
+    expect([term.cols, term.rows]).toEqual([SCREEN_COLS, SCREEN_ROWS]);
   });
 
   it("types the CEO's prompt only while the session waits at its prompt, and reports each", async () => {

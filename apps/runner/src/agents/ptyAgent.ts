@@ -371,6 +371,11 @@ function startRun<P>(
         pressNext();
       }
     },
+    resize(cols, rows) {
+      if (!ended) {
+        proc.resize(cols, rows);
+      }
+    },
     stop() {
       if (ended) {
         return;

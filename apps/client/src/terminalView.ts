@@ -11,7 +11,14 @@
  * scrolled to the bottom, it follows the agent live.
  */
 
-import { SCREEN_DEFAULT_COLOR, type ScreenRun } from "@sim/shared";
+import {
+  MAX_SCREEN_COLS,
+  MAX_SCREEN_ROWS,
+  MIN_TERMINAL_COLS,
+  MIN_TERMINAL_ROWS,
+  SCREEN_DEFAULT_COLOR,
+  type ScreenRun,
+} from "@sim/shared";
 
 import type { TerminalScreen } from "./net/screens.js";
 import { CHAR_WIDTH, LINE_HEIGHT, type ScreenContext, TERM_THEME, paintRow } from "./scene/agentScreen.js";
@@ -25,6 +32,20 @@ const MIN_FONT_PX = 7;
 /** Space around the rows, and the scrollbar's width, in CSS pixels. */
 const PAD_PX = 8;
 const SCROLLBAR_PX = 5;
+
+/**
+ * The cells a terminal shown on a canvas `width` by `height` CSS pixels has
+ * room for at {@link TERMINAL_FONT_PX}, within the sizes a terminal may be
+ * given, so a terminal sized to it fills the canvas without shrinking its text.
+ */
+export function terminalCells(width: number, height: number): { readonly cols: number; readonly rows: number } {
+  const cols = Math.floor((width - PAD_PX * 2 - SCROLLBAR_PX) / (TERMINAL_FONT_PX * CHAR_WIDTH));
+  const rows = Math.floor((height - PAD_PX * 2) / (TERMINAL_FONT_PX * LINE_HEIGHT));
+  return {
+    cols: Math.min(MAX_SCREEN_COLS, Math.max(MIN_TERMINAL_COLS, cols)),
+    rows: Math.min(MAX_SCREEN_ROWS, Math.max(MIN_TERMINAL_ROWS, rows)),
+  };
+}
 
 /** Whether a row has anything to show: text, or a coloured background. */
 function isBlank(runs: readonly ScreenRun[] | undefined): boolean {

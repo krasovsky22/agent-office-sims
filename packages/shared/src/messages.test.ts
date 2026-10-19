@@ -20,12 +20,14 @@ import {
   parseAgentProfileMessage,
   parseAgentPromptMessage,
   parseChatMessage,
+  parseDeskTerminalSizeMessage,
   parseEmoteMessage,
   parseInteractMessage,
   parsePoseMessage,
   sanitizeChatText,
   sanitizePromptText,
 } from "./messages.js";
+import { MAX_SCREEN_COLS, MAX_SCREEN_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS } from "./screens.js";
 import { ANIMATION_STATE } from "./state.js";
 
 describe("parseEmoteMessage", () => {
@@ -221,6 +223,27 @@ describe("parseAgentPromptMessage", () => {
   for (const [label, raw] of rejected) {
     it(`rejects ${label}`, () => {
       expect(parseAgentPromptMessage(raw)).toBeUndefined();
+    });
+  }
+});
+
+describe("parseDeskTerminalSizeMessage", () => {
+  it("accepts a whole size within what a terminal may be given", () => {
+    expect(parseDeskTerminalSizeMessage({ cols: 150, rows: 40 })).toEqual({ cols: 150, rows: 40 });
+    expect(parseDeskTerminalSizeMessage({ cols: MIN_TERMINAL_COLS, rows: MAX_SCREEN_ROWS })).toEqual({ cols: MIN_TERMINAL_COLS, rows: MAX_SCREEN_ROWS });
+  });
+
+  const rejected: readonly [string, unknown][] = [
+    ["nothing", undefined],
+    ["a size as text", { cols: "150", rows: 40 }],
+    ["part of a cell", { cols: 150.5, rows: 40 }],
+    ["wider than a frame carries", { cols: MAX_SCREEN_COLS + 1, rows: 40 }],
+    ["too narrow to lay out", { cols: MIN_TERMINAL_COLS - 1, rows: 40 }],
+    ["too short to lay out", { cols: 150, rows: MIN_TERMINAL_ROWS - 1 }],
+  ];
+  for (const [label, raw] of rejected) {
+    it(`rejects ${label}`, () => {
+      expect(parseDeskTerminalSizeMessage(raw)).toBeUndefined();
     });
   }
 });

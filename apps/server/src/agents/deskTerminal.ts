@@ -12,7 +12,9 @@
  * hold. The moment the CEO is no longer sitting there (stood up, left, or
  * handed the role on), the session is closed with `desk-close`, and the slot
  * is back on the floor for issue work. Nothing persists between sittings: the
- * next one lends a fresh session.
+ * next one lends a fresh session. The CEO's panel says how many cells it has
+ * room for, and the session's terminal is sized to that with `desk-resize`, so
+ * its agent wraps its output to the width the CEO reads it at.
  *
  * It is declarative, as the work's reconciliation is (`./runnerWork.ts`): each
  * step compares where the CEO sits with what the runners report, and sends
@@ -96,6 +98,15 @@ interface Session {
   opened: boolean;
   /** Why it ended without the CEO standing up, once it has; nothing more is lent this sitting. */
   ended: string | undefined;
+  /** The cells the CEO's panel has room for, once it has said. */
+  size: TerminalSize | undefined;
+  /** The size last sent to the lent slot, cleared whenever another is lent. */
+  sentSize: TerminalSize | undefined;
+}
+
+interface TerminalSize {
+  readonly cols: number;
+  readonly rows: number;
 }
 
 /** Where the CEO sits, if at a desk with a computer. */
@@ -142,16 +153,28 @@ export class DeskTerminal {
       session = undefined;
     }
     if (session === undefined && sitting !== undefined) {
-      session = { ...sitting, lent: undefined, opened: false, ended: undefined };
+      session = { ...sitting, lent: undefined, opened: false, ended: undefined, size: undefined, sentSize: undefined };
       this.session = session;
       this.options.log?.("desk-terminal-sat", { seat: sitting.seatId, by: sitting.ownerName });
     }
     const slots = this.options.runner?.hasRunners() === true ? this.options.runner.deskSlots() : [];
     if (session !== undefined) {
       this.advance(session, slots);
+      this.sendSize(session);
     }
     this.closeStrays(slots);
     this.publish(session, slots);
+  }
+
+  /**
+   * Takes the cells the CEO's panel has room for, from the CEO sitting there;
+   * the next step sizes the session's terminal to them.
+   */
+  public resize(ownerId: string, cols: number, rows: number): void {
+    const session = this.session;
+    if (session?.ownerId === ownerId) {
+      session.size = { cols, rows };
+    }
   }
 
   /** Ends the session the runner says ended, or never started, with its reason. */
@@ -227,6 +250,24 @@ export class DeskTerminal {
     this.options.log?.("desk-terminal-lent", { seat: session.seatId, agent: free.slotId, by: session.ownerName });
   }
 
+  /** Sizes the lent slot's terminal to the CEO's panel, when that is news to it. */
+  private sendSize(session: Session): void {
+    const { lent, size, sentSize } = session;
+    if (lent === undefined || size === undefined || (sentSize?.cols === size.cols && sentSize.rows === size.rows)) {
+      return;
+    }
+    const command = this.options.runner?.enqueue(lent.runnerId, {
+      kind: RUNNER_COMMAND_KIND.deskResize,
+      slotId: lent.slotId,
+      seatId: session.seatId,
+      cols: size.cols,
+      rows: size.rows,
+    });
+    if (command !== undefined) {
+      session.sentSize = size;
+    }
+  }
+
   /** The slots lent to a desk by any room on this runner link. */
   private lentSlots(): Map<string, string> | undefined {
     const runner = this.options.runner;
@@ -248,6 +289,7 @@ export class DeskTerminal {
       lentSlots?.delete(slotKey(session.lent));
     }
     session.lent = slot;
+    session.sentSize = undefined;
     if (slot !== undefined) {
       lentSlots?.set(slotKey(slot), session.seatId);
     }

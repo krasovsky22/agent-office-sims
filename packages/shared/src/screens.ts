@@ -118,6 +118,26 @@ export const MAX_SCREEN_COLS = 200;
 /** Tallest screen carried. */
 export const MAX_SCREEN_ROWS = 60;
 
+/** Narrowest terminal a desk session is sized to: narrower, and an agent's own screens no longer lay out. */
+export const MIN_TERMINAL_COLS = 40;
+
+/** Shortest terminal a desk session is sized to. */
+export const MIN_TERMINAL_ROWS = 10;
+
+/** Whether a size is one a terminal may be given: whole, and within what a frame carries. */
+export function isTerminalSize(cols: unknown, rows: unknown): boolean {
+  return (
+    typeof cols === "number" &&
+    typeof rows === "number" &&
+    Number.isInteger(cols) &&
+    Number.isInteger(rows) &&
+    cols >= MIN_TERMINAL_COLS &&
+    cols <= MAX_SCREEN_COLS &&
+    rows >= MIN_TERMINAL_ROWS &&
+    rows <= MAX_SCREEN_ROWS
+  );
+}
+
 /**
  * Most history rows one frame from a runner carries. A runner looks at its
  * screens a few times a second, so only a flood of output scrolls this many

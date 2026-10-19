@@ -37,6 +37,7 @@ import {
   sanitizeTitle,
   sanitizeWorkNote,
 } from "./messages.js";
+import { isTerminalSize } from "./screens.js";
 import { MAX_RUNNER_USD } from "./spend.js";
 import {
   MAX_STANDING_ERROR_BYTES,
@@ -178,6 +179,8 @@ export const RUNNER_COMMAND_KIND = {
   deskOpen: "desk-open",
   /** End the slot's desk session: the CEO stood up. */
   deskClose: "desk-close",
+  /** Size the desk session's terminal to the CEO's panel; see {@link RunnerDeskResizeCommand}. */
+  deskResize: "desk-resize",
 } as const;
 
 export type RunnerCommandKind = (typeof RUNNER_COMMAND_KIND)[keyof typeof RUNNER_COMMAND_KIND];
@@ -557,6 +560,21 @@ export interface RunnerDeskCloseCommand {
   readonly reason: string;
 }
 
+/**
+ * Size the terminal of the slot's desk session at `seatId` to the CEO's
+ * panel, so the agent wraps its output to the width the CEO reads it at.
+ * Ignored by a slot not lent to that desk; one still starting its session
+ * starts it at this size.
+ */
+export interface RunnerDeskResizeCommand {
+  readonly id: string;
+  readonly slotId: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.deskResize;
+  readonly seatId: string;
+  readonly cols: number;
+  readonly rows: number;
+}
+
 /** Take a standing task's definition: a new task, or a newer version of one it holds. */
 export interface RunnerStandingSetCommand {
   readonly id: string;
@@ -594,7 +612,8 @@ export type RunnerSlotCommand =
   | RunnerKeyCommand
   | RunnerProfileCommand
   | RunnerDeskOpenCommand
-  | RunnerDeskCloseCommand;
+  | RunnerDeskCloseCommand
+  | RunnerDeskResizeCommand;
 
 /** The commands for the runner's standing tasks, which address no slot. */
 export type RunnerStandingCommand = RunnerStandingSetCommand | RunnerStandingTaskCommand;
@@ -612,7 +631,8 @@ export function isRunnerSlotCommand<T extends { readonly kind: RunnerCommandKind
     command.kind === RUNNER_COMMAND_KIND.key ||
     command.kind === RUNNER_COMMAND_KIND.profile ||
     command.kind === RUNNER_COMMAND_KIND.deskOpen ||
-    command.kind === RUNNER_COMMAND_KIND.deskClose
+    command.kind === RUNNER_COMMAND_KIND.deskClose ||
+    command.kind === RUNNER_COMMAND_KIND.deskResize
   );
 }
 
@@ -624,7 +644,8 @@ export type RunnerSlotCommandDraft =
   | Omit<RunnerKeyCommand, "id">
   | Omit<RunnerProfileCommand, "id">
   | Omit<RunnerDeskOpenCommand, "id">
-  | Omit<RunnerDeskCloseCommand, "id">;
+  | Omit<RunnerDeskCloseCommand, "id">
+  | Omit<RunnerDeskResizeCommand, "id">;
 
 /** A command before the server has given it an id. */
 export type RunnerCommandDraft =
@@ -1222,6 +1243,10 @@ function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCom
     case RUNNER_COMMAND_KIND.deskClose:
       return isDeskSeatId(draft.seatId)
         ? { id, slotId: draft.slotId, kind: draft.kind, seatId: draft.seatId, reason: sanitizeWorkNote(draft.reason) }
+        : undefined;
+    case RUNNER_COMMAND_KIND.deskResize:
+      return isDeskSeatId(draft.seatId) && isTerminalSize(draft.cols, draft.rows)
+        ? { id, slotId: draft.slotId, kind: draft.kind, seatId: draft.seatId, cols: draft.cols, rows: draft.rows }
         : undefined;
   }
 }
