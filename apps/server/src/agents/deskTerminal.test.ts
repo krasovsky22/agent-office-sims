@@ -8,6 +8,7 @@ import {
   DESK_TERMINAL_PHASE,
   HumanPlayer,
   IssueWork,
+  LENT_TO_DESK_ACTIVITY,
   OFFICE_LAYOUT,
   OfficeState,
   PLAYER_ROLE,
@@ -20,7 +21,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { DeskTerminal } from "./deskTerminal.js";
-import { LENT_TO_DESK_ACTIVITY, RunnerLink, runnerSlotAgentId } from "./runnerLink.js";
+import { RunnerLink, runnerSlotAgentId } from "./runnerLink.js";
 
 const REPO = "krasovsky22/agent-office-sims";
 const SEAT = "seat-desk-north-1-1";

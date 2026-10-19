@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { describeLiveAgentTask, parseLiveAgentReport, taskReference } from "./liveAgents.js";
+import { LENT_TO_DESK_ACTIVITY, describeLiveAgentTask, parseLiveAgentReport, taskReference } from "./liveAgents.js";
 
 const ISSUE = "https://github.com/krasovsky22/agent-office-sims/issues/33";
 const PULL = "https://github.com/krasovsky22/agent-office-sims/pull/40";
@@ -133,5 +133,9 @@ describe("describeLiveAgentTask", () => {
   it("says idle for an idle agent, whatever it was last doing", () => {
     expect(describeLiveAgentTask("idle", "Live agents", ISSUE)).toBe("idle");
     expect(describeLiveAgentTask("idle", "", "", "Bash: pnpm test")).toBe("idle");
+  });
+
+  it("says where an idle agent lent to the CEO's desk is", () => {
+    expect(describeLiveAgentTask("idle", "", "", LENT_TO_DESK_ACTIVITY)).toBe("At the CEO's desk");
   });
 });

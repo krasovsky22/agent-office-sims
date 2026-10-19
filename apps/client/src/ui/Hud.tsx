@@ -47,7 +47,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { AgentPromptAccess } from "../agentPromptAccess.js";
 import { NO_LINKS, terminalLinks } from "../agentTerminal.js";
 import type { BoardAccess } from "../boardAccess.js";
-import type { DeskPanelView } from "../deskTerminalAccess.js";
+import { type DeskPanelView, deskPrompts } from "../deskTerminalAccess.js";
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ManagerAccess } from "../managerAccess.js";
@@ -831,7 +831,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           agentId={desk.agentId}
           agent={deskAgent}
           links={NO_LINKS}
-          prompts={desk.agentId === "" ? [] : agentPrompts.filter((entry) => entry.agentId === desk.agentId)}
+          prompts={deskPrompts(agentPrompts, desk)}
           access={agentPromptAccess}
           localId={roster.find((entry) => entry.isLocal)?.id}
           refusal={agentPromptRefusal}

@@ -12,7 +12,7 @@
  * panel's composer.
  */
 
-import { DESK_TERMINAL_PHASE, type DeskTerminal } from "@sim/shared";
+import { type AgentPromptEntry, DESK_TERMINAL_PHASE, type DeskTerminal } from "@sim/shared";
 
 /** The replicated desk terminal, as this module reads it. */
 export type DeskReading = Pick<DeskTerminal, "seatId" | "ownerId" | "agentId" | "phase" | "needsInput" | "activity" | "note">;
@@ -27,6 +27,8 @@ export interface DeskPanelView {
   readonly needsInput: boolean;
   /** What its agent is doing. */
   readonly activity: string;
+  /** The last prompt entry id from before this sitting, so the panel shows only this sitting's prompts. */
+  readonly promptsAfter: number;
 }
 
 /**
@@ -34,8 +36,14 @@ export interface DeskPanelView {
  * the server has lent an agent to for them.
  *
  * @param heldWith the interactable the local player is predicted to hold, `""` for none.
+ * @param promptsAfter the last prompt entry id from before this sitting.
  */
-export function deskPanelFor(desk: DeskReading | undefined, localId: string, heldWith: string): DeskPanelView | undefined {
+export function deskPanelFor(
+  desk: DeskReading | undefined,
+  localId: string,
+  heldWith: string,
+  promptsAfter: number,
+): DeskPanelView | undefined {
   if (desk === undefined || heldWith === "" || desk.seatId !== heldWith || desk.ownerId !== localId) {
     return undefined;
   }
@@ -45,7 +53,20 @@ export function deskPanelFor(desk: DeskReading | undefined, localId: string, hel
     message: open ? "" : deskPhaseText(desk.phase, desk.note),
     needsInput: open && desk.needsInput,
     activity: open ? desk.activity : "",
+    promptsAfter,
   };
+}
+
+/**
+ * The prompts the desk panel lists: those typed into its agent this sitting.
+ * The same slot is lent again on the next sitting, so its agent id alone
+ * would carry the last sitting's prompts over.
+ */
+export function deskPrompts(entries: readonly AgentPromptEntry[], panel: DeskPanelView): readonly AgentPromptEntry[] {
+  if (panel.agentId === "") {
+    return [];
+  }
+  return entries.filter((entry) => entry.agentId === panel.agentId && entry.id > panel.promptsAfter);
 }
 
 /** Why the desk has no terminal to prompt yet, or any more. */
@@ -73,7 +94,7 @@ export function sameDeskPanel(a: DeskPanelView | undefined, b: DeskPanelView | u
   if (a === undefined || b === undefined) {
     return a === b;
   }
-  return a.agentId === b.agentId && a.message === b.message && a.needsInput === b.needsInput && a.activity === b.activity;
+  return a.agentId === b.agentId && a.message === b.message && a.needsInput === b.needsInput && a.activity === b.activity && a.promptsAfter === b.promptsAfter;
 }
 
 /** What the desk's monitor is keyed by while it shows a placeholder, before an agent's terminal is there to show. */
