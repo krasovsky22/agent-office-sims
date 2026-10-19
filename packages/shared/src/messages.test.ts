@@ -11,11 +11,13 @@
 import { describe, expect, it } from "vitest";
 
 import { AGENT_KEYS } from "./agentPrompt.js";
+import { MAX_AGENT_DESCRIPTION_BYTES } from "./agentProfile.js";
 import { MAX_AGENT_PROMPT_LENGTH, MAX_CHAT_LENGTH } from "./constants.js";
 import {
   EMOTE,
   EMOTES,
   parseAgentKeyMessage,
+  parseAgentProfileMessage,
   parseAgentPromptMessage,
   parseChatMessage,
   parseEmoteMessage,
@@ -247,4 +249,24 @@ describe("parseAgentKeyMessage", () => {
       expect(parseAgentKeyMessage(raw)).toBeUndefined();
     });
   }
+});
+
+describe("parseAgentProfileMessage", () => {
+  const MESSAGE = { agentId: "agent:runner:box:slot-1", name: "Grace", title: "Release Engineer", description: "Keeps it green." };
+
+  it("reads an edit, sanitised", () => {
+    expect(parseAgentProfileMessage({ ...MESSAGE, name: " Grace " })).toEqual(MESSAGE);
+  });
+
+  it.each([
+    ["not an object", "Grace"],
+    ["no agent", { ...MESSAGE, agentId: "" }],
+    ["an agent key longer than any", { ...MESSAGE, agentId: "a".repeat(97) }],
+    ["a name that is not a string", { ...MESSAGE, name: ["Grace"] }],
+    ["no description at all", { agentId: MESSAGE.agentId, name: "Grace", title: "Release Engineer" }],
+    ["a description far past its budget", { ...MESSAGE, description: "d".repeat(4 * MAX_AGENT_DESCRIPTION_BYTES + 1) }],
+    ["an empty title", { ...MESSAGE, title: "" }],
+  ])("refuses %s", (_label, raw) => {
+    expect(parseAgentProfileMessage(raw)).toBeUndefined();
+  });
 });

@@ -196,14 +196,23 @@ describe("claudeAdapter", () => {
   it("launches with its settings, acceptEdits, and the prompt after --", () => {
     const adapter = claudeAdapter();
     const setup = adapter.prepare(dataDir());
-    const plan = adapter.launch({ prompt: "- fix the lift", cwd: "/work", setup });
+    const plan = adapter.launch({ prompt: "- fix the lift", cwd: "/work", systemPrompt: "", setup });
     expect(plan.args).toEqual(["--settings", setup.settings, "--permission-mode", "acceptEdits", "--", "- fix the lift"]);
+  });
+
+  it("appends its profile's system prompt to Claude Code's own, ahead of the prompt", () => {
+    const adapter = claudeAdapter();
+    const setup = adapter.prepare(dataDir());
+    const systemPrompt = "In this office your name is Maya and your title is Release Engineer.";
+    const { args } = adapter.launch({ prompt: "go", cwd: "/work", systemPrompt, setup });
+    expect(args).toEqual(["--settings", setup.settings, "--permission-mode", "acceptEdits", "--append-system-prompt", systemPrompt, "--", "go"]);
+    expect(args).not.toContain("--system-prompt");
   });
 
   it("passes RUNNER_MODEL as --model, ahead of the prompt", () => {
     const adapter = claudeAdapter({ model: "sonnet" });
     const setup = adapter.prepare(dataDir());
-    const { args } = adapter.launch({ prompt: "go", cwd: "/work", setup });
+    const { args } = adapter.launch({ prompt: "go", cwd: "/work", systemPrompt: "", setup });
     expect(args.slice(-4)).toEqual(["--model", "sonnet", "--", "go"]);
   });
 
@@ -237,7 +246,7 @@ describe("claudeAdapter", () => {
   it("with every permission, launches in bypassPermissions past its one-time warning, its hooks kept", () => {
     const adapter = claudeAdapter({ permissions: "all" });
     const setup = adapter.prepare(dataDir());
-    const plan = adapter.launch({ prompt: "go", cwd: "/work", setup });
+    const plan = adapter.launch({ prompt: "go", cwd: "/work", systemPrompt: "", setup });
     expect(plan.args).toEqual(["--settings", setup.settings, "--permission-mode", "bypassPermissions", "--", "go"]);
     const written = JSON.parse(readFileSync(setup.settings, "utf8")) as {
       hooks: Record<string, unknown>;
@@ -250,7 +259,7 @@ describe("claudeAdapter", () => {
   it("keeps acceptEdits and the allowlist when asked for the allowlist", () => {
     const adapter = claudeAdapter({ permissions: "allowlist" });
     const setup = adapter.prepare(dataDir());
-    expect(adapter.launch({ prompt: "go", cwd: "/work", setup }).args).toContain("acceptEdits");
+    expect(adapter.launch({ prompt: "go", cwd: "/work", systemPrompt: "", setup }).args).toContain("acceptEdits");
   });
 });
 

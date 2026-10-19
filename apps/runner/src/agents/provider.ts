@@ -30,6 +30,8 @@ export interface LaunchInput<P> {
   readonly prompt: string;
   /** The folder it runs in: its task's worktree. */
   readonly cwd: string;
+  /** Appended to its own system prompt: its slot's profile, from `./prompt.ts`. */
+  readonly systemPrompt: string;
   /** What `prepare` set up. */
   readonly setup: P;
 }
@@ -42,7 +44,7 @@ export interface LaunchPlan {
 
 export interface ProviderAdapter<P> {
   readonly id: string;
-  /** Names the slots, e.g. `Claude` for `Claude 1`. */
+  /** Which CLI it is, e.g. `Claude`, for the runner's log. */
   readonly label: string;
   /** Its CLI, looked up on `PATH`. */
   readonly command: string;

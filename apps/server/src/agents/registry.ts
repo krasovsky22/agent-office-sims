@@ -48,6 +48,16 @@ export interface LiveAgentRecord {
    * office's work rules sets it, and absent means it cannot.
    */
   readonly canTakeIssues?: boolean;
+  /** Its title, `Software Developer` say, when its source gives one; see `agentProfile.ts` in `@sim/shared`. */
+  readonly title?: string;
+  /** Its description, in the CEO's words, when its source gives one. */
+  readonly description?: string;
+  /**
+   * Whether the CEO can edit its name, title and description from the office:
+   * only a source that keeps the profile and prompts its agent with it, a
+   * runner, sets it, and absent means it cannot.
+   */
+  readonly profileEditable?: boolean;
 }
 
 /**

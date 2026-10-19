@@ -9,7 +9,7 @@
  * issues. What it understands is the handful of things a CEO asks a manager
  * most:
  *
- * - **"Put Claude 1 on #12"**, "assign #62", "assign the jumping ticket",
+ * - **"Put Maya on #12"**, "assign #62", "assign the jumping ticket",
  *   "put someone on #39", "get someone on #62", "hand out the backlog": an
  *   instruction in one of a few shapes becomes a plan to assign — carried out
  *   afterwards through the work's rules, like a model's plan, which gives an
@@ -21,7 +21,7 @@
  * - **"What's the status of #12?"**: any issue or pull request it can find in
  *   the message is described — its column, labels and pull requests, and
  *   which agent is on it and how far they have got.
- * - **"What is Claude 1 doing?"**: a named agent is described — for a coding
+ * - **"What is Maya doing?"**: a named agent is described — for a coding
  *   agent, what it is doing right now, its issue and the pull request it opened.
  * - **"What's open?"**, "which PRs are open?", "what is everyone working on?":
  *   a summary of the project board, its pull requests, or the agents.
@@ -84,7 +84,7 @@ const WORK_CONNECTORS: ReadonlySet<string> = new Set(["the", "and", ",", "#"]);
 const NUMBER = /^#?\d+$/;
 
 export const REPHRASE_TEXT =
-  "I couldn't tell exactly what to hand out, so I haven't changed anything. Say it like “assign #39” or “put Claude 1 on #12”.";
+  "I couldn't tell exactly what to hand out, so I haven't changed anything. Say it like “assign #39” or “put Maya on #12”.";
 
 /** "who should I give #39 to?" asks for advice rather than an assignment. */
 const ASKING_ADVICE = /\b(should i|who should|who would|who could|who can)\b/i;
@@ -114,8 +114,8 @@ export const HELP_TEXT = [
   "- “What's open?” or “Which PRs are open?”",
   "- “What's the status of #12?”",
   "- “What is everyone working on?”",
-  "- “What is Claude 1 doing?”",
-  "- “Assign #39”, “Put someone on #39” or “Have Claude 1 do #39”",
+  "- “What is Maya doing?”",
+  "- “Assign #39”, “Put someone on #39” or “Have Maya do #39”",
   "- “Hand out the backlog”",
   "- “Watch for new pull requests”, or “Every weekday at 9, summarise what changed yesterday”",
   "- “What are you watching?”, “Pause the pull request watch”",

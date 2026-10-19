@@ -253,6 +253,8 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 export interface AvatarOptions {
   readonly name: string;
+  /** A live coding agent's title, beside its name; `""` for none and for anyone else. */
+  readonly title: string;
   readonly kind: OccupantKind;
   readonly isCeo: boolean;
   /** A live coding agent's task, shown under its name; `""` for anyone else. */
@@ -300,9 +302,10 @@ function drawNameplate(
   isCeo: boolean,
   subtitle: string,
   kind: OccupantKind,
+  agentTitle: string,
 ): void {
   const isLiveAgent = kind === OCCUPANT_KIND.liveAgent;
-  const label = isCeo ? `${name}  ·  CEO` : isLiveAgent ? `${name}  ·  agent` : name;
+  const label = isCeo ? `${name}  ·  CEO` : isLiveAgent ? `${name}  ·  ${agentTitle === "" ? "agent" : agentTitle}` : name;
   const context = canvas.getContext("2d");
   if (context === null) {
     return;
@@ -478,6 +481,8 @@ export class Avatar {
   private readonly kind: OccupantKind;
 
   private name: string;
+  /** A live agent's title, beside its name on the nameplate. */
+  private agentTitle: string;
   private isCeo: boolean;
   /** The nameplate's second line: a live agent's task, `""` for anyone else. */
   private subtitle: string;
@@ -500,6 +505,7 @@ export class Avatar {
     const isManager = options.kind === OCCUPANT_KIND.manager;
     this.isLiveAgent = options.kind === OCCUPANT_KIND.liveAgent;
     this.name = options.name;
+    this.agentTitle = options.title;
     this.isCeo = options.isCeo;
     this.subtitle = options.caption;
     this.look = this.isLiveAgent
@@ -562,7 +568,7 @@ export class Avatar {
     this.nameplateCanvas.width = NAMEPLATE_CANVAS_WIDTH;
     this.nameplateCanvas.height =
       isManager || this.isLiveAgent ? AGENT_NAMEPLATE_CANVAS_HEIGHT : NAMEPLATE_CANVAS_HEIGHT;
-    drawNameplate(this.nameplateCanvas, this.name, this.isCeo, this.subtitle, this.kind);
+    drawNameplate(this.nameplateCanvas, this.name, this.isCeo, this.subtitle, this.kind, this.agentTitle);
     this.nameplateTexture = new THREE.CanvasTexture(this.nameplateCanvas);
     this.nameplateTexture.colorSpace = THREE.SRGBColorSpace;
     this.nameplate = new THREE.Sprite(
@@ -729,15 +735,16 @@ export class Avatar {
   }
 
   /** Re-renders the nameplate only when something it shows has changed. */
-  public setLabel(name: string, isCeo: boolean, subtitle: string): void {
-    if (name === this.name && isCeo === this.isCeo && subtitle === this.subtitle) {
+  public setLabel(name: string, isCeo: boolean, subtitle: string, agentTitle: string): void {
+    if (name === this.name && isCeo === this.isCeo && subtitle === this.subtitle && agentTitle === this.agentTitle) {
       return;
     }
     this.name = name;
     this.isCeo = isCeo;
     this.subtitle = subtitle;
+    this.agentTitle = agentTitle;
     this.ceoMarker.visible = isCeo;
-    drawNameplate(this.nameplateCanvas, name, isCeo, subtitle, this.kind);
+    drawNameplate(this.nameplateCanvas, name, isCeo, subtitle, this.kind, agentTitle);
     this.nameplateTexture.needsUpdate = true;
   }
 

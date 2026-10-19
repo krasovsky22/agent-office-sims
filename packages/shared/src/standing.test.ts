@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { MAX_AGENT_DESCRIPTION_BYTES, MAX_AGENT_TITLE_BYTES } from "./agentProfile.js";
 import { OCCUPANT_KIND } from "./state.js";
 import {
   MAX_RUNNER_ACKS,
@@ -233,6 +234,8 @@ describe("standing state on a sync", () => {
         slots: Array.from({ length: MAX_RUNNER_SLOTS }, (_, index) => ({
           id: `${"s".repeat(31)}${index}`,
           name: bytes(18),
+          title: bytes(MAX_AGENT_TITLE_BYTES),
+          description: bytes(MAX_AGENT_DESCRIPTION_BYTES),
           status: "needs-input",
           activity: bytes(90),
           // A slot holds an issue or a standing run, never both; the issue's is the larger.
@@ -247,6 +250,7 @@ describe("standing state on a sync", () => {
       const parsed = parseRunnerSync(sync);
       expect(parsed).toBeDefined();
       expect(parsed?.standing).toHaveLength(MAX_STANDING_TASKS);
+      expect(parsed?.slots[0]?.description).toBe(bytes(MAX_AGENT_DESCRIPTION_BYTES));
       expect(Buffer.byteLength(JSON.stringify(sync))).toBeLessThan(MAX_RUNNER_SYNC_BYTES);
     }
   });

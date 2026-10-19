@@ -37,8 +37,8 @@ function sync(overrides: Partial<RunnerSync> = {}): RunnerSync {
     repo: REPO,
     acked: [],
     slots: [
-      { id: "slot-1", name: "Claude 1", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
-      { id: "slot-2", name: "Claude 2", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
+      { id: "slot-1", name: "Claude 1", title: "Software Developer", description: "", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
+      { id: "slot-2", name: "Claude 2", title: "Software Developer", description: "", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
     ],
     events: [],
     ...overrides,
@@ -60,8 +60,8 @@ describe("RunnerLink slots", () => {
     const { link, notifications } = setup();
     expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [], standup: false });
     expect(link.current()).toEqual([
-      { id: "runner:runner-1:slot-1", name: "Claude 1", status: "idle", task: undefined, canTakeIssues: true, activity: "" },
-      { id: "runner:runner-1:slot-2", name: "Claude 2", status: "idle", task: undefined, canTakeIssues: true, activity: "" },
+      { id: "runner:runner-1:slot-1", name: "Claude 1", title: "Software Developer", description: "", status: "idle", task: undefined, canTakeIssues: true, profileEditable: true, activity: "" },
+      { id: "runner:runner-1:slot-2", name: "Claude 2", title: "Software Developer", description: "", status: "idle", task: undefined, canTakeIssues: true, profileEditable: true, activity: "" },
     ]);
     expect(runnerSlotAgentId("runner-1", "slot-1")).toBe("runner:runner-1:slot-1");
     expect(notifications()).toBe(1);
@@ -79,7 +79,7 @@ describe("RunnerLink slots", () => {
   it.each(["starting", "working"] as const)("shows a %s slot as working on its issue, with what it is doing", (status) => {
     const { link } = setup();
     link.sync(
-      sync({ slots: [{ id: "slot-1", name: "Claude 1", status, issueNumber: 39, activity: "Bash: pnpm test", pr: undefined }] }),
+      sync({ slots: [{ id: "slot-1", name: "Claude 1", title: "Software Developer", description: "", status, issueNumber: 39, activity: "Bash: pnpm test", pr: undefined }] }),
     );
     expect(link.current()[0]).toMatchObject({
       status: "working",
@@ -93,7 +93,7 @@ describe("RunnerLink slots", () => {
     link.sync(
       sync({
         slots: [
-          { id: "slot-1", name: "Claude 1", status: "needs-input", issueNumber: 39, activity: "Permission: Bash", pr: undefined },
+          { id: "slot-1", name: "Claude 1", title: "Software Developer", description: "", status: "needs-input", issueNumber: 39, activity: "Permission: Bash", pr: undefined },
         ],
       }),
     );
@@ -104,9 +104,24 @@ describe("RunnerLink slots", () => {
     });
   });
 
+  it("tells the rooms when only a slot's profile changes, and carries it to the floor", () => {
+    const { link, notifications } = setup();
+    const slot = { id: "slot-1", name: "Maya", status: "idle" as const, issueNumber: undefined, activity: "", pr: undefined };
+    link.sync(sync({ slots: [{ ...slot, title: "Software Developer", description: "" }] }));
+    link.sync(sync({ slots: [{ ...slot, title: "Release Engineer", description: "" }] }));
+    link.sync(sync({ slots: [{ ...slot, title: "Release Engineer", description: "Keeps the release branch green." }] }));
+    expect(notifications()).toBe(3);
+    expect(link.current()[0]).toMatchObject({
+      name: "Maya",
+      title: "Release Engineer",
+      description: "Keeps the release branch green.",
+      profileEditable: true,
+    });
+  });
+
   it("tells the rooms when only a slot's activity changes", () => {
     const { link, notifications } = setup();
-    const slot = { id: "slot-1", name: "Claude 1", status: "working" as const, issueNumber: 39, pr: undefined };
+    const slot = { id: "slot-1", name: "Claude 1", title: "Software Developer", description: "", status: "working" as const, issueNumber: 39, pr: undefined };
     link.sync(sync({ slots: [{ ...slot, activity: "Read" }] }));
     link.sync(sync({ slots: [{ ...slot, activity: "Bash: pnpm test" }] }));
     expect(notifications()).toBe(2);
@@ -115,7 +130,7 @@ describe("RunnerLink slots", () => {
 
   it("shows an exited slot as idle", () => {
     const { link } = setup();
-    link.sync(sync({ slots: [{ id: "slot-1", name: "Claude 1", status: "exited", issueNumber: 39, activity: "", pr: undefined }] }));
+    link.sync(sync({ slots: [{ id: "slot-1", name: "Claude 1", title: "Software Developer", description: "", status: "exited", issueNumber: 39, activity: "", pr: undefined }] }));
     expect(link.current()[0]).toMatchObject({ status: "idle", task: undefined });
   });
 
@@ -123,7 +138,7 @@ describe("RunnerLink slots", () => {
     const { link } = setup();
     link.sync(sync());
     link.enqueue("runner-1", START);
-    link.sync(sync({ slots: [{ id: "slot-1", name: "Claude 1", status: "working", issueNumber: 39, activity: "Read", pr: undefined }] }));
+    link.sync(sync({ slots: [{ id: "slot-1", name: "Claude 1", title: "Software Developer", description: "", status: "working", issueNumber: 39, activity: "Read", pr: undefined }] }));
     expect(link.current()[0]?.task?.title).toBe("Night shift");
   });
 
@@ -140,6 +155,8 @@ describe("RunnerLink slots", () => {
     const three = ["slot-1", "slot-2", "slot-3"].map((id) => ({
       id,
       name: id,
+      title: "",
+      description: "",
       status: "idle" as const,
       issueNumber: undefined,
       activity: "",

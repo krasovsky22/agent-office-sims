@@ -398,6 +398,18 @@ export class LiveAgentCrew {
     if (occupant.canTakeIssues !== canTakeIssues) {
       occupant.canTakeIssues = canTakeIssues;
     }
+    const agentTitle = record.title ?? "";
+    if (occupant.title !== agentTitle) {
+      occupant.title = agentTitle;
+    }
+    const description = record.description ?? "";
+    if (occupant.description !== description) {
+      occupant.description = description;
+    }
+    const profileEditable = record.profileEditable === true;
+    if (occupant.profileEditable !== profileEditable) {
+      occupant.profileEditable = profileEditable;
+    }
     if (body.status !== record.status) {
       body.status = record.status;
       body.restUntil = now;

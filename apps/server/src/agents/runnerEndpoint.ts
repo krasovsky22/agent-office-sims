@@ -20,7 +20,7 @@
  * sent anywhere a client can read.
  */
 
-import { MAX_RUNNER_SLOTS, parseRunnerSync } from "@sim/shared";
+import { MAX_RUNNER_SLOTS, MAX_RUNNER_SYNC_BYTES, parseRunnerSync } from "@sim/shared";
 
 import type { RouteHandler } from "../http.js";
 import { type TokenBucket, createTokenBucket, tryConsume } from "../sim/expression.js";
@@ -30,10 +30,10 @@ import type { RunnerLink } from "./runnerLink.js";
 /**
  * The parser refuses any list past its cap and any string past its budget in
  * UTF-8 bytes as `JSON.stringify` writes it, so a sync it would take, every
- * list full and every string at its budget, is about 12 KB whatever characters
+ * list full and every string at its budget, is about 17 KB whatever characters
  * it holds, and fits.
  */
-export const MAX_SYNC_BYTES = 16 * 1024;
+export const MAX_SYNC_BYTES = MAX_RUNNER_SYNC_BYTES;
 
 /**
  * Syncs accepted back to back, and the rate they refill at, across every

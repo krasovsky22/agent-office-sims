@@ -252,6 +252,15 @@ export class LiveAgent extends Occupant {
    * `stickerNotes.ts`. Only the server's crew writes it.
    */
   declare public carriedIssue: number;
+  /** Its title, `Software Developer` say, under its name; `""` when its source gives none. See `agentProfile.ts`. */
+  declare public title: string;
+  /** What it is for, in the CEO's words: with the title, its system prompt. `""` for none. */
+  declare public description: string;
+  /**
+   * Whether the CEO can edit its name, title and description from the office:
+   * a runner's agent, whose runner keeps the profile and prompts with it.
+   */
+  declare public profileEditable: boolean;
 
   public constructor() {
     super();
@@ -264,6 +273,9 @@ export class LiveAgent extends Occupant {
     this.canTakeIssues = false;
     this.activity = "";
     this.carriedIssue = 0;
+    this.title = "";
+    this.description = "";
+    this.profileEditable = false;
   }
 }
 
@@ -276,6 +288,9 @@ defineTypes(LiveAgent, {
   canTakeIssues: "boolean",
   activity: "string",
   carriedIssue: "uint32",
+  title: "string",
+  description: "string",
+  profileEditable: "boolean",
 });
 
 /**

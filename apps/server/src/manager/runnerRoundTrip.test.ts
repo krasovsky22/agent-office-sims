@@ -29,6 +29,7 @@ import {
   type ProjectBoardSnapshot,
   RUNNER_SYNC_PATH,
   SERVER_MESSAGE,
+  defaultAgentName,
   isLiveAgent,
   liveAgentKey,
 } from "@sim/shared";
@@ -126,7 +127,7 @@ beforeAll(async () => {
   const loop = new SyncLoop({
     runnerId: "runner-1",
     repo: REPO,
-    pool: new SlotPool({ count: 2, agent: mockAgent(), workspaces, taskTimeoutMs: 60_000 }),
+    pool: new SlotPool({ count: 2, agent: mockAgent(), workspaces, taskTimeoutMs: 60_000, runnerId: "runner-1" }),
     client: createSyncClient({ serverUrl, secret: SECRET }),
   });
   syncs = (async () => {
@@ -183,6 +184,10 @@ function updatesAbout(tab: Tab, name: string): string[] {
     .filter((line) => line.startsWith(`${name} `));
 }
 
+/** The runner's agents' default names, as its runner id gives them. */
+const FIRST = defaultAgentName("runner-1", 0);
+const SECOND = defaultAgentName("runner-1", 1);
+
 describe("the AI Manager and the mock runner's coding agents", () => {
   it("puts a free coding agent on an issue however it is asked for, and says how it goes at each step", { timeout: 60_000 }, async () => {
     const room = await new Client(endpoint).create<OfficeState>(OFFICE_ROOM_NAME, { name: "Dana" });
@@ -210,16 +215,16 @@ describe("the AI Manager and the mock runner's coding agents", () => {
     );
     expect(serverRoom(dana).state.work.size).toBe(0);
 
-    expect(await ask(dana, "assign the night shift ticket")).toBe("Here's how that went:\n✓ #39 “Night shift” → Mock 1.");
-    expect(await ask(dana, "have Mock 2 do #41")).toBe("Here's how that went:\n✓ #41 “Draft the roadmap” → Mock 2.");
+    expect(await ask(dana, "assign the night shift ticket")).toBe(`Here's how that went:\n✓ #39 “Night shift” → ${FIRST}.`);
+    expect(await ask(dana, `have ${SECOND} do #41`)).toBe(`Here's how that went:\n✓ #41 “Draft the roadmap” → ${SECOND}.`);
 
     // Both stop to wait on the CEO, and wait for as long as nobody answers.
     const waiting = (name: string, number: number) => `${name} needs you on #${number}: Permission: Bash pnpm test`;
-    await settled(() => updatesAbout(dana, "Mock 1").includes(waiting("Mock 1", 39)) && updatesAbout(dana, "Mock 2").includes(waiting("Mock 2", 41)), 20_000);
+    await settled(() => updatesAbout(dana, FIRST).includes(waiting(FIRST, 39)) && updatesAbout(dana, SECOND).includes(waiting(SECOND, 41)), 20_000);
     // Twenty of its steps, long enough too for the CEO's message allowance to refill.
     await new Promise((resolve) => setTimeout(resolve, STEP_MS * 20));
-    expect(await ask(dana, "what is Mock 1 doing?")).toBe(
-      "Mock 1 (coding agent) is waiting on you on #39 “Night shift” (Permission: Bash pnpm test).",
+    expect(await ask(dana, `what is ${FIRST} doing?`)).toBe(
+      `${FIRST} (coding agent) is waiting on you on #39 “Night shift” (Permission: Bash pnpm test).`,
     );
     expect(serverRoom(dana).state.work.get("39")?.status).toBe("in_progress");
 
@@ -229,33 +234,33 @@ describe("the AI Manager and the mock runner's coding agents", () => {
     }
     await settled(() => typed.length === 2, 10_000);
     expect(typed.map((entry) => [entry.agentName, entry.text])).toEqual([
-      ["Mock 1", "Go ahead."],
-      ["Mock 2", "Go ahead."],
+      [FIRST, "Go ahead."],
+      [SECOND, "Go ahead."],
     ]);
     expect(rejected).toEqual([]);
-    const opened = "Mock 1 handed in #39 “Night shift” for your review as a simulated pull request: the mock agent opened nothing on GitHub.";
+    const opened = `${FIRST} handed in #39 “Night shift” for your review as a simulated pull request: the mock agent opened nothing on GitHub.`;
     const failed =
-      "Mock 2 couldn't work on #41 “Draft the roadmap”: The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a simulated pull request.";
-    await settled(() => updatesAbout(dana, "Mock 1").includes(opened) && updatesAbout(dana, "Mock 2").includes(failed), 20_000);
-    expect(updatesAbout(dana, "Mock 1")).toEqual([
-      "Mock 1 started on #39 “Night shift”.",
-      "Mock 1 needs you on #39: Permission: Bash pnpm test",
+      `${SECOND} couldn't work on #41 “Draft the roadmap”: The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a simulated pull request.`;
+    await settled(() => updatesAbout(dana, FIRST).includes(opened) && updatesAbout(dana, SECOND).includes(failed), 20_000);
+    expect(updatesAbout(dana, FIRST)).toEqual([
+      `${FIRST} started on #39 “Night shift”.`,
+      `${FIRST} needs you on #39: Permission: Bash pnpm test`,
       opened,
     ]);
-    expect(updatesAbout(dana, "Mock 2")).toEqual([
-      "Mock 2 started on #41 “Draft the roadmap”.",
-      "Mock 2 needs you on #41: Permission: Bash pnpm test",
+    expect(updatesAbout(dana, SECOND)).toEqual([
+      `${SECOND} started on #41 “Draft the roadmap”.`,
+      `${SECOND} needs you on #41: Permission: Bash pnpm test`,
       failed,
     ]);
 
-    expect(await ask(dana, "what is Mock 1 doing?")).toBe(
-      "Mock 1 (coding agent) handed in #39 “Night shift” as a simulated pull request, with nothing on GitHub; it is waiting for your review.",
+    expect(await ask(dana, `what is ${FIRST} doing?`)).toBe(
+      `${FIRST} (coding agent) handed in #39 “Night shift” as a simulated pull request, with nothing on GitHub; it is waiting for your review.`,
     );
     expect(serverRoom(dana).state.work.get("39")?.outputArtifact).toBe("Simulated pull request, nothing on GitHub: [mock] Night shift");
     // Nowhere does the office name or link a pull request that does not exist.
     expect(JSON.stringify(dana.entries)).not.toMatch(/1000039|\/pull\//);
-    expect(await ask(dana, "what is Mock 2 doing?")).toBe(
-      "Mock 2 (coding agent) has #41 “Draft the roadmap” in progress but isn't running. Its last word on it: The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a simulated pull request.",
+    expect(await ask(dana, `what is ${SECOND} doing?`)).toBe(
+      `${SECOND} (coding agent) has #41 “Draft the roadmap” in progress but isn't running. Its last word on it: The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a simulated pull request.`,
     );
     await room.leave();
   });

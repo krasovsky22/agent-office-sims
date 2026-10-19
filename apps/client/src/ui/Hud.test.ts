@@ -22,6 +22,9 @@ function person(id: string, isCeo = false): RosterEntry {
     taskUrl: "",
     assignedUrl: "",
     canTakeIssues: false,
+    title: "",
+    description: "",
+    profileEditable: false,
     managerStatus: undefined,
   };
 }
@@ -38,6 +41,9 @@ function liveAgent(id: string, canTakeIssues = false): RosterEntry {
     taskUrl: "https://github.com/krasovsky22/agent-office-sims/issues/33",
     assignedUrl: "",
     canTakeIssues,
+    title: "Software Developer",
+    description: "",
+    profileEditable: canTakeIssues,
     managerStatus: undefined,
   };
 }

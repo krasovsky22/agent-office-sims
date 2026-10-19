@@ -67,7 +67,7 @@ function linkText(link: LinkView | undefined): string {
   return link.reference === "" ? `“${link.title}”` : `${link.reference} “${link.title}”`;
 }
 
-/** `Claude 1 needs you on #39: Permission: Bash`, naming the task as briefly as it can. */
+/** `Maya needs you on #39: Permission: Bash`, naming the task as briefly as it can. */
 function needsYouText(name: string, task: LinkView | undefined, reason: string): string {
   const on = task === undefined ? "" : ` on ${task.reference === "" ? `“${task.title}”` : task.reference}`;
   return `${name} needs you${on}${reason === "" ? "." : `: ${reason}`}`;

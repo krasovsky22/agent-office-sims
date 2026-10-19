@@ -267,6 +267,82 @@
   cursor: not-allowed;
 }
 
+/* A live agent's profile, opened under its line in the roster. It takes the
+   pointer, as the standing tasks' buttons do, so its form can be used. */
+.hud__profile-toggle {
+  margin-left: auto;
+  pointer-events: auto;
+}
+
+.hud__profile {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 100%;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 6px 8px;
+  border-left: 2px solid rgba(127, 232, 218, 0.4);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+  pointer-events: auto;
+}
+
+.hud__profile > .hud__standing-button {
+  align-self: flex-start;
+}
+
+.hud__profile-title {
+  color: #7fe8da;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hud__profile-text {
+  margin: 0;
+  color: #c9ced6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hud__profile-note {
+  margin: 0;
+  color: #9aa0aa;
+  font-size: 11px;
+}
+
+.hud__profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hud__profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hud__profile-label {
+  color: #9aa0aa;
+  font-size: 11px;
+}
+
+.hud__profile-description {
+  resize: vertical;
+}
+
+.hud__profile-buttons {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* An agent's title beside its name at the standup. */
+.standup__title {
+  color: #7fe8da;
+  font-size: 12px;
+}
+
 .hud__status--failed {
   color: #f08a7a;
 }

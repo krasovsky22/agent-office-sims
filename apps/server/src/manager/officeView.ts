@@ -67,6 +67,8 @@ export interface IssueAgentView {
   /** Its occupant key, which is what its work names as the assignee. */
   readonly id: string;
   readonly name: string;
+  /** Its title, the role the CEO gave it, `Software Developer` by default; `""` for none. */
+  readonly title: string;
   readonly status: LiveAgentStatus;
   /** What it is doing right now, or what it waits on while it needs input; `""` when unknown. */
   readonly activity: string;
@@ -268,6 +270,7 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
       issueAgents.push({
         id: occupant.id,
         name: occupant.name,
+        title: occupant.title,
         status: occupant.status,
         activity: occupant.activity,
         issue: issueInHand(occupant.id, work),

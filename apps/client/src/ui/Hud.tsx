@@ -44,6 +44,7 @@ import {
 } from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import type { AgentProfileAccess } from "../agentProfileAccess.js";
 import type { AgentPromptAccess } from "../agentPromptAccess.js";
 import { terminalLinks } from "../agentTerminal.js";
 import type { BoardAccess } from "../boardAccess.js";
@@ -54,6 +55,7 @@ import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
 import { type StandingAccess, type StandingTaskData, standingRow } from "../standingAccess.js";
 import type { ConnectionStatus } from "../net/room.js";
 import type { StandupAccess } from "../standupAccess.js";
+import { type AgentProfileActions, AgentProfileCard, type AgentProfileNotice } from "./AgentProfileCard.js";
 import { type AgentPromptRefusal, type AgentTerminalActions, AgentTerminalPanel } from "./AgentTerminalPanel.js";
 import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
 import { type ProjectBoardActions, ProjectBoardPanel } from "./ProjectBoardPanel.js";
@@ -77,6 +79,12 @@ export interface RosterEntry {
   readonly assignedUrl: string;
   /** Whether a live agent can be given issue work; `false` for anyone else. */
   readonly canTakeIssues: boolean;
+  /** A live agent's title, `""` when it has none and for anyone else. */
+  readonly title: string;
+  /** A live agent's description, its system prompt with the title; `""` when none. */
+  readonly description: string;
+  /** Whether a live agent's profile can be edited from the office; `false` for anyone else. */
+  readonly profileEditable: boolean;
   /** The AI manager's status; `undefined` for anyone else. */
   readonly managerStatus: ManagerStatus | undefined;
 }
@@ -198,6 +206,10 @@ export interface HudSnapshot {
   readonly standingTasks: readonly StandingTaskData[];
   /** What the local player may do about them; absent until they are in the office. */
   readonly standingAccess?: StandingAccess | undefined;
+  /** What the local player may do about the agents' profiles; absent until they are in the office. */
+  readonly agentProfileAccess?: AgentProfileAccess | undefined;
+  /** Why the local player's latest edit to an agent's profile was not passed on, if one was not. */
+  readonly agentProfileNotice?: AgentProfileNotice | undefined;
 }
 
 /** What the standing tasks' buttons do; the server decides whether it happens. */
@@ -214,6 +226,7 @@ export interface HudActions {
   readonly terminal: AgentTerminalActions;
   readonly standing: StandingActions;
   readonly standup: StandupActions & { readonly start: () => void };
+  readonly profile: AgentProfileActions;
 }
 
 export interface HudStore {
@@ -483,17 +496,42 @@ function PersonRow({ entry }: { entry: RosterEntry }) {
   );
 }
 
+/** The roster's say over the agents' profiles: who may edit them, why not, and what the edits do. */
+export interface ProfileControls {
+  readonly access: AgentProfileAccess | undefined;
+  readonly notice: AgentProfileNotice | undefined;
+  readonly actions: AgentProfileActions;
+}
+
 /**
- * One live coding agent's line: its name, whether it needs someone, and its
- * task linked to the issue or pull request.
+ * One live coding agent's line: its name and title, whether it needs someone,
+ * and its task linked to the issue or pull request. A runner's agent also has
+ * a button that opens its profile under the line.
  */
-function LiveAgentRow({ entry }: { entry: RosterEntry }) {
+function LiveAgentRow({ entry, profile }: { entry: RosterEntry; profile: ProfileControls }) {
+  const [open, setOpen] = useState(false);
   return (
     <li className="hud__occupant">
       <span className="hud__name">{entry.name}</span>
-      <span className="hud__badge hud__badge--agent">Agent</span>
+      <span className="hud__badge hud__badge--agent">{entry.title === "" ? "Agent" : entry.title}</span>
       {entry.needsInput ? <span className="hud__badge hud__badge--needs-you">Needs you</span> : null}
+      {entry.profileEditable ? (
+        <button
+          className="hud__standing-button hud__profile-toggle"
+          type="button"
+          aria-expanded={open}
+          onClick={(event) => {
+            event.currentTarget.blur();
+            setOpen(!open);
+          }}
+        >
+          {open ? "Hide profile" : "Profile"}
+        </button>
+      ) : null}
       {entry.caption === "" ? null : <AgentTask caption={entry.caption} url={entry.taskUrl} />}
+      {open && entry.profileEditable ? (
+        <AgentProfileCard entry={entry} access={profile.access} notice={profile.notice} actions={profile.actions} />
+      ) : null}
     </li>
   );
 }
@@ -647,6 +685,7 @@ function Roster({
   standingAccess,
   standingActions,
   standupCall,
+  profile,
 }: {
   roster: readonly RosterEntry[];
   boardAccess: BoardAccess | undefined;
@@ -657,6 +696,7 @@ function Roster({
   standingActions: StandingActions;
   /** The standup button, or `undefined` before the local player is in the office. */
   standupCall: { readonly access: StandupAccess; readonly active: boolean; readonly start: () => void } | undefined;
+  profile: ProfileControls;
 }) {
   const { people, liveAgents, managers } = groupRoster(roster);
   return (
@@ -687,7 +727,7 @@ function Roster({
           <h2 className="hud__title hud__title--group">Live agents ({liveAgents.length})</h2>
           <ul className="hud__roster">
             {liveAgents.map((entry) => (
-              <LiveAgentRow entry={entry} key={entry.id} />
+              <LiveAgentRow entry={entry} profile={profile} key={entry.id} />
             ))}
           </ul>
         </>
@@ -734,6 +774,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     standup,
     standupAccess,
     standupNotice,
+    agentProfileAccess,
+    agentProfileNotice,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
@@ -760,6 +802,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           standupCall={
             standupAccess === undefined ? undefined : { access: standupAccess, active: standup.active, start: actions.standup.start }
           }
+          profile={{ access: agentProfileAccess, notice: agentProfileNotice, actions: actions.profile }}
         />
 
         <div className="hud__panel">

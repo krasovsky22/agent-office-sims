@@ -24,7 +24,7 @@ import { SyncLoop } from "./syncLoop.js";
 const REPO = "krasovsky22/agent-office-sims";
 
 const SLOTS: RunnerSlotReport[] = [
-  { id: "slot-1", name: "Mock 1", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
+  { id: "slot-1", name: "Maya", title: "Software Developer", description: "", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
 ];
 
 function event(id: string): RunnerWorkEvent {

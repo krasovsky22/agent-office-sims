@@ -14,6 +14,15 @@
  */
 
 import { type AgentKey, isAgentKey } from "./agentPrompt.js";
+import {
+  type AgentProfile,
+  MAX_AGENT_DESCRIPTION_BYTES,
+  MAX_AGENT_TITLE_BYTES,
+  jsonTextBytes,
+  parseAgentProfile,
+  sanitizeAgentDescription,
+  sanitizeAgentTitle,
+} from "./agentProfile.js";
 import { MAX_AGENT_PROMPT_LENGTH, MAX_WORK_NOTE_LENGTH } from "./constants.js";
 import { MAX_TASK_URL_LENGTH, parseTaskUrl } from "./liveAgents.js";
 import { MAX_LABEL_LENGTH } from "./projectBoard.js";
@@ -58,7 +67,7 @@ export const RUNNER_SYNC_PATH = "/agents/runner/sync";
  * writes it, so a sync it would take, every list full and every string at its
  * budget, fits inside this whatever characters it holds; a test holds it to that.
  */
-export const MAX_RUNNER_SYNC_BYTES = 16 * 1024;
+export const MAX_RUNNER_SYNC_BYTES = 20 * 1024;
 
 /**
  * The label a maintainer puts on an issue to keep the real coding agents off
@@ -158,6 +167,8 @@ export const RUNNER_COMMAND_KIND = {
   standingRemove: "standing-remove",
   /** Check a standing task's trigger now: poll GitHub, or run a schedule once. */
   standingCheckNow: "standing-check-now",
+  /** Take the CEO's edit of a slot's agent's profile, for its next session. */
+  profile: "profile",
 } as const;
 
 export type RunnerCommandKind = (typeof RUNNER_COMMAND_KIND)[keyof typeof RUNNER_COMMAND_KIND];
@@ -263,6 +274,10 @@ export interface RunnerSlotReport {
   readonly id: string;
   /** Falls back to the id when the runner names nobody. */
   readonly name: string;
+  /** Its agent's title, `Software Developer` say; `""` from a runner that gives none. See `agentProfile.ts`. */
+  readonly title: string;
+  /** Its agent's description, which with the title is its system prompt; `""` for none. */
+  readonly description: string;
   readonly status: RunnerSlotStatus;
   readonly issueNumber: number | undefined;
   /** What the agent is doing right now, e.g. `Bash: pnpm test`; `""` when unknown. */
@@ -435,6 +450,18 @@ export interface RunnerKeyCommand {
   readonly requestedBy: string;
 }
 
+/**
+ * Give the slot's agent the profile the CEO wrote: kept by the runner, shown
+ * as the slot's from its next sync, and given to the agent as its system
+ * prompt from its next session on, not the one it may be in.
+ */
+export interface RunnerProfileCommand extends AgentProfile {
+  readonly id: string;
+  readonly slotId: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.profile;
+  readonly requestedBy: string;
+}
+
 /** Take a standing task's definition: a new task, or a newer version of one it holds. */
 export interface RunnerStandingSetCommand {
   readonly id: string;
@@ -452,7 +479,12 @@ export interface RunnerStandingTaskCommand {
 }
 
 /** The commands for one of a runner's slots. */
-export type RunnerSlotCommand = RunnerStartCommand | RunnerStopCommand | RunnerPromptCommand | RunnerKeyCommand;
+export type RunnerSlotCommand =
+  | RunnerStartCommand
+  | RunnerStopCommand
+  | RunnerPromptCommand
+  | RunnerKeyCommand
+  | RunnerProfileCommand;
 
 /** The commands for the runner's standing tasks, which address no slot. */
 export type RunnerStandingCommand = RunnerStandingSetCommand | RunnerStandingTaskCommand;
@@ -467,7 +499,8 @@ export function isRunnerSlotCommand<T extends { readonly kind: RunnerCommandKind
     command.kind === RUNNER_COMMAND_KIND.start ||
     command.kind === RUNNER_COMMAND_KIND.stop ||
     command.kind === RUNNER_COMMAND_KIND.prompt ||
-    command.kind === RUNNER_COMMAND_KIND.key
+    command.kind === RUNNER_COMMAND_KIND.key ||
+    command.kind === RUNNER_COMMAND_KIND.profile
   );
 }
 
@@ -476,7 +509,8 @@ export type RunnerSlotCommandDraft =
   | Omit<RunnerStartCommand, "id">
   | Omit<RunnerStopCommand, "id">
   | Omit<RunnerPromptCommand, "id">
-  | Omit<RunnerKeyCommand, "id">;
+  | Omit<RunnerKeyCommand, "id">
+  | Omit<RunnerProfileCommand, "id">;
 
 /** A command before the server has given it an id. */
 export type RunnerCommandDraft =
@@ -596,21 +630,8 @@ function isPromptOutcome(value: unknown): value is RunnerPromptOutcomeKind {
 }
 
 /**
- * The bytes a string takes in a JSON body as `JSON.stringify` writes it: its
- * UTF-8, with JSON's escapes and without the quotes.
- */
-function encodedBytes(value: string): number {
-  let bytes = 0;
-  for (const character of JSON.stringify(value).slice(1, -1)) {
-    const code = character.codePointAt(0) ?? 0;
-    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
-  }
-  return bytes;
-}
-
-/**
  * Reads an optional string, refusing one past its budget rather than cutting
- * it. The budget is in {@link encodedBytes}, not characters: the caps on every
+ * it. The budget is in {@link jsonTextBytes}, not characters: the caps on every
  * string and list are what bound a sync's size, and measuring in the body's
  * own unit keeps a sync the parser takes inside the route's body limit
  * whatever characters it holds.
@@ -621,7 +642,7 @@ function parseText(raw: unknown, maxBytes: number, sanitize: (raw: string) => st
   if (raw === undefined || raw === null) {
     return "";
   }
-  return typeof raw === "string" && encodedBytes(raw) <= maxBytes ? sanitize(raw) : undefined;
+  return typeof raw === "string" && jsonTextBytes(raw) <= maxBytes ? sanitize(raw) : undefined;
 }
 
 /**
@@ -687,10 +708,12 @@ function parseSlot(raw: unknown): RunnerSlotReport | undefined {
   }
   const pr = parsePullRequest(candidate["pr"]);
   const name = parseText(candidate["name"], MAX_NAME_LENGTH, sanitizeName);
+  const title = parseText(candidate["title"], MAX_AGENT_TITLE_BYTES, sanitizeAgentTitle);
+  const description = parseText(candidate["description"], MAX_AGENT_DESCRIPTION_BYTES, sanitizeAgentDescription);
   const activity = parseText(candidate["activity"], MAX_TITLE_LENGTH, sanitizeTitle);
   const standing = parseSlotStanding(candidate["standing"]);
   // A standing run holds the slot instead of an issue, never beside one.
-  if (pr === null || name === undefined || activity === undefined || standing === null) {
+  if (pr === null || name === undefined || title === undefined || description === undefined || activity === undefined || standing === null) {
     return undefined;
   }
   if (standing !== undefined && (issueNumber !== undefined && issueNumber !== null || pr !== undefined)) {
@@ -699,6 +722,8 @@ function parseSlot(raw: unknown): RunnerSlotReport | undefined {
   return {
     id,
     name: name === "" ? sanitizeName(id) : name,
+    title,
+    description,
     status,
     issueNumber: isIssueNumber(issueNumber) ? issueNumber : undefined,
     activity,
@@ -1013,5 +1038,11 @@ function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCom
       return isAgentKey(draft.key)
         ? { id, slotId: draft.slotId, kind: draft.kind, key: draft.key, requestedBy: sanitizeName(draft.requestedBy) }
         : undefined;
+    case RUNNER_COMMAND_KIND.profile: {
+      const profile = parseAgentProfile(draft);
+      return profile === undefined
+        ? undefined
+        : { id, slotId: draft.slotId, kind: draft.kind, ...profile, requestedBy: sanitizeName(draft.requestedBy) };
+    }
   }
 }

@@ -43,6 +43,7 @@ import { type RunnerConfig, readConfig } from "./config.js";
 import { NO_GITHUB, type TaskGithub, createTaskGithub, runCommand } from "./github.js";
 import { GITHUB_TOKEN_ENV, GithubAppCredentials, type GithubCredentials } from "./githubApp.js";
 import { PersonalGithubCredentials } from "./githubPersonal.js";
+import { ProfileStore } from "./profiles.js";
 import { createRedactor, runnerSecrets } from "./redact.js";
 import { ScreenLoop } from "./screenLoop.js";
 import { createScreensClient } from "./screensClient.js";
@@ -207,6 +208,8 @@ const ledger = new SpendLedger({ budgetUsd: config.dailyBudgetUsd });
 const pool = new SlotPool({
   count: config.maxAgents,
   agent,
+  runnerId: config.runnerId,
+  profiles: new ProfileStore({ file: join(config.dataDir, "profiles.json"), log }),
   workspaces,
   taskTimeoutMs: config.taskTimeoutMs,
   github,

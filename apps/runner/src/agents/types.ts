@@ -21,6 +21,8 @@ export interface AgentTask {
   readonly requestedBy: string;
   /** The task's own git worktree, on a branch of its own: where the agent works. */
   readonly workdir: string;
+  /** Its system prompt, from its slot's profile as the task starts; see `./prompt.ts`. */
+  readonly systemPrompt: string;
 }
 
 /**
@@ -85,7 +87,7 @@ export interface AgentRun {
 }
 
 export interface Agent {
-  /** Names the slots, e.g. `Mock` for `Mock 1`; short, since a name is at most 18 bytes. */
+  /** Which agent it is, e.g. `Mock`, for the runner's log; the slots' names are their profiles'. */
   readonly label: string;
   /** It only pretends to work, as the mock does: nothing it does reaches GitHub, so the runner's log says so of every task. */
   readonly simulated?: boolean;

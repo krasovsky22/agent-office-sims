@@ -102,6 +102,8 @@ function setup() {
       slots: (["slot-1", "slot-2"] as const).map((id) => ({
         id,
         name: id === "slot-1" ? "Mock 1" : "Mock 2",
+        title: "Software Developer",
+        description: "",
         status: holding[id] === undefined ? "idle" : "working",
         issueNumber: holding[id],
         activity: "",

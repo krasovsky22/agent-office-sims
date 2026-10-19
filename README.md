@@ -46,8 +46,8 @@ task, and gets up to wander and chat with the other idle agents while it has
 none. And someone is in charge of all of them: the AI Manager, a
 crimson body at its own desk in the lobby. The CEO walks up and talks to it —
 "what's open?", "what's the status of #12?", "which PRs are open?", "what is
-Claude 1 doing?", "assign the jumping ticket", "put someone on #39", "have
-Claude 1 do #39" — and it answers from the office's live state and the project
+Maya doing?", "assign the jumping ticket", "put someone on #39", "have
+Maya do #39" — and it answers from the office's live state and the project
 board the server already polls, with labels, linked pull requests and who is on
 each issue. An issue goes to the coding agent the CEO names, or else to a free
 one of the runner's coding agents, whatever the CEO calls it — by number, or by
@@ -131,7 +131,7 @@ turn done, or, for the mock agent, while it waits on a person, which the
 prompt answers; one sent while it is busy, or while a real agent waits on a
 permission, is refused rather than queued, and only the CEO who sent it is told why, beside the box,
 where what they wrote is still there to send again. Every tab watching the
-panel shows each prompt once it is typed: `Dana → Claude 1: …`. Prompts are
+panel shows each prompt once it is typed: `Dana → Maya: …`. Prompts are
 limited to three in a burst, one more every five seconds, and are not kept
 across a server restart.
 
@@ -212,12 +212,12 @@ chair nobody holds, walks there along the waypoint graph and sits through the sa
 interaction a player uses, so it never takes your chair and you see its chair as
 taken. Idle, it stands up and wanders between rooms; two idle agents that meet
 stop, face each other and trade a few canned lines in speech bubbles. The
-roster lists them under **Live agents** with an `Agent` badge and a link to the
-issue or pull request. An agent that `needs-input` (waiting on a permission, a
+roster lists them under **Live agents** with a badge, a runner's agent's
+title or `Agent` for one with none, and a link to the issue or pull request. An agent that `needs-input` (waiting on a permission, a
 question or a sign-in) keeps its chair and is made hard to miss: an orange
 `Needs you` beacon over its head, a `Needs you` badge in the roster, and
 `Needs you on #39: <what it waits on>` under its name. The manager posts
-`Claude 1 needs you on #39: <what it waits on>` once each time an agent starts
+`Maya needs you on #39: <what it waits on>` once each time an agent starts
 waiting; the beacon and badge clear when it carries on.
 
 When the CEO tells the manager to put one of these agents on an issue or pull
@@ -321,16 +321,18 @@ to `/agents/runner/sync` with the secret as a bearer token:
 curl -X POST localhost:2567/agents/runner/sync \
   -H "Authorization: Bearer $RUNNER_SECRET" -H 'Content-Type: application/json' \
   -d '{"runnerId":"runner-1","repo":"krasovsky22/agent-office-sims","acked":[],
-       "slots":[{"id":"slot-1","name":"Claude 1","status":"working","issueNumber":39,
-                 "activity":"Bash: pnpm test"},
-                {"id":"slot-2","name":"Claude 2","status":"idle"}],
+       "slots":[{"id":"slot-1","name":"Maya","title":"Software Developer",
+                 "description":"Takes the GitHub issues it is given …",
+                 "status":"working","issueNumber":39,"activity":"Bash: pnpm test"},
+                {"id":"slot-2","name":"Leo","title":"Software Developer","status":"idle"}],
        "events":[{"id":"event-1","kind":"started","slotId":"slot-1","issueNumber":39}]}'
 # {"ok":true,"commands":[]}
 ```
 
 Each sync carries the runner's whole state. `slots` lists every slot, at most
-4, each `idle`, `starting`, `working`, `needs-input` or `exited`, with an
-optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`).
+4, each `idle`, `starting`, `working`, `needs-input` or `exited`, with its
+agent's `name`, `title` and `description` (see [Agent profiles](#agent-profiles)),
+and an optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`).
 `events` lists what happened since the last answered sync, at most 8, each
 `started`, `pr-opened`, `failed` or `finished`, with an optional `pr` and
 `message`; `prompts` says what came of the CEO's prompts, at most 8, each a
@@ -341,9 +343,10 @@ once it is typed; `acked` holds at most 32 ids. A `pr` with `"simulated":true`
 is the mock agent's stand-in, with no `url`: nothing was opened on GitHub, and
 the office never links it or shows its number. Strings are measured in bytes: the
 UTF-8 of the string as `JSON.stringify` writes it, escapes included and quotes
-not. A `name` is at most 18 bytes, an `activity` or a `pr` title 90, a `message`
-280 and a `pr` link 300; a sync with a longer one is refused rather than cut,
-which keeps every sync the server takes under 16 KB whatever its characters,
+not. A `name` is at most 18 bytes, a `title` 40, an `activity` or a `pr` title
+90, a `message` 280, a `pr` link 300 and a `description` 400; a sync with a
+longer one is refused rather than cut,
+which keeps every sync the server takes under 20 KB whatever its characters,
 sent as `JSON.stringify` writes it. A runner re-sends an event, or a prompt's
 outcome, until a sync carrying it is answered, and the server passes each event
 id on once and takes each prompt's first outcome. The shape is `RunnerSync` in
@@ -430,7 +433,7 @@ reply also carries `"standup": true`, and the runner pauses its agents for it
 until a reply leaves it out; see [The standup](#the-standup).
 
 The route is refused as the report route is: `405` for anything but `POST`,
-`401` without the secret, `413` over 16 KB, `429` past about ten syncs a
+`401` without the secret, `413` over 20 KB, `429` past about ten syncs a
 second, `400` for a body that is not a sync or lists too many slots, `403` for
 a runner whose `repo` is not `PROJECT_BOARD_REPO`, and `409` when the floor has
 no room for its slots.
@@ -538,7 +541,8 @@ server, start it in a second terminal with the same secret:
 RUNNER_SECRET=<the server's RUNNER_SECRET> pnpm dev:runner
 ```
 
-Two idle slots, `Mock 1` and `Mock 2`, walk onto the floor. The runner syncs
+Two idle slots walk onto the floor, each named like a person, `Maya` and `Leo`
+say, and titled `Software Developer`; see [Agent profiles](#agent-profiles). The runner syncs
 about once a second, backing off up to 30 seconds while the server is
 unreachable or refusing it, and logs each new reason once. On a `start`
 command a mock slot reports `started`, works through a few scripted steps on
@@ -642,6 +646,42 @@ Two query parameters are useful while developing. `?props=off` renders the
 grey-box office instead of the asset kit, and `?debug` puts the draw-call count
 and the number of placed props on the HUD.
 
+#### Agent profiles
+
+Every slot's agent has a profile: a name, a title and a description. A slot
+starts with a person's name from a fixed list (`DEFAULT_AGENT_NAMES` in
+`packages/shared/src/agentProfile.ts`), a block of four picked by the runner's
+id, the machine's name, so a runner's agents never share a name and keep theirs
+from run to run, and a second runner most likely gets a block of its own. Its
+title starts as `Software Developer` and its description as
+`Takes the GitHub issues it is given, implements and tests the change, and opens a pull request for a person to review.`
+The nameplate over an agent's head reads `Maya · Software Developer`, and the
+roster, the project board's `Assign…` picker, the standup panel and the agent's
+terminal panel show its title beside its name; the AI Manager sees each
+agent's title too.
+
+The CEO edits a profile from the roster: `Profile` on an agent's line opens
+its card, everyone sees its title and description there, and the CEO's has
+`Edit profile`, a form for the name (18 bytes at most), the title (40) and the
+description (400, lines kept), checked by `agentProfileRefusal`, the same rule
+as handing an agent work. Anyone else's card says only the CEO can edit it, and
+the server refuses their edits with that reason. Edits are limited to four in a
+burst, one more every five seconds. An edit goes to the agent's runner as a
+`profile` command; the runner keeps it in `<RUNNER_DATA_DIR>/profiles.json`,
+private to its user, and reports it on its next sync, which is when the floor
+changes, so a profile outlives a restart of the runner or the server. Only the
+CEO writes a profile: nothing an issue, a pull request or an agent says
+reaches it.
+
+The title and description are the agent's system prompt. As each session
+starts, the runner gives Claude Code
+`--append-system-prompt "In this office your name is <name> and your title is <title>. …"`,
+followed by the description as the CEO's words, on top of Claude Code's own
+system prompt; a standing task's headless run gets the same. The mock agent
+prints it at the top of its terminal instead. An edit therefore applies from
+the agent's next session or job, never to the one it is in, and the profile
+card says so.
+
 #### The runner's budget
 
 Real agents cost real money, so the runner meters it and caps it on its own,
@@ -672,8 +712,7 @@ next start without a real agent. None of this touches anything in the game.
 
 #### Claude Code in the runner
 
-With `RUNNER_AGENT=claude`, each slot is named `Claude 1`, `Claude 2` and so
-on, and a `start` runs [Claude Code](https://code.claude.com/) in a terminal
+With `RUNNER_AGENT=claude`, each slot keeps its [profile](#agent-profiles), and a `start` runs [Claude Code](https://code.claude.com/) in a terminal
 (a PTY) of its own, in the task's worktree. The runner refuses to start if
 `claude` is not on its `PATH`. Before it starts, the runner reads the issue
 with `gh issue view` and refuses one that is closed or carries
@@ -683,7 +722,8 @@ prompt, built from the issue's number and title alone: read the issue with
 branch, push the branch with `git push -u origin HEAD`, and open a pull
 request with `gh pr create` whose body says `Closes #<n>`, never merging it.
 The CEO's note follows, quoted. Claude reads the issue itself, so none of its
-text passes through the runner.
+text passes through the runner. Its profile's title and description are its
+system prompt, appended to Claude Code's own; see [Agent profiles](#agent-profiles).
 
 The runner reads the pull request off Claude's `PostToolUse` hook, from the
 URL a `gh pr create` it ran printed, on `RUNNER_REPO` only, counts it handed
@@ -984,7 +1024,7 @@ task. An issue's start for a slot on a standing run takes the slot back at
 once: the run is stopped and reported `preempted`, its pull request is queued
 again without counting an attempt, and it runs later on a free slot.
 
-**What the office says.** The AI Manager posts each run: `Claude 2 reviewed
+**What the office says.** The AI Manager posts each run: `Leo reviewed
 PR #112 “…”: <the comment's link>`, a scheduled run's result, a simulated
 review or run that says nothing was posted or done, a pull request skipped as
 an outside contributor's, a run preempted by issue work, a task that has
@@ -1032,7 +1072,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twenty-two:
+Then confirm all twenty-four:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -1101,7 +1141,10 @@ Then confirm all twenty-two:
     do that." `apps/server/src/rooms/OfficeRoom.test.ts` checks exactly that
     against a live room. With the runner running, as in
     [Running the runner](#running-the-runner), Dana's `Assign…` on an open
-    issue lists `Mock 1` and `Mock 2`; giving one an issue not labelled
+    issue lists the runner's two agents, each named like a person and titled
+    `Software Developer` (this check calls them `<first>` and `<second>`: their
+    names depend on the runner's machine, and stay the same from run to run);
+    giving one an issue not labelled
     `agent-restricted` shows it assigned in both tabs, and `Unassign` frees it
     again. With no runner the picker says
     no agent in the office can take an issue right now.
@@ -1135,13 +1178,13 @@ Then confirm all twenty-two:
     `agent-restricted` that nobody has: with the runner running, as in
     [Running the runner](#running-the-runner), it goes to a mock slot and both
     tabs' boards show the issue assigned to it, and the AI Manager posts
-    `Mock 1 started on #N` and `Mock 1 needs you on #N: Permission: Bash pnpm test`,
-    and `Mock 1` waits in its chair, its beacon lit, however long nobody
-    answers; `what is Mock 1 doing?` says it is waiting on you. Once a prompt
-    answers it, the AI Manager posts `Mock 1 couldn't work on #N` with the mock's
+    `<first> started on #N` and `<first> needs you on #N: Permission: Bash pnpm test`,
+    and `<first>` waits in its chair, its beacon lit, however long nobody
+    answers; `what is <first> doing?` says it is waiting on you. Once a prompt
+    answers it, the AI Manager posts `<first> couldn't work on #N` with the mock's
     reason, or with `RUNNER_MOCK_OUTCOME=pr-opened`,
-    `Mock 1 handed in #N … for your review as a simulated pull request: the mock agent opened nothing on GitHub.`,
-    with no number and no link. `have Mock 2 do #N` names the
+    `<first> handed in #N … for your review as a simulated pull request: the mock agent opened nothing on GitHub.`,
+    with no number and no link. `have <second> do #N` names the
     slot instead; an issue with the restriction label is refused with that reason.
     `put someone on #N` and `assign <a word from its title>` go to a free slot
     the same way; with no runner and no orchestrator the reply says there are
@@ -1155,9 +1198,9 @@ Then confirm all twenty-two:
     live room, including that the room keeps ticking while the manager thinks.
 15. **A live agent's monitor shows its terminal, in both tabs.** With the
     server's `RUNNER_SECRET` set and no runner started, note the draw-call
-    count with `?debug`, then seat `Mock 1` through the
+    count with `?debug`, then seat `<first>` through the
     [runner link](#the-runner-link): send the sync `curl` there with the
-    first slot named `Mock 1` and `repo` set to `PROJECT_BOARD_REPO`. It sits
+    first slot named `<first>` and `repo` set to `PROJECT_BOARD_REPO`. It sits
     at a free open-floor desk and its monitor reads `connecting…`. Post the
     [Screens](#screens) `curl` with `"full":true`: within a few seconds that
     desk's monitor shows the coloured row, the same in both tabs, while every
@@ -1166,7 +1209,7 @@ Then confirm all twenty-two:
     the one noted before it sat.
 16. **A working agent's terminal opens on `E`, in both tabs.** With the runner
     started as in [Running the runner](#running-the-runner), assign an
-    unrestricted issue to `Mock 1` and, once it sits, walk Dana to just behind
+    unrestricted issue to `<first>` and, once it sits, walk Dana to just behind
     its chair: the prompt reads `Watch the agent's terminal`, and standing
     still there the camera leans in over the agent's shoulder until its
     monitor fills the view and its lines can be read; a step eases it back.
@@ -1184,14 +1227,14 @@ Then confirm all twenty-two:
     `agent-restricted` and one without. Milo, not the CEO, is offered no `Assign…`
     on either. Dana assigns the labelled issue: refused, saying a maintainer has
     to remove its `agent-restricted` label. She assigns the unlabelled one: within a couple of
-    seconds both tabs show it `In progress`, `Mock 1` sits and works it on its
+    seconds both tabs show it `In progress`, `<first>` sits and works it on its
     monitor, lights its `Needs you` beacon and waits in its chair until a
     prompt answers it, and then the card is `In review` with
     `Simulated pull request, nothing on GitHub: [mock] <title>` as its
     deliverable, with no link, in both tabs.
     `Send back` puts it `In progress` again and the mock works a rework turn
     and hands it in again. Close the issue on GitHub: within one poll both
-    tabs show it `Done`, `Mock 1` says `Shipped #<n>` in the chat and is idle
+    tabs show it `Done`, `<first>` says `Shipped #<n>` in the chat and is idle
     again. Assign another unrestricted issue and, while the mock works it,
     `Unassign` it: the slot stops at once and goes idle, and the runner's log
     says its worktree is kept, with the uncommitted change or commit it holds.
@@ -1200,31 +1243,31 @@ Then confirm all twenty-two:
     `RUNNER_MOCK_OUTCOME=pr-opened` and `RUNNER_DAILY_BUDGET_USD=0.15`. With
     the runner up, both tabs' rosters read `Agents' spend: $0.00 of $0.15 today`
     under the live agents. Dana assigns an unrestricted issue to
-    `Mock 1`: the spend climbs five cents a step in both tabs, and once the
+    `<first>`: the spend climbs five cents a step in both tabs, and once the
     pull request is handed in it reads `$0.20 of $0.15 today — budget spent, no
     new starts`, marked as a warning. She assigns another unrestricted issue to
-    `Mock 2`: it never starts, its card notes the runner's daily budget is
+    `<second>`: it never starts, its card notes the runner's daily budget is
     spent with the day's figures, the AI Manager's conversation explains it and how
     to try again, and the runner's log says the start was refused.
 19. **The CEO prompts a coding agent from its terminal, in both tabs.** Run
     the server with `RUNNER_SECRET` and the runner with
     `RUNNER_MOCK_OUTCOME=question`, and assign an unrestricted issue to
-    `Mock 1` as in step 17, then open its terminal in both tabs as in step 16.
+    `<first>` as in step 17, then open its terminal in both tabs as in step 16.
     Milo's panel says only the CEO can prompt it and his prompt box is
     disabled. Dana sends `hurry up` while the mock works: it is not
-    typed, her panel says `Mock 1 is busy`, her text stays in the box, and
+    typed, her panel says `<first> is busy`, her text stays in the box, and
     Milo's panel shows nothing. When its beacon lights for the permission
     step, Dana answers its menu with `Enter · confirm` as in step 20. Once the mock
     asks its question and waits, its beacon lit with
     `Finished without a pull request`, Dana sends `Yes, the empty case too.`:
     the mock's terminal shows `> Yes, the empty case too.` once, both panels
-    show `Dana → Mock 1: Yes, the empty case too.`, and the mock carries on to
+    show `Dana → <first>: Yes, the empty case too.`, and the mock carries on to
     hand its pull request in. `apps/server/src/rooms/agentPromptHandlers.test.ts`
     checks the gate, the refusals and the two tabs against a live room, and
     `apps/runner/src/agents/ptyAgent.test.ts` that no control character
     reaches the agent's terminal.
 20. **The CEO answers an agent's choice screen with keys.** As in step 19,
-    with the default `RUNNER_MOCK_OUTCOME`, wait for `Mock 1`'s beacon on
+    with the default `RUNNER_MOCK_OUTCOME`, wait for `<first>`'s beacon on
     `Permission: Bash pnpm test`. Dana's panel shows the key pad, its menu
     `❯ 1. Yes` / `2. No, …` on the terminal; Milo's panel has no pad. Dana
     clicks `↓`: the pointer moves to `2.` in both tabs' terminals and the
@@ -1234,7 +1277,7 @@ Then confirm all twenty-two:
     it carries on. On the next task, `Esc · cancel` at the same menu ends its
     turn as `Finished without a pull request`: the beacon stays lit, but the
     mock now waits at its prompt, so `↓` is refused under the pad,
-    `Mock 1 is not waiting on a choice, so Down was not pressed. Send it a
+    `<first> is not waiting on a choice, so Down was not pressed. Send it a
     prompt instead.`, and the runner logs
     `key Down for slot-1 from Dana not pressed: not-waiting`; Dana's prompt
     sets it going again.
@@ -1255,7 +1298,7 @@ Then confirm all twenty-two:
     have Dana press `Check now`: a free mock slot sits and types, its terminal
     shows `Read: .sims-review/pr.diff` and the rest of its steps, the floor
     names `Review PR #<n>: <title>`, and the AI Manager posts
-    `Mock 1 did a simulated review of PR #<n> “<title>” … nothing was posted
+    `<first> did a simulated review of PR #<n> “<title>” … nothing was posted
     on GitHub.`; the row reads `Last: simulated PR #<n>` and `$0.20 of $2.00
     today` in both tabs, and nothing appears on the pull request. A draft
     waits until it is marked ready. Assign an unrestricted issue to the slot
@@ -1275,39 +1318,62 @@ Then confirm all twenty-two:
     preemption, the caps and a restart.
 22. **The CEO runs a standup, the same in both tabs.** Run the server with
     `RUNNER_SECRET` and the runner with `RUNNER_MOCK_OUTCOME=question`, as in
-    step 19, and assign `Mock 1` one unrestricted issue and `Mock 2` another a few
-    seconds later. Once `Mock 1`'s beacon lights on
+    step 19, and assign `<first>` one unrestricted issue and `<second>` another a few
+    seconds later. Once `<first>`'s beacon lights on
     `Permission: Bash pnpm test`, Milo's roster shows `Call a standup`
     disabled, `Only the CEO calls a standup`; Dana clicks it. Both mocks get up
     and walk to the lobby, where they stand in rows facing the AI Manager, and
     the standup panel opens in both tabs. Once they have arrived each gives its
     update in turn, in a bubble, in the panel and in the AI Manager's
-    conversation: `Mock 1`'s issue in progress with
-    `Blocker: waiting on you: Permission: Bash pnpm test`, `Mock 2`'s issue in
+    conversation: `<first>`'s issue in progress with
+    `Blocker: waiting on you: Permission: Bash pnpm test`, `<second>`'s issue in
     progress with its last step and no blockers, whose terminal now reads
     `Paused for the standup.`; then the AI Manager says it is everyone's update
-    and that `Mock 1` waits on Dana. Dana opens `Mock 1`'s `Terminal` in the
+    and that `<first>` waits on Dana. Dana opens `<first>`'s `Terminal` in the
     panel and clicks `Enter · confirm`: its update reads `— resolved` and its
-    beacon goes out in both tabs. She picks `Mock 2`, writes `Skip the server
+    beacon goes out in both tabs. She picks `<second>`, writes `Skip the server
     part and open the PR.` and sends it: its record reads `kept for when it is
     next at its prompt, after the standup`. Milo's panel shows all of it with
     its controls disabled, and still does after he reloads his tab. Dana walks
     to the manager's desk and says `end the standup`: the panel closes, the
-    AI Manager says `✓ Standup over`, `Mock 1` walks back to the chair it left,
-    and `Mock 2` carries on from its paused step and, once it waits on its
+    AI Manager says `✓ Standup over`, `<first>` walks back to the chair it left,
+    and `<second>` carries on from its paused step and, once it waits on its
     permission, is typed the direction. Asked `what happened at the standup?`,
     the AI Manager lists each agent's update and blocker, the resolved one
     marked `since resolved`. Nothing was lost: both issues' cards
     are where they were. `apps/server/src/rooms/standupHandlers.test.ts`
     checks the gate, the late joiner and the direction's round trip against a
     live room.
-23. **`pnpm typecheck` passes** across the whole repository.
+23. **The CEO edits an agent's profile, the same in both tabs.** With the
+    runner running, as in [Running the runner](#running-the-runner), both
+    rosters list `<first>` and `<second>` under **Live agents** with a
+    `Software Developer` badge each, and their nameplates read
+    `<first> · Software Developer`. Milo clicks `Profile` on `<first>`'s line:
+    its card shows the title and the default description, says
+    `Only the CEO, Dana, can edit an agent's profile.` and that an edit applies
+    from the agent's next session or job, and offers no form. Dana clicks
+    `Profile`, then `Edit profile`, renames it `Grace`, titles it
+    `Release Engineer`, writes a line of description and clicks `Save`: within
+    a couple of seconds both tabs show `Grace · Release Engineer` on its
+    nameplate, `Grace` with a `Release Engineer` badge in the roster, the
+    project board's `Assign…` picker lists `Grace · Release Engineer`, and
+    Milo's card shows the new description. Stop the runner and the server and
+    start both again: `Grace` comes back with her title and description, kept
+    in `<RUNNER_DATA_DIR>/profiles.json`. Give Grace an unrestricted issue: her
+    terminal panel's header reads `Release Engineer`, and her mock terminal
+    starts with `In this office your name is Grace and your title is Release Engineer.`
+    and the description, the system prompt a real agent is given. An
+    `agent:profile` Milo sends straight down the socket is refused with
+    nothing changed; `apps/server/src/rooms/agentProfileHandlers.test.ts`
+    checks that, the sanitising, the runner's report back and the rate limit
+    against a live room.
+24. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the standup's gate, places, turns, updates, directions and blockers, in a live room too, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue restriction label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the server's mirror, gate, announcements and the AI Manager's words for them, and their round trip from the AI Manager to the runner and back
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the agents' profiles: their default names, gate, sanitising, runner store and system prompt, in a live room too, the standup's gate, places, turns, updates, directions and blockers, in a live room too, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue restriction label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the server's mirror, gate, announcements and the AI Manager's words for them, and their round trip from the AI Manager to the runner and back
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -1474,6 +1540,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/stickerNotes.ts the sticker boards' notes: which issues have one, where each is, and which an agent fetches or pins
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/agentPrompt.ts  the CEO's prompts and choice-screen keys to the coding agents: the one gate, the keys, and why one was refused
+  src/agentProfile.ts an agent's name, title and description: default names, the CEO-only gate, caps in sync bytes, the edit message
   src/standup.ts      the standup: the CEO-only gate, why a command was refused, the places in the manager's room, what came of a direction
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
@@ -1491,6 +1558,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/manager/            the AI manager: its view of the office, rule and model planners, call budget, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/rooms/agentPromptHandlers.ts  the CEO's prompts and keys to a coding agent, and the refusals sent back
+  src/rooms/agentProfileHandlers.ts  the CEO's edits to an agent's profile, queued for its runner, and the refusals sent back
   src/rooms/standingHandlers.ts  the CEO's standing task buttons, and the refusals sent back
   src/agents/standingMirror.ts   every runner's standing tasks, mirrored for the rooms
   src/agents/standingControl.ts  creating and managing standing tasks through the one gate
@@ -1503,7 +1571,8 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/config.ts           its RUNNER_* variables, refused at boot when wrong
   src/syncLoop.ts         the sync about once a second: acks, events, backoff
   src/syncClient.ts       one sync over HTTP, and reading back its commands
-  src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it
+  src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it, each slot's agent's profile
+  src/profiles.ts         profiles.json: the CEO's edits to the agents' profiles, kept across restarts
   src/budget.ts           the day's spend, and the daily budget that refuses new starts
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
   src/worktrees.ts        the git plumbing: the clone, a worktree per task, what removing one would lose
@@ -1521,7 +1590,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/agents/usage.ts     a Claude Code session's cost, read off its transcript and priced per model
   src/agents/hookServer.ts  the loopback server agents' hooks post to, a token per process
   src/agents/childEnv.ts  the allowlist of the runner's environment an agent starts with
-  src/agents/prompt.ts    the first prompt an agent gets for an issue
+  src/agents/prompt.ts    an agent's system prompt from its profile, and the first prompt it gets for an issue
   src/agents/screen.ts    OSC 9;4 progress and plain text, read off a terminal's output
   src/standing/scheduler.ts  standing tasks: triggers, the ledger, caps, preemption, and the runs they start
   src/standing/store.ts   standing.json: definitions, ledgers and the day's spend, kept across restarts
@@ -1551,6 +1620,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/managerAccess.ts    what the local player may say to the manager, and why
   src/standingAccess.ts   how a standing task reads in the roster, and whether its buttons are the local player's
   src/agentPromptAccess.ts  whether the local player may prompt a coding agent, which keyboard keys its key pad takes, and why a prompt or key was refused
+  src/agentProfileAccess.ts  whether the local player may edit an agent's profile, why an edit was refused, and when it applies
+  src/ui/AgentProfileCard.tsx  an agent's profile under its roster line: read by everyone, edited by the CEO
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to
   src/ui/AgentTerminalPanel.tsx  a working agent's terminal at full size, opened behind its chair

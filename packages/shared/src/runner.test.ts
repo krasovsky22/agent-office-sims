@@ -24,6 +24,7 @@ import {
   simulatedPullRequestArtifact,
   toRunnerCommand,
 } from "./runner.js";
+import { MAX_AGENT_DESCRIPTION_BYTES, MAX_AGENT_TITLE_BYTES } from "./agentProfile.js";
 import { MAX_RUNNER_USD } from "./spend.js";
 
 const ISSUE = "https://github.com/krasovsky22/agent-office-sims/issues/39";
@@ -36,13 +37,15 @@ const SYNC = {
   slots: [
     {
       id: "slot-1",
-      name: "Claude 1",
+      name: "Maya",
+      title: "Software Developer",
+      description: "Takes the issues it is given.\nOpens a pull request for each.",
       status: "working",
       issueNumber: 39,
       activity: "Bash: pnpm test",
       pr: { number: 41, title: "Night shift", url: PULL },
     },
-    { id: "slot-2", name: "Claude 2", status: "idle" },
+    { id: "slot-2", name: "Leo", status: "idle" },
   ],
   events: [{ id: "event-1", kind: "pr-opened", slotId: "slot-1", issueNumber: 39, pr: { number: 41, url: PULL } }],
   prompts: [{ commandId: "command-7", slotId: "slot-1", outcome: "busy" }],
@@ -57,13 +60,16 @@ describe("parseRunnerSync", () => {
       slots: [
         {
           id: "slot-1",
-          name: "Claude 1",
+          name: "Maya",
+          title: "Software Developer",
+          description: "Takes the issues it is given.\nOpens a pull request for each.",
           status: "working",
           issueNumber: 39,
           activity: "Bash: pnpm test",
           pr: { number: 41, title: "Night shift", url: PULL },
         },
-        { id: "slot-2", name: "Claude 2", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
+        // A runner that gives no profile, as an older one does.
+        { id: "slot-2", name: "Leo", title: "", description: "", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
       ],
       events: [
         {
@@ -100,7 +106,7 @@ describe("parseRunnerSync", () => {
       runnerId: "r",
       repo: "o/r",
       acked: [],
-      slots: [{ id: "slot-1", name: "slot-1", status: "needs-input", issueNumber: undefined, activity: "", pr: undefined }],
+      slots: [{ id: "slot-1", name: "slot-1", title: "", description: "", status: "needs-input", issueNumber: undefined, activity: "", pr: undefined }],
       events: [],
       spend: undefined,
       prompts: [],
@@ -124,11 +130,22 @@ describe("parseRunnerSync", () => {
   it("sanitises every string it keeps", () => {
     const parsed = parseRunnerSync({
       ...SYNC,
-      slots: [{ id: "slot-1", name: "Claude\n\u0000 1", status: "working", activity: "a\nb\u0007c".repeat(5) }],
+      slots: [
+        {
+          id: "slot-1",
+          name: "Claude\n\u0000 1",
+          title: "Release\n\u0007Engineer",
+          description: "Line one\r\n\u001b[2Jline two\u202e",
+          status: "working",
+          activity: "a\nb\u0007c".repeat(5),
+        },
+      ],
       events: [{ id: "event-1", kind: "failed", slotId: "slot-1", issueNumber: 39, message: "line one\nline two" }],
     });
     const slot = parsed?.slots[0];
     expect(slot?.name).toBe("Claude 1");
+    expect(slot?.title).toBe("Release Engineer");
+    expect(slot?.description).toBe("Line one\n[2Jline two");
     expect(slot?.activity).not.toContain("\n");
     expect(slot?.activity).not.toContain("\u0007");
     expect(parsed?.events[0]?.message).toBe("line one line two");
@@ -165,6 +182,9 @@ describe("parseRunnerSync", () => {
     ["a slot name of control characters past its bytes", { ...SYNC, slots: [{ id: "s", name: "\u001b".repeat(4), status: "idle" }] }],
     ["a pull request link within its length but past its bytes", { ...SYNC, slots: [{ id: "s", status: "working", pr: { number: 1, url: `${PULL}?q=${"\u00e9".repeat(150)}` } }] }],
     ["a slot name that is not a string", { ...SYNC, slots: [{ id: "s", name: ["Claude"], status: "idle" }] }],
+    ["a title past its bytes", { ...SYNC, slots: [{ id: "s", title: "t".repeat(MAX_AGENT_TITLE_BYTES + 1), status: "idle" }] }],
+    ["a description past its bytes", { ...SYNC, slots: [{ id: "s", description: "\u00e9".repeat(MAX_AGENT_DESCRIPTION_BYTES / 2 + 1), status: "idle" }] }],
+    ["a title that is not a string", { ...SYNC, slots: [{ id: "s", title: 7, status: "idle" }] }],
     ["an unknown refusal", { ...SYNC, events: [{ ...SYNC.events[0], refusal: "bored" }] }],
     ["a spend that is not an object", { ...SYNC, spend: 5 }],
     ["a spend with no amount", { ...SYNC, spend: { budgetUsd: 5 } }],
@@ -268,6 +288,27 @@ describe("toRunnerCommand", () => {
     });
   });
 
+  it("builds a profile command, sanitised, the CEO's description's lines kept", () => {
+    expect(
+      toRunnerCommand("command-10", {
+        kind: "profile",
+        slotId: "slot-1",
+        name: " Grace\u0007 ",
+        title: "Release\nEngineer",
+        description: "Keeps it green.\r\n\r\n\r\n\u001bNever skips the changelog.",
+        requestedBy: "Dana",
+      }),
+    ).toEqual({
+      id: "command-10",
+      slotId: "slot-1",
+      kind: "profile",
+      name: "Grace",
+      title: "Release Engineer",
+      description: "Keeps it green.\n\nNever skips the changelog.",
+      requestedBy: "Dana",
+    });
+  });
+
   it.each([
     ["a bad slot id", { kind: "stop", slotId: "slot:1", reason: "" }],
     ["a javascript: link", { kind: "start", slotId: "s", issueNumber: 1, title: "t", url: "javascript:x", note: "", requestedBy: "" }],
@@ -276,6 +317,8 @@ describe("toRunnerCommand", () => {
     ["an empty prompt", { kind: "prompt", slotId: "s", text: "\n\n", requestedBy: "" }],
     ["a stop for no issue", { kind: "stop", slotId: "s", reason: "", issueNumber: -1 }],
     ["a key that types text", { kind: "key", slotId: "s", key: "y" as "enter", requestedBy: "" }],
+    ["a profile with no name", { kind: "profile", slotId: "s", name: "\u0007", title: "Developer", description: "", requestedBy: "" }],
+    ["a profile with no title", { kind: "profile", slotId: "s", name: "Grace", title: " ", description: "", requestedBy: "" }],
   ] as const)("refuses a command with %s", (_label, draft) => {
     expect(toRunnerCommand("command-1", draft)).toBeUndefined();
   });

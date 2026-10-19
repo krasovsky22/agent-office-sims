@@ -301,9 +301,13 @@ export function claudeAdapter(options: ClaudeOptions = {}): ProviderAdapter<Clau
     credentialEnv: CLAUDE_CREDENTIAL_ENV,
     scrubEnv: CLAUDE_SCRUB_ENV,
     prepare: (dataDir) => ({ settings: writeSettings(dataDir, permissions) }),
-    launch({ prompt, setup }) {
+    launch({ prompt, systemPrompt, setup }) {
       const mode = permissions === "all" ? "bypassPermissions" : "acceptEdits";
       const args = ["--settings", setup.settings, "--permission-mode", mode];
+      if (systemPrompt !== "") {
+        // Appended, so Claude Code keeps its own system prompt and its tools' instructions.
+        args.push("--append-system-prompt", systemPrompt);
+      }
       if (options.model !== undefined) {
         args.push("--model", options.model);
       }

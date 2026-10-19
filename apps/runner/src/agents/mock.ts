@@ -249,7 +249,9 @@ export function createMockAgent(options: MockAgentOptions): Agent {
 
       timer = setTimeout(() => {
         reporter.started();
-        reporter.output(`${BOLD}mock agent${RESET} on #${task.issueNumber}: ${task.title}\r\n${DIM}for ${task.requestedBy}${RESET}\r\n\r\n`);
+        reporter.output(`${BOLD}mock agent${RESET} on #${task.issueNumber}: ${task.title}\r\n${DIM}for ${task.requestedBy}${RESET}\r\n`);
+        // What a real agent would be given as its system prompt, so the office can see its profile reach it.
+        reporter.output(`${DIM}${task.systemPrompt.replace(/\n/g, "\r\n")}${RESET}\r\n\r\n`);
         next();
       }, stepMs);
 

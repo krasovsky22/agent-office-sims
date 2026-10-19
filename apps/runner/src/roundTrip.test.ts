@@ -18,7 +18,15 @@
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 
-import { LIVE_AGENT_STATUS, RUNNER_SCREENS_PATH, RUNNER_SYNC_PATH, type ScreenFramesEvent, isRunnerWorkEvent } from "@sim/shared";
+import {
+  DEFAULT_AGENT_TITLE,
+  LIVE_AGENT_STATUS,
+  RUNNER_SCREENS_PATH,
+  RUNNER_SYNC_PATH,
+  type ScreenFramesEvent,
+  defaultAgentName,
+  isRunnerWorkEvent,
+} from "@sim/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createHealthServer } from "../../server/src/http.js";
@@ -29,6 +37,7 @@ import { createScreensEndpoint } from "../../server/src/agents/screensEndpoint.j
 import { MOCK_PERMISSION, createMockAgent } from "./agents/mock.js";
 import type { Agent } from "./agents/types.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
+import { ProfileStore } from "./profiles.js";
 import { createRedactor } from "./redact.js";
 import { ScreenLoop } from "./screenLoop.js";
 import { createScreensClient } from "./screensClient.js";
@@ -80,12 +89,17 @@ afterAll(async () => {
   fixture.cleanup();
 });
 
+/** The runner's agents' default names. */
+const FIRST = defaultAgentName("runner-1", 0);
+const SECOND = defaultAgentName("runner-1", 1);
+
 function runner(outcome: "failed" | "pr-opened", agent?: Agent) {
   const pool = new SlotPool({
     count: 2,
     agent: agent ?? createMockAgent({ outcome, stepMs: STEP_MS }),
     workspaces,
     taskTimeoutMs: TIMEOUT_MS,
+    runnerId: "runner-1",
   });
   const loop = new SyncLoop({
     runnerId: "runner-1",
@@ -141,9 +155,9 @@ describe("the mock runner and the server's runner link", () => {
     const { pool, loop } = runner("pr-opened");
 
     await loop.syncOnce();
-    expect(link.current().map((agent) => [agent.id, agent.name, agent.status])).toEqual([
-      ["runner:runner-1:slot-1", "Mock 1", LIVE_AGENT_STATUS.idle],
-      ["runner:runner-1:slot-2", "Mock 2", LIVE_AGENT_STATUS.idle],
+    expect(link.current().map((agent) => [agent.id, agent.name, agent.title, agent.status])).toEqual([
+      ["runner:runner-1:slot-1", FIRST, DEFAULT_AGENT_TITLE, LIVE_AGENT_STATUS.idle],
+      ["runner:runner-1:slot-2", SECOND, DEFAULT_AGENT_TITLE, LIVE_AGENT_STATUS.idle],
     ]);
 
     const command = link.enqueue("runner-1", {
@@ -210,6 +224,45 @@ describe("the mock runner and the server's runner link", () => {
     inbox.close();
   });
 
+  it("takes the CEO's profile edit from the server, keeps it across a restart, and reports it back", async () => {
+    const file = join(fixture.dataDir, "profiles.json");
+    const start = () =>
+      new SyncLoop({
+        runnerId: "runner-3",
+        repo: REPO,
+        pool: new SlotPool({
+          count: 1,
+          agent: createMockAgent({ outcome: "failed" }),
+          workspaces,
+          taskTimeoutMs: TIMEOUT_MS,
+          runnerId: "runner-3",
+          profiles: new ProfileStore({ file }),
+        }),
+        client: createSyncClient({ serverUrl, secret: SECRET }),
+      });
+    const agent = () => link.current().find((record) => record.id === "runner:runner-3:slot-1");
+    const loop = start();
+    await loop.syncOnce();
+    expect(agent()).toMatchObject({ name: defaultAgentName("runner-3", 0), title: DEFAULT_AGENT_TITLE, profileEditable: true });
+
+    link.enqueue("runner-3", {
+      kind: "profile",
+      slotId: "slot-1",
+      name: "Grace",
+      title: "Release Engineer",
+      description: "Keeps the release branch green.",
+      requestedBy: "Dana",
+    });
+    await syncUntil(loop, () => agent()?.name === "Grace");
+    expect(agent()).toMatchObject({ title: "Release Engineer", description: "Keeps the release branch green." });
+    expect(link.pending("runner-3")).toEqual([]);
+
+    // A restarted runner starts with what it kept.
+    loop.stop();
+    await start().syncOnce();
+    expect(agent()).toMatchObject({ name: "Grace", title: "Release Engineer", description: "Keeps the release branch green." });
+  });
+
   it("is refused, and says so, when its secret is not the server's", async () => {
     const loop = new SyncLoop({
       runnerId: "runner-2",
@@ -239,8 +292,8 @@ describe("the mock runner's screens and the server's screen store", () => {
     await Promise.all(pool.screens().map(([, screen]) => screen.written()));
 
     await postUntil(screens, () => storedText("slot-2").length > 0);
-    expect(storedText("slot-1")).toEqual(["Mock 1 is waiting for work."]);
-    expect(storedText("slot-2")).toEqual(["Mock 2 is waiting for work."]);
+    expect(storedText("slot-1")).toEqual([`${FIRST} is waiting for work.`]);
+    expect(storedText("slot-2")).toEqual([`${SECOND} is waiting for work.`]);
     expect(heard[0]?.screens.map((screen) => screen.frame.full)).toEqual([true, true]);
 
     link.enqueue("runner-1", {
@@ -260,9 +313,14 @@ describe("the mock runner's screens and the server's screen store", () => {
     }
     await loop.syncOnce();
     await postUntil(screens, () => storedText("slot-1").some((row) => row.startsWith("✓ ")));
-    expect(storedText("slot-1")).toEqual([
+    const rows = storedText("slot-1");
+    expect(rows.slice(0, 3)).toEqual([
       "mock agent on #39: Night shift",
       "for Dana",
+      // Its profile's system prompt, as a real agent would be given it.
+      `In this office your name is ${FIRST} and your title is ${DEFAULT_AGENT_TITLE}.`,
+    ]);
+    expect(rows.slice(rows.indexOf("● Reading issue #39"))).toEqual([
       "● Reading issue #39",
       "● Edit: .sims-mock/issue-39.md",
       "● Bash: git commit",

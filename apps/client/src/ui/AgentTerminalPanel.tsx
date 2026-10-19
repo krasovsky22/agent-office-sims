@@ -15,14 +15,14 @@
  * times a second, so it never goes through React: the canvas repaints itself
  * from the net layer whenever the frame's version moves on.
  *
- * Around the terminal: the agent's name, what it is doing, and links to its
+ * Around the terminal: the agent's name and title, what it is doing, and links to its
  * issue and pull requests, which open on GitHub in a new tab; a simulated
  * pull request, which is on no page, is named and not linked. `E` or `Esc`
  * closes the panel, and so does stepping away or the agent leaving the desk;
  * `main.ts` decides all of them.
  *
  * Below it, the prompts the CEO has had typed into this terminal, the same in
- * every tab ("Dana → Claude 1: …"), and the CEO's composer for another. The
+ * every tab ("Dana → Maya: …"), and the CEO's composer for another. The
  * composer is enabled only for whoever the server would take a prompt from,
  * from `agentPromptAccess.ts`; anyone else is told why. A prompt is not shown
  * until the server says the runner typed it, and stays in the composer until
@@ -363,7 +363,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
       <header className="board__header">
         <h2 className="board__title">
           {name}
-          <span className="board__repo">Live agent</span>
+          <span className="board__repo">{agent === undefined || agent.title === "" ? "Live agent" : agent.title}</span>
           {agent?.needsInput === true ? (
             <span className="hud__badge hud__badge--needs-you">Needs you</span>
           ) : (

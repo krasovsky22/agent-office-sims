@@ -45,7 +45,7 @@ function report(id: string, extra: Partial<StandingTaskReport> = {}): StandingTa
 }
 
 function sync(runnerId: string, extra: Partial<RunnerSync> = {}): RunnerSync {
-  return { runnerId, repo: REPO, acked: [], slots: [{ id: "slot-1", name: "Mock 1", status: "idle", issueNumber: undefined, activity: "", pr: undefined }], events: [], ...extra };
+  return { runnerId, repo: REPO, acked: [], slots: [{ id: "slot-1", name: "Mock 1", title: "Software Developer", description: "", status: "idle", issueNumber: undefined, activity: "", pr: undefined }], events: [], ...extra };
 }
 
 function setup(now = () => 1000) {
@@ -135,7 +135,7 @@ describe("the standing mirror", () => {
     const { mirror, link } = setup(() => clock);
     link.sync(
       sync("box", {
-        slots: [{ id: "slot-1", name: "Mock 1", status: "working", issueNumber: undefined, activity: "Reviewing PR #112", pr: undefined, standing: { taskId: "st-abcd", pr: 112 } }],
+        slots: [{ id: "slot-1", name: "Mock 1", title: "Software Developer", description: "", status: "working", issueNumber: undefined, activity: "Reviewing PR #112", pr: undefined, standing: { taskId: "st-abcd", pr: 112 } }],
         standing: [report("st-abcd", { status: "running" })],
       }),
     );
@@ -144,7 +144,7 @@ describe("the standing mirror", () => {
     // The slot is on the floor with the pull request it reviews.
     expect(link.current()[0]?.task).toEqual({ title: "Review PR #112: Add a lift", url: `https://github.com/${REPO}/pull/112` });
 
-    link.sync(sync("box", { slots: [{ id: "slot-1", name: "Mock 1", status: "working", issueNumber: undefined, activity: "x", pr: undefined, standing: { taskId: "st-abcd", pr: 112 } }], standing: [report("st-abcd", { status: "running" })] }));
+    link.sync(sync("box", { slots: [{ id: "slot-1", name: "Mock 1", title: "Software Developer", description: "", status: "working", issueNumber: undefined, activity: "x", pr: undefined, standing: { taskId: "st-abcd", pr: 112 } }], standing: [report("st-abcd", { status: "running" })] }));
     expect(mirror.standingVersion()).toBe(version);
 
     clock += 20_000;
