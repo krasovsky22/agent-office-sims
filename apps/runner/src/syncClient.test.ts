@@ -177,6 +177,15 @@ describe("readCommands", () => {
     expect(reply.unreadable).toEqual(["command-2", "command-3"]);
   });
 
+  it("reads a change to an issue's state, which names no slot, and sets aside one it cannot act on", () => {
+    const reply = readCommands([
+      { id: "command-1", kind: "issue-state", issueNumber: 39, state: "closed", requestedBy: "Dana" },
+      { id: "command-2", kind: "issue-state", issueNumber: 39, state: "merged", requestedBy: "Dana" },
+    ]);
+    expect(reply.commands).toEqual([{ id: "command-1", kind: "issue-state", issueNumber: 39, state: "closed", requestedBy: "Dana" }]);
+    expect(reply.unreadable).toEqual(["command-2"]);
+  });
+
   it("sets aside a command it cannot read, by id, so it can be acked", () => {
     const reply = readCommands([
       { id: "command-1", slotId: "slot-1", kind: "dance" },

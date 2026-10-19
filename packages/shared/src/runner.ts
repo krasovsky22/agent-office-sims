@@ -24,6 +24,7 @@ import {
   sanitizeAgentTitle,
 } from "./agentProfile.js";
 import { MAX_AGENT_PROMPT_LENGTH, MAX_WORK_NOTE_LENGTH } from "./constants.js";
+import { type IssueState, isIssueState } from "./issueState.js";
 import { MAX_TASK_URL_LENGTH, parseTaskUrl } from "./liveAgents.js";
 import { MAX_LABEL_LENGTH } from "./projectBoard.js";
 import {
@@ -169,6 +170,8 @@ export const RUNNER_COMMAND_KIND = {
   standingCheckNow: "standing-check-now",
   /** Take the CEO's edit of a slot's agent's profile, for its next session. */
   profile: "profile",
+  /** Close or reopen an issue on GitHub, for the CEO who dragged its card across the board. */
+  issueState: "issue-state",
 } as const;
 
 export type RunnerCommandKind = (typeof RUNNER_COMMAND_KIND)[keyof typeof RUNNER_COMMAND_KIND];
@@ -215,6 +218,26 @@ export const RUNNER_PROMPT_OUTCOME = {
 } as const;
 
 export type RunnerPromptOutcomeKind = (typeof RUNNER_PROMPT_OUTCOME)[keyof typeof RUNNER_PROMPT_OUTCOME];
+
+/** What came of closing or reopening an issue on GitHub for the CEO. */
+export const RUNNER_ISSUE_STATE_OUTCOME = {
+  done: "done",
+  /** GitHub answered, and said no: most often an identity that may only read issues. */
+  refused: "refused",
+  /** GitHub could not be asked, or did not answer. */
+  failed: "failed",
+} as const;
+
+export type RunnerIssueStateOutcomeKind = (typeof RUNNER_ISSUE_STATE_OUTCOME)[keyof typeof RUNNER_ISSUE_STATE_OUTCOME];
+
+/**
+ * What came of one issue state command, reported until a sync carrying it is
+ * answered, as a prompt's outcome is. The server takes the first report.
+ */
+export interface RunnerIssueStateOutcome {
+  readonly commandId: string;
+  readonly outcome: RunnerIssueStateOutcomeKind;
+}
 
 /** A pull request a slot's agent opened. */
 export interface RunnerPullRequest {
@@ -386,6 +409,13 @@ export interface RunnerSync {
   readonly standing?: readonly StandingTaskReport[];
   /** Why the runner takes no standing tasks at all; left out by one that takes them. */
   readonly standingOff?: StandingOff | undefined;
+  /**
+   * Whether the runner closes and reopens issues on GitHub for the CEO: one
+   * with a GitHub identity does, the mock does not. Left out means no.
+   */
+  readonly changesIssues?: boolean;
+  /** What came of the issue state commands since the last successful sync; none when left out. */
+  readonly issueStates?: readonly RunnerIssueStateOutcome[];
 }
 
 /** Put an agent to work on an issue. */
@@ -478,6 +508,19 @@ export interface RunnerStandingTaskCommand {
   readonly requestedBy: string;
 }
 
+/**
+ * Close or reopen an issue on GitHub with the runner's own GitHub identity,
+ * for the CEO; the game server never writes to GitHub itself. The runner
+ * reports what came of it as a {@link RunnerIssueStateOutcome}.
+ */
+export interface RunnerIssueStateCommand {
+  readonly id: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.issueState;
+  readonly issueNumber: number;
+  readonly state: IssueState;
+  readonly requestedBy: string;
+}
+
 /** The commands for one of a runner's slots. */
 export type RunnerSlotCommand =
   | RunnerStartCommand
@@ -489,7 +532,7 @@ export type RunnerSlotCommand =
 /** The commands for the runner's standing tasks, which address no slot. */
 export type RunnerStandingCommand = RunnerStandingSetCommand | RunnerStandingTaskCommand;
 
-export type RunnerCommand = RunnerSlotCommand | RunnerStandingCommand;
+export type RunnerCommand = RunnerSlotCommand | RunnerStandingCommand | RunnerIssueStateCommand;
 
 /** Whether a command is for one of the runner's slots, rather than its standing tasks. */
 export function isRunnerSlotCommand<T extends { readonly kind: RunnerCommandKind }>(
@@ -516,7 +559,8 @@ export type RunnerSlotCommandDraft =
 export type RunnerCommandDraft =
   | RunnerSlotCommandDraft
   | Omit<RunnerStandingSetCommand, "id">
-  | Omit<RunnerStandingTaskCommand, "id">;
+  | Omit<RunnerStandingTaskCommand, "id">
+  | Omit<RunnerIssueStateCommand, "id">;
 
 /**
  * The server's reply to a sync: every command the runner has not yet acked,
@@ -553,6 +597,9 @@ export const MAX_RUNNER_PROMPT_LENGTH = MAX_AGENT_PROMPT_LENGTH;
 /** Most prompt outcomes one sync may carry. */
 export const MAX_RUNNER_PROMPT_OUTCOMES = 8;
 
+/** Most issue state outcomes one sync may carry. */
+export const MAX_RUNNER_ISSUE_STATE_OUTCOMES = 8;
+
 /** A runner's or a slot's id: narrow, since it becomes part of a live agent's id. */
 const RUNNER_NAME = /^[A-Za-z0-9._-]{1,32}$/;
 
@@ -575,6 +622,7 @@ const EVENT_KINDS: ReadonlySet<string> = new Set([
 const STANDING_OFFS: ReadonlySet<string> = new Set(Object.values(STANDING_OFF));
 const REFUSALS: ReadonlySet<string> = new Set(Object.values(RUNNER_REFUSAL));
 const PROMPT_OUTCOMES: ReadonlySet<string> = new Set(Object.values(RUNNER_PROMPT_OUTCOME));
+const ISSUE_STATE_OUTCOMES: ReadonlySet<string> = new Set(Object.values(RUNNER_ISSUE_STATE_OUTCOME));
 
 function asRecord(raw: unknown): Record<string, unknown> | undefined {
   return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
@@ -915,6 +963,15 @@ function parsePromptOutcome(raw: unknown): RunnerPromptOutcome | undefined {
   return isItemId(commandId) && isRunnerName(slotId) && isPromptOutcome(outcome) ? { commandId, slotId, outcome } : undefined;
 }
 
+function parseIssueStateOutcome(raw: unknown): RunnerIssueStateOutcome | undefined {
+  const candidate = asRecord(raw);
+  const commandId = candidate?.["commandId"];
+  const outcome = candidate?.["outcome"];
+  return isItemId(commandId) && typeof outcome === "string" && ISSUE_STATE_OUTCOMES.has(outcome)
+    ? { commandId, outcome: outcome as RunnerIssueStateOutcomeKind }
+    : undefined;
+}
+
 /**
  * Validates a raw sync body.
  *
@@ -941,6 +998,8 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
   const prompts = parseList(candidate["prompts"], MAX_RUNNER_PROMPT_OUTCOMES, parsePromptOutcome);
   const standing = parseList(candidate["standing"], MAX_STANDING_TASKS, parseStandingReport);
   const standingOff = candidate["standingOff"] ?? undefined;
+  const issueStates = parseList(candidate["issueStates"], MAX_RUNNER_ISSUE_STATE_OUTCOMES, parseIssueStateOutcome);
+  const changesIssues = candidate["changesIssues"] ?? false;
   if (
     acked === undefined ||
     slots === undefined ||
@@ -948,6 +1007,8 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
     spend === null ||
     prompts === undefined ||
     standing === undefined ||
+    issueStates === undefined ||
+    typeof changesIssues !== "boolean" ||
     (standingOff !== undefined && (typeof standingOff !== "string" || !STANDING_OFFS.has(standingOff)))
   ) {
     return undefined;
@@ -965,6 +1026,8 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
     prompts,
     standing,
     standingOff: standingOff === undefined ? undefined : (standingOff as StandingOff),
+    changesIssues,
+    issueStates,
   };
 }
 
@@ -982,6 +1045,11 @@ export function toRunnerCommand(id: string, draft: RunnerCommandDraft): RunnerCo
   if (draft.kind === RUNNER_COMMAND_KIND.standingSet) {
     const spec = parseStandingTaskSpec(draft.spec);
     return spec === undefined ? undefined : { id, kind: draft.kind, spec, requestedBy: sanitizeName(draft.requestedBy) };
+  }
+  if (draft.kind === RUNNER_COMMAND_KIND.issueState) {
+    return isIssueNumber(draft.issueNumber) && isIssueState(draft.state)
+      ? { id, kind: draft.kind, issueNumber: draft.issueNumber, state: draft.state, requestedBy: sanitizeName(draft.requestedBy) }
+      : undefined;
   }
   if (isStandingTaskCommandKind(draft.kind)) {
     const task = draft as Omit<RunnerStandingTaskCommand, "id">;

@@ -52,6 +52,7 @@ import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ManagerAccess } from "../managerAccess.js";
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
+import type { IssueMove } from "../projectBoard.js";
 import { type StandingAccess, type StandingTaskData, standingRow } from "../standingAccess.js";
 import type { ConnectionStatus } from "../net/room.js";
 import type { StandupAccess } from "../standupAccess.js";
@@ -178,6 +179,10 @@ export interface HudSnapshot {
   readonly boardAccess?: BoardAccess | undefined;
   /** The agents' work on the project board's issues as last replicated, in no particular order. */
   readonly work: readonly WorkData[];
+  /** Cards the local player dropped on Closed or Open that the board's snapshot does not show there yet. */
+  readonly issueMoves: readonly IssueMove[];
+  /** Why the local player's latest drop went back, if one did; shown on the board itself. */
+  readonly boardNotice?: string | undefined;
   /** Whether the local player opened the conversation with `E` at the manager's desk. */
   readonly managerOpen: boolean;
   /** The conversation with the manager, oldest first, as the server relayed it. */
@@ -243,6 +248,7 @@ const INITIAL: HudSnapshot = {
   assets: "loading",
   boardCloseUp: false,
   work: [],
+  issueMoves: [],
   managerOpen: false,
   managerLog: [],
   agentPrompts: [],
@@ -760,6 +766,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     boardCloseUp,
     boardAccess,
     work,
+    issueMoves,
+    boardNotice,
     managerOpen,
     managerLog,
     managerUnread,
@@ -832,6 +840,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           work={work}
           agents={assignableAgents(roster)}
           access={boardAccess}
+          moves={issueMoves}
+          notice={boardNotice}
           actions={actions.projectBoard}
         />
       ) : null}

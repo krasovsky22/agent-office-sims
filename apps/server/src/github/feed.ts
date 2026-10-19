@@ -17,6 +17,10 @@
  * board says so; the next poll that succeeds clears it. A rate limit also
  * pushes the next poll out to when GitHub says the limit resets, rather than
  * spending the next window's requests on refusals.
+ *
+ * A change the CEO made to an issue from the board, closed or reopened by an
+ * agent runner, asks for a {@link ProjectFeed.refresh}, so the board catches up
+ * within seconds rather than at the next scheduled poll.
  */
 
 import { EMPTY_BOARD_LISTS, type ProjectBoardSnapshot } from "@sim/shared";
@@ -47,6 +51,12 @@ export interface ProjectFeedOptions {
   readonly log?: (line: string) => void;
 }
 
+/**
+ * Shortest time between the start of one poll and a refresh's, so a CEO
+ * dragging cards about cannot turn into a poll per drop.
+ */
+const MIN_REFRESH_GAP_MS = 5_000;
+
 /** A poll that has not answered in this long has failed. */
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -76,6 +86,11 @@ export class ProjectFeed implements ProjectBoardSource {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopped = new AbortController();
   private running = false;
+  /** A refresh was asked for while a poll was in flight, which may have started before the change. */
+  private refreshAfterPoll = false;
+  private lastPollAt = Number.NEGATIVE_INFINITY;
+  /** The last poll was rate limited, and the wait for the next is GitHub's, which no refresh may cut short. */
+  private backingOff = false;
 
   public constructor(private readonly options: ProjectFeedOptions) {
     this.now = options.now ?? (() => Date.now());
@@ -103,6 +118,30 @@ export class ProjectFeed implements ProjectBoardSource {
     this.schedule(0);
   }
 
+  /**
+   * Polls again soon, rather than at the next scheduled time: something just
+   * changed on GitHub that the board should show.
+   *
+   * Never sooner than {@link MIN_REFRESH_GAP_MS} after the last poll started,
+   * and a poll already in flight is followed by another, since it may have
+   * asked before the change. A rate limit's wait is left alone.
+   */
+  public refresh(): void {
+    if (!this.running) {
+      return;
+    }
+    if (this.timer === undefined) {
+      this.refreshAfterPoll = true;
+      return;
+    }
+    if (this.backingOff) {
+      return;
+    }
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.schedule(this.refreshDelay());
+  }
+
   /** Stops polling and abandons a poll in flight. The last snapshot stays readable. */
   public stop(): void {
     this.running = false;
@@ -122,6 +161,7 @@ export class ProjectFeed implements ProjectBoardSource {
    * @returns how long to wait before polling again.
    */
   public async poll(): Promise<number> {
+    this.lastPollAt = this.now();
     const signal = AbortSignal.any([this.stopped.signal, AbortSignal.timeout(this.timeoutMs)]);
     try {
       const lists = await this.options.load(signal);
@@ -134,10 +174,14 @@ export class ProjectFeed implements ProjectBoardSource {
         updatedAt: this.now(),
         stale: false,
       });
+      this.backingOff = false;
       return this.options.intervalMs;
     } catch (error) {
       if (this.stopped.signal.aborted) {
         return this.options.intervalMs;
+      }
+      if (error instanceof GithubRateLimitError) {
+        this.backingOff = true;
       }
       this.markStale(describeFailure(error));
       return this.delayAfter(error);
@@ -169,6 +213,10 @@ export class ProjectFeed implements ProjectBoardSource {
     return Math.min(MAX_BACKOFF_MS, Math.max(intervalMs, error.retryAt - this.now()));
   }
 
+  private refreshDelay(): number {
+    return Math.max(0, this.lastPollAt + MIN_REFRESH_GAP_MS - this.now());
+  }
+
   private publish(snapshot: ProjectBoardSnapshot): void {
     this.snapshot = snapshot;
     for (const listener of this.listeners) {
@@ -189,7 +237,10 @@ export class ProjectFeed implements ProjectBoardSource {
         // A stop and a restart while this poll was in flight started a new
         // loop already; this one ends here rather than running beside it.
         if (this.running && run === this.stopped) {
-          this.schedule(next);
+          // A rate limit's longer wait still wins over a refresh.
+          const refresh = this.refreshAfterPoll && !this.backingOff;
+          this.refreshAfterPoll = false;
+          this.schedule(refresh ? this.refreshDelay() : next);
         }
       });
     }, delayMs);

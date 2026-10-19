@@ -23,12 +23,29 @@
  * and an executive sees the same detail with no controls. None of it writes to
  * GitHub.
  *
+ * The one thing that does is dragging. The CEO can pick an issue card up and
+ * drop it on Closed to close the issue on GitHub, or a closed one on Open to
+ * reopen it, which a connected agent runner does with its own GitHub
+ * identity; dropping an open issue on In progress opens its detail to choose
+ * the agent, as its assign button does. `boardDrop` in `projectBoard.ts`
+ * decides which column takes which card. A dropped card shows in its new
+ * column at once, from the moves `main.ts` keeps, and goes back with the
+ * reason, said here on the board, if GitHub does not take it.
+ *
  * Every string is a React text node, from a snapshot or state the server
  * sanitized, so an issue title containing markup is shown rather than
  * interpreted.
  */
 
-import { type BoardLabel, type ProjectBoardSnapshot, WORK_ACTION, type WorkData, type WorkStatus, agentLabel } from "@sim/shared";
+import {
+  type BoardLabel,
+  type IssueState,
+  type ProjectBoardSnapshot,
+  WORK_ACTION,
+  type WorkData,
+  type WorkStatus,
+  agentLabel,
+} from "@sim/shared";
 import { useEffect, useRef, useState } from "react";
 
 import type { BoardAccess } from "../boardAccess.js";
@@ -37,8 +54,10 @@ import {
   type BoardAgent,
   type BoardColumnKey,
   type BoardFilter,
+  type IssueMove,
   NO_BOARD_FILTER,
   boardColumns,
+  boardDrop,
   boardIssue,
   boardLabels,
   boardStatus,
@@ -52,6 +71,7 @@ import {
   workBadge,
   workMoveLabel,
   workStatusText,
+  withIssueMoves,
 } from "../projectBoard.js";
 
 /** The key that puts the cursor in the search field, as `Enter` does for chat. */
@@ -71,6 +91,8 @@ export interface ProjectBoardActions {
   readonly assign: (issueNumber: number, agentId: string) => void;
   readonly move: (issueNumber: number, status: WorkStatus) => void;
   readonly release: (issueNumber: number) => void;
+  /** Closes or reopens the issue on GitHub; `main.ts` shows the move until GitHub's answer. */
+  readonly setIssueState: (issueNumber: number, state: IssueState) => void;
 }
 
 interface ProjectBoardPanelProps {
@@ -81,12 +103,39 @@ interface ProjectBoardPanelProps {
   readonly agents: readonly BoardAgent[];
   /** `undefined` before the local player has joined, when nothing is offered. */
   readonly access: BoardAccess | undefined;
+  /** Cards this player dropped on Closed or Open that the snapshot does not show there yet. */
+  readonly moves: readonly IssueMove[];
+  /** Why the latest dropped card went back, if one did. */
+  readonly notice: string | undefined;
   readonly actions: ProjectBoardActions;
 }
 
-export function ProjectBoardPanel({ snapshot, work, agents, access, actions }: ProjectBoardPanelProps) {
+/** The card being dragged, and the column it was picked up from. */
+interface DraggedCard {
+  readonly issueNumber: number;
+  readonly from: BoardColumnKey;
+}
+
+export function ProjectBoardPanel({
+  snapshot: received,
+  work,
+  agents,
+  access,
+  moves,
+  notice,
+  actions,
+}: ProjectBoardPanelProps) {
   const [filter, setFilter] = useState<BoardFilter>(NO_BOARD_FILTER);
   const [openIssue, setOpenIssue] = useState<number | undefined>(undefined);
+  const [dragged, setDragged] = useState<DraggedCard | undefined>(undefined);
+  // Read by the drag events themselves, which can follow `dragstart` before
+  // React has rendered the state it set.
+  const draggedRef = useRef<DraggedCard | undefined>(undefined);
+  const [dropColumn, setDropColumn] = useState<BoardColumnKey | undefined>(undefined);
+  // Every list, count and detail below reads the board with this player's
+  // unanswered drops already made, so a dropped card is where it was put.
+  const snapshot = received === undefined || moves.length === 0 ? received : withIssueMoves(received, moves, Date.now());
+  const moving = new Set(moves.map((move) => move.issueNumber));
   const searchRef = useRef<HTMLInputElement>(null);
 
   // The pointer lock swallows clicks, so a player who walked up while looking
@@ -128,6 +177,38 @@ export function ProjectBoardPanel({ snapshot, work, agents, access, actions }: P
   const detailWork = openIssue === undefined ? undefined : workOn(openIssue);
   const detailOpen = openIssue !== undefined && (detailIssue !== undefined || detailWork !== undefined);
 
+  const dropOf = (card: DraggedCard | undefined, to: BoardColumnKey) =>
+    card === undefined || access === undefined
+      ? undefined
+      : boardDrop(card.from, to, {
+          mayChangeState: access.mayChangeIssueState,
+          mayAssign: access.mayAssign,
+          hasWork: workOn(card.issueNumber) !== undefined,
+        });
+  const endDrag = () => {
+    draggedRef.current = undefined;
+    setDragged(undefined);
+    setDropColumn(undefined);
+  };
+  const drop = (to: BoardColumnKey) => {
+    const card = draggedRef.current;
+    const action = dropOf(card, to);
+    endDrag();
+    if (card === undefined || action === undefined) {
+      return;
+    }
+    if (action.kind === "state") {
+      actions.setIssueState(card.issueNumber, action.state);
+    } else {
+      setOpenIssue(card.issueNumber);
+    }
+  };
+  // Whether a card can be picked up at all: by someone with a column to put it in.
+  const draggable = (from: BoardColumnKey, issueNumber: number | null): issueNumber is number =>
+    issueNumber !== null &&
+    !moving.has(issueNumber) &&
+    (["open", "inProgress", "closed"] as const).some((to) => dropOf({ issueNumber, from }, to) !== undefined);
+
   const toggleLabel = (name: string) => {
     const next = new Set(filter.labels);
     if (!next.delete(name)) {
@@ -145,6 +226,11 @@ export function ProjectBoardPanel({ snapshot, work, agents, access, actions }: P
         </h2>
         <p className={status.stale ? "board__status board__status--stale" : "board__status"}>{status.text}</p>
       </header>
+      {notice === undefined ? null : (
+        <p className="board__notice" role="alert">
+          {notice}
+        </p>
+      )}
       <div className="board__filters">
         <input
           ref={searchRef}
@@ -207,8 +293,37 @@ export function ProjectBoardPanel({ snapshot, work, agents, access, actions }: P
       <div className="board__columns">
         {columns.map((column) => {
           const unsearched = column.total - (snapshot === undefined ? 0 : carried(snapshot, column.key));
+          const takes = dragged !== undefined && dropOf(dragged, column.key) !== undefined;
+          const columnClass = [
+            "board__column",
+            takes ? "board__column--takes" : "",
+            takes && dropColumn === column.key ? "board__column--over" : "",
+          ]
+            .filter((name) => name !== "")
+            .join(" ");
           return (
-            <div className="board__column" key={column.key}>
+            <div
+              className={columnClass}
+              key={column.key}
+              onDragOver={(event) => {
+                if (dropOf(draggedRef.current, column.key) === undefined) {
+                  return;
+                }
+                // Cancelling the default is what tells the browser this column takes the drop.
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDropColumn(column.key);
+              }}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                  setDropColumn((current) => (current === column.key ? undefined : current));
+                }
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                drop(column.key);
+              }}
+            >
               <h3 className="board__columnTitle">
                 {column.title}{" "}
                 <span className="board__count">
@@ -219,45 +334,75 @@ export function ProjectBoardPanel({ snapshot, work, agents, access, actions }: P
                 <p className="board__empty">{filtering ? "No matches" : "Nothing here"}</p>
               ) : (
                 <ol className="board__rows">
-                  {column.rows.map((row) => (
-                    <li className="board__row" key={row.key}>
-                      {row.url === null ? (
-                        <>
-                          <span className="board__label">{row.label}</span> {row.title}
-                        </>
-                      ) : (
-                        <a
-                          className="board__link"
-                          href={row.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          // Blurred like the label toggles, so a later Enter goes
-                          // to the game instead of opening the tab again.
-                          onClick={(event) => event.currentTarget.blur()}
-                        >
-                          <span className="board__label">{row.label}</span> {row.title}
-                        </a>
-                      )}
-                      {row.labels.length === 0 ? null : (
-                        <span className="board__chips">
-                          {row.labels.map((label) => (
-                            <LabelChip key={label.name} label={label} />
-                          ))}
-                        </span>
-                      )}
-                      {row.detail === "" ? null : (
-                        <span className={`board__detail board__detail--${row.tone}`}>{row.detail}</span>
-                      )}
-                      <RowWork
-                        issueNumber={row.issueNumber}
-                        work={workOn(row.issueNumber)}
-                        agents={agents}
-                        assignable={column.key !== "closed" && access?.mayAssign === true}
-                        open={row.issueNumber !== null && row.issueNumber === openIssue}
-                        onToggle={(issueNumber) => setOpenIssue(issueNumber === openIssue ? undefined : issueNumber)}
-                      />
-                    </li>
-                  ))}
+                  {column.rows.map((row) => {
+                    const issueNumber = row.issueNumber;
+                    const canDrag = draggable(column.key, issueNumber);
+                    const rowClass = [
+                      "board__row",
+                      canDrag ? "board__row--draggable" : "",
+                      issueNumber !== null && moving.has(issueNumber) ? "board__row--moving" : "",
+                      issueNumber !== null && dragged?.issueNumber === issueNumber ? "board__row--dragged" : "",
+                    ]
+                      .filter((name) => name !== "")
+                      .join(" ");
+                    return (
+                      <li
+                        className={rowClass}
+                        key={row.key}
+                        draggable={canDrag}
+                        onDragStart={(event) => {
+                          if (!canDrag) {
+                            event.preventDefault();
+                            return;
+                          }
+                          event.dataTransfer.effectAllowed = "move";
+                          // Some browsers start no drag without data; the number is all it is.
+                          event.dataTransfer.setData("text/plain", `#${issueNumber}`);
+                          draggedRef.current = { issueNumber, from: column.key };
+                          setDragged(draggedRef.current);
+                        }}
+                        onDragEnd={endDrag}
+                      >
+                        {row.url === null ? (
+                          <>
+                            <span className="board__label">{row.label}</span> {row.title}
+                          </>
+                        ) : (
+                          <a
+                            className="board__link"
+                            href={row.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            // A drag that starts on the title moves the card, not the link.
+                            draggable={false}
+                            // Blurred like the label toggles, so a later Enter goes
+                            // to the game instead of opening the tab again.
+                            onClick={(event) => event.currentTarget.blur()}
+                          >
+                            <span className="board__label">{row.label}</span> {row.title}
+                          </a>
+                        )}
+                        {row.labels.length === 0 ? null : (
+                          <span className="board__chips">
+                            {row.labels.map((label) => (
+                              <LabelChip key={label.name} label={label} />
+                            ))}
+                          </span>
+                        )}
+                        {row.detail === "" ? null : (
+                          <span className={`board__detail board__detail--${row.tone}`}>{row.detail}</span>
+                        )}
+                        <RowWork
+                          issueNumber={row.issueNumber}
+                          work={workOn(row.issueNumber)}
+                          agents={agents}
+                          assignable={column.key !== "closed" && access?.mayAssign === true}
+                          open={row.issueNumber !== null && row.issueNumber === openIssue}
+                          onToggle={(issueNumber) => setOpenIssue(issueNumber === openIssue ? undefined : issueNumber)}
+                        />
+                      </li>
+                    );
+                  })}
                 </ol>
               )}
               {unsearched > 0 ? (
@@ -286,8 +431,14 @@ export function ProjectBoardPanel({ snapshot, work, agents, access, actions }: P
       )}
       </div>
       <p className="board__hint">
-        <span className="hud__keys">{SEARCH_KEY}</span> to search · step back from the board to close this.
+        <span className="hud__keys">{SEARCH_KEY}</span> to search
+        {access?.mayChangeIssueState === true
+          ? " · drag a card to Closed to close it on GitHub, or back to Open to reopen it"
+          : ""}
+        {access?.mayAssign === true ? " · drop an open issue on In progress to assign it" : ""} · step back from the board
+        to close this.
       </p>
+      {access?.issueStateNote === undefined ? null : <p className="board__hint">{access.issueStateNote}</p>}
     </section>
   );
 }

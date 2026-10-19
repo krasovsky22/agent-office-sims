@@ -13,6 +13,7 @@ import {
   MAX_RUNNER_EVENTS,
   MAX_RUNNER_PROMPT_OUTCOMES,
   MAX_RUNNER_SLOTS,
+  MAX_RUNNER_ISSUE_STATE_OUTCOMES,
   MAX_RUNNER_SYNC_BYTES,
   RUNNER_COMMAND_KIND,
   type RunnerStandingRunEvent,
@@ -246,6 +247,8 @@ describe("standing state on a sync", () => {
         prompts: Array.from({ length: MAX_RUNNER_PROMPT_OUTCOMES }, () => ({ commandId: id64, slotId: slot32, outcome: "needs-input" })),
         standing: tasks,
         standingOff: "no-budget",
+        changesIssues: true,
+        issueStates: Array.from({ length: MAX_RUNNER_ISSUE_STATE_OUTCOMES }, () => ({ commandId: id64, outcome: "refused" })),
       };
       const parsed = parseRunnerSync(sync);
       expect(parsed).toBeDefined();

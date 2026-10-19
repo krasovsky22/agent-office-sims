@@ -5,22 +5,25 @@
  * line tells fresh from stale.
  */
 
-import { EMPTY_BOARD_LISTS, type ProjectBoardSnapshot, WORK_ACTION, WORK_STATUS, type WorkData } from "@sim/shared";
+import { type BoardIssue, EMPTY_BOARD_LISTS, type ProjectBoardSnapshot, WORK_ACTION, WORK_STATUS, type WorkData } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import {
   type BoardAgent,
   NO_BOARD_FILTER,
   boardColumns,
+  boardDrop,
   boardIssue,
   boardLabels,
   boardStatus,
   filterBoardColumns,
   githubItemUrl,
+  hasIssueMoveLanded,
   isFiltering,
   labelColours,
   workBadge,
   workMoveLabel,
+  withIssueMoves,
 } from "./projectBoard.js";
 
 const time = (epochMs: number) => `t${epochMs}`;
@@ -260,5 +263,103 @@ describe("the office's work on an issue", () => {
     const [open, , , pulls] = boardColumns(SNAPSHOT, time);
     expect(open?.rows[0]?.issueNumber).toBe(31);
     expect(pulls?.rows[0]?.issueNumber).toBeNull();
+  });
+});
+
+describe("boardDrop", () => {
+  const ceo = { mayChangeState: true, mayAssign: true, hasWork: false };
+
+  it("closes an open or in-progress issue dropped on Closed, and reopens a closed one dropped on Open", () => {
+    expect(boardDrop("open", "closed", ceo)).toEqual({ kind: "state", state: "closed" });
+    expect(boardDrop("inProgress", "closed", ceo)).toEqual({ kind: "state", state: "closed" });
+    expect(boardDrop("closed", "open", ceo)).toEqual({ kind: "state", state: "open" });
+  });
+
+  it("asks who to give an open issue to when it is dropped on In progress", () => {
+    expect(boardDrop("open", "inProgress", ceo)).toEqual({ kind: "assign" });
+    expect(boardDrop("open", "inProgress", { ...ceo, hasWork: true })).toBeUndefined();
+    expect(boardDrop("open", "inProgress", { ...ceo, mayAssign: false })).toBeUndefined();
+  });
+
+  it("takes nothing onto or from the pull requests, onto its own column, or anywhere else", () => {
+    expect(boardDrop("open", "pullRequests", ceo)).toBeUndefined();
+    expect(boardDrop("pullRequests", "closed", ceo)).toBeUndefined();
+    expect(boardDrop("closed", "closed", ceo)).toBeUndefined();
+    expect(boardDrop("closed", "inProgress", ceo)).toBeUndefined();
+    expect(boardDrop("inProgress", "open", ceo)).toBeUndefined();
+  });
+
+  it("offers no state change to someone who may not make one", () => {
+    const executive = { mayChangeState: false, mayAssign: false, hasWork: false };
+    expect(boardDrop("open", "closed", executive)).toBeUndefined();
+    expect(boardDrop("closed", "open", executive)).toBeUndefined();
+    expect(boardDrop("open", "closed", { ...ceo, mayChangeState: false })).toBeUndefined();
+  });
+});
+
+describe("withIssueMoves", () => {
+  const issue = (number: number, extra: Partial<BoardIssue> = {}): BoardIssue => ({
+    number,
+    title: `Issue ${number}`,
+    body: "",
+    labels: [],
+    assignees: [],
+    pullRequests: [],
+    closedAt: null,
+    ...extra,
+  });
+  const board: ProjectBoardSnapshot = {
+    ...EMPTY_BOARD_LISTS,
+    repository: "acme/office",
+    updatedAt: 1,
+    stale: false,
+    open: [issue(1), issue(5)],
+    inProgress: [issue(2, { assignees: ["dana"] })],
+    closed: [issue(3, { closedAt: 100 }), issue(4, { closedAt: 50, assignees: ["milo"] })],
+    counts: { open: 2, inProgress: 1, pullRequests: 0 },
+  };
+
+  it("shows a closed card at the top of Closed and out of its column", () => {
+    const moved = withIssueMoves(board, [{ issueNumber: 1, state: "closed" }], 900);
+    expect(moved.open.map((entry) => entry.number)).toEqual([5]);
+    expect(moved.closed[0]).toEqual(issue(1, { closedAt: 900 }));
+    expect(moved.counts.open).toBe(1);
+
+    const fromInProgress = withIssueMoves(board, [{ issueNumber: 2, state: "closed" }], 900);
+    expect(fromInProgress.inProgress).toEqual([]);
+    expect(fromInProgress.counts.inProgress).toBe(0);
+  });
+
+  it("puts a reopened card back among the open issues in number order, in progress if GitHub has someone on it", () => {
+    const moved = withIssueMoves(board, [{ issueNumber: 3, state: "open" }], 900);
+    expect(moved.open.map((entry) => entry.number)).toEqual([1, 3, 5]);
+    expect(moved.open[1]?.closedAt).toBeNull();
+    expect(moved.closed.map((entry) => entry.number)).toEqual([4]);
+    expect(moved.counts.open).toBe(3);
+
+    const assigned = withIssueMoves(board, [{ issueNumber: 4, state: "open" }], 900);
+    expect(assigned.inProgress.map((entry) => entry.number)).toEqual([2, 4]);
+  });
+
+  it("changes nothing for a move the snapshot already reflects", () => {
+    expect(withIssueMoves(board, [{ issueNumber: 3, state: "closed" }], 900)).toBe(board);
+    expect(withIssueMoves(board, [{ issueNumber: 1, state: "open" }], 900)).toBe(board);
+  });
+
+  it("lands a settled move on a snapshot showing the issue where it was dropped", () => {
+    const stale = { ...board, stale: true };
+    expect(hasIssueMoveLanded(stale, { issueNumber: 3, state: "closed" }, 0)).toBe(true);
+    expect(hasIssueMoveLanded(stale, { issueNumber: 1, state: "open" }, 0)).toBe(true);
+    expect(hasIssueMoveLanded(stale, { issueNumber: 2, state: "open" }, 0)).toBe(true);
+  });
+
+  it("holds a settled move against the first fresh snapshot, which may predate it, and any stale one", () => {
+    const close = { issueNumber: 1, state: "closed" } as const;
+    expect(hasIssueMoveLanded(board, close, 0)).toBe(false);
+    expect(hasIssueMoveLanded({ ...board, stale: true }, close, 1)).toBe(false);
+  });
+
+  it("takes the second fresh snapshot as GitHub's word, wherever it shows the issue", () => {
+    expect(hasIssueMoveLanded(board, { issueNumber: 1, state: "closed" }, 1)).toBe(true);
   });
 });

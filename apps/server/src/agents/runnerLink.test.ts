@@ -7,7 +7,7 @@
  */
 
 import type { RunnerSync } from "@sim/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { isLiveAgentSource } from "./registry.js";
 import { RunnerLink, isRunnerEventSource, isRunnerSpendSource, runnerSlotAgentId } from "./runnerLink.js";
@@ -353,5 +353,99 @@ describe("RunnerLink standups", () => {
     link.holdForStandup("room-2", false);
     link.holdForStandup("room-2", false);
     expect(link.sync(sync())).toMatchObject({ kind: "accepted", standup: false });
+  });
+});
+
+describe("RunnerLink issue states", () => {
+  it("can change issues only while a runner that says it can is connected", () => {
+    const { clock, link } = setup();
+    expect(link.canChangeIssues()).toBe(false);
+    link.sync(sync());
+    expect(link.canChangeIssues()).toBe(false);
+    link.sync(sync({ changesIssues: true }));
+    expect(link.canChangeIssues()).toBe(true);
+    clock.now += TIMEOUT_MS + 1;
+    link.sweep();
+    expect(link.canChangeIssues()).toBe(false);
+  });
+
+  it("answers at once that nobody can make the change when no such runner is connected", async () => {
+    const { link } = setup();
+    link.sync(sync());
+    await expect(link.changeIssueState(39, "closed", "Dana")).resolves.toBe("unavailable");
+    expect(link.pending("runner-1")).toEqual([]);
+  });
+
+  it("sends the change to the runner and resolves with what it reports, once", async () => {
+    const { link } = setup();
+    link.sync(sync({ changesIssues: true }));
+    const answer = link.changeIssueState(39, "closed", "Dana");
+    expect(link.pending("runner-1")).toEqual([
+      { id: "command-1", kind: "issue-state", issueNumber: 39, state: "closed", requestedBy: "Dana" },
+    ]);
+
+    link.sync(sync({ changesIssues: true, acked: ["command-1"], issueStates: [{ commandId: "command-1", outcome: "done" }] }));
+    await expect(answer).resolves.toBeUndefined();
+    // A repeat of the report finds nothing to settle.
+    link.sync(sync({ changesIssues: true, issueStates: [{ commandId: "command-1", outcome: "refused" }] }));
+  });
+
+  it("tells a refusal from a failure", async () => {
+    const { link } = setup();
+    link.sync(sync({ changesIssues: true }));
+    const refused = link.changeIssueState(39, "open", "Dana");
+    const failed = link.changeIssueState(40, "open", "Dana");
+    link.sync(
+      sync({
+        changesIssues: true,
+        issueStates: [
+          { commandId: "command-1", outcome: "refused" },
+          { commandId: "command-2", outcome: "failed" },
+        ],
+      }),
+    );
+    await expect(refused).resolves.toBe("refused");
+    await expect(failed).resolves.toBe("unreachable");
+  });
+
+  it("ignores an outcome from a runner the change was not sent to", async () => {
+    vi.useFakeTimers();
+    try {
+      const { link } = setup();
+      link.sync(sync({ changesIssues: true }));
+      const answer = link.changeIssueState(39, "closed", "Dana");
+      link.sync(sync({ runnerId: "runner-2", slots: [], changesIssues: true, issueStates: [{ commandId: "command-1", outcome: "done" }] }));
+      let settled = false;
+      void answer.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up on a runner that does not answer, taking back a command it never took", async () => {
+    vi.useFakeTimers();
+    try {
+      const link = new RunnerLink({ repository: REPO, timeoutMs: TIMEOUT_MS, issueStateWaitMs: 5_000 });
+      link.sync(sync({ changesIssues: true }));
+      const answer = link.changeIssueState(39, "closed", "Dana");
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(answer).resolves.toBe("unreachable");
+      expect(link.pending("runner-1")).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up on a change when its runner goes silent", async () => {
+    const { clock, link } = setup();
+    link.sync(sync({ changesIssues: true }));
+    const answer = link.changeIssueState(39, "closed", "Dana");
+    clock.now += TIMEOUT_MS + 1;
+    link.sweep();
+    await expect(answer).resolves.toBe("unreachable");
   });
 });

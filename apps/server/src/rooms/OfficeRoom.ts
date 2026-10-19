@@ -154,6 +154,7 @@ import {
   sendProjectBoard,
 } from "./projectBoardDelivery.js";
 import { registerStandupHandlers } from "./standupHandlers.js";
+import { type IssueStates, isIssueStates, registerIssueStateHandler } from "./issueStateHandlers.js";
 import { type WorkHost, registerWorkHandlers } from "./workHandlers.js";
 
 /**
@@ -206,6 +207,8 @@ export interface OfficeRoomOptions {
    * merges a client's join options into these.
    */
   readonly agentRestrictLabel?: string;
+  /** Where the CEO's drops on Closed and Open go: the runner link; absent when no runner is configured. */
+  readonly issueStates?: IssueStates;
   /** The runner slots' terminal screens; absent when no runner is configured. */
   readonly screens?: ScreenSource;
   /** Every runner's standing tasks, mirrored; absent when no runner is configured. */
@@ -279,6 +282,7 @@ export class OfficeRoom extends Room<OfficeState> {
   private runnerWork: RunnerWork | undefined;
   /** Read every tick into the state's books; unset in a room given no runner. */
   private runnerSpend: RunnerSpendSource | undefined;
+  private issueStates: IssueStates | undefined;
   /** The CEO's prompts to the runners' agents; assigned in `onCreate`. */
   private agentPrompts!: AgentPrompts;
   private screens: ScreenSource | undefined;
@@ -389,6 +393,12 @@ export class OfficeRoom extends Room<OfficeState> {
       });
     }
     registerWorkHandlers(this, workHost);
+    this.issueStates = isIssueStates(roomOptions?.issueStates) ? roomOptions.issueStates : undefined;
+    registerIssueStateHandler(this, {
+      state: this.state,
+      board: () => this.projectBoard?.current(),
+      issues: this.issueStates,
+    });
     const standing = roomOptions?.standing;
     if (isStandingSource(standing) && runnerCommands !== undefined) {
       this.standing = standing;
@@ -630,6 +640,8 @@ export class OfficeRoom extends Room<OfficeState> {
     }
     this.crew.step(now, Math.min(Math.max(deltaMs, 0), MAX_AGENT_STEP_MS) / 1000);
     this.standup.step();
+    // A runner comes and goes; the board offers its drops only while one is here.
+    this.state.issuesWritable = this.issueStates?.canChangeIssues() === true;
     // Drained every tick so a room's inbox never holds more than a tick's
     // worth, after the crew has seated any slot the same sync brought, so
     // each event finds the agent it is about.
