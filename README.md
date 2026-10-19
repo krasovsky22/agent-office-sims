@@ -126,6 +126,32 @@ coffee goes with you: the cup steams in your hand and is sipped every few
 seconds, ten sips in all, then it is gone; idle agents now and then go for one
 too, and everyone in the office sees the same cup and the same sips.
 
+Facing a runner's coding agent close up, idle and wandering or at work at
+its desk, the prompt adds `Hold E` `Cancel task or fire Maya`. A press of `E`
+there does what it always did; held for half a second it opens the agent's
+menu instead, which releases the mouse so its buttons can be clicked, and `E`,
+`Esc` or stepping away closes it. It is the CEO's alone (`agentActionRefusal`
+in `packages/shared/src/agentActions.ts`, which the server runs on every
+request); anyone else sees the buttons disabled with the reason, and an
+orchestrator's agent, which the office cannot stop, offers neither.
+
+- **Cancel task** takes the agent's issue off it, whatever its status short of
+  done, a review in hand included, and its runner stops the agent and throws
+  the task away: its worktree and branch go whatever is in them, uncommitted
+  changes and unpushed commits too, and on GitHub its pull request is closed
+  and its pushed branch deleted (only the task's own `sims/` branch, never the
+  default branch). The issue is open on the board again, and the agent stays,
+  idle, free for new work.
+- **Fire agent** does the same with whatever the agent has in hand, ends any
+  standing run or desk session on its slot, and lets it go: in every tab it
+  says something sad, gets up, and walks out through the lobby onto the
+  pavement in tears, a crying face over its head, head bowed and a box of its
+  belongings in both hands, then leaves the floor. Its runner reports the slot
+  no more until the runner is restarted, which brings it back.
+
+The AI Manager says in its conversation what was cancelled or who was fired.
+Both are limited to four in a burst, one more every five seconds.
+
 Behind the chair of an open-floor desk where a live agent is working, the
 prompt reads `Watch the agent's terminal` and `E` opens its terminal at full
 size, with its name, what it is doing, and links to its issue and pull
@@ -462,6 +488,7 @@ the work, whoever gave it, the board or the manager:
 | sent back from `review` to `in_progress` | a rework `prompt` (read the review, change, commit, push the same branch), or a `start` with the same words if the slot no longer holds the issue |
 | moved back from `in_progress` to `assigned` | `stop`, then `start`: a fresh start |
 | unassigned, approved as `done`, or finished by GitHub closing the issue | `stop` |
+| cancelled by the CEO from the agent's menu | `stop` marked `discard` |
 | none in the office, while the slot still holds the issue (the room was closed and opened again, say) | `stop`, checked once a second |
 
 A slot given a `start` for the issue it already holds says again how far it
@@ -494,7 +521,8 @@ request, and nothing in the office merges.
 The reply carries every command queued for that runner that it has not acked
 yet: `start` (`issueNumber`, `title`, `url`, `note`, `requestedBy`), `stop`
 (`reason`, and the `issueNumber` it is for, so a stop that arrives after the
-slot moved on ends nothing else) or `prompt` (`text`, `requestedBy`, and
+slot moved on ends nothing else, and `discard: true` for a task the CEO
+cancelled, whose worktree, branch and pull request go whatever is in them) or `prompt` (`text`, `requestedBy`, and
 `fromCeo: true` on one the CEO typed in the terminal panel, which the runner
 types only while its agent waits at its prompt and reports in `prompts`;
 `queue: true` as well on a direction the CEO gave at a standup, which the
@@ -508,7 +536,9 @@ prompt), or `desk-open` (`seatId`, `requestedBy`: lend the slot to the CEO
 sitting there, see [The desk terminal](#the-desk-terminal)), `desk-close`
 (`seatId`, `reason`: the CEO stood up, ending only that desk's session) or
 `desk-resize` (`seatId`, `cols`, `rows`: size that desk session's terminal to
-the CEO's panel), each
+the CEO's panel), or `fire` (`requestedBy`: the CEO fired the slot's agent, so
+the slot ends whatever it runs, a task discarded as a cancelled one is, and is
+reported no more), each
 with an `id` and a `slotId`. A command comes back in every reply until a sync lists its id in
 `acked`, and never after, so a lost reply loses nothing and a runner tells a
 repeat by its id. The one exception is a CEO's prompt or key the runner has not
@@ -1673,6 +1703,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/concierge.ts    the concierge at reception: who it is, where it stands, what counts as the lobby, its welcome
   src/agentPrompt.ts  the CEO's prompts and choice-screen keys to the coding agents: the one gate, the keys, and why one was refused
   src/agentProfile.ts an agent's name, title and description: default names, the CEO-only gate, caps in sync bytes, the edit message
+  src/agentActions.ts cancelling an agent's task or firing it: the CEO-only gate, and why one was refused
   src/standup.ts      the standup: the CEO-only gate, why a command was refused, the places in the conference room, what came of a direction
   src/deskTerminal.ts the CEO's desk terminal: which seats have a computer, the CEO-only gate, and the session's phases
   src/layout.ts       the office floor plan and its interactables, as data
@@ -1695,6 +1726,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/rooms/agentPromptHandlers.ts  the CEO's prompts and keys to a coding agent, and the refusals sent back
   src/rooms/agentProfileHandlers.ts  the CEO's edits to an agent's profile, queued for its runner, and the refusals sent back
+  src/rooms/agentActionHandlers.ts  the CEO cancelling an agent's task or firing it, and the refusals sent back
   src/rooms/standingHandlers.ts  the CEO's standing task buttons, and the refusals sent back
   src/agents/standingMirror.ts   every runner's standing tasks, mirrored for the rooms
   src/agents/deskTerminal.ts     the CEO's desk terminal: lending a free slot to the desk the CEO sits at, and taking it back
@@ -1743,6 +1775,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do about the project board's work, and why
   src/dayClock.ts         the replicated clock, run on smoothly between patches
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
+  src/scene/sendOff.ts    a fired agent's box of belongings and its tears
   src/scene/daylight.ts   the day's light curve: sun, sky and interior by the minute
   src/scene/lighting.ts   the office's lights, set from that curve every frame
   src/scene/street.ts     the street outside the glass: road, lights, lamps, buildings, cars
@@ -1765,6 +1798,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/agentPromptAccess.ts  whether the local player may prompt a coding agent, which keyboard keys its key pad takes, and why a prompt or key was refused
   src/agentProfileAccess.ts  whether the local player may edit an agent's profile, why an edit was refused, and when it applies
   src/ui/AgentProfileCard.tsx  an agent's profile under its roster line: read by everyone, edited by the CEO
+  src/agentMenu.ts        the agent the local player faces, and what its long-press `E` menu offers, and why not
+  src/ui/AgentMenu.tsx    the long-press `E` menu: cancel the agent's task, or fire it
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to
   src/ui/AgentTerminalPanel.tsx  a working agent's terminal at full size, opened behind its chair, or at the CEO's own desk

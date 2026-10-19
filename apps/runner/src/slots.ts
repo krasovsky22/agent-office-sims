@@ -73,6 +73,12 @@
  * bounds it, and the server closes it the moment the CEO stands up. Ending,
  * however it ends, stops its agent and discards its worktree; a session that
  * ends without the server asking says so with a `desk-ended` event.
+ *
+ * The CEO can cancel a slot's task from the office, a `stop` marked
+ * `discard`: its worktree and branch go whatever is in them, and its pull
+ * request and pushed branch go on GitHub. Firing the slot's agent, `fire`,
+ * ends whatever the slot runs, discarding a task the same way, and takes the
+ * slot out of the pool: it is reported no more and takes no command.
  */
 
 import { randomUUID } from "node:crypto";
@@ -130,8 +136,11 @@ export const NO_PULL_REQUEST = "Finished without a pull request";
 export interface SlotWorkspaces {
   /** A working directory for the task, ready to work in; rejects with why not. */
   open(slotId: string, issueNumber: number): Promise<string>;
-  /** The task is over, whether or not its directory was ever opened. Never rejects. */
-  close(slotId: string, issueNumber: number): Promise<void>;
+  /**
+   * The task is over, whether or not its directory was ever opened; `discard`
+   * when it was cancelled, so nothing in it is kept. Never rejects.
+   */
+  close(slotId: string, issueNumber: number, discard?: boolean): Promise<void>;
 }
 
 /** Where a slot's desk sessions work. */
@@ -151,10 +160,11 @@ type PromptCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KI
 type KeyCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.key }>;
 type ProfileCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.profile }>;
 type DeskResizeCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.deskResize }>;
+type FireCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.fire }>;
 
 /** Why a standing run gave its slot up before it finished. */
 export const STANDING_SLOT_END = {
-  /** An issue's start arrived for the slot: issue work always comes first. */
+  /** An issue's start arrived for the slot, issue work always coming first, or its agent was fired: it runs again on a free slot. */
   preempted: "preempted",
   /** The runner is shutting down. */
   shutdown: "shutdown",
@@ -508,7 +518,14 @@ export class SlotPool {
           this.log(`stop for ${slot.id} on #${command.issueNumber} ignored: it is on #${slot.run.issueNumber}`);
           return;
         }
-        this.end(slot, RUNNER_EVENT_KIND.failed, `Stopped: ${command.reason || "the server asked"}`);
+        this.end(
+          slot,
+          RUNNER_EVENT_KIND.failed,
+          `Stopped: ${command.reason || "the server asked"}`,
+          undefined,
+          RUNNER_SLOT_STATUS.idle,
+          command.discard === true,
+        );
         return;
       case RUNNER_COMMAND_KIND.prompt:
         if (command.fromCeo === true && slot.desk !== undefined) {
@@ -544,7 +561,30 @@ export class SlotPool {
       case RUNNER_COMMAND_KIND.profile:
         this.setProfile(slot, command);
         return;
+      case RUNNER_COMMAND_KIND.fire:
+        this.fire(slot, command);
+        return;
     }
+  }
+
+  /**
+   * Lets the slot's agent go: whatever it runs ends, a task discarded as a
+   * cancelled one is, and the slot leaves the pool, so no sync reports it and
+   * no command reaches it again.
+   *
+   * shortcut: a fired slot is forgotten only until the runner restarts, which
+   * brings it back with its agent; keep the fired slots in the data dir if a
+   * firing must outlast a restart.
+   */
+  private fire(slot: Slot, command: FireCommand): void {
+    const by = command.requestedBy || "the CEO";
+    this.log(`${slot.id}, ${slot.profile.name}, fired by ${by}`);
+    this.end(slot, RUNNER_EVENT_KIND.failed, `Fired by ${by}`, undefined, RUNNER_SLOT_STATUS.idle, true);
+    this.endStanding(slot, STANDING_SLOT_END.preempted);
+    if (slot.desk !== undefined) {
+      this.endDesk(slot, `${slot.profile.name} was fired`);
+    }
+    this.slots.splice(this.slots.indexOf(slot), 1);
   }
 
   /**
@@ -1322,13 +1362,19 @@ export class SlotPool {
     }
   }
 
-  /** Ends a slot's run, says how, and leaves the slot free for the next start, `idle` unless its agent `exited`. */
+  /**
+   * Ends a slot's run, says how, and leaves the slot free for the next start,
+   * `idle` unless its agent `exited`. A `discard`ed run's pull request and
+   * pushed branch go on GitHub first, then its worktree and branch, whatever
+   * is in them.
+   */
   private end(
     slot: Slot,
     kind: RunnerWorkEventKind,
     message: string,
     pr?: RunnerPullRequest,
     status: RunnerSlotStatus = RUNNER_SLOT_STATUS.idle,
+    discard = false,
   ): void {
     const run = slot.run;
     if (run === undefined) {
@@ -1347,7 +1393,21 @@ export class SlotPool {
     // The message can quote the agent's last line, so it is masked as its event's is.
     const said = this.redactor.redactText(message);
     this.log(`${slot.id} ${kind} on #${run.issueNumber}${said === "" ? "" : `: ${said}`} (${formatUsd(run.spentUsd)} spent)`);
-    void this.options.workspaces.close(slot.id, run.issueNumber);
+    if (!discard) {
+      void this.options.workspaces.close(slot.id, run.issueNumber);
+      return;
+    }
+    // Its branch is read off the worktree, so GitHub goes first; with no worktree yet, nothing was pushed.
+    const workdir = run.workdir;
+    void (workdir === undefined ? Promise.resolve(undefined) : this.github.discard(workdir))
+      .then((failed) => {
+        this.log(
+          failed === undefined
+            ? `${slot.id} discarded its work on #${run.issueNumber}`
+            : `${slot.id} could not discard its work on #${run.issueNumber} on GitHub: ${failed}`,
+        );
+      })
+      .finally(() => this.options.workspaces.close(slot.id, run.issueNumber, true));
   }
 
   private emit(

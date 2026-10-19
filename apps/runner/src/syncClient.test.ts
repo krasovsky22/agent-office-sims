@@ -202,6 +202,22 @@ describe("readCommands", () => {
     expect(reply.unreadable).toEqual(["command-3", "command-5"]);
   });
 
+  it("reads a stop's issue and a cancel's discard, and the CEO firing a slot's agent", () => {
+    const reply = readCommands([
+      { id: "command-1", slotId: "slot-1", kind: "stop", reason: "the CEO cancelled the task", issueNumber: 39, discard: true },
+      { id: "command-2", slotId: "slot-1", kind: "stop", reason: "", discard: "yes" },
+      { id: "command-3", slotId: "slot-1", kind: "stop", reason: "", issueNumber: -1 },
+      { id: "command-4", slotId: "slot-1", kind: "fire", requestedBy: "Dana" },
+      { id: "command-5", slotId: "slot-1", kind: "fire" },
+    ]);
+    expect(reply.commands).toEqual([
+      { id: "command-1", slotId: "slot-1", kind: "stop", reason: "the CEO cancelled the task", issueNumber: 39, discard: true },
+      { id: "command-2", slotId: "slot-1", kind: "stop", reason: "" },
+      { id: "command-4", slotId: "slot-1", kind: "fire", requestedBy: "Dana" },
+    ]);
+    expect(reply.unreadable).toEqual(["command-3", "command-5"]);
+  });
+
   it("sets aside a command it cannot read, by id, so it can be acked", () => {
     const reply = readCommands([
       { id: "command-1", slotId: "slot-1", kind: "dance" },

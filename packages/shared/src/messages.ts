@@ -16,6 +16,7 @@
  * joiner would receive it as if it were still going on.
  */
 
+import { type AgentAction, type AgentActionRejection, isAgentAction } from "./agentActions.js";
 import { type AgentKey, type AgentPromptRejection, isAgentKey } from "./agentPrompt.js";
 import {
   type AgentProfile,
@@ -70,6 +71,8 @@ export const CLIENT_MESSAGE = {
   agentKey: "agent:key",
   /** Edit a coding agent's name, title and description; only the CEO is listened to. See `agentProfile.ts`. */
   agentProfile: "agent:profile",
+  /** Cancel a coding agent's task, or fire it, from the long-press `E` menu; only the CEO is listened to. See `agentActions.ts`. */
+  agentAction: "agent:action",
   /** Pause a standing task; only the CEO is listened to. See `standing.ts`. */
   standingPause: "standing:pause",
   /** Resume a paused standing task; only the CEO is listened to. */
@@ -168,6 +171,12 @@ export const SERVER_MESSAGE = {
    */
   agentProfileRejected: "agent:profile-rejected",
   /**
+   * Sent only to the client whose cancel or firing the office did not carry
+   * out, with the reason. Carries an {@link AgentActionRejectedEvent}; one
+   * carried out has no reply but the next patch.
+   */
+  agentActionRejected: "agent:action-rejected",
+  /**
    * Sent only to the client whose standing task command the office refused,
    * with the reason. Carries a {@link StandingRejectedEvent}.
    */
@@ -264,6 +273,7 @@ export interface ThrottledEvent {
     | typeof CLIENT_MESSAGE.agentPrompt
     | typeof CLIENT_MESSAGE.agentKey
     | typeof CLIENT_MESSAGE.agentProfile
+    | typeof CLIENT_MESSAGE.agentAction
     | StandingClientMessage
     | typeof CLIENT_MESSAGE.standupStart
     | typeof CLIENT_MESSAGE.standupDirect;
@@ -419,6 +429,20 @@ export interface AgentProfileMessage extends AgentProfile {
 export interface AgentProfileRejectedEvent {
   readonly agentId: string;
   readonly rejection: AgentProfileRejection;
+}
+
+/** The CEO cancelling a coding agent's task, or firing it, from the long-press `E` menu. See `agentActions.ts`. */
+export interface AgentActionMessage {
+  /** The agent's occupant key. */
+  readonly agentId: string;
+  readonly action: AgentAction;
+}
+
+/** The office did not carry out this client's cancel or firing, and why. */
+export interface AgentActionRejectedEvent {
+  readonly agentId: string;
+  readonly action: AgentAction;
+  readonly rejection: AgentActionRejection;
 }
 
 /** The office did not take one of this client's standup commands, and why. */
@@ -852,6 +876,20 @@ export function parseAgentProfileMessage(raw: unknown): AgentProfileMessage | un
   }
   const profile = parseAgentProfile(candidate);
   return profile === undefined ? undefined : { agentId, ...profile };
+}
+
+/**
+ * Validates a raw `agent:action` payload.
+ *
+ * Shape only: whether the sender may is `agentActionRefusal`'s call.
+ */
+export function parseAgentActionMessage(raw: unknown): AgentActionMessage | undefined {
+  const candidate = asRecord(raw);
+  const agentId = candidate?.agentId;
+  if (typeof agentId !== "string" || agentId === "" || agentId.length > MAX_AGENT_KEY_LENGTH || !isAgentAction(candidate?.action)) {
+    return undefined;
+  }
+  return { agentId, action: candidate.action };
 }
 
 /** Validates a raw `work:assign` payload. */

@@ -14,6 +14,8 @@
  * - Work sent back to `assigned` starts again from the top: stop, then start.
  * - Work taken back, approved, or finished by GitHub closing the issue stops
  *   the slot, which settles its worktree.
+ * - Work the CEO cancelled stops the slot and has it discard the task: its
+ *   worktree, branch and pull request go, whatever is in them.
  * - A slot holding an issue on which the office has no unfinished work of its
  *   own, as after the room was closed and opened again, is stopped too, by
  *   {@link RunnerWork.reconcile}: the office's work is the record of what each
@@ -169,6 +171,9 @@ export class RunnerWork {
       case WORK_ACTION.release:
         this.stop(work.assigneeId, work.issueNumber, "the CEO took the work back");
         return;
+      case WORK_ACTION.cancel:
+        this.stop(work.assigneeId, work.issueNumber, "the CEO cancelled the task", true);
+        return;
       case WORK_ACTION.moveStatus:
         if (before === undefined || before.status === work.status) {
           return;
@@ -303,7 +308,7 @@ export class RunnerWork {
    * holding it, since a start still on its way would otherwise begin after
    * the work was taken back; naming the issue keeps it from ending any other.
    */
-  private stop(assigneeId: string, issueNumber: number, reason: string): void {
+  private stop(assigneeId: string, issueNumber: number, reason: string, discard = false): void {
     const slot = slotOf(assigneeId);
     if (slot === undefined) {
       return;
@@ -313,6 +318,7 @@ export class RunnerWork {
       slotId: slot.slotId,
       reason,
       issueNumber,
+      ...(discard ? { discard: true } : {}),
     });
     this.log(command === undefined ? "runner-command-refused" : "runner-command", {
       kind: RUNNER_COMMAND_KIND.stop,

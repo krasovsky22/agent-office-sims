@@ -466,11 +466,11 @@ export class StandupMeeting {
     }
   }
 
-  /** Every live agent on the floor, in the order they came in. */
+  /** Every live agent on the floor, in the order they came in, but one fired and on its way out. */
   private agentsOnFloor(): LiveAgent[] {
     const agents: LiveAgent[] = [];
     for (const occupant of this.host.state.occupants.values()) {
-      if (isLiveAgent(occupant)) {
+      if (isLiveAgent(occupant) && !occupant.fired) {
         agents.push(occupant);
       }
     }

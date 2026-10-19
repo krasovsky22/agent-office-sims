@@ -134,6 +134,12 @@ export const WORK_ACTION = {
   handIn: "hand-in",
   /** An agent says why it is stuck. */
   note: "note",
+  /**
+   * The CEO cancels an agent's task from the long-press `E` menu: the work goes,
+   * whatever its status short of done, and its agent discards what it made of
+   * it; see `agentActions.ts`.
+   */
+  cancel: "cancel",
 } as const;
 
 export type WorkAction = (typeof WORK_ACTION)[keyof typeof WORK_ACTION];
@@ -173,6 +179,7 @@ export const WORK_ACTION_AUTHORITY: Readonly<Record<WorkAction, WorkAuthority>> 
   [WORK_ACTION.attachOutput]: WORK_AUTHORITY.assignee,
   [WORK_ACTION.handIn]: WORK_AUTHORITY.assignee,
   [WORK_ACTION.note]: WORK_AUTHORITY.assignee,
+  [WORK_ACTION.cancel]: WORK_AUTHORITY.ceo,
 };
 
 /**
@@ -370,6 +377,11 @@ export interface WorkNotePayload {
   readonly text: string;
 }
 
+/** The issue whose work the CEO cancels. Built by the server's agent action handler, never parsed from a client. */
+export interface WorkCancelPayload {
+  readonly issueNumber: number;
+}
+
 /** A parsed command, tagged so the applier can switch on it. */
 export type WorkCommand =
   | { readonly action: typeof WORK_ACTION.assign; readonly payload: WorkAssignMessage }
@@ -378,7 +390,8 @@ export type WorkCommand =
   | { readonly action: typeof WORK_ACTION.claim; readonly payload: WorkClaimPayload }
   | { readonly action: typeof WORK_ACTION.attachOutput; readonly payload: WorkAttachOutputPayload }
   | { readonly action: typeof WORK_ACTION.handIn; readonly payload: WorkHandInPayload }
-  | { readonly action: typeof WORK_ACTION.note; readonly payload: WorkNotePayload };
+  | { readonly action: typeof WORK_ACTION.note; readonly payload: WorkNotePayload }
+  | { readonly action: typeof WORK_ACTION.cancel; readonly payload: WorkCancelPayload };
 
 /**
  * Everything a command needs that is not in its own payload.
@@ -418,7 +431,7 @@ function reject(rejection: WorkRejection): WorkCommandResult {
  *
  * Nothing is written unless every check passes, so a rejected command leaves
  * the work byte-identical and there is no half-applied state for a client to
- * observe. A successful release returns the work it removed.
+ * observe. A successful release or cancel returns the work it removed.
  *
  * Commands are resolved against the office *as it is now*, never against a
  * view the client sent along. Colyseus delivers a room's messages one at a
@@ -457,6 +470,8 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
       return handInWork(work, context);
     case WORK_ACTION.note:
       return noteOnWork(work, command.payload, context);
+    case WORK_ACTION.cancel:
+      return cancelWork(work, context);
   }
 }
 
@@ -527,6 +542,19 @@ function assignWork(
 /** Takes work off its agent, leaving the issue free on the board; see {@link mayRelease}. */
 function releaseWork(work: IssueWork, context: WorkCommandContext): WorkCommandResult {
   if (!mayRelease(work, (id) => context.occupants.has(id))) {
+    return reject(WORK_REJECTION.illegalTransition);
+  }
+  context.work.delete(workKey(work.issueNumber));
+  return { ok: true, work };
+}
+
+/**
+ * The CEO cancels the work: unlike a release it takes a review too, since its
+ * agent is told to throw the pull request away with the rest. Done work has
+ * nothing left to cancel.
+ */
+function cancelWork(work: IssueWork, context: WorkCommandContext): WorkCommandResult {
+  if (work.status === WORK_STATUS.done) {
     return reject(WORK_REJECTION.illegalTransition);
   }
   context.work.delete(workKey(work.issueNumber));

@@ -38,6 +38,10 @@
  * The AI manager has a crimson shell, its title under its name, and a badge
  * over its head saying whether it is ready or thinking.
  *
+ * A live agent the CEO fired walks out in tears with a box of its belongings
+ * held in both hands (`./sendOff.ts`), its head bowed and a crying face over
+ * it, so every tab sees it go.
+ *
  * The local player's own body is also what a first-person camera sees of it:
  * everything but the arms is hidden, and the arms are raised into the bottom
  * of the view, so the player sees their own hands walk, type and carry a cup,
@@ -69,6 +73,7 @@ import { AvatarAnimator } from "./avatarAnimator.js";
 import type { AvatarLook, AvatarModel } from "./avatarModel.js";
 import { Billboard, paintBeacon, paintEmote, paintSpeechBubble, paintStatusBadge } from "./billboard.js";
 import { CoffeeCup } from "./coffeeCup.js";
+import { SendOff } from "./sendOff.js";
 
 /**
  * Offsets of the expression sprites above the head anchor.
@@ -178,6 +183,13 @@ const FIRST_PERSON_ARMS: readonly { readonly bone: string; readonly axis: THREE.
   { bone: "LowerArmR", axis: new THREE.Vector3(1, 0, 0), angle: 1 },
   { bone: "LowerArmL", axis: new THREE.Vector3(1, 0, 0), angle: 1 },
 ];
+
+/** How far a fired agent's head hangs, in radians about the head bone's local X. */
+const FIRED_HEAD_BOW = 0.45;
+
+/** What hangs over a fired agent's head for as long as it is on its way out. */
+const FIRED_GLYPH = "😢";
+const FIRED_CAPTION = "fired";
 
 /** Fraction of the gap the raised arms close per second, so sitting down lowers them rather than dropping them. */
 const ARM_RAISE_RATE = 8;
@@ -498,6 +510,12 @@ export class Avatar {
 
   private readonly ceoMarker: THREE.Mesh;
   private readonly coffee = new CoffeeCup();
+  private readonly sendOff = new SendOff();
+  /** Fired, and on its way out with its box: arms up to carry it, head bowed. */
+  private fired = false;
+  /** The head bone and its pose before the bow, on a body that has one. */
+  private bowedHead: RaisedArm | undefined;
+  private readonly eyes = new THREE.Vector3();
   /** Kept across a change of body, so a body swapped in while hidden stays hidden. */
   private bodyHidden = false;
   private firstPerson = false;
@@ -587,8 +605,10 @@ export class Avatar {
         : createCapsuleBody(this.look);
     this.group.add(this.body.root);
     this.raisedArms = armsOf(this.body);
+    this.bowedHead = headOf(this.body);
 
     this.group.add(this.coffee.group);
+    this.group.add(this.sendOff.group);
 
     this.headAnchor.position.y = HEAD_ANCHOR_Y;
     this.group.add(this.headAnchor);
@@ -741,6 +761,9 @@ export class Avatar {
       for (const arm of this.raisedArms) {
         arm.bone.quaternion.copy(arm.clip);
       }
+      if (this.bowedHead !== undefined) {
+        this.bowedHead.bone.quaternion.copy(this.bowedHead.clip);
+      }
       animator.setSpeed(this.speed);
       animator.update(deltaSeconds);
       this.raiseArms(deltaSeconds);
@@ -798,6 +821,7 @@ export class Avatar {
     this.body.root.visible = !this.bodyHidden;
     this.group.add(this.body.root);
     this.raisedArms = armsOf(this.body);
+    this.bowedHead = headOf(this.body);
     this.applyFirstPersonParts();
   }
 
@@ -819,6 +843,10 @@ export class Avatar {
 
   /** Shows an emote above the head, replacing any emote still showing. */
   public showEmote(emote: Emote, nowMs: number): void {
+    if (this.fired) {
+      // Its crying face stays up until it is gone.
+      return;
+    }
     const appearance = EMOTE_APPEARANCE[emote];
     this.emoteBillboard.show(paintEmote(appearance.glyph, appearance.caption));
     this.emoteExpiresAt = nowMs + EMOTE_LIFETIME_MS;
@@ -846,6 +874,7 @@ export class Avatar {
    * be written, and the loop is already running.
    */
   public updateExpressions(nowMs: number): void {
+    this.sendOff.update(this.fired && !this.bodyHidden, nowMs, this.fired && this.body.head !== undefined ? this.eyePosition(this.eyes) : undefined);
     if (this.emoteBillboard.visible && nowMs >= this.emoteExpiresAt) {
       this.emoteBillboard.hide();
       this.emoteExpiresAt = NOT_SHOWING;
@@ -887,6 +916,21 @@ export class Avatar {
       beacon.show(paintBeacon(BEACON_LABEL));
     } else {
       beacon.hide();
+    }
+  }
+
+  /**
+   * Sends a fired agent off: the box in its hands, tears, its head bowed and a
+   * crying face over it, for as long as it is on its way out.
+   */
+  public setFired(fired: boolean): void {
+    if (fired === this.fired) {
+      return;
+    }
+    this.fired = fired;
+    if (fired) {
+      this.emoteBillboard.show(paintEmote(FIRED_GLYPH, FIRED_CAPTION));
+      this.emoteExpiresAt = Number.POSITIVE_INFINITY;
     }
   }
 
@@ -960,15 +1004,26 @@ export class Avatar {
     });
   }
 
-  /** Lifts the arms on top of whatever the clips posed them in, eased in and out. */
+  /**
+   * Lifts the arms on top of whatever the clips posed them in, eased in and
+   * out: into a first-person view, or to carry a fired agent's box, which is
+   * where a first-person view holds them too. A fired agent's head hangs.
+   */
   private raiseArms(deltaSeconds: number): void {
-    const target = this.firstPerson && !isSeated(this.animation) ? 1 : 0;
+    const target = (this.firstPerson || this.fired) && !isSeated(this.animation) ? 1 : 0;
     this.armRaise += (target - this.armRaise) * (1 - Math.exp(-ARM_RAISE_RATE * Math.max(deltaSeconds, 0)));
     for (const arm of this.raisedArms) {
-      arm.clip.copy(arm.bone.quaternion);
-      if (this.armRaise > 0.001) {
-        arm.bone.quaternion.multiply(RAISE.setFromAxisAngle(arm.axis, arm.angle * this.armRaise));
-      }
+      this.raisePart(arm);
+    }
+    if (this.fired && this.bowedHead !== undefined) {
+      this.raisePart(this.bowedHead);
+    }
+  }
+
+  private raisePart(part: RaisedArm): void {
+    part.clip.copy(part.bone.quaternion);
+    if (this.armRaise > 0.001) {
+      part.bone.quaternion.multiply(RAISE.setFromAxisAngle(part.axis, part.angle * this.armRaise));
     }
   }
 
@@ -995,6 +1050,12 @@ function armsOf(body: AvatarBody): RaisedArm[] {
     const bone = body.root.getObjectByName(name);
     return bone === undefined ? [] : [{ bone, clip: bone.quaternion.clone(), axis, angle }];
   });
+}
+
+/** The head bone, bowed for a fired agent, on a body that has one. */
+function headOf(body: AvatarBody): RaisedArm | undefined {
+  const bone = body.head;
+  return bone === undefined ? undefined : { bone, clip: bone.quaternion.clone(), axis: new THREE.Vector3(1, 0, 0), angle: FIRED_HEAD_BOW };
 }
 
 /** Whether a mesh is part of an arm: it, or a bone it hangs from below `root`, is named as one. */

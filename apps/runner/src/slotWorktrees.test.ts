@@ -98,6 +98,20 @@ describe("SlotWorktrees", () => {
     expect(logged).toContain(`slot-2 keeps its worktree for #39 at ${path}: 1 unpushed commit`);
   });
 
+  it("discards a cancelled task's worktree and branch, uncommitted changes and unpushed commits included", async () => {
+    const { slots } = boot();
+    const path = await slots.open("slot-1", 39);
+    fixture.commit(path, "work.txt");
+    writeFileSync(join(path, "draft.txt"), "draft");
+    await slots.close("slot-1", 39, true);
+    expect(existsSync(path)).toBe(false);
+    expect(fixture.git(join(fixture.dataDir, "repo"), "branch", "--list", "sims/*")).toBe("");
+    expect(state()).toEqual({ worktrees: [] });
+    expect(logged).toContain("slot-1 removed its worktree for #39: cancelled, discarding 1 uncommitted change, 1 unpushed commit");
+    // Nothing of it comes back with the issue.
+    expect(existsSync(join(await slots.open("slot-1", 39), "work.txt"))).toBe(false);
+  });
+
   it("gives up a worktree stopped while it was being made only once it is there", async () => {
     const { slots } = boot();
     const opening = slots.open("slot-1", 39);

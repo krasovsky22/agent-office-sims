@@ -98,8 +98,8 @@ function workspaces(fail?: string): SlotWorkspaces {
       }
       return fixture.developer;
     },
-    close: async (slotId, issueNumber) => {
-      asked.push(`close ${slotId} #${issueNumber}`);
+    close: async (slotId, issueNumber, discard) => {
+      asked.push(`close ${slotId} #${issueNumber}${discard === true ? " discarding" : ""}`);
     },
   };
 }
@@ -441,6 +441,7 @@ describe("SlotPool", () => {
       refusal: async () => "#39 is labelled agent-restricted on GitHub, so no agent may work it",
       pullRequest: async () => undefined,
       pullRequestTitle: async () => "",
+      discard: async () => undefined,
     });
     slots.handle(START);
     await settle();
@@ -472,7 +473,7 @@ describe("SlotPool", () => {
         return { stop: () => undefined };
       },
     };
-    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest, pullRequestTitle: async () => "" });
+    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest, pullRequestTitle: async () => "", discard: async () => undefined });
     slots.handle(START);
     await settle();
     reporter?.progress("Bash: git push");
@@ -505,6 +506,7 @@ describe("SlotPool", () => {
         throw new Error("gh: HTTP 401");
       },
       pullRequestTitle: async () => "",
+      discard: async () => undefined,
     });
     slots.handle(START);
     await settle();
@@ -532,7 +534,7 @@ describe("SlotPool", () => {
       },
     };
     const pullRequestTitle = vi.fn(async () => "Night shift");
-    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest: async () => undefined, pullRequestTitle });
+    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest: async () => undefined, pullRequestTitle, discard: async () => undefined });
     slots.handle(START);
     await settle();
     reporter?.progress("Bash: gh pr create");
@@ -558,7 +560,7 @@ describe("SlotPool", () => {
     let giveTitle: (title: string) => void = () => undefined;
     const pullRequest = vi.fn(async () => undefined);
     const pullRequestTitle = vi.fn(() => new Promise<string>((resolve) => (giveTitle = resolve)));
-    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest, pullRequestTitle });
+    const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest, pullRequestTitle, discard: async () => undefined });
     slots.handle(START);
     await settle();
     reporter?.progress("Bash: gh pr create");
@@ -588,6 +590,55 @@ describe("SlotPool", () => {
       ["started", ""],
       ["failed", "Stopped: CEO changed their mind"],
     ]);
+  });
+
+  it("discards a cancelled task: its pull request and branch on GitHub first, then its worktree whatever is in it", async () => {
+    const discard = vi.fn(async (workdir: string) => {
+      asked.push(`discard ${workdir === fixture.developer ? "its worktree" : workdir}`);
+      return undefined;
+    });
+    const github: TaskGithub = { refusal: async () => undefined, pullRequest: async () => undefined, pullRequestTitle: async () => "", discard };
+    const slots = pool("pr-opened", undefined, workspaces(), github);
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(STEP_MS * 2);
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "the CEO cancelled the task", issueNumber: 39, discard: true });
+    await settle();
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined });
+    expect(asked).toEqual(["open slot-1 #39", "discard its worktree", "close slot-1 #39 discarding"]);
+    expect(workEvents(slots).at(-1)).toMatchObject({ kind: "failed", message: "Stopped: the CEO cancelled the task" });
+  });
+
+  it("keeps a stop, discarding or not, off work the slot moved on to", async () => {
+    const slots = pool("pr-opened");
+    slots.handle(START);
+    await settle();
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "cancelled", issueNumber: 40, discard: true });
+    expect(slot(slots)?.issueNumber).toBe(39);
+    expect(asked).toEqual(["open slot-1 #39"]);
+  });
+
+  it("fires a slot: its task ends discarded, and the slot is reported no more and takes no command", async () => {
+    const slots = pool("pr-opened");
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(STEP_MS * 2);
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "fire", requestedBy: "Dana" });
+    await settle();
+    expect(slots.report().map((each) => each.id)).toEqual(["slot-2"]);
+    expect(slots.screens().map(([id]) => id)).toEqual(["slot-2"]);
+    expect(slots.freeForStanding()).toEqual(["slot-2"]);
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39 discarding"]);
+    expect(workEvents(slots).at(-1)).toMatchObject({ kind: "failed", slotId: "slot-1", message: "Fired by Dana" });
+    slots.handle({ ...START, id: "command-3" });
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39 discarding"]);
+  });
+
+  it("fires an idle slot, which had nothing to discard", () => {
+    const slots = pool();
+    slots.handle({ id: "command-2", slotId: "slot-2", kind: "fire", requestedBy: "Dana" });
+    expect(slots.report().map((each) => each.id)).toEqual(["slot-1"]);
+    expect(workEvents(slots)).toEqual([]);
+    expect(asked).toEqual([]);
   });
 
   it("ignores a stop for an idle slot", () => {

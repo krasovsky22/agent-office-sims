@@ -49,6 +49,7 @@ import { CoffeeCups } from "./coffee.js";
 import { HoldRegistry, type InteractionHost } from "./interaction.js";
 import {
   CONVERSATIONS,
+  FIRED_LINES,
   LINE_GAP_MS,
   LiveAgentCrew,
   MEET_DISTANCE,
@@ -489,6 +490,59 @@ describe("an agent that leaves", () => {
     const spoken = office.said.length;
     runUntil(office, 10, () => false);
     expect(office.said.length).toBe(spoken);
+  });
+});
+
+describe("an agent the CEO fires", () => {
+  it("says something sad, gets up from its desk and walks out onto the pavement, and only then leaves", () => {
+    const office = createOffice();
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working, "Live agents")], office.now);
+    const alpha = agent(office, "alpha") as LiveAgent;
+    expect(runUntil(office, 30, () => alpha.interactableId !== "")).toBeDefined();
+    const seat = alpha.interactableId;
+
+    expect(office.crew.fire(alpha.id, office.now)).toBe(true);
+    expect(office.crew.fire(alpha.id, office.now)).toBe(false);
+    expect(alpha).toMatchObject({ fired: true, status: LIVE_AGENT_STATUS.idle, canTakeIssues: false, taskTitle: "" });
+    expect(office.said).toEqual([{ occupantId: alpha.id, text: expect.toBeOneOf([...FIRED_LINES]), at: office.now }]);
+    // Its runner still reports it working for a moment: that is not news.
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working, "Live agents")], office.now);
+    expect(alpha.taskTitle).toBe("");
+    runUntil(office, 1, () => false);
+    expect(office.interaction.holds.holderOf(seat)).toBeUndefined();
+
+    let outside = false;
+    const took = runUntil(office, 90, () => {
+      outside ||= roomAt(OFFICE_LAYOUT, alpha)?.id === SIDEWALK_ROOM_ID;
+      return !office.occupants.has(alpha.id);
+    });
+    expect(took).toBeDefined();
+    expect(outside).toBe(true);
+    expect(office.crew.size).toBe(0);
+  });
+
+  it("is not let back in while its runner still reports it, but comes back new once it has been left out", () => {
+    const office = createOffice();
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    office.crew.fire(liveAgentKey("alpha"), office.now);
+    // It goes on walking out after its runner stops reporting it.
+    office.crew.sync([], office.now);
+    expect(office.occupants.has(liveAgentKey("alpha"))).toBe(true);
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    expect(runUntil(office, 90, () => !office.occupants.has(liveAgentKey("alpha")))).toBeDefined();
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    expect(office.occupants.has(liveAgentKey("alpha"))).toBe(false);
+    office.crew.sync([], office.now);
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    expect((agent(office, "alpha") as LiveAgent).fired).toBe(false);
+  });
+
+  it("leaves during a standup too, rather than joining it", () => {
+    const office = createOffice();
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    office.crew.gather(standupSpots(OFFICE_LAYOUT), office.now);
+    office.crew.fire(liveAgentKey("alpha"), office.now);
+    expect(runUntil(office, 90, () => !office.occupants.has(liveAgentKey("alpha")))).toBeDefined();
   });
 });
 

@@ -41,6 +41,15 @@ import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import * as THREE from "three";
 
+import {
+  AGENT_MENU_HOLD_MS,
+  AGENT_MENU_RANGE,
+  type AgentMenuView,
+  type AgentSpot,
+  agentActionRejectionText,
+  agentMenuFor,
+  facedAgent,
+} from "./agentMenu.js";
 import { agentProfileAccessFor, agentProfileRejectionText } from "./agentProfileAccess.js";
 import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
 import { deskForbiddenText, deskPanelFor, deskScreenKey, sameDeskPanel } from "./deskTerminalAccess.js";
@@ -206,6 +215,9 @@ function browserStorage(): Storage | undefined {
 function captionOf(view: OccupantView): string {
   if (view.agentStatus === undefined) {
     return "";
+  }
+  if (view.fired) {
+    return "Fired, leaving the office";
   }
   const task = describeLiveAgentTask(view.agentStatus, view.taskTitle, view.taskUrl, view.agentActivity);
   if (view.assignedUrl === "") {
@@ -496,12 +508,14 @@ function start(): void {
             managerStatus: view.managerStatus,
             model: avatarModel,
           });
+          avatar.setFired(view.fired);
           scene.add(avatar.group);
           avatars.set(view.id, avatar);
         } else {
           existing.setLabel(view.name, view.isCeo, caption, view.agentTitle);
           existing.setManagerStatus(view.managerStatus);
           existing.setNeedsInput(needsInput);
+          existing.setFired(view.fired);
         }
       }
 
@@ -740,6 +754,12 @@ function start(): void {
       }
     },
 
+    onAgentActionRejected: (event) => {
+      showNotice(
+        agentActionRejectionText(event.rejection, room.occupantName(event.agentId) ?? "The agent", hud.roster.find((entry) => entry.isCeo)?.name),
+      );
+    },
+
     // On the agent's profile card, where the edit was saved from.
     onAgentProfileRejected: (event) => {
       const text = agentProfileRejectionText(event.rejection, room.occupantName(event.agentId) ?? "The agent");
@@ -770,6 +790,13 @@ function start(): void {
   let standUpRequested = false;
   // The computer the local player last sat at and was told is the CEO's alone, so it is said once a sitting.
   let toldDeskForbidden = "";
+  // The agent whose long-press menu is open, or `undefined`. Local to this tab, like a board's close-up.
+  let agentMenuId: string | undefined;
+  // `E` went down facing an agent: held long enough it opens the menu, let go sooner it is `E` as always.
+  let heldAt: { readonly agentId: string; readonly since: number } | undefined;
+  // The menu as last published, so React hears only of a change.
+  let agentMenuKey = "";
+  const agentSpots: AgentSpot[] = [];
 
   // Who holds what, as the last patch said, for the shared rules to read.
   const holderOf = (interactableId: string) => room.holderOf(interactableId);
@@ -813,6 +840,12 @@ function start(): void {
         },
         standUp: () => {
           standUpRequested = true;
+        },
+        agentMenu: {
+          act: (agentId, action) => {
+            room.sendAgentAction(agentId, action);
+            agentMenuId = undefined;
+          },
         },
         standup: {
           start: () => room.sendStandupStart(),
@@ -865,6 +898,31 @@ function start(): void {
   let promptKeys = "";
   let promptLabel = "";
   let promptBlocked = false;
+  let promptHold: string | undefined;
+
+  /** The live agent the local player faces, not one already fired, or `undefined`. */
+  const faceAgent = (): string | undefined => {
+    agentSpots.length = 0;
+    for (const [id, avatar] of avatars) {
+      const view = room.viewOf(id);
+      if (view?.agentStatus !== undefined && !view.fired) {
+        agentSpots.push({ id, x: avatar.group.position.x, z: avatar.group.position.z });
+      }
+    }
+    return facedAgent(controller.pose, agentSpots);
+  };
+
+  /** Whether the agent whose menu is open is still there, still employed, and near enough to talk to. */
+  const menuInReach = (agentId: string): boolean => {
+    const view = room.viewOf(agentId);
+    const body = avatars.get(agentId);
+    return (
+      view !== undefined &&
+      !view.fired &&
+      body !== undefined &&
+      Math.hypot(body.group.position.x - controller.pose.x, body.group.position.z - controller.pose.z) <= AGENT_MENU_RANGE * 1.5
+    );
+  };
 
   /**
    * Works out what the player can do from where they are standing, and tells
@@ -874,9 +932,11 @@ function start(): void {
    * will run on the message this prompt invites — so the prompt is never an
    * offer the server is going to turn down.
    *
+   * Facing an agent, it also says that holding `E` opens the agent's menu.
+   *
    * @returns the interactable `E` would use, or `undefined`.
    */
-  const refreshPrompt = (engagedWith: string): InteractableSpec | undefined => {
+  const refreshPrompt = (engagedWith: string, facing: string | undefined): InteractableSpec | undefined => {
     let prompt: HudPrompt | undefined;
     let target: InteractableSpec | undefined;
 
@@ -914,13 +974,20 @@ function start(): void {
       }
     }
 
+    if (facing !== undefined) {
+      const hold = `Cancel task or fire ${room.occupantName(facing) ?? "the agent"}`;
+      prompt = prompt === undefined ? { keys: "Hold E", label: hold, blocked: false } : { ...prompt, hold };
+    }
+
     const keys = prompt?.keys ?? "";
     const label = prompt?.label ?? "";
     const blocked = prompt?.blocked ?? false;
-    if (keys !== promptKeys || label !== promptLabel || blocked !== promptBlocked) {
+    const hold = prompt?.hold;
+    if (keys !== promptKeys || label !== promptLabel || blocked !== promptBlocked || hold !== promptHold) {
       promptKeys = keys;
       promptLabel = label;
       promptBlocked = blocked;
+      promptHold = hold;
       publishHud({ prompt });
     }
 
@@ -950,7 +1017,9 @@ function start(): void {
     // a movement key standing the player up and the server confirming it, the
     // replicated hold is stale and would keep offering "Stand up".
     const locallyHeldWith = controller.held ? engagedWith : "";
-    const target = refreshPrompt(locallyHeldWith);
+    // Only standing free with nothing open: with a panel open, `E` closes it.
+    const facing = locallyHeldWith === "" && readingBoard === "" && agentMenuId === undefined ? faceAgent() : undefined;
+    const target = refreshPrompt(locallyHeldWith, facing);
     // Standing still behind a working agent's chair leans the camera in over
     // its shoulder, to read its monitor; `E` still opens the whole terminal.
     const shoulder = target?.kind === INTERACTION_KIND.screen ? shoulderViewOf(target) : undefined;
@@ -977,10 +1046,47 @@ function start(): void {
     if (target?.id !== readingBoard) {
       readingBoard = "";
     }
-    if (controller.takeCloseRequest() && closesWithEscape(readingBoard)) {
+    const closeRequested = controller.takeCloseRequest();
+    let interactPressed = controller.takeInteractRequest();
+    if (agentMenuId !== undefined) {
+      // `E` again, `Esc`, stepping away, or the agent leaving or being fired closes it.
+      if (interactPressed || closeRequested || !menuInReach(agentMenuId)) {
+        agentMenuId = undefined;
+      }
+      interactPressed = false;
+    } else if (closeRequested && closesWithEscape(readingBoard)) {
       readingBoard = "";
     }
-    if (controller.takeInteractRequest() && target !== undefined) {
+    // Facing an agent, `E` waits to see whether it is held for the agent's menu.
+    if (interactPressed && facing !== undefined) {
+      heldAt = { agentId: facing, since: nowMs };
+      interactPressed = false;
+    }
+    if (heldAt !== undefined) {
+      if (!controller.interactHeld) {
+        heldAt = undefined;
+        interactPressed = true;
+      } else if (nowMs - heldAt.since >= AGENT_MENU_HOLD_MS) {
+        agentMenuId = heldAt.agentId;
+        heldAt = undefined;
+        // Its buttons are clicked, which a captured pointer cannot do.
+        if (document.pointerLockElement !== null) {
+          document.exitPointerLock();
+        }
+      }
+    }
+    const menuAgent = agentMenuId === undefined ? undefined : room.viewOf(agentMenuId);
+    const localView = room.viewOf(localId);
+    const agentMenu: AgentMenuView | undefined =
+      menuAgent === undefined || localView === undefined
+        ? undefined
+        : agentMenuFor(localView, menuAgent, officeWork, hud.roster.find((entry) => entry.isCeo)?.name);
+    const menuKey = agentMenu === undefined ? "" : JSON.stringify(agentMenu);
+    if (menuKey !== agentMenuKey) {
+      agentMenuKey = menuKey;
+      publishHud({ agentMenu });
+    }
+    if (interactPressed && target !== undefined) {
       if (target.id === readingBoard) {
         readingBoard = "";
       } else {

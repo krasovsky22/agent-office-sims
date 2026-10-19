@@ -1252,3 +1252,38 @@
   width: auto;
   max-width: 11em;
 }
+
+/* The long-press `E` menu on a coding agent, just over the proximity prompt,
+   since it is about the agent the player is facing. */
+.agent-menu {
+  position: absolute;
+  left: 50%;
+  bottom: calc(13% + 48px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+  max-width: 320px;
+  pointer-events: auto;
+}
+
+.agent-menu__task {
+  color: #9aa0aa;
+  font-weight: 400;
+}
+
+.agent-menu__option .hud__hint {
+  margin: 2px 0 0;
+}
+
+.agent-menu__button {
+  width: 100%;
+  font-size: 13px;
+  text-align: left;
+}
+
+.agent-menu__button--fire:not(:disabled) {
+  border-color: rgba(232, 106, 96, 0.5);
+  color: #f3a59d;
+}

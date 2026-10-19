@@ -49,6 +49,9 @@ import {
   type AgentKeyMessage,
   type DeskTerminalSizeMessage,
   type AgentProfile,
+  type AgentAction,
+  type AgentActionMessage,
+  type AgentActionRejectedEvent,
   type AgentProfileMessage,
   type AgentProfileRejectedEvent,
   type AgentPromptMessage,
@@ -181,6 +184,8 @@ export interface OccupantView {
   agentDescription: string;
   /** Whether the CEO can edit a live agent's profile from the office; `false` for anyone else. */
   profileEditable: boolean;
+  /** Whether a live agent was fired and is walking out; `false` for anyone else. */
+  fired: boolean;
   /** The issue whose sticky note a live agent has in hand, `0` when none and for anyone else. */
   carriedIssue: number;
   /** The AI manager's status, or `undefined` for anyone else. */
@@ -245,6 +250,8 @@ export interface RoomConnectionEvents {
   onAgentPromptRejected?: (event: AgentPromptRejectedEvent) => void;
   /** One of the local client's own edits to an agent's profile was not passed on, and why. */
   onAgentProfileRejected?: (event: AgentProfileRejectedEvent) => void;
+  /** The local client's own cancel or firing was not carried out, and why. */
+  onAgentActionRejected?: (event: AgentActionRejectedEvent) => void;
   /** The runners' standing tasks, after any of them is added, changed or removed. */
   onStandingChanged?: (tasks: readonly StandingTaskData[]) => void;
   /** The office did nothing about one of the local client's standing task buttons. */
@@ -518,6 +525,11 @@ export class RoomConnection {
     return true;
   }
 
+  /** Cancels a coding agent's task, or fires it. The state patch is the reply, or a rejection to this client alone. */
+  public sendAgentAction(agentId: string, action: AgentAction): void {
+    this.room?.send(CLIENT_MESSAGE.agentAction, { agentId, action } satisfies AgentActionMessage);
+  }
+
   /** Pauses, resumes, removes or checks a standing task. The state patch is the reply, or a rejection to this client alone. */
   public sendStanding(action: StandingTaskAction, taskId: string): void {
     this.room?.send(STANDING_MESSAGES[action], { taskId } satisfies StandingTaskMessage);
@@ -663,6 +675,7 @@ export class RoomConnection {
         agentTitle: isLiveAgent(occupant) ? occupant.title : "",
         agentDescription: isLiveAgent(occupant) ? occupant.description : "",
         profileEditable: isLiveAgent(occupant) && occupant.profileEditable,
+        fired: isLiveAgent(occupant) && occupant.fired,
         carriedIssue: isLiveAgent(occupant) ? occupant.carriedIssue : 0,
         managerStatus: isAiManager(occupant) ? occupant.status : undefined,
       };
@@ -806,6 +819,10 @@ export class RoomConnection {
       this.events.onAgentProfileRejected?.(event);
     });
 
+    room.onMessage<AgentActionRejectedEvent>(SERVER_MESSAGE.agentActionRejected, (event) => {
+      this.events.onAgentActionRejected?.(event);
+    });
+
     room.onMessage<StandingRejectedEvent>(SERVER_MESSAGE.standingRejected, (event) => {
       this.events.onStandingRejected?.(event);
     });
@@ -867,6 +884,7 @@ export class RoomConnection {
     const agentTitle = agent?.title ?? "";
     const agentDescription = agent?.description ?? "";
     const profileEditable = agent?.profileEditable ?? false;
+    const fired = agent?.fired ?? false;
     const carriedIssue = agent?.carriedIssue ?? 0;
     const managerStatus = isAiManager(occupant) ? occupant.status : undefined;
     if (
@@ -883,6 +901,7 @@ export class RoomConnection {
       view.agentTitle !== agentTitle ||
       view.agentDescription !== agentDescription ||
       view.profileEditable !== profileEditable ||
+      view.fired !== fired ||
       view.carriedIssue !== carriedIssue ||
       view.managerStatus !== managerStatus
     ) {
@@ -899,6 +918,7 @@ export class RoomConnection {
       view.agentTitle = agentTitle;
       view.agentDescription = agentDescription;
       view.profileEditable = profileEditable;
+      view.fired = fired;
       view.carriedIssue = carriedIssue;
       view.managerStatus = managerStatus;
       this.events.onOccupantsChanged?.();
