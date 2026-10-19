@@ -147,7 +147,8 @@ orchestrator's agent, which the office cannot stop, offers neither.
   says something sad, gets up, and walks out through the lobby onto the
   pavement in tears, a crying face over its head, head bowed and a box of its
   belongings in both hands, then leaves the floor. Its runner reports the slot
-  no more until the runner is restarted, which brings it back.
+  no more, and keeps it out across a restart in `<RUNNER_DATA_DIR>/fired.json`;
+  removing the slot's id from that file hires it back at the next start.
 
 The AI Manager says in its conversation what was cancelled or who was fired.
 Both are limited to four in a burst, one more every five seconds.
@@ -488,7 +489,7 @@ the work, whoever gave it, the board or the manager:
 | sent back from `review` to `in_progress` | a rework `prompt` (read the review, change, commit, push the same branch), or a `start` with the same words if the slot no longer holds the issue |
 | moved back from `in_progress` to `assigned` | `stop`, then `start`: a fresh start |
 | unassigned, approved as `done`, or finished by GitHub closing the issue | `stop` |
-| cancelled by the CEO from the agent's menu | `stop` marked `discard` |
+| cancelled by the CEO from the agent's menu | `stop` marked `discard`, and again, still marked, if the slot is seen holding the issue afterwards (its runner missed the first) |
 | none in the office, while the slot still holds the issue (the room was closed and opened again, say) | `stop`, checked once a second |
 
 A slot given a `start` for the issue it already holds says again how far it
@@ -1744,6 +1745,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/issueStates.ts      closing and reopening issues for the CEO with gh, and what came of each
   src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it, slots lent to the CEO's desk, and each slot's agent's profile
   src/profiles.ts         profiles.json: the CEO's edits to the agents' profiles, kept across restarts
+  src/firedSlots.ts       fired.json: the slots whose agents the CEO fired, kept out of the pool across restarts
   src/budget.ts           the day's spend, and the daily budget that refuses new starts
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
   src/deskWorktrees.ts    the desk sessions' scratch worktrees, discarded as each ends

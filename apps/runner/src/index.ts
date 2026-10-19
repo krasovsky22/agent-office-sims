@@ -51,6 +51,7 @@ import { deskWorktrees } from "./deskWorktrees.js";
 import { NO_GITHUB, type TaskGithub, createTaskGithub, runCommand } from "./github.js";
 import { GITHUB_TOKEN_ENV, GithubAppCredentials, type GithubCredentials } from "./githubApp.js";
 import { PersonalGithubCredentials } from "./githubPersonal.js";
+import { FiredSlotStore } from "./firedSlots.js";
 import { ProfileStore } from "./profiles.js";
 import { IssueStateDesk, ghIssueState } from "./issueStates.js";
 import { createRedactor, runnerSecrets } from "./redact.js";
@@ -220,6 +221,7 @@ const pool = new SlotPool({
   agent,
   runnerId: config.runnerId,
   profiles: new ProfileStore({ file: join(config.dataDir, "profiles.json"), log }),
+  fired: new FiredSlotStore({ file: join(config.dataDir, "fired.json"), log }),
   workspaces,
   desks,
   taskTimeoutMs: config.taskTimeoutMs,

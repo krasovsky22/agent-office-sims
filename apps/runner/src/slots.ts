@@ -78,7 +78,8 @@
  * `discard`: its worktree and branch go whatever is in them, and its pull
  * request and pushed branch go on GitHub. Firing the slot's agent, `fire`,
  * ends whatever the slot runs, discarding a task the same way, and takes the
- * slot out of the pool: it is reported no more and takes no command.
+ * slot out of the pool: it is reported no more and takes no command, and it
+ * stays out across a restart, kept in `./firedSlots.ts`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -115,6 +116,7 @@ import { systemPrompt } from "./agents/prompt.js";
 import type { Agent, AgentReporter, AgentRun, AgentSession } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { NO_GITHUB, type TaskGithub } from "./github.js";
+import type { FiredSlots } from "./firedSlots.js";
 import type { AgentProfiles } from "./profiles.js";
 import { type Redactor, createRedactor } from "./redact.js";
 import { SCREEN_COLS, SCREEN_ROWS, ScreenMirror } from "./terminal.js";
@@ -223,6 +225,8 @@ export interface SlotPoolOptions {
   readonly runnerId?: string;
   /** Where the CEO's edits to the agents' profiles are kept; every agent keeps its default without it. */
   readonly profiles?: AgentProfiles;
+  /** Where the slots whose agents were fired are kept, out of the pool; none is kept without it. */
+  readonly fired?: FiredSlots;
   readonly workspaces: SlotWorkspaces;
   /** Where desk sessions work; without it, the slots are lent to no desk. */
   readonly desks?: DeskWorkspaces;
@@ -305,6 +309,8 @@ export class SlotPool {
   private readonly keptOutsidePool: ReadonlyMap<string, AgentProfile>;
   /** A standup is on in the office, as the server last said. */
   private standup = false;
+  /** The slots whose agents were fired, by id, kept out of the pool. */
+  private readonly firedIds: Set<string>;
 
   public constructor(private readonly options: SlotPoolOptions) {
     this.redactor = options.redactor ?? createRedactor([]);
@@ -315,6 +321,7 @@ export class SlotPool {
     this.debug = options.debug ?? (() => undefined);
     const now = Date.now();
     const kept = options.profiles?.load() ?? new Map<string, AgentProfile>();
+    this.firedIds = new Set(options.fired?.load() ?? []);
     this.slots = Array.from({ length: options.count }, (_, index) => {
       const id = `slot-${index + 1}`;
       const edited = kept.get(id);
@@ -335,7 +342,10 @@ export class SlotPool {
         screen,
         kept: [],
       };
-    });
+    }).filter((slot) => !this.firedIds.has(slot.id));
+    if (this.firedIds.size > 0) {
+      this.log(`fired, and so not on the floor: ${[...this.firedIds].join(", ")}`);
+    }
     const inPool = new Set(this.slots.map((slot) => slot.id));
     this.keptOutsidePool = new Map([...kept].filter(([id]) => !inPool.has(id)));
   }
@@ -570,11 +580,7 @@ export class SlotPool {
   /**
    * Lets the slot's agent go: whatever it runs ends, a task discarded as a
    * cancelled one is, and the slot leaves the pool, so no sync reports it and
-   * no command reaches it again.
-   *
-   * shortcut: a fired slot is forgotten only until the runner restarts, which
-   * brings it back with its agent; keep the fired slots in the data dir if a
-   * firing must outlast a restart.
+   * no command reaches it again, this run or the next.
    */
   private fire(slot: Slot, command: FireCommand): void {
     const by = command.requestedBy || "the CEO";
@@ -585,6 +591,8 @@ export class SlotPool {
       this.endDesk(slot, `${slot.profile.name} was fired`);
     }
     this.slots.splice(this.slots.indexOf(slot), 1);
+    this.firedIds.add(slot.id);
+    this.options.fired?.save(this.firedIds);
   }
 
   /**

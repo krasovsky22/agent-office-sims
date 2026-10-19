@@ -633,6 +633,16 @@ describe("SlotPool", () => {
     expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39 discarding"]);
   });
 
+  it("keeps a fired slot out of the pool when the runner starts again", () => {
+    let kept: ReadonlySet<string> = new Set();
+    const fired = { load: () => kept, save: (ids: ReadonlySet<string>) => (kept = new Set(ids)) };
+    const options = { count: 2, agent: createMockAgent({ outcome: "failed", stepMs: STEP_MS }), workspaces: workspaces(), taskTimeoutMs: TIMEOUT_MS, fired };
+    new SlotPool(options).handle({ id: "command-1", slotId: "slot-1", kind: "fire", requestedBy: "Dana" });
+    expect(kept).toEqual(new Set(["slot-1"]));
+    const restarted = new SlotPool(options);
+    expect(restarted.report().map((each) => [each.id, each.name])).toEqual([["slot-2", SECOND]]);
+  });
+
   it("fires an idle slot, which had nothing to discard", () => {
     const slots = pool();
     slots.handle({ id: "command-2", slotId: "slot-2", kind: "fire", requestedBy: "Dana" });

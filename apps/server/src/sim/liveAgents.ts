@@ -248,7 +248,7 @@ export class LiveAgentCrew {
   /**
    * Agents fired and already gone whose source still reports them, not to be
    * let back in; each is forgotten once a sync leaves it out, so one that
-   * comes back later, its runner restarted, is a new arrival.
+   * comes back later, hired back at its runner, is a new arrival.
    */
   private readonly fired = new Set<string>();
 

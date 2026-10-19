@@ -299,6 +299,23 @@ describe("RunnerWork.reconcile", () => {
     ]);
   });
 
+  it("still has a slot discard the task the CEO cancelled when the cancel's own stop never reached it", () => {
+    const { ceoDoes, link, syncSlots, pending, ack, runnerWork } = setup();
+    ceoDoes(assign(39));
+    ack();
+    syncSlots({ "slot-1": 39 });
+    ceoDoes({ action: WORK_ACTION.cancel, payload: { issueNumber: 39 } });
+    // Lost on the way, as to a runner that was offline.
+    for (const command of link.pending("box")) {
+      link.withdraw("box", command.id);
+    }
+    syncSlots({ "slot-1": 39 });
+    runnerWork.reconcile();
+    expect(pending()).toEqual([
+      { kind: "stop", slotId: "slot-1", reason: "the CEO cancelled the task", issueNumber: 39, discard: true },
+    ]);
+  });
+
   it("stops a slot still holding work that was approved, and again if it takes the issue up later", () => {
     const { ceoDoes, state, syncSlots, pending, ack, runnerWork } = setup();
     ceoDoes(assign(39));
