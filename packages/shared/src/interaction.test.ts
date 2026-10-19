@@ -256,8 +256,8 @@ describe("nearestInteractable", () => {
   });
 
   it("prefers the closer of two interactables", () => {
-    const near = specOf("seat-desk-north-3-1");
-    const far = specOf("seat-desk-north-4-1");
+    const near = specOf("seat-desk-north-2-1");
+    const far = specOf("seat-desk-north-3-1");
     const between = {
       x: near.anchor.x + (far.anchor.x - near.anchor.x) * 0.25,
       z: near.anchor.z,

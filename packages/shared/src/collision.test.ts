@@ -21,7 +21,7 @@ const OFFICES_FRONT_SOUTH_FACE = -4.7;
 const MANAGER_EAST_WALL_FACE = 4;
 const DESK_ROW_SOUTH_FACE = 1.3;
 const DESK_ROW_CHAIR_SOUTH_FACE = 2.165;
-const CEO_DESK_SOUTH_FACE = -8.05;
+const CEO_DESK_SOUTH_FACE = -8.55;
 const COFFEE_MACHINE_SOUTH_FACE = 0.4;
 
 /** Start and travel of the diagonal that wedges into the manager's office corner. */
@@ -56,15 +56,15 @@ const cases: readonly Case[] = [
   {
     // Beside the chair rather than behind it: the chair is solid too.
     name: "head-on into a desk stops a radius short",
-    from: { x: 0.5, z: 2.88 },
+    from: { x: 0.65, z: 2.88 },
     delta: { x: 0, z: -3 },
-    expect: { x: 0.5, z: DESK_ROW_SOUTH_FACE + R },
+    expect: { x: 0.65, z: DESK_ROW_SOUTH_FACE + R },
   },
   {
     name: "head-on into a chair stops a radius short",
-    from: { x: -0.2, z: 2.88 },
+    from: { x: 1.4, z: 2.88 },
     delta: { x: 0, z: -3 },
-    expect: { x: -0.2, z: DESK_ROW_CHAIR_SOUTH_FACE + R },
+    expect: { x: 1.4, z: DESK_ROW_CHAIR_SOUTH_FACE + R },
   },
   {
     name: "oblique approach to the east wall keeps the along-wall component",
@@ -87,15 +87,15 @@ const cases: readonly Case[] = [
   {
     // Up between two desks and their chairs in each row, then into the wall.
     name: "a step long enough to cross a wall is still stopped by it",
-    from: { x: 1, z: 2.88 },
+    from: { x: -0.6, z: 2.88 },
     delta: { x: 0, z: -20 },
-    expect: { x: 1, z: OFFICES_FRONT_SOUTH_FACE + R },
+    expect: { x: -0.6, z: OFFICES_FRONT_SOUTH_FACE + R },
   },
   {
     name: "an absurd step is stopped by the same wall",
-    from: { x: 1, z: 2.88 },
+    from: { x: -0.6, z: 2.88 },
     delta: { x: 0, z: -1000 },
-    expect: { x: 1, z: OFFICES_FRONT_SOUTH_FACE + R },
+    expect: { x: -0.6, z: OFFICES_FRONT_SOUTH_FACE + R },
   },
   {
     // Through the doorway and on to the CEO's desk.

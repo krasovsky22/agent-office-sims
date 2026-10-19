@@ -54,6 +54,7 @@ import { type CameraFocus, PlayerController, shoulderView } from "./player/contr
 import { AgentScreens } from "./scene/agentScreen.js";
 import { Avatar } from "./scene/avatar.js";
 import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
+import { Doors } from "./scene/doors.js";
 import { buildWallBoard } from "./scene/wallBoard.js";
 import { buildWallDecor } from "./scene/wallDecor.js";
 import { buildLighting } from "./scene/lighting.js";
@@ -247,6 +248,9 @@ function start(): void {
   const lighting = buildLighting(scene, OFFICE_LAYOUT);
   const street = buildStreet(scene, OFFICE_LAYOUT);
   const wallDecor = buildWallDecor(scene, OFFICE_LAYOUT, OFFICE_DECOR, renderer.capabilities.getMaxAnisotropy());
+  const doors = new Doors(scene, OFFICE_LAYOUT);
+  // Where everyone is drawn this frame, which is what swings the doors open.
+  const bodies: { x: number; z: number }[] = [];
   // Lit for opening time until the first patch says what time it really is.
   const dayClock = new DayClock();
   lighting.showMinute(STARTING_MINUTE_OF_DAY);
@@ -1001,6 +1005,13 @@ function start(): void {
       // the body; all that is left is retiring whatever has expired.
       avatar.updateExpressions(nowMs);
     }
+
+    // Doors open for wherever everyone has just been drawn.
+    bodies.length = 0;
+    for (const avatar of avatars.values()) {
+      bodies.push(avatar.group.position);
+    }
+    doors.update(deltaSeconds, bodies);
 
     // Carried sticky notes follow their agents, after the agents have moved.
     stickerBoards.update(nowMs, (id) => avatars.get(id));

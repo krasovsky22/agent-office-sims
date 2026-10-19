@@ -32,7 +32,6 @@ import {
   type OfficeLayout,
   type PropSpec,
   type Vec2,
-  type WallSpec,
   type WaypointSpec,
   containsPoint,
   describeLayoutProblems,
@@ -523,20 +522,12 @@ describe("OFFICE_LAYOUT street front", () => {
     expect(glazed + entrance.width).toBeCloseTo(OFFICE_LAYOUT.floor.maxZ - OFFICE_LAYOUT.floor.minZ);
   });
 
-  it("glazes the west wall all but behind the issues sticker board", () => {
-    const westWall = OFFICE_LAYOUT.walls.filter(
-      (spec) => spec.footprint.minX >= OFFICE_LAYOUT.floor.minX &&
-        spec.footprint.maxX <= OFFICE_LAYOUT.floor.minX + MIN_OBSTACLE_THICKNESS + 1e-9,
-    );
-    const length = (spec: WallSpec) => spec.footprint.maxZ - spec.footprint.minZ;
-    expect(westWall.reduce((sum, spec) => sum + length(spec), 0)).toBeCloseTo(OFFICE_LAYOUT.floor.maxZ - OFFICE_LAYOUT.floor.minZ);
-    const board = OFFICE_LAYOUT.boards.find((spec) => spec.id === ISSUES_STICKER_BOARD_ID)!;
-    const solid = westWall.filter((spec) => spec.style === undefined);
-    expect(solid.length).toBe(1);
-    expect(solid[0]!.footprint.minZ).toBeLessThanOrEqual(board.z - board.width / 2);
-    expect(solid[0]!.footprint.maxZ).toBeGreaterThanOrEqual(board.z + board.width / 2);
-    const glazed = westWall.filter((spec) => spec.style === "window").reduce((sum, spec) => sum + length(spec), 0);
-    expect(glazed).toBeGreaterThan((OFFICE_LAYOUT.floor.maxZ - OFFICE_LAYOUT.floor.minZ) / 2);
+  it("glazes nothing but the street front, since no other wall has anything outside it to look at", () => {
+    const glazed = OFFICE_LAYOUT.walls.filter((spec) => spec.style === "window");
+    expect(glazed.length).toBeGreaterThan(0);
+    for (const spec of glazed) {
+      expect(spec.footprint.maxX, spec.id).toBe(OFFICE_LAYOUT.floor.maxX);
+    }
   });
 
   it("keeps everyone on the pavement, off the road", () => {

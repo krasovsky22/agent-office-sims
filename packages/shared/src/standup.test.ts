@@ -12,6 +12,7 @@ import { OCCUPANT_RADIUS } from "./constants.js";
 import { INTERACTION_KIND, OFFICE_LAYOUT, interactables, roomAt } from "./layout.js";
 import { managerSeat } from "./manager.js";
 import { parseStandupDirectMessage } from "./messages.js";
+import { MAX_LIVE_AGENTS } from "./liveAgents.js";
 import { findPath } from "./nav.js";
 import { MAX_RUNNER_SLOTS } from "./runner.js";
 import { STANDUP_EVERYONE, mayRunStandup, standupSpots } from "./standup.js";
@@ -30,8 +31,8 @@ describe("standupSpots", () => {
   const seat = managerSeat(OFFICE_LAYOUT);
   const desk = interactables(OFFICE_LAYOUT).find((spec) => spec.kind === INTERACTION_KIND.manager);
 
-  it("has a place for every agent the floor can hold: an orchestrator's dozen and the runners' slots", () => {
-    expect(spots.length).toBeGreaterThanOrEqual(12 + MAX_RUNNER_SLOTS);
+  it("has a place for every agent the floor can hold: an orchestrator's live agents and the runners' slots", () => {
+    expect(spots.length).toBeGreaterThanOrEqual(MAX_LIVE_AGENTS + MAX_RUNNER_SLOTS);
   });
 
   it("puts every place in the manager's room, clear of everything, with room between them", () => {
@@ -49,7 +50,7 @@ describe("standupSpots", () => {
   it("leaves the CEO's place at the desk free, and can be walked to from the open floor", () => {
     for (const spot of spots) {
       expect(Math.hypot((desk?.anchor.x ?? 0) - spot.x, (desk?.anchor.z ?? 0) - spot.z)).toBeGreaterThan(0.7);
-      expect(findPath({ x: -1.4, z: -0.2 }, spot, OFFICE_LAYOUT).length).toBeGreaterThan(0);
+      expect(findPath({ x: -0.6, z: -0.2 }, spot, OFFICE_LAYOUT).length).toBeGreaterThan(0);
     }
   });
 

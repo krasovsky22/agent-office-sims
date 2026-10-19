@@ -298,8 +298,8 @@ export const OFFICE_DECOR: readonly WallDecorSpec[] = [
   picture("decor-lounge-abstract", "abstract", "wall-north", LOUNGE_ROOM_ID, -9.2, LARGE),
   picture("decor-lounge-landscape", "landscape", "wall-ceo-west", LOUNGE_ROOM_ID, -6.1, { width: 1, height: 0.7 }, 1.4),
 
-  // The CEO's office: the plumbob over the desk, where the CEO looks.
-  picture("decor-ceo-plumbob", "plumbob", "wall-north", CEO_OFFICE_ROOM_ID, -4.1, { width: 1.2, height: 1.2 }, 1.2),
+  // The CEO's office: the plumbob on the back wall, behind the CEO's chair.
+  picture("decor-ceo-plumbob", "plumbob", "wall-north", CEO_OFFICE_ROOM_ID, -5.1, { width: 1.2, height: 1.2 }, 1.2),
   picture("decor-ceo-city", "cityscape", "wall-ceo-west", CEO_OFFICE_ROOM_ID, -8.5, WIDE),
   clock("decor-ceo-clock", "wall-ceo-east", CEO_OFFICE_ROOM_ID, -8.5),
 

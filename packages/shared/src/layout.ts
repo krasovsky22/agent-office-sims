@@ -220,6 +220,18 @@ export interface DoorwaySpec {
 }
 
 /**
+ * A carpet runner laid on the floor along a walkway.
+ *
+ * Decor, so it never collides: it is here, with the walkways it marks, so the
+ * runner the client draws and the route the agents walk are written down in
+ * one place.
+ */
+export interface CarpetSpec {
+  readonly id: string;
+  readonly footprint: Aabb2;
+}
+
+/**
  * A navigation node.
  *
  * What live agents path through: `nav.ts` routes over these nodes and the
@@ -374,6 +386,7 @@ export interface OfficeLayout {
   readonly lifts: readonly LiftSpec[];
   readonly rooms: readonly RoomSpec[];
   readonly doorways: readonly DoorwaySpec[];
+  readonly carpets: readonly CarpetSpec[];
   readonly waypoints: readonly WaypointSpec[];
   /** Cycled through in arrival order so occupants do not stack up. */
   readonly spawnPoints: readonly SpawnSpec[];
@@ -532,8 +545,15 @@ function deskRow(prefix: string, z: number, yaw: number, xs: readonly number[]):
   return xs.map((x, index) => desk(`${prefix}-${index + 1}`, x, z, yaw));
 }
 
-/** Where the desks in every open-floor row sit along X. */
-const DESK_ROW_XS = [-9.8, -7.4, -5, -2.6, -0.2, 2.2] as const;
+/**
+ * Where the desks in every open-floor row sit along X.
+ *
+ * Three to a row with a 2.4 m gap between neighbours, so the floor can be
+ * walked across between the desks as well as round them, and the westernmost
+ * desk stands well east of the office door: whoever comes in from the lobby
+ * walks up a clear carpeted walkway rather than straight into a chair.
+ */
+const DESK_ROW_XS = [-6.6, -2.6, 1.4] as const;
 
 /**
  * The prototype office: the first floor of a building on a New York street,
@@ -577,9 +597,9 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     // Shell.
     wall("wall-north", -12, -12, 12, -11.7),
     wall("wall-south", -12, 11.7, 12, 12),
-    // The back, glazed but for the stretch the issues sticker board hangs on.
+    // The back: solid, since nothing stands outside it to look out on.
     wall("wall-west-north", -12, -12, -11.7, -7.9),
-    windowWall("wall-west-south", -12, -7.9, -11.7, 12),
+    wall("wall-west-south", -12, -7.9, -11.7, 12),
     // The street front, glazed either side of the main entrance into the lobby.
     windowWall("wall-east-north", 11.7, -12, 12, 8.35),
     windowWall("wall-east-south", 11.7, 10.15, 12, 12),
@@ -628,7 +648,8 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     ...deskRow("desk-south", 4, 0, DESK_ROW_XS),
 
     // Private rooms.
-    desk("desk-ceo", -4.1, -8.5, 0, 2.2, 0.9),
+    // The CEO's, turned to face its door, with the back wall behind the chair.
+    desk("desk-ceo", -5.1, -9, Math.PI, 2.2, 0.9),
     // Down the middle of the conference room, its length north-south, so it is
     // sat at from the west and from the east.
     { ...desk("table-meeting", 8, -6.2, -QUARTER_TURN, 6.4, 1.4), meeting: true },
@@ -763,6 +784,15 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { id: "door-office", centre: { x: -10.6, z: 6.65 }, width: 1.4, axis: "x", connects: [OPEN_FLOOR_ROOM_ID, LOBBY_ROOM_ID] },
     { id: "door-entrance", centre: { x: 11.85, z: 9.25 }, width: 1.8, axis: "z", connects: [LOBBY_ROOM_ID, SIDEWALK_ROOM_ID] },
   ],
+  // Runners down the open floor's main walkways: up the west side from the
+  // office door, along the front past the project board and every door off
+  // it, and along the back to the kitchen. Laid edge to edge, never
+  // overlapping, so no two fight for the same pixel.
+  carpets: [
+    { id: "carpet-west", footprint: rect(-11.15, -3.15, -10.05, 5.2) },
+    { id: "carpet-front", footprint: rect(-11.15, -4.25, 4, -3.15) },
+    { id: "carpet-back", footprint: rect(-11.15, 5.2, 4, 6.5) },
+  ],
   // Every link is axis-aligned and clear of the geometry, so a body can follow
   // one by walking straight at the next node.
   waypoints: [
@@ -771,9 +801,11 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     { id: "wp-lounge-boards", x: -9.2, z: -9.4, links: ["wp-lounge-east"] },
     { id: "wp-lounge-east", x: -7.25, z: -9.4, links: ["wp-lounge-boards", "wp-floor-front-lounge"] },
 
-    // CEO office.
-    { id: "wp-ceo-desk", x: -5.4, z: -6.8, links: ["wp-ceo-door"] },
+    // CEO office: in at the door, and round the east end of the desk to its chair.
+    { id: "wp-ceo-desk", x: -5.4, z: -6.8, links: ["wp-ceo-door", "wp-ceo-east"] },
     { id: "wp-ceo-door", x: -5.4, z: -4.85, links: ["wp-ceo-desk", "wp-floor-front-ceo"] },
+    { id: "wp-ceo-east", x: -2.8, z: -6.8, links: ["wp-ceo-desk", "wp-ceo-desk-back"] },
+    { id: "wp-ceo-desk-back", x: -2.8, z: -10.7, links: ["wp-ceo-east"] },
 
     // The AI manager's office, and round the east end of its desk to its chair.
     { id: "wp-manager-door", x: 2.8, z: -4.85, links: ["wp-manager-centre", "wp-floor-front-manager"] },
@@ -807,7 +839,7 @@ export const OFFICE_LAYOUT: OfficeLayout = {
     // own aisle.
     {
       id: "wp-floor-front-west",
-      x: -11.15,
+      x: -10.6,
       z: -3.7,
       links: ["wp-floor-front-lounge", "wp-floor-aisle-north-west"],
     },
@@ -834,12 +866,12 @@ export const OFFICE_LAYOUT: OfficeLayout = {
 
     {
       id: "wp-floor-aisle-north-west",
-      x: -11.15,
+      x: -10.6,
       z: -0.2,
       links: ["wp-floor-front-west", "wp-floor-aisle-north-mid", "wp-floor-aisle-south-west"],
     },
-    { id: "wp-floor-aisle-north-mid", x: -6.2, z: -0.2, links: ["wp-floor-aisle-north-west", "wp-floor-aisle-north"] },
-    { id: "wp-floor-aisle-north", x: -1.4, z: -0.2, links: ["wp-floor-aisle-north-mid", "wp-floor-aisle-north-east"] },
+    { id: "wp-floor-aisle-north-mid", x: -4.6, z: -0.2, links: ["wp-floor-aisle-north-west", "wp-floor-aisle-north"] },
+    { id: "wp-floor-aisle-north", x: -0.6, z: -0.2, links: ["wp-floor-aisle-north-mid", "wp-floor-aisle-north-east"] },
     {
       id: "wp-floor-aisle-north-east",
       x: 3.5,
@@ -849,12 +881,12 @@ export const OFFICE_LAYOUT: OfficeLayout = {
 
     {
       id: "wp-floor-aisle-south-west",
-      x: -11.15,
+      x: -10.6,
       z: 2.88,
-      links: ["wp-floor-aisle-north-west", "wp-floor-aisle-south-mid", "wp-floor-back-west"],
+      links: ["wp-floor-aisle-north-west", "wp-floor-aisle-south-mid", "wp-floor-back-door"],
     },
-    { id: "wp-floor-aisle-south-mid", x: -6.2, z: 2.88, links: ["wp-floor-aisle-south-west", "wp-floor-aisle-south"] },
-    { id: "wp-floor-aisle-south", x: -1.4, z: 2.88, links: ["wp-floor-aisle-south-mid", "wp-floor-aisle-south-east"] },
+    { id: "wp-floor-aisle-south-mid", x: -4.6, z: 2.88, links: ["wp-floor-aisle-south-west", "wp-floor-aisle-south"] },
+    { id: "wp-floor-aisle-south", x: -0.6, z: 2.88, links: ["wp-floor-aisle-south-mid", "wp-floor-aisle-south-east"] },
     {
       id: "wp-floor-aisle-south-east",
       x: 3.5,
@@ -862,10 +894,14 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       links: ["wp-floor-aisle-south", "wp-floor-aisle-north-east", "wp-floor-back-east"],
     },
 
-    { id: "wp-floor-back-west", x: -11.15, z: 5.7, links: ["wp-floor-aisle-south-west", "wp-floor-back-door"] },
-    { id: "wp-floor-back-door", x: -10.6, z: 5.7, links: ["wp-floor-back-west", "wp-office-door", "wp-floor-back-mid"] },
-    { id: "wp-floor-back-mid", x: -6.2, z: 5.7, links: ["wp-floor-back-door", "wp-floor-back"] },
-    { id: "wp-floor-back", x: -1.4, z: 5.7, links: ["wp-floor-back-mid", "wp-floor-back-east"] },
+    {
+      id: "wp-floor-back-door",
+      x: -10.6,
+      z: 5.7,
+      links: ["wp-floor-aisle-south-west", "wp-office-door", "wp-floor-back-mid"],
+    },
+    { id: "wp-floor-back-mid", x: -4.6, z: 5.7, links: ["wp-floor-back-door", "wp-floor-back"] },
+    { id: "wp-floor-back", x: -0.6, z: 5.7, links: ["wp-floor-back-mid", "wp-floor-back-east"] },
     {
       id: "wp-floor-back-east",
       x: 3.5,
@@ -1278,6 +1314,19 @@ export function describeLayoutProblems(layout: OfficeLayout): string[] {
       problems.push(`doorway ${door.id} is blocked by an obstacle`);
     }
   }
+
+  // A runner under a wall or another runner fights it for the same pixels.
+  layout.carpets.forEach((carpet, index) => {
+    if (!groundsOf(layout).some((ground) => containsBox(ground, carpet.footprint))) {
+      problems.push(`carpet ${carpet.id} runs off the floor`);
+    }
+    if (layout.walls.some((spec) => boxesOverlap(carpet.footprint, spec.footprint))) {
+      problems.push(`carpet ${carpet.id} runs under a wall`);
+    }
+    if (layout.carpets.some((other, otherIndex) => otherIndex > index && boxesOverlap(carpet.footprint, other.footprint))) {
+      problems.push(`carpet ${carpet.id} overlaps another carpet`);
+    }
+  });
 
   problems.push(...describeBoardProblems(layout));
   problems.push(...describeFurnishingProblems(layout));

@@ -9,7 +9,7 @@
  * furniture is not: `props.ts` draws that from the asset kit, and the grey desk
  * boxes this file makes are the fallback it replaces. See {@link OfficeView}.
  *
- * The outer walls are glazed — a sill, glass and a header, so the outside shows
+ * The street front is glazed — a sill, glass and a header, so the street shows
  * through — and the pavement's railings are rails on posts; both still block
  * exactly the footprint the layout gives them, so seeing through a wall never
  * means walking through it.
@@ -20,13 +20,29 @@
  * round it outside (`street.ts`) are what show. The lifts in the lobby are
  * doors on the wall and nothing more.
  *
+ * A doorway is wall up to the ceiling but for the opening itself: a lintel
+ * fills the gap from the top of the door frame to the top of the wall, so no
+ * slot is left over a door. The doors hung in the frames are `doors.ts`'s.
+ *
+ * Carpet runners lie along the open floor's walkways, a hair above the floor
+ * and receiving the same shadows it does.
+ *
  * Only the floor receives shadows and only the furniture and the avatars cast
  * them: the walls are a closed box around the camera, so shadowing them would
  * cost a second pass over most of the scene's triangles and change almost
  * nothing you can see. The lights themselves are `lighting.ts`'s.
  */
 
-import { type InteractableSpec, type LiftSpec, type OfficeLayout, type WallSpec, interactables } from "@sim/shared";
+import {
+  type CarpetSpec,
+  type DoorwayGap,
+  type InteractableSpec,
+  type LiftSpec,
+  type OfficeLayout,
+  type WallSpec,
+  doorwayGaps,
+  interactables,
+} from "@sim/shared";
 import * as THREE from "three";
 
 const FLOOR_COLOUR = 0x4a4a50;
@@ -41,6 +57,13 @@ const LIGHT_PANEL_COLOUR = 0xfff6e2;
 const STEEL_COLOUR = 0xa7adb3;
 const LIFT_FRAME_COLOUR = 0x5b6168;
 const LIFT_INDICATOR_COLOUR = 0xffb547;
+const CARPET_COLOUR = 0x7a3b3f;
+const CARPET_BORDER_COLOUR = 0x4e2629;
+
+/** Width of a runner's darker border, and how high above the floor each layer lies. */
+const CARPET_BORDER = 0.08;
+const CARPET_BORDER_Y = 0.004;
+const CARPET_Y = 0.008;
 
 /** Spacing of the light panels let into the ceiling, and each panel's size. */
 const LIGHT_PANEL_SPACING = 3;
@@ -206,6 +229,46 @@ function addUprights(parent: THREE.Object3D, name: string, matrices: readonly TH
   mesh.computeBoundingSphere();
   mesh.name = name;
   parent.add(mesh);
+}
+
+/**
+ * The wall over a doorway, from the top of its frame to the top of the wall,
+ * across the gap's whole width and the wall's whole thickness.
+ */
+function addLintel(parent: THREE.Object3D, gap: DoorwayGap, material: THREE.Material): void {
+  if (gap.wallHeight <= gap.frameHeight) {
+    return;
+  }
+  const alongX = gap.yaw === 0;
+  const footprint = {
+    x: gap.x,
+    z: gap.z,
+    width: alongX ? gap.width : gap.depth,
+    depth: alongX ? gap.depth : gap.width,
+  };
+  addSlab(parent, `lintel-${gap.id}`, footprint, gap.frameHeight, gap.wallHeight, material);
+}
+
+/** A flat rectangle lying on the floor at `y`, receiving shadows as the floor does. */
+function addRug(parent: THREE.Object3D, name: string, box: ReturnType<typeof centreOf>, y: number, material: THREE.Material): void {
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(box.width, box.depth), material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(box.x, y, box.z);
+  mesh.receiveShadow = true;
+  mesh.name = name;
+  parent.add(mesh);
+}
+
+/** One carpet runner: a darker border with the body of the runner laid inside it. */
+function addCarpet(parent: THREE.Object3D, spec: CarpetSpec, materials: { readonly body: THREE.Material; readonly border: THREE.Material }): void {
+  const box = centreOf(spec.footprint);
+  addRug(parent, `${spec.id}-border`, box, CARPET_BORDER_Y, materials.border);
+  const inset = {
+    ...box,
+    width: Math.max(0, box.width - CARPET_BORDER * 2),
+    depth: Math.max(0, box.depth - CARPET_BORDER * 2),
+  };
+  addRug(parent, spec.id, inset, CARPET_Y, materials.body);
 }
 
 /**
@@ -410,6 +473,17 @@ export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): OfficeVie
   }
   addUprights(office, "window-mullions", mullions, materials.frame);
   addUprights(office, "railing-posts", posts, materials.railing);
+  for (const gap of doorwayGaps(layout)) {
+    addLintel(office, gap, wallMaterial);
+  }
+
+  const carpetMaterials = {
+    body: new THREE.MeshLambertMaterial({ color: CARPET_COLOUR }),
+    border: new THREE.MeshLambertMaterial({ color: CARPET_BORDER_COLOUR }),
+  };
+  for (const spec of layout.carpets) {
+    addCarpet(office, spec, carpetMaterials);
+  }
 
   addCeiling(office, layout);
   const liftMaterials: LiftMaterials = {

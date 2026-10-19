@@ -207,6 +207,14 @@ export function describeLiveAgentTask(status: LiveAgentStatus, title: string, ur
   return parts.length === 0 ? "working" : parts.join(" · ");
 }
 
+/**
+ * Most live agents an orchestrator may have on the floor at once.
+ *
+ * With the runner's slots, this fills every open-floor chair and no more, so
+ * every agent the floor admits has a desk to work at.
+ */
+export const MAX_LIVE_AGENTS = 5;
+
 const seatCache = new WeakMap<OfficeLayout, readonly InteractableSpec[]>();
 
 /**

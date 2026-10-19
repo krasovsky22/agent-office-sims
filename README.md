@@ -23,7 +23,7 @@ player nor an agent: it takes no work and answers nothing, but whenever a
 player steps into the lobby, in off the street or out through the office door,
 it turns to them, waves and welcomes them by name in a speech bubble and the
 chat, once each time they come in, and every tab sees the same welcome. Glass
-runs along the back wall and the whole street side, through which cars and
+runs along the whole street side, through which cars and
 yellow cabs drive both ways past brick walk-ups and glass towers, stopping at
 the lights by the crossing outside the door, and from the street the office's
 own building rises above it. It is furnished now,
@@ -227,7 +227,8 @@ send `null`), only read on a `working` or `needs-input` report, and its `url` mu
 heartbeat: an agent the server has not heard about for `LIVE_AGENTS_TIMEOUT_SECONDS`
 (a minute by default) leaves the office, so an orchestrator keeps one there by
 repeating its status every few seconds. A report without the secret is refused
-with `401`, more than a dozen agents with `409`, and a burst beyond what an
+with `401`, more than five agents with `409` (`MAX_LIVE_AGENTS`: with the
+runner's four slots that fills the open floor's nine desks), and a burst beyond what an
 orchestrator would ever send with `429`. Without the secret the route does not
 exist.
 
@@ -1653,6 +1654,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/skyline.ts    the buildings round the street, generated from a seed, and the office's own above it
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
+  src/scene/doors.ts     the doors in every doorway, swinging open for whoever comes near; decor, never collided with
   src/scene/wallDecor.ts  the wall decor from shared decor.ts, hung as instanced boxes, the clocks kept to the office's time
   src/scene/wallArt.ts    the decor's artwork, painted on canvases: pictures, posters, clock faces, whiteboards, the TV's slide
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
