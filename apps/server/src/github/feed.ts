@@ -89,7 +89,7 @@ export class ProjectFeed implements ProjectBoardSource {
   /** A refresh was asked for while a poll was in flight, which may have started before the change. */
   private refreshAfterPoll = false;
   private lastPollAt = Number.NEGATIVE_INFINITY;
-  /** The pending timer waits out a rate limit, which no refresh may cut short. */
+  /** The last poll was rate limited, and the wait for the next is GitHub's, which no refresh may cut short. */
   private backingOff = false;
 
   public constructor(private readonly options: ProjectFeedOptions) {
@@ -127,11 +127,14 @@ export class ProjectFeed implements ProjectBoardSource {
    * asked before the change. A rate limit's wait is left alone.
    */
   public refresh(): void {
-    if (!this.running || this.backingOff) {
+    if (!this.running) {
       return;
     }
     if (this.timer === undefined) {
       this.refreshAfterPoll = true;
+      return;
+    }
+    if (this.backingOff) {
       return;
     }
     clearTimeout(this.timer);
@@ -158,8 +161,7 @@ export class ProjectFeed implements ProjectBoardSource {
    * @returns how long to wait before polling again.
    */
   public async poll(): Promise<number> {
-    const startedAt = this.now();
-    this.lastPollAt = startedAt;
+    this.lastPollAt = this.now();
     const signal = AbortSignal.any([this.stopped.signal, AbortSignal.timeout(this.timeoutMs)]);
     try {
       const lists = await this.options.load(signal);
@@ -169,13 +171,17 @@ export class ProjectFeed implements ProjectBoardSource {
       this.publish({
         repository: this.options.repository,
         ...lists,
-        updatedAt: startedAt,
+        updatedAt: this.now(),
         stale: false,
       });
+      this.backingOff = false;
       return this.options.intervalMs;
     } catch (error) {
       if (this.stopped.signal.aborted) {
         return this.options.intervalMs;
+      }
+      if (error instanceof GithubRateLimitError) {
+        this.backingOff = true;
       }
       this.markStale(describeFailure(error));
       return this.delayAfter(error);
@@ -225,7 +231,6 @@ export class ProjectFeed implements ProjectBoardSource {
 
   private schedule(delayMs: number): void {
     const run = this.stopped;
-    this.backingOff = delayMs > this.options.intervalMs;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       void this.poll().then((next) => {
@@ -233,7 +238,7 @@ export class ProjectFeed implements ProjectBoardSource {
         // loop already; this one ends here rather than running beside it.
         if (this.running && run === this.stopped) {
           // A rate limit's longer wait still wins over a refresh.
-          const refresh = this.refreshAfterPoll && next <= this.options.intervalMs;
+          const refresh = this.refreshAfterPoll && !this.backingOff;
           this.refreshAfterPoll = false;
           this.schedule(refresh ? this.refreshDelay() : next);
         }

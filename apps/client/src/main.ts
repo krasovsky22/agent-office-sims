@@ -324,14 +324,14 @@ function start(): void {
    * The cards this player dropped on Closed or Open, shown there at once.
    *
    * Each waits for the server's answer; a refusal puts it back and says why.
-   * One GitHub took stays until a snapshot shows it there, or one fetched
-   * after the change shows GitHub's own state, whatever this tab assumed.
+   * One GitHub took stays until a snapshot shows it there, or one from a poll
+   * begun after the change shows GitHub's own state, whatever this tab assumed.
    */
   interface PendingIssueMove {
     readonly issueNumber: number;
     readonly state: IssueState;
-    /** When GitHub made the change; the move now waits only for a snapshot that shows it. */
-    settledAt: number | undefined;
+    /** Once GitHub made the change, the fresh snapshots since; the move now waits only for a snapshot. */
+    freshSince: number | undefined;
     timer: number;
   }
   let issueMoves: PendingIssueMove[] = [];
@@ -353,7 +353,7 @@ function start(): void {
     const move: PendingIssueMove = {
       issueNumber,
       state,
-      settledAt: undefined,
+      freshSince: undefined,
       timer: window.setTimeout(() => {
         dropIssueMove(move);
         showBoardNotice(`No answer about #${issueNumber} from the server; the board shows it as GitHub last did.`);
@@ -567,7 +567,7 @@ function start(): void {
 
     onIssueStateResult: (event) => {
       const move = issueMoves.find(
-        (candidate) => candidate.issueNumber === event.issueNumber && candidate.state === event.state && candidate.settledAt === undefined,
+        (candidate) => candidate.issueNumber === event.issueNumber && candidate.state === event.state && candidate.freshSince === undefined,
       );
       if (move === undefined) {
         return;
@@ -578,7 +578,7 @@ function start(): void {
         return;
       }
       window.clearTimeout(move.timer);
-      move.settledAt = Date.now();
+      move.freshSince = 0;
       move.timer = window.setTimeout(() => dropIssueMove(move), ISSUE_MOVE_HOLD_MS);
     },
 
@@ -602,8 +602,13 @@ function start(): void {
     // the board shows at a distance and up close cannot disagree.
     onProjectBoard: (snapshot) => {
       for (const move of issueMoves) {
-        if (move.settledAt !== undefined && hasIssueMoveLanded(snapshot, move, move.settledAt)) {
+        if (move.freshSince === undefined) {
+          continue;
+        }
+        if (hasIssueMoveLanded(snapshot, move, move.freshSince)) {
           dropIssueMove(move);
+        } else if (!snapshot.stale) {
+          move.freshSince += 1;
         }
       }
       wallBoard?.show(snapshot);
