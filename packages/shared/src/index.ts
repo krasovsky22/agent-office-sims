@@ -9,6 +9,7 @@ export * from "./interaction.js";
 export * from "./state.js";
 export * from "./messages.js";
 export * from "./work.js";
+export * from "./issueState.js";
 export * from "./clock.js";
 export * from "./projectBoard.js";
 export * from "./liveAgents.js";

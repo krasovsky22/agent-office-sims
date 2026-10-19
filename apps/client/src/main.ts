@@ -14,6 +14,7 @@ import {
   INTERACT_RANGE,
   INTERACTION_KIND,
   type InteractableSpec,
+  type IssueState,
   LIVE_AGENT_STATUS,
   MANAGER_INTERACTABLE_ID,
   type ManagerEntry,
@@ -40,7 +41,7 @@ import * as THREE from "three";
 
 import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
 import { standupAccessFor, standupRejectionText } from "./standupAccess.js";
-import { boardAccessFor, rejectionText } from "./boardAccess.js";
+import { boardAccessFor, issueStateRejectionText, rejectionText } from "./boardAccess.js";
 import { DayClock } from "./dayClock.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
 import { standingAccessFor, standingRejectionText } from "./standingAccess.js";
@@ -94,6 +95,21 @@ const AGENT_PROMPT_LIMIT = 100;
 
 /** How long a "you are going too fast" notice stays on the HUD. */
 const NOTICE_DURATION_MS = 2500;
+
+/** How long the board says why a dragged card went back: long enough to read a sentence about GitHub. */
+const BOARD_NOTICE_DURATION_MS = 8000;
+
+/**
+ * How long a card dropped on Closed or Open waits for the server's answer
+ * before it goes back; past the server's own wait on GitHub, which answers first.
+ */
+const ISSUE_MOVE_ANSWER_MS = 30_000;
+
+/**
+ * How long a card GitHub moved stays where it was dropped without a snapshot
+ * showing it there, for a feed that has gone stale and stopped publishing.
+ */
+const ISSUE_MOVE_HOLD_MS = 120_000;
 
 /**
  * How far into its lean over a working agent's shoulder the camera hides
@@ -289,6 +305,64 @@ function start(): void {
     }, NOTICE_DURATION_MS);
   };
 
+  let boardNoticeTimer: number | undefined;
+
+  /** Shows a line on the project board's close-up, to this player only, and takes it down again. */
+  const showBoardNotice = (text: string) => {
+    if (boardNoticeTimer !== undefined) {
+      window.clearTimeout(boardNoticeTimer);
+    }
+    publishHud({ boardNotice: text });
+    boardNoticeTimer = window.setTimeout(() => {
+      boardNoticeTimer = undefined;
+      publishHud({ boardNotice: undefined });
+    }, BOARD_NOTICE_DURATION_MS);
+  };
+
+  /**
+   * The cards this player dropped on Closed or Open, shown there at once.
+   *
+   * Each waits for the server's answer; a refusal puts it back and says why.
+   * One GitHub took stays until the next snapshot, which then shows GitHub's
+   * own state, whatever this tab assumed.
+   */
+  interface PendingIssueMove {
+    readonly issueNumber: number;
+    readonly state: IssueState;
+    /** GitHub made the change; the move now waits only for a snapshot. */
+    settled: boolean;
+    timer: number;
+  }
+  let issueMoves: PendingIssueMove[] = [];
+
+  const publishIssueMoves = () => {
+    publishHud({ issueMoves: issueMoves.map(({ issueNumber, state }) => ({ issueNumber, state })) });
+  };
+
+  const dropIssueMove = (move: PendingIssueMove) => {
+    window.clearTimeout(move.timer);
+    issueMoves = issueMoves.filter((candidate) => candidate !== move);
+    publishIssueMoves();
+  };
+
+  const moveIssue = (issueNumber: number, state: IssueState) => {
+    if (issueMoves.some((move) => move.issueNumber === issueNumber)) {
+      return;
+    }
+    const move: PendingIssueMove = {
+      issueNumber,
+      state,
+      settled: false,
+      timer: window.setTimeout(() => {
+        dropIssueMove(move);
+        showBoardNotice(`No answer about #${issueNumber} from the server; the board shows it as GitHub last did.`);
+      }, ISSUE_MOVE_ANSWER_MS),
+    };
+    issueMoves = [...issueMoves, move];
+    publishIssueMoves();
+    room.sendIssueState(issueNumber, state);
+  };
+
   /** Shows a line in the standup panel, to this player only, and takes it down again shortly. */
   const showStandupNotice = (text: string) => {
     if (standupNoticeTimer !== undefined) {
@@ -416,7 +490,7 @@ function start(): void {
           canTakeIssues: view.canTakeIssues,
           managerStatus: view.managerStatus,
         })),
-        boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name),
+        boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name, room.issuesWritable()),
         managerAccess: local === undefined ? undefined : managerAccessFor(local, ceo?.name),
         agentPromptAccess: local === undefined ? undefined : agentPromptAccessFor(local, ceo?.name),
         standingAccess: local === undefined ? undefined : standingAccessFor(local, ceo?.name),
@@ -490,6 +564,23 @@ function start(): void {
       showNotice(rejectionText(event.rejection, room.agentRestrictLabel()));
     },
 
+    onIssueStateResult: (event) => {
+      const move = issueMoves.find(
+        (candidate) => candidate.issueNumber === event.issueNumber && candidate.state === event.state && !candidate.settled,
+      );
+      if (move === undefined) {
+        return;
+      }
+      if (event.rejection !== undefined) {
+        dropIssueMove(move);
+        showBoardNotice(issueStateRejectionText(event.rejection, event.issueNumber, event.state));
+        return;
+      }
+      window.clearTimeout(move.timer);
+      move.settled = true;
+      move.timer = window.setTimeout(() => dropIssueMove(move), ISSUE_MOVE_HOLD_MS);
+    },
+
     // Announced in the chat log, where everyone in the office is already
     // looking, rather than only in the roster badge that silently moves.
     onCeoChanged: (event) => {
@@ -509,6 +600,10 @@ function start(): void {
     // The same snapshot goes to the wall and to the close-up panel, so what
     // the board shows at a distance and up close cannot disagree.
     onProjectBoard: (snapshot) => {
+      // A snapshot after GitHub took a move is GitHub's word on where it is.
+      for (const move of issueMoves.filter((candidate) => candidate.settled)) {
+        dropIssueMove(move);
+      }
       wallBoard?.show(snapshot);
       publishHud({ projectBoard: snapshot });
       boardSnapshot = snapshot;
@@ -616,6 +711,7 @@ function start(): void {
           assign: (issueNumber, agentId) => room.sendWorkAssign(issueNumber, agentId),
           move: (issueNumber, status) => room.sendWorkMove(issueNumber, status),
           release: (issueNumber) => room.sendWorkRelease(issueNumber),
+          setIssueState: moveIssue,
         },
         manager: {
           say: (text) => room.sendManagerSay(text),

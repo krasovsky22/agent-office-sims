@@ -118,7 +118,7 @@ function readCommand(raw: unknown): RunnerCommand | undefined {
   return draft === undefined ? undefined : toRunnerCommand(raw["id"], draft);
 }
 
-/** A standing task's command, which names no slot; its definition is proved by `toRunnerCommand`. */
+/** A command that names no slot, a standing task's or an issue's state; its fields are proved by `toRunnerCommand`. */
 function readStandingDraft(raw: Record<string, unknown>): RunnerCommandDraft | undefined {
   const { kind, requestedBy } = raw;
   if (typeof requestedBy !== "string") {
@@ -129,6 +129,10 @@ function readStandingDraft(raw: Record<string, unknown>): RunnerCommandDraft | u
   }
   if (isStandingTaskCommandKind(kind) && typeof raw["taskId"] === "string") {
     return { kind, taskId: raw["taskId"], requestedBy };
+  }
+  // Its number and state are proved by `toRunnerCommand`.
+  if (kind === RUNNER_COMMAND_KIND.issueState) {
+    return { kind, issueNumber: raw["issueNumber"] as number, state: raw["state"] as never, requestedBy };
   }
   return undefined;
 }

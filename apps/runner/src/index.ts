@@ -14,7 +14,9 @@
  * requires unless the operator chose a person's own login instead: the runner
  * mints the App's tokens and keeps them fresh (`./githubApp.ts`), or hands on
  * the person's (`./githubPersonal.ts`), and checks each issue's label and
- * finds each task's pull request with them (`./github.ts`).
+ * finds each task's pull request with them (`./github.ts`). The same identity
+ * closes and reopens issues the CEO drags across the office's board
+ * (`./issueStates.ts`), since the game server never writes to GitHub.
  *
  * What the agents spend is booked against `RUNNER_DAILY_BUDGET_USD`, which
  * refuses new starts once it is spent (`./budget.ts`).
@@ -43,6 +45,7 @@ import { type RunnerConfig, readConfig } from "./config.js";
 import { NO_GITHUB, type TaskGithub, createTaskGithub, runCommand } from "./github.js";
 import { GITHUB_TOKEN_ENV, GithubAppCredentials, type GithubCredentials } from "./githubApp.js";
 import { PersonalGithubCredentials } from "./githubPersonal.js";
+import { IssueStateDesk, ghIssueState } from "./issueStates.js";
 import { createRedactor, runnerSecrets } from "./redact.js";
 import { ScreenLoop } from "./screenLoop.js";
 import { createScreensClient } from "./screensClient.js";
@@ -246,11 +249,17 @@ try {
   console.error(`[runner] refusing to start: ${(error as Error).message}`);
   process.exit(1);
 }
+// A real agent's identity closes and reopens issues for the CEO; the mock never touches GitHub.
+const issueDesk =
+  config.agent === "mock" || credentials === undefined
+    ? undefined
+    : new IssueStateDesk({ set: ghIssueState({ repo: config.repo, env: () => githubEnv(credentials) }), log });
 const loop = new SyncLoop({
   runnerId: config.runnerId,
   repo: config.repo,
   pool,
   standing,
+  ...(issueDesk === undefined ? {} : { issues: issueDesk }),
   client: createSyncClient({ serverUrl: config.serverUrl, secret: config.secret }),
   log,
 });
@@ -306,6 +315,10 @@ if (config.agent === "mock") {
 } else {
   log(`agents run ${config.agent} with ${config.model === undefined ? "its default model" : `model ${config.model}`}`);
   log(`agents take any open issue without the "${config.restrictLabel}" label; they push and open pull requests as ${githubIdentity()}`);
+  log(
+    `the CEO's board drops close and reopen issues as the same identity` +
+      (config.githubApp === undefined ? "" : ", which needs the App's Issues: Read and write permission"),
+  );
   if (config.agentPermissions === "all") {
     // Opted into, and easy to forget it is on: every agent can run anything here, and no prompt will say so.
     for (const line of [

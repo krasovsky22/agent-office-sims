@@ -61,6 +61,9 @@ import {
   INTERPOLATION_DELAY_MS,
   NO_STANDUP,
   type InteractMessage,
+  type IssueState,
+  type IssueStateMessage,
+  type IssueStateResultEvent,
   type IssueWork,
   type LiveAgentStatus,
   type ManagerEntry,
@@ -208,6 +211,8 @@ export interface RoomConnectionEvents {
   onSpendChanged?: (spend: RunnerSpendTotal) => void;
   /** The office refused one of the local client's own work commands. */
   onWorkRejected?: (event: WorkRejectedEvent) => void;
+  /** GitHub answered, or the office refused, one of the local client's own drops on Closed or Open. */
+  onIssueStateResult?: (event: IssueStateResultEvent) => void;
   /** The CEO left and the role passed to someone else. */
   onCeoChanged?: (event: CeoChangedEvent) => void;
   /** All the agents' work, after any of it is added, changed or removed. */
@@ -372,6 +377,11 @@ export class RoomConnection {
     this.room?.send(CLIENT_MESSAGE.workMove, { issueNumber, status } satisfies WorkMoveMessage);
   }
 
+  /** Closes or reopens an issue on GitHub; the answer comes as an `issue:state-result`. */
+  public sendIssueState(issueNumber: number, state: IssueState): void {
+    this.room?.send(CLIENT_MESSAGE.issueState, { issueNumber, state } satisfies IssueStateMessage);
+  }
+
   /**
    * Reports the local pose, at most once per {@link POSE_SEND_INTERVAL_MS}.
    *
@@ -420,6 +430,11 @@ export class RoomConnection {
   /** The label that keeps an issue from the live coding agents; `""` before the state arrives. */
   public agentRestrictLabel(): string {
     return this.room?.state.agentRestrictLabel ?? "";
+  }
+
+  /** Whether a connected runner can close and reopen issues on GitHub; `false` before the state arrives. */
+  public issuesWritable(): boolean {
+    return this.room?.state.issuesWritable ?? false;
   }
 
   /** Tells the AI manager something. The conversation broadcast is the reply. */
@@ -622,6 +637,12 @@ export class RoomConnection {
       this.events.onClockChanged?.(minuteOfDay);
     });
 
+    // What the board offers is worked out with the roster, and a runner that
+    // can change issues coming or going changes it.
+    $(room.state).listen("issuesWritable", () => {
+      this.events.onOccupantsChanged?.();
+    });
+
     // Five fields, one total: whichever of them a patch carries, the HUD hears the whole of it.
     const spendChanged = (): void => {
       this.events.onSpendChanged?.(runnerSpendOf(room.state));
@@ -692,6 +713,10 @@ export class RoomConnection {
 
     room.onMessage<WorkRejectedEvent>(SERVER_MESSAGE.workRejected, (event) => {
       this.events.onWorkRejected?.(event);
+    });
+
+    room.onMessage<IssueStateResultEvent>(SERVER_MESSAGE.issueStateResult, (event) => {
+      this.events.onIssueStateResult?.(event);
     });
 
     room.onMessage<CeoChangedEvent>(SERVER_MESSAGE.ceoChanged, (event) => {

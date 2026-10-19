@@ -18,6 +18,7 @@ import {
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
+import { IssueStateDesk } from "./issueStates.js";
 import { SyncError, type SyncReply } from "./syncClient.js";
 import { SyncLoop } from "./syncLoop.js";
 
@@ -82,7 +83,17 @@ describe("SyncLoop", () => {
     const { loop, sent } = setup([]);
     expect(await loop.syncOnce()).toBe(true);
     expect(sent).toEqual([
-      { runnerId: "runner-1", repo: REPO, acked: [], slots: SLOTS, events: [], spend: { spentUsd: 1.25, budgetUsd: 5 }, prompts: [] },
+      {
+        runnerId: "runner-1",
+        repo: REPO,
+        acked: [],
+        slots: SLOTS,
+        events: [],
+        spend: { spentUsd: 1.25, budgetUsd: 5 },
+        prompts: [],
+        changesIssues: false,
+        issueStates: [],
+      },
     ]);
   });
 
@@ -199,5 +210,64 @@ describe("SyncLoop", () => {
     expect(await loop.syncOnce()).toBe(true);
     expect(loop.nextDelayMs()).toBe(1000);
     expect(logged.at(-1)).toBe("synced with the server after 14 failed syncs");
+  });
+});
+
+describe("SyncLoop issue states", () => {
+  const close: RunnerCommand = { id: "command-1", kind: "issue-state", issueNumber: 39, state: "closed", requestedBy: "Dana" };
+
+  function withDesk(replies: SyncReply[], desk: IssueStateDesk | undefined) {
+    const sent: RunnerSync[] = [];
+    const logged: string[] = [];
+    const loop = new SyncLoop({
+      runnerId: "runner-1",
+      repo: REPO,
+      pool: {
+        report: () => SLOTS,
+        pendingEvents: () => [],
+        pendingPromptOutcomes: () => [],
+        delivered: () => undefined,
+        handle: () => undefined,
+        spend: () => ({ spentUsd: 0, budgetUsd: undefined }),
+      },
+      ...(desk === undefined ? {} : { issues: desk }),
+      client: async (sync) => {
+        sent.push(sync);
+        return replies.shift() ?? { commands: [], unreadable: [] };
+      },
+      log: (line) => logged.push(line),
+    });
+    return { loop, sent, logged };
+  }
+
+  it("says it changes issues, hands the command to the desk, and reports what came of it until delivered", async () => {
+    const calls: [number, string][] = [];
+    const desk = new IssueStateDesk({
+      set: async (issueNumber, state) => {
+        calls.push([issueNumber, state]);
+        return "done";
+      },
+    });
+    const { loop, sent } = withDesk([{ commands: [close], unreadable: [] }], desk);
+
+    await loop.syncOnce();
+    expect(sent[0]?.changesIssues).toBe(true);
+    // The desk answers on its own time; give it a turn.
+    await Promise.resolve();
+    expect(calls).toEqual([[39, "closed"]]);
+
+    await loop.syncOnce();
+    expect(sent[1]?.issueStates).toEqual([{ commandId: "command-1", outcome: "done" }]);
+    await loop.syncOnce();
+    expect(sent[2]?.issueStates).toEqual([]);
+  });
+
+  it("acks a command to change an issue without acting on it when it has no desk", async () => {
+    const { loop, sent, logged } = withDesk([{ commands: [close], unreadable: [] }], undefined);
+    await loop.syncOnce();
+    expect(sent[0]?.changesIssues).toBe(false);
+    await loop.syncOnce();
+    expect(sent[1]?.acked).toEqual(["command-1"]);
+    expect(logged.some((line) => line.includes("cannot"))).toBe(true);
   });
 });

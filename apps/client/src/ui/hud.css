@@ -538,6 +538,44 @@
   padding: 8px 10px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
+  /* Always there, so lighting it up while a card is dragged moves nothing. */
+  outline: 2px dashed transparent;
+  outline-offset: -2px;
+}
+
+/* While a card is dragged, the columns that would take it say so, and the
+   one under the pointer says it louder. */
+.board__column--takes {
+  outline-color: rgba(120, 180, 255, 0.45);
+}
+
+.board__column--over {
+  outline-color: #78b4ff;
+  background: rgba(120, 180, 255, 0.12);
+}
+
+.board__row--draggable {
+  cursor: grab;
+}
+
+.board__row--dragged {
+  opacity: 0.4;
+}
+
+/* Dropped, and waiting on GitHub's answer or the next poll. */
+.board__row--moving {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.board__notice {
+  flex: none;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(240, 120, 90, 0.16);
+  color: #ffb39c;
+  font-weight: 600;
 }
 
 .board__filters {

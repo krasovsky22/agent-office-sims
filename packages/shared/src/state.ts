@@ -655,6 +655,12 @@ export class OfficeState extends Schema {
   declare public budgetSpent: boolean;
   /** The standup, on or the last one held; see `./standup.ts`. */
   declare public standup: Standup;
+  /**
+   * Whether an agent runner that can close and reopen the board's issues on
+   * GitHub is connected; see `./issueState.ts`. Replicated so the board only
+   * offers the drops that would be made, and says why while it offers none.
+   */
+  declare public issuesWritable: boolean;
 
   public constructor() {
     super();
@@ -670,6 +676,7 @@ export class OfficeState extends Schema {
     this.budgetUsd = 0;
     this.budgetSpent = false;
     this.standup = new Standup();
+    this.issuesWritable = false;
   }
 }
 
@@ -686,6 +693,7 @@ defineTypes(OfficeState, {
   budgetUsd: "float64",
   budgetSpent: "boolean",
   standup: Standup,
+  issuesWritable: "boolean",
 });
 
 const TAU = Math.PI * 2;

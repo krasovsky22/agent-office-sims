@@ -17,6 +17,10 @@
  * kept for them, so a busy pool never holds them back), and the commands for
  * them handed to the scheduler rather than a slot.
  *
+ * So does closing and reopening issues for the CEO (`./issueStates.ts`): the
+ * sync says whether this runner can, its commands go to the issue desk, and
+ * what came of them rides back like a prompt's outcome.
+ *
  * Syncs run one at a time, never overlapping, so an answer always settles
  * exactly what its own request carried. A failed sync is retried with backoff
  * up to {@link MAX_BACKOFF_MS}, which keeps a runner pointed at a server that is
@@ -27,7 +31,9 @@
 import {
   MAX_RUNNER_ACKS,
   MAX_RUNNER_EVENTS,
+  MAX_RUNNER_ISSUE_STATE_OUTCOMES,
   MAX_RUNNER_PROMPT_OUTCOMES,
+  RUNNER_COMMAND_KIND,
   type RunnerEvent,
   type RunnerStandingCommand,
   type RunnerSync,
@@ -36,6 +42,7 @@ import {
   isRunnerSlotCommand,
 } from "@sim/shared";
 
+import type { IssueStateDesk } from "./issueStates.js";
 import type { SlotPool } from "./slots.js";
 import type { SyncClient } from "./syncClient.js";
 
@@ -65,6 +72,8 @@ export interface SyncLoopOptions {
     Partial<Pick<SlotPool, "setStandup">>;
   /** The standing tasks; none by default. */
   readonly standing?: StandingSyncSource;
+  /** Closes and reopens issues for the CEO; absent for a runner with no GitHub identity, which then says it cannot. */
+  readonly issues?: Pick<IssueStateDesk, "handle" | "pending" | "delivered">;
   readonly client: SyncClient;
   readonly intervalMs?: number;
   readonly maxBackoffMs?: number;
@@ -107,12 +116,13 @@ export class SyncLoop {
    * @returns whether the server answered it.
    */
   public async syncOnce(): Promise<boolean> {
-    const { pool, standing } = this.options;
+    const { pool, standing, issues } = this.options;
     const acked = this.acks.slice(0, MAX_RUNNER_ACKS);
     const standingEvents = standing?.pendingEvents() ?? [];
     const slotEvents = pool.pendingEvents().slice(0, MAX_RUNNER_EVENTS - Math.min(standingEvents.length, STANDING_EVENT_PLACES));
     const events = [...slotEvents, ...standingEvents.slice(0, MAX_RUNNER_EVENTS - slotEvents.length)];
     const prompts = pool.pendingPromptOutcomes().slice(0, MAX_RUNNER_PROMPT_OUTCOMES);
+    const issueStates = issues?.pending().slice(0, MAX_RUNNER_ISSUE_STATE_OUTCOMES) ?? [];
     const sync: RunnerSync = {
       runnerId: this.options.runnerId,
       repo: this.options.repo,
@@ -122,6 +132,8 @@ export class SyncLoop {
       spend: pool.spend(),
       prompts,
       ...(standing === undefined ? {} : { standing: standing.report(), standingOff: standing.off() }),
+      changesIssues: issues !== undefined,
+      issueStates,
     };
 
     let reply;
@@ -141,6 +153,7 @@ export class SyncLoop {
     // carried is settled.
     pool.delivered(delivered, prompts);
     standing?.delivered(delivered);
+    issues?.delivered(new Set(issueStates.map((outcome) => outcome.commandId)));
 
     for (const id of reply.unreadable) {
       if (this.take(id)) {
@@ -153,6 +166,12 @@ export class SyncLoop {
       }
       if (isRunnerSlotCommand(command)) {
         pool.handle(command);
+      } else if (command.kind === RUNNER_COMMAND_KIND.issueState) {
+        if (issues === undefined) {
+          this.log(`command ${command.id} would change an issue on GitHub, which this runner cannot; acked without acting on it`);
+        } else {
+          void issues.handle(command);
+        }
       } else if (standing !== undefined) {
         standing.handle(command);
       } else {

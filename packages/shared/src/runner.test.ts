@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_RUNNER_ACKS,
   MAX_RUNNER_EVENTS,
+  MAX_RUNNER_ISSUE_STATE_OUTCOMES,
   MAX_RUNNER_PROMPT_LENGTH,
   MAX_RUNNER_PROMPT_OUTCOMES,
   MAX_RUNNER_SLOTS,
@@ -79,6 +80,8 @@ describe("parseRunnerSync", () => {
       spend: undefined,
       prompts: [{ commandId: "command-7", slotId: "slot-1", outcome: "busy" }],
       standing: [],
+      changesIssues: false,
+      issueStates: [],
     });
   });
 
@@ -105,7 +108,19 @@ describe("parseRunnerSync", () => {
       spend: undefined,
       prompts: [],
       standing: [],
+      changesIssues: false,
+      issueStates: [],
     });
+  });
+
+  it("reads whether the runner changes issues, and what came of the ones it was asked to", () => {
+    const parsed = parseRunnerSync({
+      ...SYNC,
+      changesIssues: true,
+      issueStates: [{ commandId: "command-9", outcome: "refused" }],
+    });
+    expect(parsed?.changesIssues).toBe(true);
+    expect(parsed?.issueStates).toEqual([{ commandId: "command-9", outcome: "refused" }]);
   });
 
   it("keeps a simulated pull request as simulated, with no link", () => {
@@ -149,6 +164,12 @@ describe("parseRunnerSync", () => {
     ["a javascript: pull request", { ...SYNC, slots: [{ id: "s", status: "working", pr: { number: 1, url: "javascript:alert(1)" } }] }],
     ["a pull request with no link", { ...SYNC, slots: [{ id: "s", status: "working", pr: { number: 1 } }] }],
     ["an unknown event kind", { ...SYNC, events: [{ ...SYNC.events[0], kind: "exploded" }] }],
+    ["an unknown issue state outcome", { ...SYNC, issueStates: [{ commandId: "command-9", outcome: "merged" }] }],
+    [
+      "too many issue state outcomes",
+      { ...SYNC, issueStates: Array.from({ length: MAX_RUNNER_ISSUE_STATE_OUTCOMES + 1 }, () => ({ commandId: "c", outcome: "done" })) },
+    ],
+    ["a changesIssues that is not a boolean", { ...SYNC, changesIssues: "yes" }],
     ["an event with no issue", { ...SYNC, events: [{ ...SYNC.events[0], issueNumber: undefined }] }],
     ["an ack that is not an id", { ...SYNC, acked: [7] }],
     ["slots that are not a list", { ...SYNC, slots: { id: "s" } }],
@@ -276,8 +297,22 @@ describe("toRunnerCommand", () => {
     ["an empty prompt", { kind: "prompt", slotId: "s", text: "\n\n", requestedBy: "" }],
     ["a stop for no issue", { kind: "stop", slotId: "s", reason: "", issueNumber: -1 }],
     ["a key that types text", { kind: "key", slotId: "s", key: "y" as "enter", requestedBy: "" }],
+    ["an issue state that is not open or closed", { kind: "issue-state", issueNumber: 1, state: "merged" as "open", requestedBy: "" }],
+    ["an issue state for no issue", { kind: "issue-state", issueNumber: 0, state: "closed", requestedBy: "" }],
   ] as const)("refuses a command with %s", (_label, draft) => {
     expect(toRunnerCommand("command-1", draft)).toBeUndefined();
+  });
+});
+
+describe("toRunnerCommand for an issue's state", () => {
+  it("builds a command that names no slot, with the CEO's name sanitised", () => {
+    expect(toRunnerCommand("command-10", { kind: "issue-state", issueNumber: 39, state: "closed", requestedBy: "Dana\u0007" })).toEqual({
+      id: "command-10",
+      kind: "issue-state",
+      issueNumber: 39,
+      state: "closed",
+      requestedBy: "Dana",
+    });
   });
 });
 
