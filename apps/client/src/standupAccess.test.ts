@@ -77,7 +77,7 @@ describe("standupPhaseText", () => {
 
   it("follows the meeting from gathering, through each update, to done", () => {
     const on = { ...NO_STANDUP, active: true, calledBy: "Dana" };
-    expect(standupPhaseText(on, nameOf)).toBe("Gathering at the manager's desk…");
+    expect(standupPhaseText(on, nameOf)).toBe("Gathering in the conference room…");
     expect(standupPhaseText({ ...on, speakerId: "agent:one" }, nameOf)).toBe("Claude 1 is giving an update");
     const update = { agentId: "agent:one", agentName: "Claude 1", workedOn: "", blockers: "", needsYou: false, resolved: false, at: 0 };
     expect(standupPhaseText({ ...on, updates: [update] }, nameOf)).toBe("Updates done");

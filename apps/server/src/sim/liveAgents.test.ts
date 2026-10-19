@@ -24,7 +24,6 @@ import {
   IssueWork,
   LIVE_AGENT_STATUS,
   LiveAgent,
-  MANAGER_OFFICE_ROOM_ID,
   MAX_LIVE_AGENTS,
   MAX_RUNNER_SLOTS,
   OCCUPANT_RADIUS,
@@ -57,6 +56,8 @@ import {
 } from "./liveAgents.js";
 
 const STEP_SECONDS = TICK_INTERVAL_MS / 1000;
+
+const CONFERENCE_ROOM_ID = "meeting-room";
 
 /** A small linear congruential generator, so a wander is the same on every run. */
 function seeded(seed: number): () => number {
@@ -685,9 +686,10 @@ describe("sticky notes", () => {
 
 describe("a standup", () => {
   const SPOTS = standupSpots(OFFICE_LAYOUT);
+  const CHAIRS = SPOTS.filter((spot) => spot.seatId !== "");
   const atSpot = (body: Occupant) => SPOTS.some((spot) => Math.hypot(spot.x - body.x, spot.z - body.z) < 0.1);
 
-  it("gets every agent out of its chair and to a place of its own in the manager's room, facing the desk", () => {
+  it("gets every agent out of its desk chair and onto a conference chair of its own", () => {
     const office = createOffice();
     office.crew.sync(
       [record("alpha", LIVE_AGENT_STATUS.working, "Live agents"), record("bravo", LIVE_AGENT_STATUS.idle)],
@@ -696,17 +698,38 @@ describe("a standup", () => {
     const alpha = agent(office, "alpha");
     const bravo = agent(office, "bravo");
     expect(runUntil(office, 30, () => alpha.interactableId !== "")).toBeDefined();
+    const desk = alpha.interactableId;
 
     office.crew.gather(SPOTS, office.now);
     expect(runUntil(office, 60, () => office.crew.isGathered(alpha.id) && office.crew.isGathered(bravo.id))).toBeDefined();
     for (const body of [alpha, bravo]) {
-      expect(body.interactableId).toBe("");
-      expect(atSpot(body)).toBe(true);
-      expect(roomAt(OFFICE_LAYOUT, body)?.id).toBe(MANAGER_OFFICE_ROOM_ID);
-      expect(body.animation).toBe(ANIMATION_STATE.idle);
+      expect(CHAIRS.map((spot) => spot.seatId)).toContain(body.interactableId);
+      expect(office.interaction.holds.holderOf(body.interactableId)).toBe(body.id);
+      expect(roomAt(OFFICE_LAYOUT, body)?.id).toBe(CONFERENCE_ROOM_ID);
+      expect(body.animation).toBe(ANIMATION_STATE.sitting);
     }
-    expect(Math.hypot(alpha.x - bravo.x, alpha.z - bravo.z)).toBeGreaterThan(0.5);
-    expect(alpha.yaw).toBeCloseTo(SPOTS.find((spot) => Math.hypot(spot.x - alpha.x, spot.z - alpha.z) < 0.1)?.yaw ?? Number.NaN);
+    expect(alpha.interactableId).not.toBe(bravo.interactableId);
+    expect(office.interaction.holds.holderOf(desk)).toBeUndefined();
+  });
+
+  it("takes the next chair when a player sits in one, and stands facing the table once every chair is taken", () => {
+    const office = createOffice();
+    const [free, ...taken] = CHAIRS;
+    taken.forEach((spot, index) => seatPlayer(office, `player-${index}`, spot.seatId));
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle), record("bravo", LIVE_AGENT_STATUS.idle)], office.now);
+    const alpha = agent(office, "alpha");
+    const bravo = agent(office, "bravo");
+
+    office.crew.gather(SPOTS, office.now);
+    expect(runUntil(office, 60, () => office.crew.isGathered(alpha.id) && office.crew.isGathered(bravo.id))).toBeDefined();
+    const seated = [alpha, bravo].filter((body) => body.interactableId !== "");
+    const standing = [alpha, bravo].filter((body) => body.interactableId === "");
+    expect(seated.map((body) => body.interactableId)).toEqual([free?.seatId]);
+    expect(standing).toHaveLength(1);
+    const place = SPOTS.find((spot) => spot.seatId === "" && standing[0] !== undefined && Math.hypot(spot.x - standing[0].x, spot.z - standing[0].z) < 0.1);
+    expect(place).toBeDefined();
+    expect(standing[0]?.yaw).toBeCloseTo(place?.yaw ?? Number.NaN);
+    expect(standing[0]?.animation).toBe(ANIMATION_STATE.idle);
   });
 
   it("takes in an agent that arrives while it is on, and nobody stops to chat", () => {
@@ -739,6 +762,7 @@ describe("a standup", () => {
     expect(alpha.interactableId).toBe(desk);
     expect(alpha.animation).toBe(ANIMATION_STATE.typing);
     expect(runUntil(office, 30, () => !atSpot(bravo))).toBeDefined();
+    expect(bravo.interactableId).toBe("");
   });
 
   it("finds another chair when somebody took the one it left", () => {

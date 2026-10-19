@@ -154,7 +154,7 @@ describe("calling a standup", () => {
     expect(s.state.standup.order.toArray()).toEqual([CLAUDE_1, CREWMATE]);
     expect(s.crewCalls).toEqual([`gather ${standupSpots(OFFICE_LAYOUT).length}`]);
     expect(s.holds).toEqual([true]);
-    expect(s.reported).toEqual(["Dana called a standup: 2 agents to my desk, and each gives an update in turn."]);
+    expect(s.reported).toEqual(["Dana called a standup: 2 agents to the conference room, and each gives an update in turn."]);
   });
 
   it("is refused while one is on, and with nobody on the floor to gather", () => {
@@ -398,7 +398,7 @@ describe("ending a standup", () => {
 describe("the AI Manager's part", () => {
   it("calls and ends a standup for the CEO, without a second announcement, and says how it went", () => {
     const s = setup();
-    expect(s.meeting.forManager("start", s.dana)).toBe("✓ Standup called: one agent on the way to my desk.");
+    expect(s.meeting.forManager("start", s.dana)).toBe("✓ Standup called: one agent on the way to the conference room.");
     expect(s.reported).toEqual([]);
     expect(s.meeting.forManager("start", s.dana)).toBe("✗ A standup is already on.");
     expect(s.meeting.forManager("end", s.milo)).toBe("✗ You are no longer the CEO, so I didn't.");

@@ -214,7 +214,7 @@ describe("the standup in a live room", () => {
     await settled(() => milo.room.state.standup.active);
     await settled(() => milo.conversation.some((entry) => entry.text.includes("✓ Standup called")));
     expect(milo.conversation.at(-1)?.text).toBe(
-      "Calling a standup: everyone to my desk, and each of them gives an update in turn.\n✓ Standup called: one agent on the way to my desk.",
+      "Calling a standup: everyone to the conference room, and each of them gives an update in turn.\n✓ Standup called: one agent on the way to the conference room.",
     );
 
     milo.room.send(CLIENT_MESSAGE.managerSay, { text: "end the standup" });

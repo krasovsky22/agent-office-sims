@@ -675,7 +675,7 @@ function StandupCall({ access, active, start }: { access: StandupAccess; active:
         className="panel__button"
         type="button"
         disabled={!access.mayRun || active}
-        title={access.mayRun ? "Every agent gathers at the manager's desk and gives an update" : access.summary}
+        title={access.mayRun ? "Every agent gathers in the conference room and gives an update" : access.summary}
         onClick={(event) => {
           event.currentTarget.blur();
           start();
