@@ -102,7 +102,10 @@ budget.
 Walk with `W A S D` or the arrow keys. Click the canvas to capture the mouse,
 then move it to swing the camera; `Esc` releases it. Walk up to a desk chair, the
 coffee machine, the project board or the manager's desk and a prompt appears;
-`E` uses it. Any movement key gets you out of a chair.
+`E` uses it. Any movement key gets you out of a chair. A coffee goes with you:
+the cup steams in your hand and is sipped every few seconds, ten sips in all,
+then it is gone; idle agents now and then go for one too, and everyone in the
+office sees the same cup and the same sips.
 
 Behind the chair of an open-floor desk where a live agent is working, the
 prompt reads `Watch the agent's terminal` and `E` opens its terminal at full

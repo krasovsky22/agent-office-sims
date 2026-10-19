@@ -61,6 +61,7 @@ import { EMOTE_APPEARANCE } from "../emotes.js";
 import { AvatarAnimator } from "./avatarAnimator.js";
 import type { AvatarLook, AvatarModel } from "./avatarModel.js";
 import { Billboard, paintBeacon, paintEmote, paintSpeechBubble, paintStatusBadge } from "./billboard.js";
+import { CoffeeCup } from "./coffeeCup.js";
 
 /**
  * Offsets of the expression sprites above the head anchor.
@@ -205,7 +206,6 @@ const MANAGER_BODY_COLOUR = 0xcf3d4f;
 const MANAGER_TITLE_COLOUR = "#ff9aa5";
 const FACING_COLOUR = 0x5e6470;
 const CEO_MARKER_COLOUR = 0xf0c650;
-const CUP_COLOUR = 0xe8dcc4;
 
 /** Fraction of the gap the smoothed speed closes per second. */
 const SPEED_EASE_RATE = 12;
@@ -231,11 +231,9 @@ const BODY_GEOMETRY = new THREE.CapsuleGeometry(
 );
 const FACING_GEOMETRY = new THREE.BoxGeometry(0.14, 0.14, 0.1);
 const CEO_MARKER_GEOMETRY = new THREE.ConeGeometry(0.16, 0.26, 10);
-const CUP_GEOMETRY = new THREE.CylinderGeometry(0.05, 0.04, 0.11, 8);
 
 const FACING_MATERIAL = new THREE.MeshLambertMaterial({ color: FACING_COLOUR });
 const CEO_MARKER_MATERIAL = new THREE.MeshLambertMaterial({ color: CEO_MARKER_COLOUR });
-const CUP_MATERIAL = new THREE.MeshLambertMaterial({ color: CUP_COLOUR });
 
 /**
  * Where a carried sticky note is drawn, in the body's own frame (forward is
@@ -432,7 +430,7 @@ export class Avatar {
   public readonly headAnchor = new THREE.Object3D();
 
   private readonly ceoMarker: THREE.Mesh;
-  private readonly cup: THREE.Mesh;
+  private readonly coffee = new CoffeeCup();
   /** Kept across a change of body, so a body swapped in while hidden stays hidden. */
   private bodyHidden = false;
   private readonly nameplate: THREE.Sprite;
@@ -508,13 +506,7 @@ export class Avatar {
         : createCapsuleBody(this.look);
     this.group.add(this.body.root);
 
-    // Held out to one side rather than straight ahead: a cup in front of the
-    // chest is hidden behind the body from the owner's own camera, which is
-    // exactly the viewer who most needs to see that the break is running.
-    this.cup = new THREE.Mesh(CUP_GEOMETRY, CUP_MATERIAL);
-    this.cup.position.set(OCCUPANT_RADIUS + 0.07, OCCUPANT_HEIGHT * 0.56, -OCCUPANT_RADIUS * 0.7);
-    this.cup.visible = false;
-    this.group.add(this.cup);
+    this.group.add(this.coffee.group);
 
     this.headAnchor.position.y = HEAD_ANCHOR_Y;
     this.group.add(this.headAnchor);
@@ -611,9 +603,12 @@ export class Avatar {
     return target.add(this.group.position);
   }
 
-  /** Shows or hides the coffee cup a break at the machine puts in hand. */
-  public setHoldingCup(holding: boolean): void {
-    this.cup.visible = holding;
+  /**
+   * Draws the coffee in hand: poured at the machine, then sipped as the
+   * replicated count runs down, and gone after the last sip.
+   */
+  public setCoffee(sips: number, atMachine: boolean, nowMs: number): void {
+    this.coffee.update(sips, atMachine, nowMs, HEAD_ANCHOR_Y - this.headAnchor.position.y);
   }
 
   /** Advances the animation and whatever follows the pose. */

@@ -15,6 +15,9 @@
  * ordinary chat so every client draws it with the speech bubbles players get.
  * Half the time a wandering agent heads for wherever another idle agent is,
  * which is what makes those meetings happen at all in an office this size.
+ * Now and then one with nothing in hand goes to the kitchen instead and pours
+ * itself a coffee, through the same interaction a player uses, and drinks it
+ * on its way about the office just as a player does (`coffee.ts`).
  *
  * Every step goes through `resolveMove`, the collision function players are
  * validated with, so an agent cannot walk anywhere a player could not.
@@ -43,6 +46,7 @@
 import { type MapSchema } from "@colyseus/schema";
 import {
   ANIMATION_STATE,
+  INTERACTION_KIND,
   type InteractableSpec,
   ISSUES_STICKER_BOARD_ID,
   type IssueWork,
@@ -59,6 +63,7 @@ import {
   distanceToInteractable,
   findPath,
   interactableById,
+  interactables,
   isClearLine,
   isLiveAgentOnTask,
   liveAgentKey,
@@ -113,6 +118,12 @@ const SEAT_RETRY_MS = 1500;
 
 /** Chance a wandering agent heads for another idle agent rather than anywhere. */
 const SEEK_COMPANY_CHANCE = 0.5;
+
+/**
+ * Chance a wandering agent with no cup in hand goes for a coffee rather than
+ * anywhere else, when the machine is free and nobody else is on the way to it.
+ */
+const COFFEE_RUN_CHANCE = 0.2;
 
 /**
  * How long an agent stands at a sticker board taking a note off it or pinning
@@ -183,6 +194,8 @@ interface AgentBody {
   atSpot: boolean;
   /** The chair it got up from for the standup, which it goes back to; `""` for none. */
   homeSeatId: string;
+  /** It is walking to the coffee machine, to pour one when it gets there. */
+  coffeeRun: boolean;
 }
 
 /** What the crew needs from the room, named so a test can supply it. */
@@ -298,9 +311,11 @@ export class LiveAgentCrew {
     }
     for (const body of this.bodies.values()) {
       if (this.stepErrand(body, now, deltaSeconds)) {
+        body.coffeeRun = false;
         continue;
       }
       if (isLiveAgentOnTask(body.status)) {
+        body.coffeeRun = false;
         this.stepWorking(body, now, deltaSeconds);
       } else if (body.conversation === undefined) {
         this.stepIdle(body, now, deltaSeconds);
@@ -342,6 +357,7 @@ export class LiveAgentCrew {
       spot: undefined,
       atSpot: false,
       homeSeatId: "",
+      coffeeRun: false,
     };
     this.bodies.set(record.id, body);
     this.host.occupants.set(key, occupant);
@@ -528,6 +544,10 @@ export class LiveAgentCrew {
       this.endConversation(body.conversation, now);
     }
     const { occupant } = body;
+    if (occupant.interactableId !== "" && occupant.interactableId !== body.seatId) {
+      // Work came in while it was at the coffee machine: off to a desk, cup in hand.
+      releaseHold(this.host.interaction, body.key, now);
+    }
     if (occupant.interactableId !== "") {
       if (occupant.animation !== ANIMATION_STATE.typing) {
         occupant.animation = ANIMATION_STATE.typing;
@@ -580,7 +600,9 @@ export class LiveAgentCrew {
   private stepStandup(body: AgentBody, now: number, deltaSeconds: number): void {
     const { occupant } = body;
     if (occupant.interactableId !== "") {
-      body.homeSeatId = occupant.interactableId;
+      if (occupant.interactableId === body.seatId) {
+        body.homeSeatId = occupant.interactableId;
+      }
       releaseHold(this.host.interaction, body.key, now);
       body.seatId = "";
       body.route = [];
@@ -628,6 +650,11 @@ export class LiveAgentCrew {
   private stepIdle(body: AgentBody, now: number, deltaSeconds: number): void {
     const { occupant } = body;
     if (occupant.interactableId !== "") {
+      // A coffee break runs its course; a chair is got up from straight away.
+      const hold = this.host.interaction.holds.heldBy(body.key);
+      if (hold !== undefined && now < hold.endsAt && Number.isFinite(hold.endsAt)) {
+        return;
+      }
       releaseHold(this.host.interaction, body.key, now);
       body.seatId = "";
       body.route = [];
@@ -643,6 +670,11 @@ export class LiveAgentCrew {
     if (body.route.length > 0) {
       if (this.walk(body, deltaSeconds)) {
         body.restUntil = now + this.between(REST_MIN_MS, REST_MAX_MS);
+        const machine = body.coffeeRun ? this.coffeeMachine() : undefined;
+        body.coffeeRun = false;
+        if (machine !== undefined) {
+          requestInteract(this.host.interaction, body.key, machine.id, now);
+        }
       }
       return;
     }
@@ -650,7 +682,9 @@ export class LiveAgentCrew {
       this.standStill(body);
       return;
     }
-    body.route = this.routeTo(occupant, this.chooseStop(body));
+    const machine = this.wantsCoffee(body) ? this.coffeeMachine() : undefined;
+    body.coffeeRun = machine !== undefined;
+    body.route = this.routeTo(occupant, machine?.anchor ?? this.chooseStop(body));
     if (body.route.length === 0) {
       body.restUntil = now + this.between(REST_MIN_MS, REST_MAX_MS);
     }
@@ -690,6 +724,32 @@ export class LiveAgentCrew {
       }
     }
     return best;
+  }
+
+  /** The office's coffee machine, or `undefined` in a floor plan without one. */
+  private coffeeMachine(): InteractableSpec | undefined {
+    return interactables(this.host.layout).find((spec) => spec.kind === INTERACTION_KIND.coffee);
+  }
+
+  /**
+   * Whether a wandering agent goes for a coffee this time: only with an empty
+   * hand, and only while the machine is free and nobody else is heading for it.
+   */
+  private wantsCoffee(body: AgentBody): boolean {
+    const machine = this.coffeeMachine();
+    if (
+      machine === undefined ||
+      body.occupant.coffeeSips > 0 ||
+      this.host.interaction.holds.holderOf(machine.id) !== undefined
+    ) {
+      return false;
+    }
+    for (const other of this.bodies.values()) {
+      if (other.coffeeRun) {
+        return false;
+      }
+    }
+    return this.host.random() < COFFEE_RUN_CHANCE;
   }
 
   /** Where a wandering agent goes next: towards company, or anywhere else indoors. */

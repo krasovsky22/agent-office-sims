@@ -6,7 +6,8 @@
  * holds; an idle one stands up and wanders between rooms; two idle ones that
  * meet trade lines; one that leaves frees its chair; one that starts an issue
  * fetches its sticky note first, and one that hands it in pins the note on the
- * pull requests board. Time is passed in, and
+ * pull requests board; one wandering about now and then pours a coffee and
+ * drinks it on the move. Time is passed in, and
  * the wandering is driven by a seeded random source, so every run walks the
  * same route.
  */
@@ -14,6 +15,9 @@
 import { MapSchema } from "@colyseus/schema";
 import {
   ANIMATION_STATE,
+  COFFEE_BREAK_MS,
+  COFFEE_SIPS,
+  COFFEE_SIP_INTERVAL_MS,
   HumanPlayer,
   INTERACTION_KIND,
   ISSUES_STICKER_BOARD_ID,
@@ -39,6 +43,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import type { LiveAgentRecord } from "../agents/registry.js";
+import { CoffeeCups } from "./coffee.js";
 import { HoldRegistry, type InteractionHost } from "./interaction.js";
 import {
   CONVERSATIONS,
@@ -76,6 +81,7 @@ function createOffice(seed = 1): Office {
     motions: new Map(),
     holds: new HoldRegistry(),
     lastUsedAt: new Map(),
+    cups: new CoffeeCups(),
   };
   const said: Office["said"] = [];
   const work = new MapSchema<IssueWork>();
@@ -114,6 +120,7 @@ function runUntil(office: Office, seconds: number, done: () => boolean): number 
   for (let t = 0; t < seconds * 1000; t += TICK_INTERVAL_MS) {
     office.now += TICK_INTERVAL_MS;
     office.crew.step(office.now, STEP_SECONDS);
+    office.interaction.cups.step(office.now, office.occupants);
     if (done()) {
       return (office.now - start) / 1000;
     }
@@ -145,6 +152,7 @@ function seatPlayer(office: Office, id: string, seatId: string): void {
 }
 
 const SEATS = liveAgentSeats(OFFICE_LAYOUT);
+const COFFEE = "coffee-machine";
 
 describe("the chairs live agents may take", () => {
   it("are the open floor's workstations, and only those", () => {
@@ -322,6 +330,40 @@ describe("an idle agent", () => {
       const outside = runUntil(office, 600, () => roomAt(OFFICE_LAYOUT, body)?.id === SIDEWALK_ROOM_ID);
       expect(outside, `seed ${seed}`).toBeUndefined();
     }
+  });
+
+  it("now and then pours a coffee, then drinks it on the move until the cup is empty", () => {
+    const office = createOffice(3);
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    const body = agent(office, "alpha");
+
+    expect(runUntil(office, 600, () => body.interactableId === COFFEE)).toBeDefined();
+    expect(office.interaction.holds.holderOf(COFFEE)).toBe(liveAgentKey("alpha"));
+    expect(body.coffeeSips).toBe(COFFEE_SIPS);
+
+    // The break runs its course, then it walks off with the cup.
+    expect(runUntil(office, COFFEE_BREAK_MS / 1000 + 1, () => body.interactableId === "")).toBeDefined();
+    expect(office.interaction.holds.holderOf(COFFEE)).toBeUndefined();
+    const machine = interactableById(OFFICE_LAYOUT, COFFEE)?.anchor ?? { x: 0, z: 0 };
+    let movedOff = false;
+    const drunk = runUntil(office, (COFFEE_SIPS + 1) * (COFFEE_SIP_INTERVAL_MS / 1000), () => {
+      movedOff ||= Math.hypot(body.x - machine.x, body.z - machine.z) > 2;
+      return body.coffeeSips === 0;
+    });
+    expect(drunk).toBeDefined();
+    expect(movedOff).toBe(true);
+  });
+
+  it("leaves the coffee machine for a chair, cup in hand, when it picks up a task", () => {
+    const office = createOffice(3);
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    const body = agent(office, "alpha");
+    expect(runUntil(office, 600, () => body.interactableId === COFFEE)).toBeDefined();
+
+    office.crew.sync([record("alpha", LIVE_AGENT_STATUS.working)], office.now);
+    expect(runUntil(office, 20, () => SEATS.some((seat) => seat.id === body.interactableId))).toBeDefined();
+    expect(office.interaction.holds.holderOf(COFFEE)).toBeUndefined();
+    expect(body.coffeeSips).toBeGreaterThan(0);
   });
 
   it("goes back to a chair when it picks up a task", () => {
