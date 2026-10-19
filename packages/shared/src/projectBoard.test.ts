@@ -42,7 +42,7 @@ function withBoard(board: WallBoardSpec): OfficeLayout {
   return { ...OFFICE_LAYOUT, boards: [board] };
 }
 
-/** The aisle between the first two desk rows, where players spawn facing north. */
+/** The aisle between the first two desk rows, facing north at the project board. */
 const FLOOR_AISLE = { x: -1.4, z: -0.2 };
 
 /** Nobody is holding anything. */

@@ -16,7 +16,8 @@ Manager's side by side across its north side, a lounge with a sofa, armchairs
 and a coffee table, a conference room with a long table seated down both sides,
 and a kitchen. A main entrance from the pavement opens into the building's
 lobby, with a reception desk facing it, lifts down the hall (placeholders,
-nobody rides them) and, to the left of the lifts, the door into the office. Glass
+nobody rides them) and, to the left of the lifts, the door into the office. Players arrive on the pavement outside, facing the
+main entrance, and walk in through the lobby. Glass
 runs along the back wall and the whole street side, through which cars and
 yellow cabs drive both ways past brick walk-ups and glass towers, stopping at
 the lights by the crossing outside the door, and from the street the office's
@@ -1133,7 +1134,7 @@ Then confirm all twenty-four:
    chair: the prompt reads `Sit down — taken` and `E` does nothing. The chair
    frees up when Dana stands, and also if Dana's tab is simply closed.
 10. **The project board matches GitHub, in both tabs.** It hangs on the open
-    floor's north wall, straight ahead as you spawn. Within one poll interval of
+    floor's north wall, straight ahead as you come in off the lobby. Within one poll interval of
     the server starting, the wall board lists the repository's open,
     in-progress and recently closed issues and its open pull requests, each with
     its label chips, and the time it last updated; walk up to it and press `E`
