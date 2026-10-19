@@ -1784,7 +1784,7 @@ describe("SlotPool desk sessions", () => {
     expect(slot(slots)).toMatchObject({ status: "working", standing: { taskId: "nightly" } });
     expect(slot(slots)?.desk).toBeUndefined();
     expect(deskEvents(slots)).toEqual([
-      { id: "event-1", kind: "desk-ended", slotId: "slot-1", seatId: "seat-desk-north-1-1", message: "Mock 1 is busy with nightly" },
+      { id: "event-1", kind: "desk-ended", slotId: "slot-1", seatId: "seat-desk-north-1-1", message: `${FIRST} is busy with nightly` },
     ]);
   });
 

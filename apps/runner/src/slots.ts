@@ -1100,7 +1100,7 @@ export class SlotPool {
       return `${slot.profile.name} is busy with #${slot.run.issueNumber}`;
     }
     if (slot.standing !== undefined) {
-      return `${slot.name} is busy with ${slot.standing.report.taskId}`;
+      return `${slot.profile.name} is busy with ${slot.standing.report.taskId}`;
     }
     if (slot.desk !== undefined) {
       return `${slot.profile.name} is at another desk`;
