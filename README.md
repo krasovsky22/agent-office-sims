@@ -362,8 +362,8 @@ standing run or desk, and has no work in the office assigned to it. While it is
 lent, its body on the floor wanders as an idle agent, `At the CEO's desk`, and
 takes no issues, so neither the board nor the AI Manager hands it work; its
 needs-you beacon stays off, since the CEO is the one at its screen. An issue's
-start for it anyway takes it back, as it does a standing run's slot, and a
-desk session takes a slot back from a standing run in turn. It has no task
+start for it anyway takes it back, as it does a standing run's slot, while a
+slot on a standing run refuses a desk session. It has no task
 timeout and does not pause for a standup. What it spends is booked against the
 runner's daily budget like any agent's, and a desk is not lent past it.
 
