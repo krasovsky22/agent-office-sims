@@ -1058,7 +1058,7 @@ export class SlotPool {
   /**
    * Lends the slot to a desk: a fresh session of its agent, at its prompt, for
    * the CEO sitting there. Refused, with a `desk-ended` event saying why, for a
-   * slot holding an issue or lent to another desk, past the day's budget, or
+   * slot holding an issue or a standing run or lent to another desk, past the day's budget, or
    * with an agent or a runner that takes no desk sessions.
    */
   private openDesk(slot: Slot, command: DeskOpenCommand): void {
