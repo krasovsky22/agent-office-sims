@@ -18,5 +18,8 @@ coverage
 .env
 .env.*
 
+# A developer's local server data, such as the kept profile edits.
+**/.data
+
 .claude
 .DS_Store

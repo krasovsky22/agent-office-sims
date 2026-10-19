@@ -49,6 +49,13 @@
  * the desk terminal through {@link RunnerLink.deskSlots}, not shown on its
  * body.
  *
+ * The CEO's edits to the agents' profiles ride the outbox as `profile`
+ * commands, and are also kept on the server ({@link RunnerProfiles}) the
+ * moment one is queued. Whenever a sync reports a slot with another profile
+ * than the one kept, and none is on its way, the edit goes out again, so an
+ * edit outlives a server stopped before its runner took it, and a runner that
+ * came back without its own copy.
+ *
  * Like the registry, everything here runs on Node's event loop, from an HTTP
  * request or this module's own sweep timer, and never inside a tick. The
  * slots reach the rooms through {@link LiveAgentSource}: a finished list, and
@@ -89,6 +96,7 @@ import {
 } from "@sim/shared";
 
 import type { LiveAgentRecord, LiveAgentSource } from "./registry.js";
+import type { RunnerProfiles } from "./runnerProfiles.js";
 import type { IssueStates } from "../rooms/issueStateHandlers.js";
 import type { StandingMirror } from "./standingMirror.js";
 
@@ -201,6 +209,8 @@ export interface RunnerLinkOptions {
   readonly pullTitle?: (number: number) => string | undefined;
   /** How long a change to an issue's state waits on its runner before it is given up. Defaults to 20 seconds. */
   readonly issueStateWaitMs?: number;
+  /** Where the CEO's profile edits are kept, to give a runner again; an edit lives only in the outbox without it. */
+  readonly profiles?: RunnerProfiles;
 }
 
 const DEFAULT_MAX_RUNNERS = 4;
@@ -208,6 +218,13 @@ const DEFAULT_MAX_PENDING_COMMANDS = 32;
 const DEFAULT_SWEEP_INTERVAL_MS = 1000;
 /** Past a sync a second and `gh`'s own few seconds; well inside the client's own wait. */
 const DEFAULT_ISSUE_STATE_WAIT_MS = 20_000;
+
+/**
+ * Least time between two re-sends of one slot's kept profile. A runner takes
+ * one within a sync or two, so this only bounds a runner that never reports
+ * it back, an older one without profiles, to a command a while.
+ */
+const PROFILE_RESEND_MS = 30_000;
 
 /** Events one inbox holds before the oldest go; far more than a tick ever sees. */
 const MAX_INBOX_EVENTS = 256;
@@ -284,6 +301,8 @@ interface Runner {
   standingNames: ReadonlyMap<string, string>;
   /** Whether its last sync said it closes and reopens issues. */
   changesIssues: boolean;
+  /** When each slot's kept profile last went out again, by slot id. */
+  readonly profileResentAt: Map<string, number>;
 }
 
 /** A change to an issue's state sent to a runner, waiting for what came of it. */
@@ -409,6 +428,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
         spend: undefined,
         standingNames: new Map(),
         changesIssues: false,
+        profileResentAt: new Map(),
       };
       this.runners.set(sync.runnerId, runner);
     }
@@ -451,6 +471,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
       runner.records = records;
       this.changed();
     }
+    this.resendProfiles(sync.runnerId, runner);
     return { kind: "accepted", commands: [...runner.outbox.values()], standup: this.standup };
   }
 
@@ -475,10 +496,46 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
       return undefined;
     }
     runner.outbox.set(command.id, command);
+    if (command.kind === RUNNER_COMMAND_KIND.profile) {
+      const { name, title, description, requestedBy } = command;
+      const kept = this.options.profiles?.get(runnerId, command.slotId);
+      // A re-send is the kept edit itself, so the file is written for a new edit only.
+      if (kept?.name !== name || kept.title !== title || kept.description !== description || kept.requestedBy !== requestedBy) {
+        this.options.profiles?.keep(runnerId, command.slotId, { name, title, description, requestedBy });
+      }
+    }
     if (command.kind === RUNNER_COMMAND_KIND.start) {
       runner.startedTitles.set(command.slotId, { issueNumber: command.issueNumber, title: command.title });
     }
     return command;
+  }
+
+  /**
+   * Queues the kept profile again for every slot whose runner reports another
+   * one, unless one is already on its way or went out a moment ago. A slot
+   * lent to the desk still reports its profile, so it is given one too.
+   */
+  private resendProfiles(runnerId: string, runner: Runner): void {
+    const profiles = this.options.profiles;
+    if (profiles === undefined) {
+      return;
+    }
+    for (const slot of runner.slots) {
+      const kept = profiles.get(runnerId, slot.id);
+      if (kept === undefined || (slot.name === kept.name && slot.title === kept.title && slot.description === kept.description)) {
+        continue;
+      }
+      const pending = [...runner.outbox.values()].some(
+        (command) => command.kind === RUNNER_COMMAND_KIND.profile && command.slotId === slot.id,
+      );
+      const resentAt = runner.profileResentAt.get(slot.id);
+      if (pending || (resentAt !== undefined && this.now() - resentAt < PROFILE_RESEND_MS)) {
+        continue;
+      }
+      if (this.enqueue(runnerId, { kind: RUNNER_COMMAND_KIND.profile, slotId: slot.id, ...kept }) !== undefined) {
+        runner.profileResentAt.set(slot.id, this.now());
+      }
+    }
   }
 
   /**

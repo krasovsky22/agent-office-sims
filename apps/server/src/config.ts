@@ -8,6 +8,9 @@
  * joins looks like a client bug.
  */
 
+import { isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { readAgentRestrictLabel } from "@sim/shared";
 
 const DEFAULT_PORT = 2567;
@@ -111,6 +114,8 @@ export interface ServerConfig {
   readonly liveAgents: LiveAgentsConfig;
   readonly runner: RunnerConfig;
   readonly manager: ManagerConfig;
+  /** Where the server keeps the little it must not lose on a restart; see {@link readDataDir}. */
+  readonly dataDir: string;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -121,7 +126,28 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     liveAgents: readLiveAgentsConfig(env),
     runner: readRunnerConfig(env),
     manager: readManagerConfig(env),
+    dataDir: readDataDir(env),
   };
+}
+
+/** The server package's own `.data/`, which `.gitignore` keeps out of the repository. */
+const DEFAULT_DATA_DIR = join(fileURLToPath(new URL("..", import.meta.url)), ".data");
+
+/**
+ * Reads where the server keeps its files: today only the CEO's edits to the
+ * agents' profiles, so one survives a restart before its runner has it.
+ *
+ * - `SERVER_DATA_DIR`: an absolute path, defaulting to `apps/server/.data`.
+ */
+export function readDataDir(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env["SERVER_DATA_DIR"]?.trim() ?? "";
+  if (raw === "") {
+    return DEFAULT_DATA_DIR;
+  }
+  if (!isAbsolute(raw)) {
+    throw new Error(`SERVER_DATA_DIR must be an absolute path, got "${raw}"`);
+  }
+  return raw;
 }
 
 /** The model the manager uses when `MANAGER_MODEL` is unset. */

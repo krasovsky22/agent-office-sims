@@ -751,7 +751,14 @@ the server refuses their edits with that reason. Edits are limited to four in a
 burst, one more every five seconds. An edit goes to the agent's runner as a
 `profile` command; the runner keeps it in `<RUNNER_DATA_DIR>/profiles.json`,
 private to its user, and reports it on its next sync, which is when the floor
-changes, so a profile outlives a restart of the runner or the server. Only the
+changes. The server keeps its own copy the moment the edit is queued, in
+`<SERVER_DATA_DIR>/agent-profiles.json` (`apps/server/.data/` by default,
+which `.gitignore` keeps out of the repository), by runner id and slot id.
+Whenever a runner's sync reports a slot with another profile than the one kept
+there, and none is already on its way, the server sends the edit again, at
+most once every 30 seconds per slot. So a profile outlives a restart of the
+runner or the server, including a server stopped before its runner took the
+edit, and a runner that comes back without its own file. Only the
 CEO writes a profile: nothing an issue, a pull request or an agent says
 reaches it.
 
@@ -1443,7 +1450,10 @@ Then confirm all twenty-five:
     project board's `Assign…` picker lists `Grace · Release Engineer`, and
     Milo's card shows the new description. Stop the runner and the server and
     start both again: `Grace` comes back with her title and description, kept
-    in `<RUNNER_DATA_DIR>/profiles.json`. Give Grace an unrestricted issue: her
+    in `<RUNNER_DATA_DIR>/profiles.json` and in the server's
+    `<SERVER_DATA_DIR>/agent-profiles.json`. Stop the runner, delete its
+    `profiles.json` and start it again: within a couple of seconds the server
+    gives it the edit back and `Grace` returns. Give Grace an unrestricted issue: her
     terminal panel's header reads `Release Engineer`, and her mock terminal
     starts with `In this office your name is Grace and your title is Release Engineer.`
     and the description, the system prompt a real agent is given. An
@@ -1522,6 +1532,7 @@ public.
 | `LIVE_AGENTS_SECRET` | server | runtime | No. The shared secret an agent orchestrator reports with and collects the manager's assignments with, at least 16 characters; without it no live agents appear. |
 | `LIVE_AGENTS_TIMEOUT_SECONDS` | server | runtime | No. Silence after which a live agent, or a runner with its slots, leaves, at least 5. Defaults to 60. |
 | `RUNNER_SECRET` | server | runtime | No. The shared secret an agent runner syncs with, at least 16 characters; without it the runner link is off. |
+| `SERVER_DATA_DIR` | server | runtime | No. An absolute path for the server's own files: today `agent-profiles.json`, the CEO's profile edits, given to a runner again after a restart. Defaults to `apps/server/.data`. On a platform whose disk does not outlive a deploy, the runner's own copy still keeps them. |
 | `REAL_AGENT_RESTRICT_LABEL` | server | runtime | No. The label that keeps an issue from a runner's agent, the same as the runner's; every other open issue may go to one. Defaults to `agent-restricted`. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
@@ -1676,6 +1687,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/standingHandlers.ts  the CEO's standing task buttons, and the refusals sent back
   src/agents/standingMirror.ts   every runner's standing tasks, mirrored for the rooms
   src/agents/deskTerminal.ts     the CEO's desk terminal: lending a free slot to the desk the CEO sits at, and taking it back
+  src/agents/runnerProfiles.ts   the server's copy of the CEO's profile edits, in <SERVER_DATA_DIR>/agent-profiles.json, given to a runner again until it reports them
   src/agents/standingControl.ts  creating and managing standing tasks through the one gate
   src/agents/standingAnnouncer.ts  what the AI Manager says of each standing run
   src/manager/standingPlan.ts    the AI Manager's words for standing tasks, schedules read into cron

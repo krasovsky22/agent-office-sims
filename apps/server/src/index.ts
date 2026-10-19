@@ -28,6 +28,8 @@
  * opened later shows them at once.
  */
 
+import { join } from "node:path";
+
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
@@ -53,6 +55,7 @@ import { CombinedLiveAgentSource } from "./agents/combined.js";
 import { type LiveAgentSource, LiveAgentRegistry } from "./agents/registry.js";
 import { createRunnerEndpoint } from "./agents/runnerEndpoint.js";
 import { RunnerLink } from "./agents/runnerLink.js";
+import { RunnerProfileFile } from "./agents/runnerProfiles.js";
 import { ScreenStore } from "./agents/screens.js";
 import { StandingMirror } from "./agents/standingMirror.js";
 import { createScreensEndpoint } from "./agents/screensEndpoint.js";
@@ -66,7 +69,7 @@ import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
 import type { IssueStates } from "./rooms/issueStateHandlers.js";
 
-const { port, allowedOrigins, projectBoard, liveAgents, runner, manager } = readConfig();
+const { port, allowedOrigins, projectBoard, liveAgents, runner, manager, dataDir } = readConfig();
 
 const projectFeed = new ProjectFeed({
   repository: projectBoard.repository,
@@ -110,6 +113,9 @@ const runnerLink =
         ...(standingMirror === undefined ? {} : { standing: standingMirror }),
         // A slot reviewing a pull request is titled from the board, which lists the open ones.
         pullTitle: (number) => projectFeed.current()?.pullRequests.find((pull) => pull.number === number)?.title,
+        // The CEO's profile edits, given to a runner again after a restart of either side.
+        // eslint-disable-next-line no-console -- a file the server cannot read or write is the operator's to fix
+        profiles: new RunnerProfileFile({ file: join(dataDir, "agent-profiles.json"), log: (line) => console.warn(`runner link: ${line}`) }),
       });
 // The slots' terminal screens, kept while the link reports each slot.
 // The CEO's drops on Closed and Open go to a runner, which changes the issue
@@ -205,7 +211,8 @@ console.log(
     ? "runner link: off (RUNNER_SECRET is not set)"
     : `runner link: POST ${RUNNER_SYNC_PATH} for ${projectBoard.repository}, ` +
         `up to ${MAX_RUNNER_SLOTS} slots, leaving after ${liveAgents.timeoutMs / 1000}s of silence; ` +
-        `screens on POST ${RUNNER_SCREENS_PATH}; issues with the "${runner.restrictLabel}" label are kept from agents`,
+        `screens on POST ${RUNNER_SCREENS_PATH}; issues with the "${runner.restrictLabel}" label are kept from agents; ` +
+        `the CEO's profile edits kept in ${join(dataDir, "agent-profiles.json")}`,
 );
 const retiredLabel = retiredAgentIssueLabelNotice(process.env);
 if (retiredLabel !== undefined) {
