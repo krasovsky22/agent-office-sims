@@ -66,17 +66,17 @@ describe("SipTracker", () => {
 describe("CoffeeCup", () => {
   it("is hidden with no coffee, steams while held, and lifts mid-sip", () => {
     const cup = new CoffeeCup();
-    cup.update(0, false, 0, 0);
+    cup.update(0, false, 0, undefined, 0);
     expect(cup.group.visible).toBe(false);
 
-    cup.update(COFFEE_SIPS, false, 100, 0);
+    cup.update(COFFEE_SIPS, false, 100, undefined, 0);
     expect(cup.group.visible).toBe(true);
     const [held, steam] = cup.group.children;
     const restY = held?.position.y ?? Number.NaN;
     expect(steam?.visible).toBe(true);
 
-    cup.update(COFFEE_SIPS - 1, false, 200, 0);
-    cup.update(COFFEE_SIPS - 1, false, 200 + SIP_DURATION_MS / 2, 0);
+    cup.update(COFFEE_SIPS - 1, false, 200, undefined, 0);
+    cup.update(COFFEE_SIPS - 1, false, 200 + SIP_DURATION_MS / 2, undefined, 0);
     expect(held?.position.y).toBeGreaterThan(restY);
     expect(steam?.visible).toBe(false);
   });

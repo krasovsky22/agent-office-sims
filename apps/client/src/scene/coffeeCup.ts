@@ -27,36 +27,38 @@ const SIP_LOWER = 0.3;
 const SIP_TILT = 1.1;
 
 /**
- * Where the cup is held, in the body's own frame (forward is -Z): out to one
- * side rather than straight ahead, because a cup in front of the chest is
- * hidden behind the body from the owner's own camera, which is exactly the
- * viewer who most needs to see it.
+ * Where the cup is held, in the body's own frame (forward is -Z), when the
+ * body has no hand to put it in: out to one side rather than straight ahead,
+ * because a cup in front of the chest is hidden behind the body from the
+ * owner's own camera, which is exactly the viewer who most needs to see it.
  */
 const HELD_OFFSET = new THREE.Vector3(OCCUPANT_RADIUS + 0.07, OCCUPANT_HEIGHT * 0.56, -OCCUPANT_RADIUS * 0.7);
 /** Where it is raised to: in front of the face, a little off centre. */
-const MOUTH_OFFSET = new THREE.Vector3(0.1, OCCUPANT_HEIGHT * 0.78, -(OCCUPANT_RADIUS + 0.05));
+const MOUTH_OFFSET = new THREE.Vector3(0.1, OCCUPANT_HEIGHT * 0.72, -(OCCUPANT_RADIUS + 0.12));
+/** From a hand bone to where the cup sits in its grip, in the body's frame. */
+const GRIP_OFFSET = new THREE.Vector3(0.04, 0.05, -0.04);
 
-const CUP_HEIGHT = 0.11;
+const CUP_HEIGHT = 0.12;
 const CUP_COLOUR = 0xe8dcc4;
 const COFFEE_COLOUR = 0x4a2c1a;
 
 /** Steam: a few puffs rising off the rim on a loop, swelling and then thinning away. */
 const STEAM_PUFFS = 3;
 const STEAM_PERIOD_MS = 1800;
-const STEAM_RISE = 0.24;
+const STEAM_RISE = 0.3;
 const STEAM_SWAY = 0.018;
 const STEAM_SCALE = 1.3;
 
-const CUP_GEOMETRY = new THREE.CylinderGeometry(0.05, 0.04, CUP_HEIGHT, 10);
-const COFFEE_GEOMETRY = new THREE.CircleGeometry(0.045, 10).rotateX(-Math.PI / 2);
-const STEAM_GEOMETRY = new THREE.SphereGeometry(0.022, 6, 4);
+const CUP_GEOMETRY = new THREE.CylinderGeometry(0.06, 0.045, CUP_HEIGHT, 10);
+const COFFEE_GEOMETRY = new THREE.CircleGeometry(0.054, 10).rotateX(-Math.PI / 2);
+const STEAM_GEOMETRY = new THREE.SphereGeometry(0.03, 6, 4);
 
 const CUP_MATERIAL = new THREE.MeshLambertMaterial({ color: CUP_COLOUR });
 const COFFEE_MATERIAL = new THREE.MeshLambertMaterial({ color: COFFEE_COLOUR });
 const STEAM_MATERIAL = new THREE.MeshBasicMaterial({
   color: 0xffffff,
   transparent: true,
-  opacity: 0.4,
+  opacity: 0.5,
   depthWrite: false,
 });
 
@@ -125,6 +127,8 @@ export class CoffeeCup {
   private readonly steam = new THREE.Group();
   private readonly puffs: THREE.Mesh[] = [];
   private readonly tracker = new SipTracker();
+  /** Where the cup rests this frame, before any sip lifts it. */
+  private readonly rest = new THREE.Vector3();
   /** Spreads cups' steam out of step, so a room of drinkers does not puff in unison. */
   private readonly steamPhase = Math.random();
 
@@ -149,10 +153,18 @@ export class CoffeeCup {
    *
    * @param sips the replicated sips left.
    * @param atMachine whether the occupant is at the coffee machine, pouring.
-   * @param drop how far the body has sunk below standing, so a seated
-   * drinker's cup comes down with them.
+   * @param hand the bone the cup sits in, or `undefined` for a body without
+   * one, which holds it at a fixed point instead.
+   * @param drop how far that body has sunk below standing, so a seated
+   * drinker's cup comes down with them; a hand bone already sits down.
    */
-  public update(sips: number, atMachine: boolean, nowMs: number, drop: number): void {
+  public update(
+    sips: number,
+    atMachine: boolean,
+    nowMs: number,
+    hand: THREE.Object3D | undefined,
+    drop: number,
+  ): void {
     this.tracker.observe(sips, nowMs);
     const holding = this.tracker.holding(nowMs, atMachine);
     this.group.visible = holding;
@@ -160,10 +172,19 @@ export class CoffeeCup {
       return;
     }
 
+    if (hand === undefined) {
+      this.rest.copy(HELD_OFFSET);
+      this.rest.y -= drop;
+    } else {
+      // As of the last frame drawn, which is when both world matrices were
+      // last brought up to date together.
+      this.group.worldToLocal(hand.getWorldPosition(this.rest)).add(GRIP_OFFSET);
+    }
     const elapsed = this.tracker.sipElapsed(nowMs);
     const lift = elapsed === undefined ? 0 : sipLift(elapsed);
-    this.cup.position.lerpVectors(HELD_OFFSET, MOUTH_OFFSET, lift);
-    this.cup.position.y -= drop;
+    this.cup.position.lerpVectors(this.rest, MOUTH_OFFSET, lift);
+    // The mouth comes down with a seated drinker, as the resting cup already has.
+    this.cup.position.y -= drop * lift;
     this.cup.rotation.x = SIP_TILT * lift;
 
     // Steam rises off the rim while the cup is down; mid-sip it would be

@@ -137,6 +137,12 @@ const CAPSULE_SEATED_LIFT = 0.3;
 const CAPSULE_SEATED_HEAD_DROP =
   OCCUPANT_HEIGHT - (CAPSULE_SEATED_LIFT + OCCUPANT_HEIGHT * CAPSULE_SEATED_SQUASH);
 
+/**
+ * The humanoid rig's right palm, where a carried cup is held. `Palm2.R` in the
+ * file; the loader strips the dot from bone names.
+ */
+const HAND_BONE = "Palm2R";
+
 /** Fraction of the remaining gap the head anchor closes per second. */
 const HEAD_ANCHOR_EASE_RATE = 8;
 
@@ -278,6 +284,8 @@ interface AvatarBody {
    * someone at a desk instead of floating where they used to be standing.
    */
   readonly seatedHeadDrop: number;
+  /** The bone a carried cup sits in; absent on the capsule, which has no hands. */
+  readonly hand: THREE.Object3D | undefined;
   dispose: () => void;
 }
 
@@ -371,6 +379,7 @@ function createHumanoidBody(
     animator,
     isHumanoid: true,
     seatedHeadDrop: instance.seatedHeadDrop,
+    hand: instance.root.getObjectByName(HAND_BONE),
     dispose: () => {
       animator.dispose();
       instance.dispose();
@@ -409,6 +418,7 @@ function createCapsuleBody(look: AvatarLook): AvatarBody {
     animator: undefined,
     isHumanoid: false,
     seatedHeadDrop: CAPSULE_SEATED_HEAD_DROP,
+    hand: undefined,
     dispose: () => {
       root.removeFromParent();
       material.dispose();
@@ -608,7 +618,7 @@ export class Avatar {
    * replicated count runs down, and gone after the last sip.
    */
   public setCoffee(sips: number, atMachine: boolean, nowMs: number): void {
-    this.coffee.update(sips, atMachine, nowMs, HEAD_ANCHOR_Y - this.headAnchor.position.y);
+    this.coffee.update(sips, atMachine, nowMs, this.body.hand, HEAD_ANCHOR_Y - this.headAnchor.position.y);
   }
 
   /** Advances the animation and whatever follows the pose. */
