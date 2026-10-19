@@ -1139,7 +1139,7 @@ Then confirm all twenty-two:
     reason, or with `RUNNER_MOCK_OUTCOME=pr-opened`,
     `Mock 1 handed in #N … for your review as a simulated pull request: the mock agent opened nothing on GitHub.`,
     with no number and no link. `have Mock 2 do #N` names the
-    slot instead; an issue without the label is refused with that reason.
+    slot instead; an issue with the restriction label is refused with that reason.
     `put someone on #N` and `assign <a word from its title>` go to a free slot
     the same way; with no runner and no orchestrator the reply says there are
     no coding agents on the floor; with `LIVE_AGENTS_SECRET` set, no runner, and an idle agent
@@ -1196,10 +1196,10 @@ Then confirm all twenty-two:
     Run the server as in step 17 and the runner with
     `RUNNER_MOCK_OUTCOME=pr-opened` and `RUNNER_DAILY_BUDGET_USD=0.15`. With
     the runner up, both tabs' rosters read `Agents' spend: $0.00 of $0.15 today`
-    under the live agents. Dana assigns a labelled issue to
+    under the live agents. Dana assigns an unrestricted issue to
     `Mock 1`: the spend climbs five cents a step in both tabs, and once the
     pull request is handed in it reads `$0.20 of $0.15 today — budget spent, no
-    new starts`, marked as a warning. She assigns another labelled issue to
+    new starts`, marked as a warning. She assigns another unrestricted issue to
     `Mock 2`: it never starts, its card notes the runner's daily budget is
     spent with the day's figures, the AI Manager's conversation explains it and how
     to try again, and the runner's log says the start was refused.
@@ -1272,7 +1272,7 @@ Then confirm all twenty-two:
     preemption, the caps and a restart.
 22. **The CEO runs a standup, the same in both tabs.** Run the server with
     `RUNNER_SECRET` and the runner with `RUNNER_MOCK_OUTCOME=question`, as in
-    step 19, and assign `Mock 1` one labelled issue and `Mock 2` another a few
+    step 19, and assign `Mock 1` one unrestricted issue and `Mock 2` another a few
     seconds later. Once `Mock 1`'s beacon lights on
     `Permission: Bash pnpm test`, Milo's roster shows `Call a standup`
     disabled, `Only the CEO calls a standup`; Dana clicks it. Both mocks get up
