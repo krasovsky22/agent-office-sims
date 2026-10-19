@@ -278,6 +278,9 @@ function start(): void {
   let standupNoticeTimer: number | undefined;
   // The agent whose key pad in the standup panel was last pressed, for a key the limiter dropped.
   let lastKeyAgentId = "";
+  // The agent whose terminal panel is open: the one watched at its screen, or the one lent to the CEO's desk.
+  const openTerminalAgentId = (): string | undefined =>
+    hud.terminalAgentId ?? (hud.desk === undefined || hud.desk.agentId === "" ? undefined : hud.desk.agentId);
 
   /** Shows a line to this player only, and takes it down again shortly. */
   const showNotice = (text: string) => {
@@ -452,7 +455,7 @@ function start(): void {
         publishHud({
           agentPromptRefusal: {
             id: nextRefusalId++,
-            agentId: hud.terminalAgentId ?? "",
+            agentId: openTerminalAgentId() ?? "",
             text: "Too many prompts — that one was dropped. Wait a few seconds and send it again.",
           },
         });
@@ -462,7 +465,7 @@ function start(): void {
         publishHud({
           agentPromptRefusal: {
             id: nextRefusalId++,
-            agentId: hud.terminalAgentId ?? lastKeyAgentId,
+            agentId: openTerminalAgentId() ?? lastKeyAgentId,
             text: "Too many keys — that one was not pressed. Check the terminal, then go on.",
             forKey: true,
           },
@@ -580,7 +583,7 @@ function start(): void {
           : agentKeyRejectionText(event.rejection, agentName, event.key);
       publishHud({ agentPromptRefusal: { id: nextRefusalId++, agentId: event.agentId, text, forKey: event.key !== undefined } });
       // The standup panel says it under the agent's key pad, as the terminal panel does.
-      if (hud.terminalAgentId !== event.agentId && !hud.standup.active) {
+      if (openTerminalAgentId() !== event.agentId && !hud.standup.active) {
         showNotice(text);
       }
     },
