@@ -50,6 +50,7 @@ import {
   CHAT_BUBBLE_LIFETIME_MS,
   type Emote,
   EMOTE_LIFETIME_MS,
+  JUMP_SECONDS,
   type ManagerStatus,
   OCCUPANT_HEIGHT,
   OCCUPANT_KIND,
@@ -57,6 +58,7 @@ import {
   type OccupantKind,
   SPEED_TOLERANCE,
   WALK_SPEED,
+  jumpHeight,
 } from "@sim/shared";
 import * as THREE from "three";
 
@@ -556,6 +558,10 @@ export class Avatar {
   /** How far the drawn body still is from the pose, after a sit or a stand. */
   private glideX = 0;
   private glideZ = 0;
+  /** How long ago the jump in progress started, in seconds, or `undefined` on the floor. */
+  private jumpSeconds: number | undefined;
+  /** How far off the floor that jump has the body this frame. */
+  private lift = 0;
 
   public constructor(options: AvatarOptions) {
     this.kind = options.kind;
@@ -644,7 +650,7 @@ export class Avatar {
   public setPose(x: number, z: number, yaw: number): void {
     this.poseX = x;
     this.poseZ = z;
-    this.group.position.set(x + this.glideX, 0, z + this.glideZ);
+    this.group.position.set(x + this.glideX, this.lift, z + this.glideZ);
     this.group.rotation.y = yaw;
     if (!this.hasPreviousPose) {
       // The first pose is a placement, not travel: crediting the distance from
@@ -665,7 +671,12 @@ export class Avatar {
       // to the pose it has just been given.
       this.glideX = this.previousX - this.poseX;
       this.glideZ = this.previousZ - this.poseZ;
-      this.group.position.set(this.previousX, 0, this.previousZ);
+      this.group.position.set(this.previousX, this.lift, this.previousZ);
+    }
+    if (isSeated(animation)) {
+      // Sat down mid-jump: a chair's `E` works in the air too.
+      this.jumpSeconds = undefined;
+      this.lift = 0;
     }
     this.animation = animation;
     this.body.animator?.setState(animation);
@@ -696,7 +707,14 @@ export class Avatar {
       const settle = Math.exp(-SEAT_GLIDE_RATE * deltaSeconds);
       this.glideX *= settle;
       this.glideZ *= settle;
-      this.group.position.set(this.poseX + this.glideX, 0, this.poseZ + this.glideZ);
+      if (this.jumpSeconds !== undefined) {
+        this.jumpSeconds += deltaSeconds;
+        this.lift = jumpHeight(this.jumpSeconds);
+        if (this.jumpSeconds >= JUMP_SECONDS) {
+          this.jumpSeconds = undefined;
+        }
+      }
+      this.group.position.set(this.poseX + this.glideX, this.lift, this.poseZ + this.glideZ);
 
       const travelled = Math.hypot(
         this.group.position.x - this.previousX,
@@ -752,7 +770,7 @@ export class Avatar {
     if (head === undefined) {
       return target.set(
         this.group.position.x,
-        this.headAnchor.position.y - CAPSULE_EYE_BELOW_CROWN,
+        this.lift + this.headAnchor.position.y - CAPSULE_EYE_BELOW_CROWN,
         this.group.position.z,
       );
     }
@@ -790,6 +808,13 @@ export class Avatar {
   public setBodyHidden(hidden: boolean): void {
     this.bodyHidden = hidden;
     this.body.root.visible = !hidden;
+  }
+
+  /** Starts the body on the jump arc, from the floor; one already in the air starts over. */
+  public jump(): void {
+    if (!isSeated(this.animation)) {
+      this.jumpSeconds = 0;
+    }
   }
 
   /** Shows an emote above the head, replacing any emote still showing. */

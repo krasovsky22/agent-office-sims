@@ -48,6 +48,8 @@ export const CLIENT_MESSAGE = {
   emote: "emote",
   /** A line of text chat. */
   chat: "chat",
+  /** The sender's avatar jumped; no payload. See `jump.ts`. */
+  jump: "jump",
   /** A request to use a named interactable the sender believes it is next to. */
   interact: "interact",
   /** A request to stop using whatever the sender is currently engaged with. */
@@ -93,6 +95,8 @@ export const SERVER_MESSAGE = {
   emote: "emote",
   /** An occupant said something; every client in the room draws and logs it. */
   chat: "chat",
+  /** An occupant jumped; every client but the jumper's, which drew it already, draws it. */
+  jump: "jump",
   /** Sent only to the client whose message was dropped by a rate limit. */
   throttled: "throttled",
   /**
@@ -237,6 +241,11 @@ export interface ChatMessage {
 export interface EmoteEvent {
   readonly occupantId: string;
   readonly emote: Emote;
+}
+
+/** An occupant jumped, as broadcast to every other client in the room. */
+export interface JumpEvent {
+  readonly occupantId: string;
 }
 
 /** An occupant spoke, as broadcast to every client in the room. */

@@ -5,6 +5,7 @@ export * from "./layout.js";
 export * from "./decor.js";
 export * from "./props.js";
 export * from "./collision.js";
+export * from "./jump.js";
 export * from "./nav.js";
 export * from "./interaction.js";
 export * from "./state.js";

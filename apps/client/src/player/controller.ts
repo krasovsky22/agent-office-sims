@@ -20,6 +20,10 @@
  * standing still behind a working agent's chair has the camera lean in over
  * the agent's shoulder instead, {@link shoulderView}, and back out on the
  * first step.
+ *
+ * `Space` jumps: the arc is the shared {@link jumpHeight}, drawn by the avatar,
+ * so the controller only decides whether a jump may start — on the floor and
+ * out of any hold — and walking during one still goes through the collision.
  */
 
 import {
@@ -32,6 +36,7 @@ import {
   RECONCILE_THRESHOLD,
   type ReportedAnimation,
   WALK_SPEED,
+  JUMP_SECONDS,
   doorwayGaps,
   normalizeYaw,
   resolveMove,
@@ -123,6 +128,9 @@ const CLOSE_KEY = "Escape";
 /** Switches between first and third person. Named in the HUD as `V`. */
 const CAMERA_KEY = "KeyV";
 
+/** Jumps. Named in the README as `Space`. */
+const JUMP_KEY = "Space";
+
 const MOVEMENT_KEYS = new Set([
   ...FORWARD_KEYS,
   ...BACKWARD_KEYS,
@@ -130,7 +138,7 @@ const MOVEMENT_KEYS = new Set([
   ...RIGHT_KEYS,
 ]);
 
-const ALL_KEYS = new Set([...MOVEMENT_KEYS, INTERACT_KEY, CAMERA_KEY]);
+const ALL_KEYS = new Set([...MOVEMENT_KEYS, INTERACT_KEY, CAMERA_KEY, JUMP_KEY]);
 
 export interface Pose {
   x: number;
@@ -335,6 +343,11 @@ export class PlayerController {
   private releaseRequested = false;
   private closeRequested = false;
   private cameraToggleRequested = false;
+  private jumpRequested = false;
+  /** Set on the frame a jump starts, until {@link takeJumpStart} reads it. */
+  private jumpStarted = false;
+  /** How long the player has been in the air, or `undefined` on the floor. */
+  private airborneSeconds: number | undefined;
 
   public constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -381,6 +394,13 @@ export class PlayerController {
       if (event.code === CAMERA_KEY) {
         if (!event.repeat) {
           this.cameraToggleRequested = true;
+        }
+        return;
+      }
+      if (event.code === JUMP_KEY) {
+        // Holding the key down is one jump, not a bounce.
+        if (!event.repeat) {
+          this.jumpRequested = true;
         }
         return;
       }
@@ -539,6 +559,16 @@ export class PlayerController {
     }
   }
 
+  /**
+   * Whether a jump started this frame, for the avatar to draw and the server to
+   * hear of; reading it clears it.
+   */
+  public takeJumpStart(): boolean {
+    const started = this.jumpStarted;
+    this.jumpStarted = false;
+    return started;
+  }
+
   /** Takes a pending `V` press, if there is one. */
   public takeCameraToggleRequest(): boolean {
     const requested = this.cameraToggleRequested;
@@ -603,6 +633,16 @@ export class PlayerController {
 
   /** Advances the local player by one frame and follows with the camera. */
   public update(deltaSeconds: number): void {
+    // A press made in a chair or in mid-air is dropped, not kept for later.
+    const jump = this.jumpRequested;
+    this.jumpRequested = false;
+    if (this.airborneSeconds !== undefined) {
+      this.airborneSeconds += deltaSeconds;
+      if (this.airborneSeconds >= JUMP_SECONDS) {
+        this.airborneSeconds = undefined;
+      }
+    }
+
     this.stillSeconds = this.movementPressed() ? 0 : this.stillSeconds + deltaSeconds;
     const leanIn = this.focus !== undefined && this.focus === this.leaning && this.stillSeconds >= FOCUS_DWELL_SECONDS;
     const step = deltaSeconds / FOCUS_EASE_SECONDS;
@@ -632,6 +672,11 @@ export class PlayerController {
       this.hold = undefined;
       this.releasePending = true;
       this.releaseRequested = true;
+    }
+
+    if (jump && this.airborneSeconds === undefined) {
+      this.airborneSeconds = 0;
+      this.jumpStarted = true;
     }
 
     // Camera yaw defines which way "forward" is: the player walks away from the

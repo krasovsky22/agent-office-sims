@@ -19,6 +19,7 @@
  */
 
 import {
+  JUMP_SECONDS,
   MAX_POSE_INTERVAL_MS,
   OCCUPANT_RADIUS,
   type OfficeLayout,
@@ -54,6 +55,8 @@ export interface OccupantMotion {
   lastMessageAt: number;
   /** Arrival order, used to decide who inherits the CEO title. */
   readonly joinedAt: number;
+  /** Room clock time the last accepted jump started. */
+  lastJumpAt: number;
 }
 
 export function createMotion(x: number, z: number, yaw: number, now: number): OccupantMotion {
@@ -63,6 +66,7 @@ export function createMotion(x: number, z: number, yaw: number, now: number): Oc
     lastAppliedAt: now,
     lastMessageAt: now,
     joinedAt: now,
+    lastJumpAt: Number.NEGATIVE_INFINITY,
   };
 }
 
@@ -129,4 +133,18 @@ export function applyPose(
   occupant.yaw = normalizeYaw(motion.pending.yaw);
   occupant.animation = motion.pending.animation;
   motion.lastAppliedAt = now;
+}
+
+/**
+ * Accepts a jump the occupant asked for, or refuses it: one that would start in
+ * mid-air, or from a chair or anything else holding the occupant.
+ *
+ * @returns whether the jump stands and should be relayed.
+ */
+export function tryJump(occupant: Occupant, motion: OccupantMotion, now: number): boolean {
+  if (occupant.interactableId !== "" || now - motion.lastJumpAt < JUMP_SECONDS * 1000) {
+    return false;
+  }
+  motion.lastJumpAt = now;
+  return true;
 }

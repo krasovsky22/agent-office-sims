@@ -546,6 +546,9 @@ function start(): void {
     // avatar can already be gone when an event lands — the state patch that
     // removed it may be decoded first — in which case there is nothing above
     // which to draw, and the chat log still records what was said.
+    onJump: (event) => {
+      avatars.get(event.occupantId)?.jump();
+    },
     onEmote: (event) => {
       avatars.get(event.occupantId)?.showEmote(event.emote, performance.now());
     },
@@ -938,6 +941,10 @@ function start(): void {
       toggleCameraMode();
     }
     controller.update(deltaSeconds);
+    if (controller.takeJumpStart()) {
+      avatars.get(localId)?.jump();
+      room.sendJump();
+    }
 
     // What the controller is predicting, not what the last patch said: between
     // a movement key standing the player up and the server confirming it, the
