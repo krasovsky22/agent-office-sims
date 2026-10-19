@@ -707,7 +707,8 @@ on, or until the timeout or the agent exiting. Then the worktree and its branch
 are removed if nothing in them would be lost: a merged pull request's branch
 is on origin, so its worktree goes. A worktree with uncommitted changes
 or commits no remote has is kept, the log says why, and the same issue on the
-same slot picks it up again. The mock agent writes `.sims-mock/issue-<n>.md`
+same slot picks it up again, unless the CEO cancels the task or fires the
+agent, which discards it whatever is in it. The mock agent writes `.sims-mock/issue-<n>.md`
 and commits it, and never pushes, so a mock task that gets that far leaves its
 worktree kept. Which slot holds which worktree is kept in
 `<RUNNER_DATA_DIR>/worktrees.json`. A restarted runner finds the worktrees its
