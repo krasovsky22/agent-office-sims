@@ -93,5 +93,5 @@ export function standupPhaseText(standup: StandupData, nameOf: (id: string) => s
   if (standup.speakerId !== "") {
     return `${nameOf(standup.speakerId) ?? "An agent"} is giving an update`;
   }
-  return standup.updates.length === 0 ? "Gathering at the manager's desk…" : "Updates done";
+  return standup.updates.length === 0 ? "Gathering in the conference room…" : "Updates done";
 }
