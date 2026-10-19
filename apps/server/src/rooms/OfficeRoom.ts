@@ -130,6 +130,7 @@ import { type SimClock, createSimClock, stepClock } from "../sim/clock.js";
 import { type ManagerAdvisor, isManagerAdvisor } from "../manager/advisor.js";
 import { type LiveAssignmentQueue, isLiveAssignmentQueue } from "../manager/liveAssignments.js";
 import { OfficeManager } from "../manager/officeManager.js";
+import { CoffeeCups } from "../sim/coffee.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import { type ExpressionBudget, createExpressionBudget, tryConsume } from "../sim/expression.js";
 import {
@@ -305,6 +306,7 @@ export class OfficeRoom extends Room<OfficeState> {
       motions: this.motions,
       holds: this.holds,
       lastUsedAt: new Map(),
+      cups: new CoffeeCups(),
     };
     this.simClock = createSimClock(this.state, this.clock.currentTime);
 
@@ -669,6 +671,7 @@ export class OfficeRoom extends Room<OfficeState> {
       }
     }
 
+    this.interaction.cups.step(now, this.state.occupants);
     stepClock(this.state, this.simClock, now);
   }
 

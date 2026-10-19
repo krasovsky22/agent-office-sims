@@ -12,6 +12,8 @@
 import {
   ANIMATION_STATE,
   COFFEE_BREAK_MS,
+  COFFEE_SIPS,
+  COFFEE_SIP_INTERVAL_MS,
   HumanPlayer,
   INTERACT_RANGE,
   INTERACT_REFUSAL,
@@ -25,6 +27,7 @@ import {
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
+import { CoffeeCups } from "./coffee.js";
 import {
   HoldRegistry,
   type InteractionHost,
@@ -63,6 +66,7 @@ function createRoom(): Room {
     motions: new Map(),
     holds: new HoldRegistry(),
     lastUsedAt: new Map(),
+    cups: new CoffeeCups(),
   };
 }
 
@@ -389,6 +393,26 @@ describe("holdTick", () => {
     const { anchor } = specOf(COFFEE);
     expect(alice.x).toBeCloseTo(anchor.x);
     expect(alice.z).toBeCloseTo(anchor.z);
+  });
+
+  it("pours a full cup that is first sipped once the break is over", () => {
+    const room = createRoom();
+    const alice = join(room, "alice", COFFEE);
+    requestInteract(room, "alice", COFFEE, 1000);
+    expect(alice.coffeeSips).toBe(COFFEE_SIPS);
+
+    room.cups.step(1000 + COFFEE_BREAK_MS + COFFEE_SIP_INTERVAL_MS - 1, room.occupants);
+    expect(alice.coffeeSips).toBe(COFFEE_SIPS);
+    room.cups.step(1000 + COFFEE_BREAK_MS + COFFEE_SIP_INTERVAL_MS, room.occupants);
+    expect(alice.coffeeSips).toBe(COFFEE_SIPS - 1);
+  });
+
+  it("pours nothing at a desk", () => {
+    const room = createRoom();
+    const alice = join(room, "alice", SEAT, 0.5);
+    requestInteract(room, "alice", SEAT, 1000);
+    expect(alice.coffeeSips).toBe(0);
+    expect(room.cups.isHolding("alice")).toBe(false);
   });
 });
 

@@ -107,6 +107,14 @@ export class Occupant extends Schema {
    * what tells a client a chair is already taken.
    */
   declare public interactableId: string;
+  /**
+   * Sips left in the coffee this occupant has in hand, `0` for no cup.
+   *
+   * Counted down by the server, so a client that sees it drop plays a sip and
+   * a client that sees it reach zero takes the cup away: one number carries
+   * the cup, every sip and its disappearance to everyone in the room.
+   */
+  declare public coffeeSips: number;
 
   public constructor() {
     super();
@@ -118,6 +126,7 @@ export class Occupant extends Schema {
     this.yaw = 0;
     this.animation = ANIMATION_STATE.idle;
     this.interactableId = "";
+    this.coffeeSips = 0;
   }
 }
 
@@ -130,6 +139,7 @@ defineTypes(Occupant, {
   yaw: "float32",
   animation: "string",
   interactableId: "string",
+  coffeeSips: "uint8",
 });
 
 /**

@@ -838,7 +838,7 @@ function start(): void {
         OFFICE_LAYOUT,
         id === localId ? locallyHeldWith : room.viewOf(id)?.interactableId ?? "",
       );
-      avatar.setHoldingCup(held?.kind === INTERACTION_KIND.coffee);
+      avatar.setCoffee(room.viewOf(id)?.coffeeSips ?? 0, held?.kind === INTERACTION_KIND.coffee, nowMs);
 
       if (held !== undefined) {
         // A held occupant's place comes straight from the layout, so a sitter

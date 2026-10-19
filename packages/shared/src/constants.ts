@@ -94,6 +94,16 @@ export const INTERACT_RANGE_TOLERANCE = 1.25;
 export const COFFEE_BREAK_MS = 2500;
 
 /**
+ * How many sips a poured coffee lasts, and how far apart they come.
+ *
+ * The cup leaves the machine full and is drunk on the server's clock, one sip
+ * per interval once the break is over, so every client sees the same cup run
+ * down and vanish after the last sip, whoever is holding it.
+ */
+export const COFFEE_SIPS = 10;
+export const COFFEE_SIP_INTERVAL_MS = 6000;
+
+/**
  * How far behind the present each remote avatar is rendered. Remote poses
  * arrive at {@link POSE_SEND_RATE_HZ}, so rendering this far back leaves two
  * samples to interpolate between and hides ordinary network jitter.

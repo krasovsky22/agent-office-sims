@@ -16,6 +16,7 @@
 
 import {
   ANIMATION_STATE,
+  INTERACTION_KIND,
   INTERACT_RANGE,
   INTERACT_REFUSAL,
   INTERACT_RANGE_TOLERANCE,
@@ -31,6 +32,7 @@ import {
   normalizeYaw,
 } from "@sim/shared";
 
+import { type CoffeeCups } from "./coffee.js";
 import { type OccupantMotion, discardPending } from "./movement.js";
 
 /**
@@ -129,6 +131,8 @@ export interface InteractionHost {
   readonly holds: HoldRegistry;
   /** Room clock time each session last used an interaction that holds nothing. */
   readonly lastUsedAt: Map<string, number>;
+  /** The coffee occupants carry away from the machine. */
+  readonly cups: CoffeeCups;
 }
 
 /**
@@ -189,7 +193,10 @@ export function requestInteract(
   }
 
   const spec = decision.target;
-  host.holds.take(sessionId, spec, now);
+  const hold = host.holds.take(sessionId, spec, now);
+  if (spec.kind === INTERACTION_KIND.coffee) {
+    host.cups.pour(sessionId, occupant, hold.endsAt);
+  }
   occupant.interactableId = spec.id;
   occupant.x = spec.anchor.x;
   occupant.z = spec.anchor.z;

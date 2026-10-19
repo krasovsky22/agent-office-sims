@@ -152,6 +152,8 @@ export interface OccupantView {
   interactableId: string;
   /** As replicated, so a seated agent can be drawn typing rather than just sitting. */
   animation: AnimationState;
+  /** Sips left in the coffee in hand, `0` for no cup; each drop is a sip. */
+  coffeeSips: number;
   /** A live coding agent's status, or `undefined` for anyone else. */
   agentStatus: LiveAgentStatus | undefined;
   /** A live agent's task title and link, `""` when it has none. */
@@ -587,6 +589,7 @@ export class RoomConnection {
         isLocal,
         interactableId: occupant.interactableId,
         animation: occupant.animation,
+        coffeeSips: occupant.coffeeSips,
         agentStatus: isLiveAgent(occupant) ? occupant.status : undefined,
         taskTitle: isLiveAgent(occupant) ? occupant.taskTitle : "",
         taskUrl: isLiveAgent(occupant) ? occupant.taskUrl : "",
@@ -812,6 +815,7 @@ export class RoomConnection {
     // someone sits down, and the HUD has no business re-rendering for them.
     view.interactableId = occupant.interactableId;
     view.animation = occupant.animation;
+    view.coffeeSips = occupant.coffeeSips;
 
     if (isLocal) {
       this.readLocalPose(occupant);

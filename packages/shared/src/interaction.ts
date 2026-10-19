@@ -65,7 +65,8 @@ const HOLD_MS: Record<InteractionKind, number> = {
  *
  * A coffee break stands idle: the avatar rig has no drinking clip, so the
  * break is shown by the cup the client hands anyone held at the machine, which
- * it reads off the replicated `interactableId` rather than off this field.
+ * it reads off the replicated `interactableId` and then `coffeeSips` rather
+ * than off this field.
  */
 const HELD_ANIMATION: Record<InteractionKind, AnimationState> = {
   [INTERACTION_KIND.seat]: ANIMATION_STATE.sitting,
