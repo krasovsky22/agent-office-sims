@@ -89,6 +89,8 @@ export class ProjectFeed implements ProjectBoardSource {
   /** A refresh was asked for while a poll was in flight, which may have started before the change. */
   private refreshAfterPoll = false;
   private lastPollAt = Number.NEGATIVE_INFINITY;
+  /** The pending timer waits out a rate limit, which no refresh may cut short. */
+  private backingOff = false;
 
   public constructor(private readonly options: ProjectFeedOptions) {
     this.now = options.now ?? (() => Date.now());
@@ -122,10 +124,10 @@ export class ProjectFeed implements ProjectBoardSource {
    *
    * Never sooner than {@link MIN_REFRESH_GAP_MS} after the last poll started,
    * and a poll already in flight is followed by another, since it may have
-   * asked before the change.
+   * asked before the change. A rate limit's wait is left alone.
    */
   public refresh(): void {
-    if (!this.running) {
+    if (!this.running || this.backingOff) {
       return;
     }
     if (this.timer === undefined) {
@@ -156,7 +158,8 @@ export class ProjectFeed implements ProjectBoardSource {
    * @returns how long to wait before polling again.
    */
   public async poll(): Promise<number> {
-    this.lastPollAt = this.now();
+    const startedAt = this.now();
+    this.lastPollAt = startedAt;
     const signal = AbortSignal.any([this.stopped.signal, AbortSignal.timeout(this.timeoutMs)]);
     try {
       const lists = await this.options.load(signal);
@@ -166,7 +169,7 @@ export class ProjectFeed implements ProjectBoardSource {
       this.publish({
         repository: this.options.repository,
         ...lists,
-        updatedAt: this.now(),
+        updatedAt: startedAt,
         stale: false,
       });
       return this.options.intervalMs;
@@ -222,6 +225,7 @@ export class ProjectFeed implements ProjectBoardSource {
 
   private schedule(delayMs: number): void {
     const run = this.stopped;
+    this.backingOff = delayMs > this.options.intervalMs;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       void this.poll().then((next) => {

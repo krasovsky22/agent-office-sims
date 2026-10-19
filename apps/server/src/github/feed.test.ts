@@ -212,6 +212,39 @@ describe("ProjectFeed", () => {
     feed.stop();
   });
 
+  it("never cuts a rate limit's wait short on a refresh", async () => {
+    vi.useFakeTimers();
+    const backoff = 10 * 60_000;
+    const load = vi.fn(scripted(new GithubRateLimitError(Date.now() + backoff), LISTS));
+    const feed = new ProjectFeed({ repository: REPO, load, intervalMs: INTERVAL });
+
+    feed.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).toHaveBeenCalledTimes(1);
+
+    feed.refresh();
+    await vi.advanceTimersByTimeAsync(backoff - 1);
+    expect(load).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledTimes(2);
+
+    // Once the limit has passed, a refresh works as before.
+    feed.refresh();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(load).toHaveBeenCalledTimes(3);
+    feed.stop();
+  });
+
+  it("stamps a snapshot with when its poll started, not when it answered", async () => {
+    let clock = 1_000;
+    const { feed } = feedWith(async () => {
+      clock = 3_000;
+      return LISTS;
+    }, () => clock);
+    await feed.poll();
+    expect(feed.current()?.updatedAt).toBe(1_000);
+  });
+
   it("ignores a refresh while stopped", async () => {
     vi.useFakeTimers();
     const load = vi.fn(scripted(LISTS));

@@ -43,6 +43,7 @@ import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText }
 import { standupAccessFor, standupRejectionText } from "./standupAccess.js";
 import { boardAccessFor, issueStateRejectionText, rejectionText } from "./boardAccess.js";
 import { DayClock } from "./dayClock.js";
+import { hasIssueMoveLanded } from "./projectBoard.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
 import { standingAccessFor, standingRejectionText } from "./standingAccess.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
@@ -323,14 +324,14 @@ function start(): void {
    * The cards this player dropped on Closed or Open, shown there at once.
    *
    * Each waits for the server's answer; a refusal puts it back and says why.
-   * One GitHub took stays until the next snapshot, which then shows GitHub's
-   * own state, whatever this tab assumed.
+   * One GitHub took stays until a snapshot shows it there, or one fetched
+   * after the change shows GitHub's own state, whatever this tab assumed.
    */
   interface PendingIssueMove {
     readonly issueNumber: number;
     readonly state: IssueState;
-    /** GitHub made the change; the move now waits only for a snapshot. */
-    settled: boolean;
+    /** When GitHub made the change; the move now waits only for a snapshot that shows it. */
+    settledAt: number | undefined;
     timer: number;
   }
   let issueMoves: PendingIssueMove[] = [];
@@ -352,7 +353,7 @@ function start(): void {
     const move: PendingIssueMove = {
       issueNumber,
       state,
-      settled: false,
+      settledAt: undefined,
       timer: window.setTimeout(() => {
         dropIssueMove(move);
         showBoardNotice(`No answer about #${issueNumber} from the server; the board shows it as GitHub last did.`);
@@ -566,7 +567,7 @@ function start(): void {
 
     onIssueStateResult: (event) => {
       const move = issueMoves.find(
-        (candidate) => candidate.issueNumber === event.issueNumber && candidate.state === event.state && !candidate.settled,
+        (candidate) => candidate.issueNumber === event.issueNumber && candidate.state === event.state && candidate.settledAt === undefined,
       );
       if (move === undefined) {
         return;
@@ -577,7 +578,7 @@ function start(): void {
         return;
       }
       window.clearTimeout(move.timer);
-      move.settled = true;
+      move.settledAt = Date.now();
       move.timer = window.setTimeout(() => dropIssueMove(move), ISSUE_MOVE_HOLD_MS);
     },
 
@@ -600,9 +601,10 @@ function start(): void {
     // The same snapshot goes to the wall and to the close-up panel, so what
     // the board shows at a distance and up close cannot disagree.
     onProjectBoard: (snapshot) => {
-      // A snapshot after GitHub took a move is GitHub's word on where it is.
-      for (const move of issueMoves.filter((candidate) => candidate.settled)) {
-        dropIssueMove(move);
+      for (const move of issueMoves) {
+        if (move.settledAt !== undefined && hasIssueMoveLanded(snapshot, move, move.settledAt)) {
+          dropIssueMove(move);
+        }
       }
       wallBoard?.show(snapshot);
       publishHud({ projectBoard: snapshot });
