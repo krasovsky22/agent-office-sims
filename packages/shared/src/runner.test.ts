@@ -366,6 +366,14 @@ describe("toRunnerCommand", () => {
       seatId: "seat-desk-a-1",
       reason: "stood up",
     });
+    expect(toRunnerCommand("command-11", { kind: "desk-resize", slotId: "slot-2", seatId: "seat-desk-a-1", cols: 150, rows: 40 })).toEqual({
+      id: "command-11",
+      slotId: "slot-2",
+      kind: "desk-resize",
+      seatId: "seat-desk-a-1",
+      cols: 150,
+      rows: 40,
+    });
   });
 
   it.each([
@@ -382,6 +390,9 @@ describe("toRunnerCommand", () => {
     ["an issue state for no issue", { kind: "issue-state", issueNumber: 0, state: "closed", requestedBy: "" }],
     ["a desk that is not a seat id", { kind: "desk-open", slotId: "s", seatId: "seat/1", requestedBy: "" }],
     ["a desk to close that is no seat", { kind: "desk-close", slotId: "s", seatId: "", reason: "" }],
+    ["a desk terminal wider than a frame carries", { kind: "desk-resize", slotId: "s", seatId: "seat-desk-a-1", cols: 201, rows: 40 }],
+    ["a desk terminal too short to lay out", { kind: "desk-resize", slotId: "s", seatId: "seat-desk-a-1", cols: 120, rows: 9 }],
+    ["a desk terminal of part of a cell", { kind: "desk-resize", slotId: "s", seatId: "seat-desk-a-1", cols: 120.5, rows: 30 }],
   ] as const)("refuses a command with %s", (_label, draft) => {
     expect(toRunnerCommand("command-1", draft)).toBeUndefined();
   });

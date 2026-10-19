@@ -97,6 +97,8 @@ export interface AgentRun {
   pause?(): void;
   /** Lets it carry on from where {@link pause} stopped it. */
   resume?(): void;
+  /** Gives its terminal a new size, as a resized window would; left out by an agent with no terminal of its own. */
+  resize?(cols: number, rows: number): void;
   /** The process it runs as, for the runner's log; left out by an agent that runs inside the runner, as the mock does. */
   readonly process?: { readonly command: string; readonly pid: number };
 }

@@ -47,6 +47,7 @@ import {
   type AgentPromptHistoryEvent,
   type AgentKey,
   type AgentKeyMessage,
+  type DeskTerminalSizeMessage,
   type AgentProfile,
   type AgentProfileMessage,
   type AgentProfileRejectedEvent,
@@ -488,6 +489,11 @@ export class RoomConnection {
     }
     this.room.send(CLIENT_MESSAGE.agentKey, { agentId, key } satisfies AgentKeyMessage);
     return true;
+  }
+
+  /** Says how many cells the CEO's desk terminal panel has room for, which its session's terminal is sized to. */
+  public sendDeskTerminalSize(cols: number, rows: number): void {
+    this.room?.send(CLIENT_MESSAGE.deskTerminalSize, { cols, rows } satisfies DeskTerminalSizeMessage);
   }
 
   /**

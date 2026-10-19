@@ -776,6 +776,7 @@ function start(): void {
           screenOf: (agentId) => room.screenOf(agentId),
           prompt: (agentId, text) => room.sendAgentPrompt(agentId, text),
           key: (agentId, key) => room.sendAgentKey(agentId, key),
+          resizeDesk: (cols, rows) => room.sendDeskTerminalSize(cols, rows),
           close: () => {
             readingBoard = "";
           },

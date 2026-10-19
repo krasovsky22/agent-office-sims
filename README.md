@@ -344,7 +344,9 @@ first prompt, started at its prompt in a scratch worktree of the default
 branch. Its terminal shows on that desk's monitor in every tab, and the CEO's
 tab opens it at once in the terminal panel, as `Your desk's computer`, where
 the CEO prompts it and answers its choice screens with the key pad exactly as
-for any coding agent. It runs real commands on the runner's host, so it is held
+for any coding agent. The panel's terminal is sized to the panel, as it opens
+and whenever the window is resized, so the agent wraps its output to the
+width the CEO reads it at; an issue's agent keeps the runner's own size. It runs real commands on the runner's host, so it is held
 to the rule that gates prompting a coding agent, which is the CEO's alone
 (`deskTerminalRefusal` in `packages/shared/src/deskTerminal.ts`): anyone else
 sitting at a computer gets no terminal, and is told
@@ -493,8 +495,10 @@ is doing) or `key`
 a key the CEO pressed in the terminal panel, which the runner presses only
 while its agent waits on a person and reports in `prompts` as it does a
 prompt), or `desk-open` (`seatId`, `requestedBy`: lend the slot to the CEO
-sitting there, see [The desk terminal](#the-desk-terminal)) or `desk-close`
-(`seatId`, `reason`: the CEO stood up, ending only that desk's session), each
+sitting there, see [The desk terminal](#the-desk-terminal)), `desk-close`
+(`seatId`, `reason`: the CEO stood up, ending only that desk's session) or
+`desk-resize` (`seatId`, `cols`, `rows`: size that desk session's terminal to
+the CEO's panel), each
 with an `id` and a `slotId`. A command comes back in every reply until a sync lists its id in
 `acked`, and never after, so a lost reply loses nothing and a runner tells a
 repeat by its id. The one exception is a CEO's prompt or key the runner has not

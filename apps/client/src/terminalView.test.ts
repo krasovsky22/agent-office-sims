@@ -3,7 +3,7 @@
  * what size, and what a wheel does to it.
  */
 
-import type { ScreenRun } from "@sim/shared";
+import { MAX_SCREEN_COLS, MAX_SCREEN_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS, type ScreenRun } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import type { TerminalScreen } from "./net/screens.js";
@@ -16,6 +16,7 @@ import {
   terminalViewport,
   type TerminalScroll,
   scrollTerminal,
+  terminalCells,
   wheelRows,
 } from "./terminalView.js";
 
@@ -133,6 +134,20 @@ describe("wheelRows", () => {
     expect(wheelRows(28, 0, 14, 30)).toBe(-2);
     expect(wheelRows(-3, 1, 14, 30)).toBe(3);
     expect(wheelRows(1, 2, 14, 30)).toBe(-30);
+  });
+});
+
+describe("terminalCells", () => {
+  it("fits as many cells as the canvas has room for at the panel's text size", () => {
+    const { cols, rows } = terminalCells(1200, 500);
+    expect({ cols, rows }).toEqual({ cols: 178, rows: 35 });
+    // One cell more would not fit across, so a terminal that size fills it at full size.
+    expect(16 + 5 + (cols + 1) * TERMINAL_FONT_PX * 0.6).toBeGreaterThan(1200);
+  });
+
+  it("keeps within the sizes a terminal may be given", () => {
+    expect(terminalCells(100, 50)).toEqual({ cols: MIN_TERMINAL_COLS, rows: MIN_TERMINAL_ROWS });
+    expect(terminalCells(10_000, 10_000)).toEqual({ cols: MAX_SCREEN_COLS, rows: MAX_SCREEN_ROWS });
   });
 });
 

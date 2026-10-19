@@ -111,7 +111,7 @@ import { SpendLedger } from "./budget.js";
 import { NO_GITHUB, type TaskGithub } from "./github.js";
 import type { AgentProfiles } from "./profiles.js";
 import { type Redactor, createRedactor } from "./redact.js";
-import { ScreenMirror } from "./terminal.js";
+import { SCREEN_COLS, SCREEN_ROWS, ScreenMirror } from "./terminal.js";
 
 /**
  * Events held while the server cannot be reached. Far more than a few slots
@@ -150,6 +150,7 @@ type DeskOpenCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_
 type PromptCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.prompt }>;
 type KeyCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.key }>;
 type ProfileCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.profile }>;
+type DeskResizeCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.deskResize }>;
 
 /** Why a standing run gave its slot up before it finished. */
 export const STANDING_SLOT_END = {
@@ -194,6 +195,9 @@ interface DeskOnSlot {
   live: boolean;
   /** What its agent has said it cost, in US dollars. */
   spentUsd: number;
+  /** Its terminal's size, the CEO's panel's once the server has said; the runner's own until then. */
+  cols: number;
+  rows: number;
 }
 
 interface StandingOnSlot {
@@ -533,6 +537,9 @@ export class SlotPool {
         }
         this.log(`${slot.id}'s desk session for ${slot.desk.requestedBy} closed: ${command.reason || "the server asked"}`);
         this.endDesk(slot, undefined);
+        return;
+      case RUNNER_COMMAND_KIND.deskResize:
+        this.resizeDesk(slot, command);
         return;
       case RUNNER_COMMAND_KIND.profile:
         this.setProfile(slot, command);
@@ -1079,6 +1086,8 @@ export class SlotPool {
       workdir: undefined,
       live: true,
       spentUsd: 0,
+      cols: SCREEN_COLS,
+      rows: SCREEN_ROWS,
     };
     slot.desk = desk;
     slot.status = RUNNER_SLOT_STATUS.starting;
@@ -1195,9 +1204,26 @@ export class SlotPool {
     );
     if (desk.live) {
       desk.agentRun = agentRun;
+      // Sized while its worktree was made: the agent starts at the runner's size.
+      if (desk.cols !== SCREEN_COLS || desk.rows !== SCREEN_ROWS) {
+        agentRun.resize?.(desk.cols, desk.rows);
+      }
     } else {
       agentRun.stop();
     }
+  }
+
+  /** Sizes the desk session's terminal, and its agent's, to the CEO's panel. */
+  private resizeDesk(slot: Slot, command: DeskResizeCommand): void {
+    const desk = slot.desk;
+    if (desk?.seatId !== command.seatId) {
+      this.debug(`desk-resize for ${slot.id} at ${command.seatId} ignored: it is not lent to that desk`);
+      return;
+    }
+    desk.cols = command.cols;
+    desk.rows = command.rows;
+    slot.screen.resize(command.cols, command.rows);
+    desk.agentRun.resize?.(command.cols, command.rows);
   }
 
   /**
@@ -1271,6 +1297,8 @@ export class SlotPool {
     slot.desk = undefined;
     slot.status = RUNNER_SLOT_STATUS.idle;
     slot.activity = "";
+    // Issue work is run at the runner's own size, whatever the CEO's panel was.
+    slot.screen.resize(SCREEN_COLS, SCREEN_ROWS);
     if (message !== undefined) {
       this.emitDesk(slot, desk.seatId, message);
       this.log(`${slot.id}'s desk session for ${desk.requestedBy} ended: ${this.redactor.redactText(message)}`);

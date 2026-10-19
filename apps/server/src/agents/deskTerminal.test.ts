@@ -84,6 +84,30 @@ describe("DeskTerminal", () => {
     expect(sync([lent])).toEqual([]);
   });
 
+  it("sizes the lent slot's terminal to the CEO's panel, once per change, and only for the CEO sitting there", () => {
+    const { desk, ceo, employee, sync, ack } = setup();
+    sync([IDLE]);
+    // Before the CEO sits there is no session to size.
+    desk.resize(CEO, 100, 30);
+    ceo.interactableId = SEAT;
+    desk.step();
+    expect(sync([IDLE]).map((command) => command.kind)).toEqual(["desk-open"]);
+    desk.resize(CEO, 150, 40);
+    desk.step();
+    desk.step();
+    expect(sync([IDLE]).slice(1)).toEqual([{ id: "command-2", slotId: "slot-1", kind: "desk-resize", seatId: SEAT, cols: 150, rows: 40 }]);
+    const lent: RunnerSlotReport = { ...IDLE, desk: { seatId: SEAT } };
+    ack([lent]);
+    desk.step();
+    expect(sync([lent])).toEqual([]);
+    desk.resize(employee.id, 60, 20);
+    desk.resize(CEO, 120, 30);
+    desk.resize(CEO, 130, 35);
+    desk.step();
+    desk.step();
+    expect(sync([lent])).toEqual([{ id: "command-3", slotId: "slot-1", kind: "desk-resize", seatId: SEAT, cols: 130, rows: 35 }]);
+  });
+
   it("gives the slot back the moment the CEO stands up, and lends a fresh one at the next sitting", () => {
     const { state, ceo, desk, sync, ack } = setup();
     sync([IDLE]);

@@ -184,6 +184,11 @@ function readDraft(raw: Record<string, unknown>, slotId: string): RunnerCommandD
       const { seatId, reason } = raw;
       return typeof seatId === "string" && typeof reason === "string" ? { kind, slotId, seatId, reason } : undefined;
     }
+    case RUNNER_COMMAND_KIND.deskResize: {
+      // Its size is proved by `toRunnerCommand`.
+      const { seatId, cols, rows } = raw;
+      return typeof seatId === "string" && typeof cols === "number" && typeof rows === "number" ? { kind, slotId, seatId, cols, rows } : undefined;
+    }
     default:
       return undefined;
   }

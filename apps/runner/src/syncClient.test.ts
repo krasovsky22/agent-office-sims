@@ -191,12 +191,15 @@ describe("readCommands", () => {
       { id: "command-1", slotId: "slot-1", kind: "desk-open", seatId: "seat-desk-north-1-1", requestedBy: "Dana" },
       { id: "command-2", slotId: "slot-1", kind: "desk-close", seatId: "seat-desk-north-1-1", reason: "the CEO stood up" },
       { id: "command-3", slotId: "slot-1", kind: "desk-open", seatId: 7, requestedBy: "Dana" },
+      { id: "command-4", slotId: "slot-1", kind: "desk-resize", seatId: "seat-desk-north-1-1", cols: 150, rows: 40 },
+      { id: "command-5", slotId: "slot-1", kind: "desk-resize", seatId: "seat-desk-north-1-1", cols: 5000, rows: 40 },
     ]);
     expect(reply.commands).toEqual([
       { id: "command-1", slotId: "slot-1", kind: "desk-open", seatId: "seat-desk-north-1-1", requestedBy: "Dana" },
       { id: "command-2", slotId: "slot-1", kind: "desk-close", seatId: "seat-desk-north-1-1", reason: "the CEO stood up" },
+      { id: "command-4", slotId: "slot-1", kind: "desk-resize", seatId: "seat-desk-north-1-1", cols: 150, rows: 40 },
     ]);
-    expect(reply.unreadable).toEqual(["command-3"]);
+    expect(reply.unreadable).toEqual(["command-3", "command-5"]);
   });
 
   it("sets aside a command it cannot read, by id, so it can be acked", () => {

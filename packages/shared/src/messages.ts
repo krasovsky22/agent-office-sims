@@ -32,6 +32,7 @@ import {
 } from "./constants.js";
 import { type IssueStateMessage, isIssueState } from "./issueState.js";
 import type { ManagerRejection } from "./manager.js";
+import { isTerminalSize } from "./screens.js";
 import { type StandingRejection, type StandingTaskAction, isStandingTaskId } from "./standing.js";
 import type { StandupRejection } from "./standup.js";
 import { ANIMATION_STATE, type ReportedAnimation, type WorkStatus, isWorkStatus } from "./state.js";
@@ -81,6 +82,8 @@ export const CLIENT_MESSAGE = {
   standupEnd: "standup:end",
   /** Give one agent at the standup, or every one, a direction. Only the CEO is listened to. */
   standupDirect: "standup:direct",
+  /** The size the CEO's desk terminal panel has room for, in cells; see `deskTerminal.ts`. */
+  deskTerminalSize: "desk:size",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -389,6 +392,12 @@ export interface AgentKeyMessage {
   /** The agent's occupant key. */
   readonly agentId: string;
   readonly key: AgentKey;
+}
+
+/** The cells the CEO's desk terminal panel has room for, which the desk session's terminal is sized to. */
+export interface DeskTerminalSizeMessage {
+  readonly cols: number;
+  readonly rows: number;
 }
 
 /** The CEO's edit of one coding agent's profile, from its card in the roster. See `agentProfile.ts`. */
@@ -796,6 +805,19 @@ export function parseAgentKeyMessage(raw: unknown): AgentKeyMessage | undefined 
     return undefined;
   }
   return { agentId, key };
+}
+
+/**
+ * Validates a raw `desk:size` payload.
+ *
+ * @returns the size, or `undefined` for one that is not whole or is outside
+ * what a terminal may be given.
+ */
+export function parseDeskTerminalSizeMessage(raw: unknown): DeskTerminalSizeMessage | undefined {
+  const candidate = asRecord(raw);
+  const cols = candidate?.cols;
+  const rows = candidate?.rows;
+  return isTerminalSize(cols, rows) ? { cols: cols as number, rows: rows as number } : undefined;
 }
 
 /**
