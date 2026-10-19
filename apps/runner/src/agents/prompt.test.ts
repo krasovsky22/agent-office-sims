@@ -1,11 +1,33 @@
 /**
  * The first prompt names the issue by number and title, and quotes the CEO's
- * note rather than speaking it.
+ * note rather than speaking it. The system prompt is the agent's profile.
  */
 
 import { describe, expect, it } from "vitest";
 
-import { startPrompt } from "./prompt.js";
+import { DEFAULT_AGENT_DESCRIPTION, DEFAULT_AGENT_TITLE } from "@sim/shared";
+
+import { startPrompt, systemPrompt } from "./prompt.js";
+
+describe("systemPrompt", () => {
+  it("names the agent and its title, then gives its description as the CEO's", () => {
+    expect(systemPrompt({ name: "Maya", title: DEFAULT_AGENT_TITLE, description: DEFAULT_AGENT_DESCRIPTION })).toBe(
+      [
+        "In this office your name is Maya and your title is Software Developer.",
+        "",
+        "Your role, as the CEO describes it:",
+        "",
+        DEFAULT_AGENT_DESCRIPTION,
+      ].join("\n"),
+    );
+  });
+
+  it("leaves the description out when there is none", () => {
+    expect(systemPrompt({ name: "Leo", title: "QA Engineer", description: "" })).toBe(
+      "In this office your name is Leo and your title is QA Engineer.",
+    );
+  });
+});
 
 describe("startPrompt", () => {
   it("names the issue, how to read it, and the pull request that hands it in", () => {

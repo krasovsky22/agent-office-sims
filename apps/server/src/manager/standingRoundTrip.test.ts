@@ -32,6 +32,7 @@ import {
   SERVER_MESSAGE,
   STANDING_REJECTION,
   type StandingRejectedEvent,
+  defaultAgentName,
 } from "@sim/shared";
 import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -98,6 +99,7 @@ beforeAll(async () => {
     agent: { label: "Mock", start: () => ({ stop: () => undefined }) },
     workspaces: { open: async () => dataDir, close: async () => undefined },
     taskTimeoutMs: 60_000,
+    runnerId: "runner-1",
     ledger,
   });
   scheduler = new StandingScheduler({
@@ -172,6 +174,9 @@ function row(tab: Tab): { name: string; status: string; lastOutcome: string; las
   return task === undefined ? undefined : { name: task.name, status: task.status, lastOutcome: task.lastOutcome, lastRunPr: task.lastRunPr };
 }
 
+/** The runner's first agent's default name, as its runner id gives it. */
+const FIRST = defaultAgentName("runner-1", 0);
+
 describe("a standing task from the AI Manager to the mock runner and back", () => {
   it("is set up by the CEO's words, shown in every tab, refused to anyone else, and runs", { timeout: 60_000 }, async () => {
     const dana = await joinTab("Dana", true);
@@ -197,7 +202,7 @@ describe("a standing task from the AI Manager to the mock runner and back", () =
     // A pull request opened after the watch began is reviewed; the one already open never is.
     open = [...open, { number: 112, title: "Add a lift", draft: false, author: "dana", association: "OWNER", ownAgent: false, headSha: "b" }];
     dana.room.send(CLIENT_MESSAGE.standingCheckNow, { taskId });
-    const simulated = "Mock 1 did a simulated review of PR #112 “Add a lift” for “Watch for new pull requests”; nothing was posted on GitHub.";
+    const simulated = `${FIRST} did a simulated review of PR #112 “Add a lift” for “Watch for new pull requests”; nothing was posted on GitHub.`;
     await settled(() => lines(eve, MANAGER_ENTRY_KIND.update).includes(simulated));
     await settled(() => row(eve)?.lastOutcome === "simulated");
     expect(row(eve)).toMatchObject({ lastOutcome: "simulated", lastRunPr: 112 });

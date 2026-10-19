@@ -304,7 +304,7 @@ describe("planFromRules: assignments", () => {
 
 /** A runner's coding agent, idle with no issue unless told otherwise. */
 function coder(id: string, name: string, extra: Partial<IssueAgentView> = {}): IssueAgentView {
-  return { id, name, status: LIVE_AGENT_STATUS.idle, activity: "", issue: undefined, standing: undefined, ...extra };
+  return { id, name, title: "Software Developer", status: LIVE_AGENT_STATUS.idle, activity: "", issue: undefined, standing: undefined, ...extra };
 }
 
 describe("planFromRules: the runners' coding agents", () => {

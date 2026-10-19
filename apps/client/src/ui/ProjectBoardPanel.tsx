@@ -28,7 +28,7 @@
  * interpreted.
  */
 
-import { type BoardLabel, type ProjectBoardSnapshot, WORK_ACTION, type WorkData, type WorkStatus } from "@sim/shared";
+import { type BoardLabel, type ProjectBoardSnapshot, WORK_ACTION, type WorkData, type WorkStatus, agentLabel } from "@sim/shared";
 import { useEffect, useRef, useState } from "react";
 
 import type { BoardAccess } from "../boardAccess.js";
@@ -472,7 +472,7 @@ function AssignPicker({ agents, onAssign }: { agents: readonly BoardAgent[]; onA
         </option>
         {agents.map((agent) => (
           <option key={agent.id} value={agent.id}>
-            {agent.name}
+            {agentLabel(agent.name, agent.title ?? "")}
           </option>
         ))}
       </select>

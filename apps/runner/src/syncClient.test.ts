@@ -17,7 +17,7 @@ const SYNC: RunnerSync = {
   runnerId: "runner-1",
   repo: REPO,
   acked: [],
-  slots: [{ id: "slot-1", name: "Mock 1", status: "idle", issueNumber: undefined, activity: "", pr: undefined }],
+  slots: [{ id: "slot-1", name: "Maya", title: "Software Developer", description: "", status: "idle", issueNumber: undefined, activity: "", pr: undefined }],
   events: [],
   spend: { spentUsd: 0.4, budgetUsd: undefined },
 };
@@ -66,7 +66,7 @@ describe("createSyncClient", () => {
       runnerId: "runner-1",
       repo: REPO,
       acked: [],
-      slots: [{ id: "slot-1", name: "Mock 1", status: "idle", activity: "" }],
+      slots: [{ id: "slot-1", name: "Maya", title: "Software Developer", description: "", status: "idle", activity: "" }],
       events: [],
       spend: { spentUsd: 0.4 },
     });
@@ -166,6 +166,15 @@ describe("readCommands", () => {
     ]);
     expect(reply.commands).toEqual([{ id: "command-1", slotId: "slot-1", kind: "key", key: "down", requestedBy: "Dana" }]);
     expect(reply.unreadable).toEqual(["command-2"]);
+  });
+
+  it("reads the CEO's edit of an agent's profile, sanitised, and sets aside one with no title", () => {
+    const profile = { id: "command-1", slotId: "slot-1", kind: "profile", name: "Grace\u0007", title: "Release\nEngineer", description: "Keeps it green.", requestedBy: "Dana" };
+    const reply = readCommands([profile, { ...profile, id: "command-2", title: "" }, { ...profile, id: "command-3", description: 7 }]);
+    expect(reply.commands).toEqual([
+      { id: "command-1", slotId: "slot-1", kind: "profile", name: "Grace", title: "Release Engineer", description: "Keeps it green.", requestedBy: "Dana" },
+    ]);
+    expect(reply.unreadable).toEqual(["command-2", "command-3"]);
   });
 
   it("sets aside a command it cannot read, by id, so it can be acked", () => {

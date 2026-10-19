@@ -213,6 +213,16 @@ export const AGENT_KEY_BURST_ALLOWANCE = 8;
 export const AGENT_KEY_REFILL_PER_SECOND = 2;
 
 /**
+ * Edits to coding agents' profiles the CEO may send back to back before the
+ * server starts dropping them. Each is written to disk by a runner, and a
+ * person saves a form a few times at most, so a small one.
+ */
+export const AGENT_PROFILE_BURST_ALLOWANCE = 4;
+
+/** Rate at which that allowance is restored, in edits/second. */
+export const AGENT_PROFILE_REFILL_PER_SECOND = 0.2;
+
+/**
  * Standing task commands (pause, resume, remove, check now) the CEO may send
  * back to back, all four together, before the server starts dropping them.
  * Each one waits in its runner's command queue, which issue work shares, and

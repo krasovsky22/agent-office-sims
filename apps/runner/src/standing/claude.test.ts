@@ -62,7 +62,8 @@ let answer: HeadlessResult;
 function lease(): StandingSlotLease {
   return {
     slotId: "slot-2",
-    slotName: "Claude 2",
+    slotName: "Leo",
+    systemPrompt: "In this office your name is Leo and your title is Software Developer.",
     signal: new AbortController().signal,
     output: () => undefined,
     activity: () => undefined,
@@ -135,6 +136,8 @@ describe("a review", () => {
     expect(flag(args, "--permission-mode")).toBe("dontAsk");
     expect(flag(args, "--max-budget-usd")).toBe("0.50");
     expect(args).not.toContain("bypassPermissions");
+    // Its slot's profile, appended to Claude Code's own system prompt.
+    expect(flag(args, "--append-system-prompt")).toBe("In this office your name is Leo and your title is Software Developer.");
     expect(run?.timeoutMs).toBe(10 * 60_000);
     // No token, no gh config, nothing of the runner's own but what Claude needs.
     expect(run?.env).toEqual({ PATH: "/usr/bin", HOME: "/home/runner", ANTHROPIC_API_KEY: "sk-key" });
@@ -146,7 +149,7 @@ describe("a review", () => {
     expect(review.posted).toHaveLength(1);
     const [body] = review.posted;
     expect(body?.startsWith(reviewMarker(REVIEW.id, 112))).toBe(true);
-    expect(body).toContain("_Reviewed from the office by its agent runner: Claude 2, for the standing task “Watch for new pull requests” set up by Dana.");
+    expect(body).toContain("_Reviewed from the office by its agent runner: Leo, for the standing task “Watch for new pull requests” set up by Dana.");
     expect(body).toContain("@​dana");
     expect(body).not.toMatch(/@dana/);
   });

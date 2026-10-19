@@ -47,6 +47,9 @@ import {
   type AgentPromptHistoryEvent,
   type AgentKey,
   type AgentKeyMessage,
+  type AgentProfile,
+  type AgentProfileMessage,
+  type AgentProfileRejectedEvent,
   type AgentPromptMessage,
   type AgentPromptRejectedEvent,
   ANIMATION_STATE,
@@ -164,6 +167,12 @@ export interface OccupantView {
   assignedUrl: string;
   /** Whether a live agent can be given issue work; `false` for anyone else. */
   canTakeIssues: boolean;
+  /** A live agent's title, `""` when it has none and for anyone else. */
+  agentTitle: string;
+  /** A live agent's description, its system prompt with the title; `""` when none. */
+  agentDescription: string;
+  /** Whether the CEO can edit a live agent's profile from the office; `false` for anyone else. */
+  profileEditable: boolean;
   /** The issue whose sticky note a live agent has in hand, `0` when none and for anyone else. */
   carriedIssue: number;
   /** The AI manager's status, or `undefined` for anyone else. */
@@ -222,6 +231,8 @@ export interface RoomConnectionEvents {
   onAgentPrompted?: (entry: AgentPromptEntry) => void;
   /** One of the local client's own prompts was not typed, or keys not pressed, and why. */
   onAgentPromptRejected?: (event: AgentPromptRejectedEvent) => void;
+  /** One of the local client's own edits to an agent's profile was not passed on, and why. */
+  onAgentProfileRejected?: (event: AgentProfileRejectedEvent) => void;
   /** The runners' standing tasks, after any of them is added, changed or removed. */
   onStandingChanged?: (tasks: readonly StandingTaskData[]) => void;
   /** The office did nothing about one of the local client's standing task buttons. */
@@ -453,6 +464,20 @@ export class RoomConnection {
     return true;
   }
 
+  /**
+   * Asks for a coding agent's profile to be edited. The state patch, once its
+   * runner has it, is the reply, or a rejection to this client alone.
+   *
+   * @returns whether it went out at all.
+   */
+  public sendAgentProfile(agentId: string, profile: AgentProfile): boolean {
+    if (this.room === undefined) {
+      return false;
+    }
+    this.room.send(CLIENT_MESSAGE.agentProfile, { agentId, ...profile } satisfies AgentProfileMessage);
+    return true;
+  }
+
   /** Pauses, resumes, removes or checks a standing task. The state patch is the reply, or a rejection to this client alone. */
   public sendStanding(action: StandingTaskAction, taskId: string): void {
     this.room?.send(STANDING_MESSAGES[action], { taskId } satisfies StandingTaskMessage);
@@ -594,6 +619,9 @@ export class RoomConnection {
         assignedTitle: isLiveAgent(occupant) ? occupant.assignedTitle : "",
         assignedUrl: isLiveAgent(occupant) ? occupant.assignedUrl : "",
         canTakeIssues: isLiveAgent(occupant) && occupant.canTakeIssues,
+        agentTitle: isLiveAgent(occupant) ? occupant.title : "",
+        agentDescription: isLiveAgent(occupant) ? occupant.description : "",
+        profileEditable: isLiveAgent(occupant) && occupant.profileEditable,
         carriedIssue: isLiveAgent(occupant) ? occupant.carriedIssue : 0,
         managerStatus: isAiManager(occupant) ? occupant.status : undefined,
       };
@@ -719,6 +747,10 @@ export class RoomConnection {
       this.events.onAgentPromptRejected?.(event);
     });
 
+    room.onMessage<AgentProfileRejectedEvent>(SERVER_MESSAGE.agentProfileRejected, (event) => {
+      this.events.onAgentProfileRejected?.(event);
+    });
+
     room.onMessage<StandingRejectedEvent>(SERVER_MESSAGE.standingRejected, (event) => {
       this.events.onStandingRejected?.(event);
     });
@@ -777,6 +809,9 @@ export class RoomConnection {
     const assignedTitle = agent?.assignedTitle ?? "";
     const assignedUrl = agent?.assignedUrl ?? "";
     const canTakeIssues = agent?.canTakeIssues ?? false;
+    const agentTitle = agent?.title ?? "";
+    const agentDescription = agent?.description ?? "";
+    const profileEditable = agent?.profileEditable ?? false;
     const carriedIssue = agent?.carriedIssue ?? 0;
     const managerStatus = isAiManager(occupant) ? occupant.status : undefined;
     if (
@@ -790,6 +825,9 @@ export class RoomConnection {
       view.assignedTitle !== assignedTitle ||
       view.assignedUrl !== assignedUrl ||
       view.canTakeIssues !== canTakeIssues ||
+      view.agentTitle !== agentTitle ||
+      view.agentDescription !== agentDescription ||
+      view.profileEditable !== profileEditable ||
       view.carriedIssue !== carriedIssue ||
       view.managerStatus !== managerStatus
     ) {
@@ -803,6 +841,9 @@ export class RoomConnection {
       view.assignedTitle = assignedTitle;
       view.assignedUrl = assignedUrl;
       view.canTakeIssues = canTakeIssues;
+      view.agentTitle = agentTitle;
+      view.agentDescription = agentDescription;
+      view.profileEditable = profileEditable;
       view.carriedIssue = carriedIssue;
       view.managerStatus = managerStatus;
       this.events.onOccupantsChanged?.();

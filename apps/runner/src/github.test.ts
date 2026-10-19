@@ -43,7 +43,7 @@ const TASK = {
   title: "Night shift",
   workdir: "/runner/worktrees/issue-39-slot-1",
   requestedBy: "Dana",
-  agentName: "Claude 1",
+  agentName: "Maya",
 };
 
 describe("ownPr", () => {
@@ -111,7 +111,7 @@ describe("pullRequest", () => {
     expect(create.slice(0, 10)).toEqual(["pr", "create", "--repo", REPO, "--head", "sims/issue-39-slot-1", "--base", "main", "--title", "Night shift"]);
     const body = create[create.indexOf("--body") + 1] ?? "";
     expect(body.startsWith("Closes #39\n")).toBe(true);
-    expect(body).toContain("Claude 1 worked #39 for Dana");
+    expect(body).toContain("Maya worked #39 for Dana");
   });
 
   it("has none for a branch that was never pushed, or a detached worktree", async () => {

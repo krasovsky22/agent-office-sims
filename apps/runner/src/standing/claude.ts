@@ -182,7 +182,14 @@ export function createClaudeStandingRunners(options: ClaudeStandingOptions): Sta
     headless({
       command: options.command,
       // `--` so a prompt can never be read as an option.
-      args: [...args, "--max-budget-usd", job.spec.caps.perRunUsd.toFixed(2), "--", prompt],
+      args: [
+        ...args,
+        ...(job.lease.systemPrompt === "" ? [] : ["--append-system-prompt", job.lease.systemPrompt]),
+        "--max-budget-usd",
+        job.spec.caps.perRunUsd.toFixed(2),
+        "--",
+        prompt,
+      ],
       cwd: dir,
       env,
       signal: job.signal,

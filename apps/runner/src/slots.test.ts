@@ -15,7 +15,17 @@
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { type AgentKey, MAX_NAME_LENGTH, MAX_TITLE_LENGTH, type RunnerSlotCommand } from "@sim/shared";
+import {
+  type AgentKey,
+  type AgentProfile,
+  DEFAULT_AGENT_DESCRIPTION,
+  DEFAULT_AGENT_TITLE,
+  MAX_NAME_LENGTH,
+  MAX_TITLE_LENGTH,
+  type RunnerSlotCommand,
+  defaultAgentName,
+  defaultAgentProfile,
+} from "@sim/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -27,10 +37,12 @@ import {
   type MockOutcome,
   createMockAgent,
 } from "./agents/mock.js";
+import { systemPrompt } from "./agents/prompt.js";
 import type { Agent, AgentReporter, AgentTask } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
 import type { HandInTask, TaskGithub } from "./github.js";
+import type { AgentProfiles } from "./profiles.js";
 import { createRedactor } from "./redact.js";
 import { NO_PULL_REQUEST, type SlotWorkspaces, SlotPool, TURN_DONE, fitBytes } from "./slots.js";
 
@@ -52,6 +64,13 @@ const START: RunnerSlotCommand = {
   note: "",
   requestedBy: "Dana",
 };
+
+/** The pool's agents' default names, its runner id left at its default. */
+const FIRST = defaultAgentName("runner", 0);
+const SECOND = defaultAgentName("runner", 1);
+
+/** What every slot reports of its agent's profile until the CEO edits it, but its name. */
+const DEFAULT_PROFILE = { title: DEFAULT_AGENT_TITLE, description: DEFAULT_AGENT_DESCRIPTION };
 
 /** The CEO's answer to what the mock waits on. */
 const ANSWER: RunnerSlotCommand = { id: "command-answer", slotId: "slot-1", kind: "prompt", text: "Go ahead.", requestedBy: "Dana" };
@@ -116,10 +135,11 @@ describe("SlotPool", () => {
     fixture.cleanup();
   });
 
-  it("starts with every slot idle and named after its agent", () => {
+  it("starts with every slot idle, its agent named and titled by its default profile", () => {
+    expect(FIRST).not.toBe(SECOND);
     expect(pool().report()).toEqual([
-      { id: "slot-1", name: "Mock 1", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
-      { id: "slot-2", name: "Mock 2", status: "idle", issueNumber: undefined, activity: "", pr: undefined },
+      { id: "slot-1", name: FIRST, ...DEFAULT_PROFILE, status: "idle", issueNumber: undefined, activity: "", pr: undefined },
+      { id: "slot-2", name: SECOND, ...DEFAULT_PROFILE, status: "idle", issueNumber: undefined, activity: "", pr: undefined },
     ]);
   });
 
@@ -223,6 +243,7 @@ describe("SlotPool", () => {
         note: "please",
         requestedBy: "Dana",
         workdir: fixture.developer,
+        systemPrompt: systemPrompt(defaultAgentProfile("runner", 0)),
       },
     ]);
   });
@@ -299,7 +320,7 @@ describe("SlotPool", () => {
       "slot-1 on #39 is working",
       "slot-1 handed in #39: a simulated pull request; nothing was opened on GitHub",
       "slot-1 on #39: its agent's turn ended",
-      "start for slot-1 on #40 refused: Mock 1 is busy with #39",
+      `start for slot-1 on #40 refused: ${FIRST} is busy with #39`,
       `slot-1 failed on #39: Stopped: the server asked (${"$"}${(MOCK_STEP_USD * 4).toFixed(2)} spent)`,
     ]);
     expect(debug).toContain("slot-1 checking #39 on GitHub");
@@ -432,7 +453,7 @@ describe("SlotPool", () => {
   it("finds the pull request a turn ended without reporting, and hands it in", async () => {
     let reporter: AgentReporter | undefined;
     const pullRequest = vi.fn(async (task: HandInTask) => {
-      expect(task).toEqual({ issueNumber: 39, title: "Night shift", workdir: fixture.developer, requestedBy: "Dana", agentName: "Claude 1" });
+      expect(task).toEqual({ issueNumber: 39, title: "Night shift", workdir: fixture.developer, requestedBy: "Dana", agentName: FIRST });
       return { number: 95, title: "Night shift", url: `https://github.com/${REPO}/pull/95` };
     });
     const agent: Agent = {
@@ -572,7 +593,7 @@ describe("SlotPool", () => {
     slots.handle({ ...START, id: "command-2", issueNumber: 40 });
     expect(slot(slots)?.issueNumber).toBe(39);
     expect(slots.pendingEvents()).toEqual([
-      { id: "event-1", kind: "failed", slotId: "slot-1", issueNumber: 40, pr: undefined, message: "Mock 1 is busy with #39" },
+      { id: "event-1", kind: "failed", slotId: "slot-1", issueNumber: 40, pr: undefined, message: `${FIRST} is busy with #39` },
     ]);
   });
 
@@ -1324,6 +1345,120 @@ describe("SlotPool keys from the CEO", () => {
   });
 });
 
+describe("SlotPool profiles", () => {
+  beforeEach(() => {
+    fixture = gitFixture();
+    asked = [];
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    fixture.cleanup();
+  });
+
+  const EDITED: AgentProfile = {
+    name: "Grace",
+    title: "Release Engineer",
+    description: "Keeps the release branch green.\nNever skips the changelog.",
+  };
+
+  function profileCommand(profile: AgentProfile = EDITED, slotId = "slot-1"): RunnerSlotCommand {
+    return { id: `command-profile-${slotId}`, slotId, kind: "profile", ...profile, requestedBy: "Dana" };
+  }
+
+  /** Profiles kept in memory, as `./profiles.ts` keeps them on disk; `saved` is every save, in order. */
+  function memoryProfiles(kept: ReadonlyMap<string, AgentProfile> = new Map()) {
+    const saved: Array<ReadonlyMap<string, AgentProfile>> = [];
+    const profiles: AgentProfiles = {
+      load: () => kept,
+      save: (all) => {
+        saved.push(new Map(all));
+      },
+    };
+    return { profiles, saved };
+  }
+
+  /** An agent that keeps every task it is given, and never ends one itself. */
+  function spyAgent() {
+    const tasks: AgentTask[] = [];
+    const agent: Agent = {
+      label: "Spy",
+      start: (task) => {
+        tasks.push(task);
+        return { stop: () => undefined };
+      },
+    };
+    return { agent, tasks };
+  }
+
+  function profiledPool(agent: Agent, profiles: AgentProfiles, log?: (line: string) => void) {
+    return new SlotPool({
+      count: 2,
+      agent,
+      workspaces: workspaces(),
+      taskTimeoutMs: TIMEOUT_MS,
+      runnerId: "runner-7",
+      profiles,
+      ...(log === undefined ? {} : { log }),
+    });
+  }
+
+  it("names its agents from the runner's id, and starts with the profiles kept for them", () => {
+    const { agent } = spyAgent();
+    const { profiles } = memoryProfiles(new Map([["slot-2", EDITED]]));
+    const slots = profiledPool(agent, profiles);
+    expect(slot(slots)).toMatchObject({ name: defaultAgentName("runner-7", 0), ...DEFAULT_PROFILE });
+    expect(slot(slots, "slot-2")).toMatchObject(EDITED);
+  });
+
+  it("takes the CEO's edit: reports it, keeps every slot's profile, and gives it to the next run as its system prompt", async () => {
+    const { agent, tasks } = spyAgent();
+    const { profiles, saved } = memoryProfiles();
+    const lines: string[] = [];
+    const slots = profiledPool(agent, profiles, (line) => lines.push(line));
+    slots.handle(profileCommand());
+    expect(slot(slots)).toMatchObject(EDITED);
+    expect(saved).toEqual([
+      new Map([
+        ["slot-1", EDITED],
+        ["slot-2", defaultAgentProfile("runner-7", 1)],
+      ]),
+    ]);
+    expect(lines).toEqual(["slot-1 is now Grace, Release Engineer, as Dana asked"]);
+
+    slots.handle(START);
+    await settle();
+    expect(tasks[0]?.systemPrompt).toBe(systemPrompt(EDITED));
+    expect(tasks[0]?.systemPrompt).toContain("your title is Release Engineer");
+    expect(tasks[0]?.systemPrompt).toContain("Keeps the release branch green.\nNever skips the changelog.");
+  });
+
+  it("leaves the session an agent is in alone: an edit applies from its next one", async () => {
+    const { agent, tasks } = spyAgent();
+    const { profiles } = memoryProfiles();
+    const lines: string[] = [];
+    const slots = profiledPool(agent, profiles, (line) => lines.push(line));
+    slots.handle(START);
+    await settle();
+    const before = tasks[0]?.systemPrompt;
+    expect(before).toBe(systemPrompt(defaultAgentProfile("runner-7", 0)));
+
+    slots.handle(profileCommand());
+    expect(slot(slots)).toMatchObject({ ...EDITED, status: "starting", issueNumber: 39 });
+    expect(tasks).toHaveLength(1);
+    expect(lines.at(-1)).toBe("slot-1 is now Grace, Release Engineer, as Dana asked; its agent's prompt changes from its next session");
+  });
+
+  it("gives a standing run its slot's system prompt and name", () => {
+    const { agent } = spyAgent();
+    const { profiles } = memoryProfiles(new Map([["slot-1", EDITED]]));
+    const lease = profiledPool(agent, profiles).leaseForStanding("slot-1", { taskId: "st-aaaaaaaaaaaaaaaa", pr: 7 }, "Reviewing");
+    expect(lease?.slotName).toBe("Grace");
+    expect(lease?.systemPrompt).toBe(systemPrompt(EDITED));
+  });
+});
+
 describe("SlotPool screens", () => {
   // Real timers: xterm parses what it is fed on a timer of its own.
   beforeEach(() => {
@@ -1363,7 +1498,7 @@ describe("SlotPool screens", () => {
   it("gives every slot a screen that says it is waiting for work", async () => {
     const slots = pool();
     expect(slots.screens().map(([id]) => id)).toEqual(["slot-1", "slot-2"]);
-    expect(await screenText(slots, "slot-2")).toEqual(["Mock 2 is waiting for work."]);
+    expect(await screenText(slots, "slot-2")).toEqual([`${SECOND} is waiting for work.`]);
   });
 
   it("shows what a run prints on a cleared screen, and keeps it there once the run ends", async () => {
@@ -1377,7 +1512,7 @@ describe("SlotPool screens", () => {
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "" });
     printer.print?.("after the end");
     expect(await screenText(slots)).toEqual(["pnpm test", "passed"]);
-    expect(await screenText(slots, "slot-2")).toEqual(["Echo 2 is waiting for work."]);
+    expect(await screenText(slots, "slot-2")).toEqual([`${SECOND} is waiting for work.`]);
   });
 
   it("prints the mock agent's script", async () => {
@@ -1395,9 +1530,14 @@ describe("SlotPool screens", () => {
       timeout: 10_000,
     });
     const screen = await screenText(slots);
-    expect(screen).toEqual([
+    expect(screen.slice(0, 4)).toEqual([
       "mock agent on #39: Night shift",
       "for Dana",
+      // The system prompt a real agent would be given, from its profile.
+      `In this office your name is ${FIRST} and your title is ${DEFAULT_AGENT_TITLE}.`,
+      "Your role, as the CEO describes it:",
+    ]);
+    expect(screen.slice(screen.indexOf("● Reading issue #39"))).toEqual([
       "● Reading issue #39",
       "● Edit: .sims-mock/issue-39.md",
       "● Bash: git commit",

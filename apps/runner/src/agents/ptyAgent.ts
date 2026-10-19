@@ -211,7 +211,7 @@ function startRun<P>(
       spendTimer.unref();
     }
   });
-  const plan = adapter.launch({ prompt: startPrompt(task), cwd: task.workdir, setup });
+  const plan = adapter.launch({ prompt: startPrompt(task), cwd: task.workdir, systemPrompt: task.systemPrompt, setup });
   const scrub = [...(adapter.scrubEnv ?? []), ...(options.github?.scrub ?? [])];
   const env = childEnv(
     {

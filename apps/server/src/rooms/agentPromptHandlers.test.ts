@@ -49,7 +49,7 @@ function runnerSync(prompts: RunnerPromptOutcome[] = [], acked: string[] = []): 
     runnerId: "box",
     repo: REPO,
     acked,
-    slots: [{ id: "slot-1", name: "Claude 1", status: "working", issueNumber: 39, activity: "", pr: undefined }],
+    slots: [{ id: "slot-1", name: "Claude 1", title: "Software Developer", description: "", status: "working", issueNumber: 39, activity: "", pr: undefined }],
     events: [],
     prompts,
   });

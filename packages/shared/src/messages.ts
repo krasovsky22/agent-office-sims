@@ -18,6 +18,12 @@
 
 import { type AgentKey, type AgentPromptRejection, isAgentKey } from "./agentPrompt.js";
 import {
+  type AgentProfile,
+  type AgentProfileRejection,
+  MAX_AGENT_DESCRIPTION_BYTES,
+  parseAgentProfile,
+} from "./agentProfile.js";
+import {
   MAX_AGENT_PROMPT_LENGTH,
   MAX_CHAT_LENGTH,
   MAX_MANAGER_MESSAGE_LENGTH,
@@ -56,6 +62,8 @@ export const CLIENT_MESSAGE = {
   agentPrompt: "agent:prompt",
   /** Press a key on the choice screen a coding agent waits on; only the CEO is listened to. See `agentPrompt.ts`. */
   agentKey: "agent:key",
+  /** Edit a coding agent's name, title and description; only the CEO is listened to. See `agentProfile.ts`. */
+  agentProfile: "agent:profile",
   /** Pause a standing task; only the CEO is listened to. See `standing.ts`. */
   standingPause: "standing:pause",
   /** Resume a paused standing task; only the CEO is listened to. */
@@ -137,6 +145,12 @@ export const SERVER_MESSAGE = {
    * Carries an {@link AgentPromptRejectedEvent}.
    */
   agentPromptRejected: "agent:prompt-rejected",
+  /**
+   * Sent only to the client whose edit of an agent's profile the office did
+   * not pass on, with the reason. Carries an {@link AgentProfileRejectedEvent};
+   * one passed on has no reply but the next patch.
+   */
+  agentProfileRejected: "agent:profile-rejected",
   /**
    * Sent only to the client whose standing task command the office refused,
    * with the reason. Carries a {@link StandingRejectedEvent}.
@@ -228,6 +242,7 @@ export interface ThrottledEvent {
     | typeof CLIENT_MESSAGE.managerSay
     | typeof CLIENT_MESSAGE.agentPrompt
     | typeof CLIENT_MESSAGE.agentKey
+    | typeof CLIENT_MESSAGE.agentProfile
     | StandingClientMessage
     | typeof CLIENT_MESSAGE.standupStart
     | typeof CLIENT_MESSAGE.standupDirect;
@@ -365,6 +380,18 @@ export interface AgentKeyMessage {
   /** The agent's occupant key. */
   readonly agentId: string;
   readonly key: AgentKey;
+}
+
+/** The CEO's edit of one coding agent's profile, from its card in the roster. See `agentProfile.ts`. */
+export interface AgentProfileMessage extends AgentProfile {
+  /** The agent's occupant key. */
+  readonly agentId: string;
+}
+
+/** The office did not pass this client's profile edit on, and why. */
+export interface AgentProfileRejectedEvent {
+  readonly agentId: string;
+  readonly rejection: AgentProfileRejection;
 }
 
 /** The office did not take one of this client's standup commands, and why. */
@@ -760,6 +787,31 @@ export function parseAgentKeyMessage(raw: unknown): AgentKeyMessage | undefined 
     return undefined;
   }
   return { agentId, key };
+}
+
+/**
+ * Validates a raw `agent:profile` payload.
+ *
+ * Shape only: whether the sender may edit it is `agentProfileRefusal`'s call,
+ * and whether the agent is a runner's the server's.
+ *
+ * @returns the sanitised edit, or `undefined` for a malformed one, a field far
+ * past its budget, or one whose name or title is left empty.
+ */
+export function parseAgentProfileMessage(raw: unknown): AgentProfileMessage | undefined {
+  const candidate = asRecord(raw);
+  const agentId = candidate?.agentId;
+  if (candidate === undefined || typeof agentId !== "string" || agentId === "" || agentId.length > MAX_AGENT_KEY_LENGTH) {
+    return undefined;
+  }
+  // Read here rather than at load: `agentProfile.ts` imports this module too.
+  const longest = 4 * MAX_AGENT_DESCRIPTION_BYTES;
+  const fields = [candidate.name, candidate.title, candidate.description];
+  if (fields.some((field) => typeof field !== "string" || field.length > longest)) {
+    return undefined;
+  }
+  const profile = parseAgentProfile(candidate);
+  return profile === undefined ? undefined : { agentId, ...profile };
 }
 
 /** Validates a raw `work:assign` payload. */

@@ -38,6 +38,7 @@ import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import * as THREE from "three";
 
+import { agentProfileAccessFor, agentProfileRejectionText } from "./agentProfileAccess.js";
 import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
 import { standupAccessFor, standupRejectionText } from "./standupAccess.js";
 import { boardAccessFor, rejectionText } from "./boardAccess.js";
@@ -276,6 +277,8 @@ function start(): void {
   let standupNoticeTimer: number | undefined;
   // The agent whose key pad in the standup panel was last pressed, for a key the limiter dropped.
   let lastKeyAgentId = "";
+  // The agent whose profile was last saved, for an edit the limiter dropped.
+  let lastProfileAgentId = "";
 
   /** Shows a line to this player only, and takes it down again shortly. */
   const showNotice = (text: string) => {
@@ -376,6 +379,7 @@ function start(): void {
         if (existing === undefined) {
           const avatar = new Avatar({
             name: view.name,
+            title: view.agentTitle,
             kind: view.kind,
             isCeo: view.isCeo,
             isLocal: view.isLocal,
@@ -387,7 +391,7 @@ function start(): void {
           scene.add(avatar.group);
           avatars.set(view.id, avatar);
         } else {
-          existing.setLabel(view.name, view.isCeo, caption);
+          existing.setLabel(view.name, view.isCeo, caption, view.agentTitle);
           existing.setManagerStatus(view.managerStatus);
           existing.setNeedsInput(needsInput);
         }
@@ -414,6 +418,9 @@ function start(): void {
           taskUrl: view.taskUrl,
           assignedUrl: view.assignedUrl,
           canTakeIssues: view.canTakeIssues,
+          title: view.agentTitle,
+          description: view.agentDescription,
+          profileEditable: view.profileEditable,
           managerStatus: view.managerStatus,
         })),
         boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name),
@@ -421,6 +428,7 @@ function start(): void {
         agentPromptAccess: local === undefined ? undefined : agentPromptAccessFor(local, ceo?.name),
         standingAccess: local === undefined ? undefined : standingAccessFor(local, ceo?.name),
         standupAccess: local === undefined ? undefined : standupAccessFor(local, ceo?.name),
+        agentProfileAccess: local === undefined ? undefined : agentProfileAccessFor(local, ceo?.name),
       });
       refreshStickerNotes();
     },
@@ -463,6 +471,17 @@ function start(): void {
             agentId: hud.terminalAgentId ?? lastKeyAgentId,
             text: "Too many keys — that one was not pressed. Check the terminal, then go on.",
             forKey: true,
+          },
+        });
+        return;
+      }
+      if (event.command === CLIENT_MESSAGE.agentProfile) {
+        // Said on the profile card the edit was saved from, which is waiting on an answer.
+        publishHud({
+          agentProfileNotice: {
+            id: nextRefusalId++,
+            agentId: lastProfileAgentId,
+            text: "Too many profile edits — that one was dropped. Wait a few seconds and save it again.",
           },
         });
         return;
@@ -583,6 +602,12 @@ function start(): void {
       }
     },
 
+    // On the agent's profile card, where the edit was saved from.
+    onAgentProfileRejected: (event) => {
+      const text = agentProfileRejectionText(event.rejection, room.occupantName(event.agentId) ?? "The agent");
+      publishHud({ agentProfileNotice: { id: nextRefusalId++, agentId: event.agentId, text } });
+    },
+
     onStandupChanged: (standup) => {
       publishHud({ standup });
     },
@@ -632,6 +657,12 @@ function start(): void {
           key: (agentId, key) => room.sendAgentKey(agentId, key),
           close: () => {
             readingBoard = "";
+          },
+        },
+        profile: {
+          save: (agentId, profile) => {
+            lastProfileAgentId = agentId;
+            return room.sendAgentProfile(agentId, profile);
           },
         },
         standup: {

@@ -74,7 +74,7 @@ function task(): AgentTask {
   tasks += 1;
   const workdir = join(root, `work-${tasks}`);
   mkdirSync(workdir);
-  return { issueNumber: 39, title: "Fix the lift", url: "https://github.com/o/r/issues/39", note: "", requestedBy: "Dana", workdir };
+  return { issueNumber: 39, title: "Fix the lift", url: "https://github.com/o/r/issues/39", note: "", requestedBy: "Dana", workdir, systemPrompt: "" };
 }
 
 /** A reporter that records what it is told, keeps what it prints apart, and resolves `waitFor` once a line matching it arrives. */

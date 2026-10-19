@@ -23,6 +23,7 @@ import {
   STANDUP_EVERYONE,
   type StandupData,
   type StandupUpdateData,
+  agentLabel,
 } from "@sim/shared";
 import { useEffect, useRef, useState } from "react";
 
@@ -169,6 +170,7 @@ export function StandupPanel({ standup, roster, access, refusal, notice, actions
             <li className={speaking ? "standup__agent standup__agent--speaking" : "standup__agent"} key={agent.id}>
               <div className="standup__who">
                 <span className="hud__name">{agent.name}</span>
+                {agent.title === "" ? null : <span className="standup__title">{agent.title}</span>}
                 {speaking ? <span className="hud__badge hud__badge--agent">Speaking</span> : null}
                 {agent.needsInput ? <span className="hud__badge hud__badge--needs-you">Needs you</span> : null}
                 {agent.canTakeIssues ? (
@@ -243,7 +245,7 @@ export function StandupPanel({ standup, roster, access, refusal, notice, actions
           <option value={STANDUP_EVERYONE}>Everyone</option>
           {agents.map((agent) => (
             <option value={agent.id} key={agent.id}>
-              {agent.name}
+              {agentLabel(agent.name, agent.title)}
             </option>
           ))}
         </select>

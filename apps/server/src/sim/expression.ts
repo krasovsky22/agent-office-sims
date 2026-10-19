@@ -27,6 +27,8 @@
 import {
   AGENT_KEY_BURST_ALLOWANCE,
   AGENT_KEY_REFILL_PER_SECOND,
+  AGENT_PROFILE_BURST_ALLOWANCE,
+  AGENT_PROFILE_REFILL_PER_SECOND,
   AGENT_PROMPT_BURST_ALLOWANCE,
   AGENT_PROMPT_REFILL_PER_SECOND,
   CHAT_BURST_ALLOWANCE,
@@ -111,6 +113,7 @@ export function createExpressionBudget(now: number): ExpressionBudget {
     [CLIENT_MESSAGE.managerSay]: createTokenBucket(MANAGER_BURST_ALLOWANCE, MANAGER_REFILL_PER_SECOND, now),
     [CLIENT_MESSAGE.agentPrompt]: createTokenBucket(AGENT_PROMPT_BURST_ALLOWANCE, AGENT_PROMPT_REFILL_PER_SECOND, now),
     [CLIENT_MESSAGE.agentKey]: createTokenBucket(AGENT_KEY_BURST_ALLOWANCE, AGENT_KEY_REFILL_PER_SECOND, now),
+    [CLIENT_MESSAGE.agentProfile]: createTokenBucket(AGENT_PROFILE_BURST_ALLOWANCE, AGENT_PROFILE_REFILL_PER_SECOND, now),
     // Calling and ending a standup share one: each walks every agent across the office.
     [CLIENT_MESSAGE.standupStart]: createTokenBucket(STANDUP_CALL_BURST_ALLOWANCE, STANDUP_CALL_REFILL_PER_SECOND, now),
     // A direction may start a real agent's turn, as a prompt does.

@@ -278,6 +278,8 @@ export const formatShortDate: TimeFormatter = (epochMs) =>
 export interface BoardAgent {
   readonly id: string;
   readonly name: string;
+  /** Its title, shown beside its name where the board offers it work; absent or `""` for none. */
+  readonly title?: string;
 }
 
 export const WORK_STATUS_TITLES: Readonly<Record<WorkStatus, string>> = {

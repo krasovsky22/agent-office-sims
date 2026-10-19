@@ -55,12 +55,20 @@
  * `queued`, and types it the next time the agent is at its prompt with the
  * standup over, reporting it `delivered`, or `unavailable` if the work ends
  * first.
+ *
+ * Each slot's agent has a profile, a name, title and description
+ * (`@sim/shared`'s `agentProfile.ts`): its default until the CEO edits it
+ * from the office, kept in `./profiles.ts` once edited, and reported on every
+ * sync. The title and description are its agent's system prompt, given as each
+ * session or standing run starts, so an edit applies from the next one, never
+ * to the session the agent is in.
  */
 
 import { randomUUID } from "node:crypto";
 
 import {
   AGENT_KEY_LABEL,
+  type AgentProfile,
   MAX_NAME_LENGTH,
   MAX_TITLE_LENGTH,
   MAX_WORK_NOTE_LENGTH,
@@ -70,6 +78,8 @@ import {
   RUNNER_REFUSAL,
   RUNNER_SLOT_STATUS,
   type RunnerSlotCommand,
+  defaultAgentProfile,
+  fitJsonBytes,
   type RunnerSlotStanding,
   type RunnerWorkEventKind,
   type RunnerPromptOutcome,
@@ -83,9 +93,11 @@ import {
   formatUsd,
 } from "@sim/shared";
 
+import { systemPrompt } from "./agents/prompt.js";
 import type { Agent, AgentReporter, AgentRun } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { NO_GITHUB, type TaskGithub } from "./github.js";
+import type { AgentProfiles } from "./profiles.js";
 import { type Redactor, createRedactor } from "./redact.js";
 import { ScreenMirror } from "./terminal.js";
 
@@ -113,6 +125,7 @@ export interface SlotWorkspaces {
 type StartCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.start }>;
 type PromptCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.prompt }>;
 type KeyCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.key }>;
+type ProfileCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.profile }>;
 
 /** Why a standing run gave its slot up before it finished. */
 export const STANDING_SLOT_END = {
@@ -131,8 +144,10 @@ export type StandingSlotEnd = (typeof STANDING_SLOT_END)[keyof typeof STANDING_S
  */
 export interface StandingSlotLease {
   readonly slotId: string;
-  /** The slot's name, `Claude 2`, which a posted review and the AI Manager's line name. */
+  /** The slot's agent's name, `Maya`, which a posted review and the AI Manager's line name. */
   readonly slotName: string;
+  /** Its agent's system prompt, from its profile as the run starts. */
+  readonly systemPrompt: string;
   readonly signal: AbortSignal;
   /** Written to the slot's screen. */
   output(data: string): void;
@@ -153,6 +168,10 @@ interface StandingOnSlot {
 export interface SlotPoolOptions {
   readonly count: number;
   readonly agent: Agent;
+  /** The runner's id, which picks its agents' default names; `runner` by default. */
+  readonly runnerId?: string;
+  /** Where the CEO's edits to the agents' profiles are kept; every agent keeps its default without it. */
+  readonly profiles?: AgentProfiles;
   readonly workspaces: SlotWorkspaces;
   readonly taskTimeoutMs: number;
   /** The issue's label check and the task's pull request; none asked of GitHub by default. */
@@ -170,7 +189,8 @@ export interface SlotPoolOptions {
 
 interface Slot {
   readonly id: string;
-  readonly name: string;
+  /** Its agent's name, title and description, as the sync reports them. */
+  profile: AgentProfile;
   status: RunnerSlotStatus;
   issueNumber: number | undefined;
   activity: string;
@@ -209,26 +229,9 @@ interface ActiveRun {
   spentUsd: number;
 }
 
-/** The bytes a string takes in a sync body, as the contract measures them. */
-function encodedBytes(value: string): number {
-  return Buffer.byteLength(JSON.stringify(value)) - 2;
-}
-
-/** Cuts a string to fit a byte budget, whole characters at a time. */
+/** Cuts a string to fit a byte budget, whole characters at a time, as the contract measures it. */
 export function fitBytes(value: string, maxBytes: number): string {
-  if (encodedBytes(value) <= maxBytes) {
-    return value;
-  }
-  let used = 0;
-  let end = 0;
-  for (const character of value) {
-    used += encodedBytes(character);
-    if (used > maxBytes) {
-      break;
-    }
-    end += character.length;
-  }
-  return value.slice(0, end);
+  return fitJsonBytes(value, maxBytes);
 }
 
 export class SlotPool {
@@ -252,13 +255,15 @@ export class SlotPool {
     this.log = options.log ?? (() => undefined);
     this.debug = options.debug ?? (() => undefined);
     const now = Date.now();
+    const kept = options.profiles?.load() ?? new Map<string, AgentProfile>();
     this.slots = Array.from({ length: options.count }, (_, index) => {
-      const name = fitBytes(`${options.agent.label} ${index + 1}`, MAX_NAME_LENGTH);
+      const id = `slot-${index + 1}`;
+      const profile = kept.get(id) ?? defaultAgentProfile(options.runnerId ?? "runner", index);
       const screen = new ScreenMirror(now);
-      screen.write(`\u001b[2m${name} is waiting for work.\u001b[0m\r\n`);
+      screen.write(`\u001b[2m${profile.name} is waiting for work.\u001b[0m\r\n`);
       return {
-        id: `slot-${index + 1}`,
-        name,
+        id,
+        profile: { ...profile, name: fitBytes(profile.name, MAX_NAME_LENGTH) },
         status: RUNNER_SLOT_STATUS.idle,
         issueNumber: undefined,
         activity: "",
@@ -280,7 +285,9 @@ export class SlotPool {
   public report(): RunnerSlotReport[] {
     return this.slots.map((slot) => ({
       id: slot.id,
-      name: slot.name,
+      name: slot.profile.name,
+      title: slot.profile.title,
+      description: slot.profile.description,
       status: slot.status,
       issueNumber: slot.issueNumber,
       activity: slot.activity,
@@ -316,7 +323,8 @@ export class SlotPool {
     const live = (): boolean => slot.standing === held && !held.controller.signal.aborted;
     return {
       slotId: slot.id,
-      slotName: slot.name,
+      slotName: slot.profile.name,
+      systemPrompt: systemPrompt(slot.profile),
       signal: held.controller.signal,
       output: (data) => {
         if (live()) {
@@ -456,7 +464,24 @@ export class SlotPool {
       case RUNNER_COMMAND_KIND.key:
         this.keyFromCeo(slot, command);
         return;
+      case RUNNER_COMMAND_KIND.profile:
+        this.setProfile(slot, command);
+        return;
     }
+  }
+
+  /**
+   * Takes the CEO's edit of a slot's agent's profile and keeps it: reported
+   * from the next sync, and its agent's system prompt from its next session.
+   */
+  private setProfile(slot: Slot, command: ProfileCommand): void {
+    slot.profile = { name: fitBytes(command.name, MAX_NAME_LENGTH), title: command.title, description: command.description };
+    this.options.profiles?.save(new Map(this.slots.map((each) => [each.id, each.profile])));
+    const busy = slot.run !== undefined || slot.standing !== undefined;
+    this.log(
+      `${slot.id} is now ${slot.profile.name}, ${slot.profile.title}, as ${command.requestedBy || "the CEO"} asked` +
+        (busy ? "; its agent's prompt changes from its next session" : ""),
+    );
   }
 
   /** Stops every run, as the runner shuts down. */
@@ -481,7 +506,7 @@ export class SlotPool {
         return;
       }
       // A slot holds one task until the server stops it, so this one is refused.
-      const busy = `${slot.name} is busy with #${slot.run.issueNumber}`;
+      const busy = `${slot.profile.name} is busy with #${slot.run.issueNumber}`;
       this.emit(slot, RUNNER_EVENT_KIND.failed, task.issueNumber, undefined, busy);
       this.log(`start for ${slot.id} on #${task.issueNumber} refused: ${busy}`);
       return;
@@ -813,7 +838,7 @@ export class SlotPool {
         title: run.task.title,
         workdir: run.workdir,
         requestedBy: run.task.requestedBy,
-        agentName: slot.name,
+        agentName: slot.profile.name,
       });
     } catch (error) {
       why = `${NO_PULL_REQUEST} that the runner could find: ${(error as Error).message}`;
@@ -924,6 +949,7 @@ export class SlotPool {
           note: task.note,
           requestedBy: task.requestedBy,
           workdir,
+          systemPrompt: systemPrompt(slot.profile),
         },
         reporter,
       );

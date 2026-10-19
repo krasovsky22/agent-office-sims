@@ -264,6 +264,8 @@ function sameRecord(a: LiveAgentRecord, b: LiveAgentRecord): boolean {
   return (
     a.id === b.id &&
     a.name === b.name &&
+    a.title === b.title &&
+    a.description === b.description &&
     a.status === b.status &&
     a.activity === b.activity &&
     a.task?.title === b.task?.title &&
@@ -604,11 +606,15 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
     return {
       id: runnerSlotAgentId(runnerId, slot.id),
       name: slot.name,
+      title: slot.title,
+      description: slot.description,
       status: FLOOR_STATUS[slot.status],
       task: this.task(runner, slot),
       activity: slot.activity,
       // A slot's work goes through the office's work rules, so it can take issues.
       canTakeIssues: true,
+      // Its runner keeps its profile and prompts its agent with it.
+      profileEditable: true,
     };
   }
 
