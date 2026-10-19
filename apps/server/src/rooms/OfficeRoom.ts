@@ -59,7 +59,9 @@
  * Nor is how the AI manager thinks. The room seats it at its desk, hands every
  * message to it through `managerHandlers.ts`, and sends each joining client the
  * conversation so far; the manager in `manager/officeManager.ts` answers on its
- * own loop, and the tick never waits on it.
+ * own loop, and the tick never waits on it. Nor is when the concierge at
+ * reception welcomes someone: the room stands it at its post, and
+ * `sim/concierge.ts` watches the lobby on the tick.
  *
  * Nor is the standup, beyond its handlers and its step on the tick: the
  * meeting in `sim/standup.ts` gathers the crew in the manager's room, takes
@@ -80,6 +82,7 @@ import {
   type ChatEvent,
   CLIENT_MESSAGE,
   DEFAULT_AGENT_RESTRICT_LABEL,
+  EMOTE,
   type EmoteEvent,
   HumanPlayer,
   type IssueWork,
@@ -97,6 +100,8 @@ import {
   TICK_INTERVAL_MS,
   TICK_RATE_HZ,
   type ThrottledEvent,
+  conciergePost,
+  employConcierge,
   employManager,
   isCeo,
   managerSeat,
@@ -131,6 +136,7 @@ import { type ManagerAdvisor, isManagerAdvisor } from "../manager/advisor.js";
 import { type LiveAssignmentQueue, isLiveAssignmentQueue } from "../manager/liveAssignments.js";
 import { OfficeManager } from "../manager/officeManager.js";
 import { CoffeeCups } from "../sim/coffee.js";
+import { ConciergeDesk } from "../sim/concierge.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import { type ExpressionBudget, createExpressionBudget, tryConsume } from "../sim/expression.js";
 import {
@@ -290,6 +296,8 @@ export class OfficeRoom extends Room<OfficeState> {
 
   /** The AI manager's mind; unset in a room given no advisor. */
   private manager: OfficeManager | undefined;
+  /** The concierge's welcomes; unset in a layout with no reception desk. */
+  private concierge: ConciergeDesk | undefined;
 
   /** The runners' standing tasks, copied into the state when they change; unset in a room given no runner. */
   private standing: StandingMirror | undefined;
@@ -469,6 +477,7 @@ export class OfficeRoom extends Room<OfficeState> {
       allowDirection: (client) => this.spend(client, CLIENT_MESSAGE.standupDirect),
     });
     this.openManagersDesk(workHost, roomOptions);
+    this.openReception();
 
     this.onMessage(CLIENT_MESSAGE.pose, (client, raw: unknown) => {
       const pose = parsePoseMessage(raw);
@@ -691,6 +700,7 @@ export class OfficeRoom extends Room<OfficeState> {
     }
 
     this.interaction.cups.step(now, this.state.occupants);
+    this.concierge?.step(now);
     stepClock(this.state, this.simClock, now);
   }
 
@@ -717,6 +727,33 @@ export class OfficeRoom extends Room<OfficeState> {
     }
     client.send(SERVER_MESSAGE.throttled, { command } satisfies ThrottledEvent);
     return false;
+  }
+
+  /**
+   * Stands the concierge at reception, to welcome everyone who walks into the
+   * lobby, if the floor plan has a reception desk.
+   */
+  private openReception(): void {
+    const concierge = employConcierge(OFFICE_LAYOUT);
+    const post = conciergePost(OFFICE_LAYOUT);
+    if (concierge === undefined || post === undefined) {
+      return;
+    }
+    this.state.occupants.set(concierge.id, concierge);
+    this.concierge = new ConciergeDesk(
+      {
+        layout: OFFICE_LAYOUT,
+        occupants: this.state.occupants,
+        say: (occupantId, text) => {
+          this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
+        },
+        wave: (occupantId) => {
+          this.broadcast(SERVER_MESSAGE.emote, { occupantId, emote: EMOTE.wave } satisfies EmoteEvent);
+        },
+      },
+      concierge,
+      post,
+    );
   }
 
   /**

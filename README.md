@@ -17,7 +17,12 @@ and a coffee table, a conference room with a long table seated down both sides,
 and a kitchen. A main entrance from the pavement opens into the building's
 lobby, with a reception desk facing it, lifts down the hall (placeholders,
 nobody rides them) and, to the left of the lifts, the door into the office. Players arrive on the pavement outside, facing the
-main entrance, and walk in through the lobby. Glass
+main entrance, and walk in through the lobby.
+Behind the reception desk stands the concierge, a teal body that is neither a
+player nor an agent: it takes no work and answers nothing, but whenever a
+player steps into the lobby, in off the street or out through the office door,
+it turns to them, waves and welcomes them by name in a speech bubble and the
+chat, once each time they come in, and every tab sees the same welcome. Glass
 runs along the back wall and the whole street side, through which cars and
 yellow cabs drive both ways past brick walk-ups and glass towers, stopping at
 the lights by the crossing outside the door, and from the street the office's
@@ -1094,7 +1099,7 @@ makes the check easier to read:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twenty-four:
+Then confirm all twenty-five:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -1389,7 +1394,17 @@ Then confirm all twenty-four:
     nothing changed; `apps/server/src/rooms/agentProfileHandlers.test.ts`
     checks that, the sanitising, the runner's report back and the rate limit
     against a live room.
-24. **`pnpm typecheck` passes** across the whole repository.
+24. **The concierge welcomes whoever walks into the lobby, the same in both
+    tabs.** Both tabs show a teal `Concierge` standing behind the reception
+    desk, facing the main entrance, and neither roster lists it. Dana walks out
+    through the office door into the lobby: the concierge turns to her, waves,
+    and `Welcome to the office, Dana! The door left of the lifts takes you in.`
+    shows over its head and lands in both tabs' chat log; a few seconds later
+    it turns back to the door. Walking round the lobby brings no second
+    welcome; out onto the pavement and back in again does, after twenty
+    seconds. `apps/server/src/sim/concierge.test.ts` checks when it greets, and
+    `apps/server/src/rooms/OfficeRoom.test.ts` the welcome against a live room.
+25. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
@@ -1537,7 +1552,7 @@ thing the page talks to is the WebSocket.
   `POST /agents/runner/screens` when `RUNNER_SECRET` is set, the only HTTP the
   server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same twenty-two things.
+  [The two-tab check](#the-two-tab-check), and confirm the same twenty-five things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -1562,6 +1577,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/cron.ts         the five-field cron schedules scheduled tasks fire on, and how one reads
   src/stickerNotes.ts the sticker boards' notes: which issues have one, where each is, and which an agent fetches or pins
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
+  src/concierge.ts    the concierge at reception: who it is, where it stands, what counts as the lobby, its welcome
   src/agentPrompt.ts  the CEO's prompts and choice-screen keys to the coding agents: the one gate, the keys, and why one was refused
   src/agentProfile.ts an agent's name, title and description: default names, the CEO-only gate, caps in sync bytes, the edit message
   src/standup.ts      the standup: the CEO-only gate, why a command was refused, the places in the manager's room, what came of a direction
@@ -1578,6 +1594,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/expression.ts   per-occupant emote, chat, manager-message and agent-prompt budgets
   src/sim/clock.ts        the in-game clock, stepped by the simulation tick
   src/sim/roles.ts        who holds the CEO role, and who inherits it
+  src/sim/concierge.ts    the concierge's welcome to each player who steps into the lobby
   src/github/             the project board's feed: fetch, bucket, poll
   src/agents/             the live agents' feeds: the report and assignment routes, the registry, the runner link, the slots' screens, and the loop between the work and the runner's slots
   src/manager/            the AI manager: its view of the office, rule and model planners, call budget, assignments, updates

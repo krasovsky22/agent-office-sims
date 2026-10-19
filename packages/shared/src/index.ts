@@ -15,6 +15,7 @@ export * from "./clock.js";
 export * from "./projectBoard.js";
 export * from "./liveAgents.js";
 export * from "./manager.js";
+export * from "./concierge.js";
 export * from "./agentPrompt.js";
 export * from "./agentProfile.js";
 export * from "./runner.js";
