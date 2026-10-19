@@ -25,6 +25,7 @@ import {
   type RunnerSlotCommand,
   defaultAgentName,
   defaultAgentProfile,
+  isRunnerWorkEvent,
 } from "@sim/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -33,6 +34,8 @@ import {
   MOCK_PERMISSION_CHOICES,
   MOCK_PERMISSION_GRANTED,
   MOCK_QUESTION,
+  MOCK_SESSION_ANSWER,
+  MOCK_SESSION_HINT,
   MOCK_STEP_USD,
   type MockOutcome,
   createMockAgent,
@@ -74,6 +77,11 @@ const DEFAULT_PROFILE = { title: DEFAULT_AGENT_TITLE, description: DEFAULT_AGENT
 
 /** The CEO's answer to what the mock waits on. */
 const ANSWER: RunnerSlotCommand = { id: "command-answer", slotId: "slot-1", kind: "prompt", text: "Go ahead.", requestedBy: "Dana" };
+
+/** The events about issue work the pool holds, oldest first. */
+function workEvents(slots: SlotPool) {
+  return slots.pendingEvents().filter(isRunnerWorkEvent);
+}
 
 let fixture: GitFixture;
 /** What the pool asked of its workspaces, in order. */
@@ -153,7 +161,7 @@ describe("SlotPool", () => {
 
     await vi.advanceTimersByTimeAsync(STEP_MS);
     expect(slot(slots)).toMatchObject({ status: "working", issueNumber: 39, activity: "Reading issue #39" });
-    expect(slots.pendingEvents()).toEqual([
+    expect(workEvents(slots)).toEqual([
       { id: "event-1", kind: "started", slotId: "slot-1", issueNumber: 39, pr: undefined, message: "" },
     ]);
 
@@ -166,7 +174,7 @@ describe("SlotPool", () => {
     expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: MOCK_PERMISSION });
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 3);
     expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39, activity: MOCK_PERMISSION });
-    expect(slots.pendingEvents().map((event) => event.kind)).toEqual(["started"]);
+    expect(workEvents(slots).map((event) => event.kind)).toEqual(["started"]);
 
     // A prompt is the answer, and it carries on.
     slots.handle(ANSWER);
@@ -176,8 +184,8 @@ describe("SlotPool", () => {
 
     await vi.advanceTimersByTimeAsync(STEP_MS);
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined, activity: "" });
-    expect(slots.pendingEvents().map((event) => event.kind)).toEqual(["started", "failed"]);
-    expect(slots.pendingEvents()[1]?.message).toMatch(/always fails/);
+    expect(workEvents(slots).map((event) => event.kind)).toEqual(["started", "failed"]);
+    expect(workEvents(slots)[1]?.message).toMatch(/always fails/);
     // It worked in its workspace, and gave it up once done.
     expect(fixture.git(fixture.developer, "log", "-1", "--format=%s")).toBe("mock: work on #39");
     expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
@@ -189,7 +197,7 @@ describe("SlotPool", () => {
       slots.handle({ ...START, id });
       await runScript(slots);
     }
-    expect(slots.pendingEvents().map((event) => event.message)).toEqual([
+    expect(workEvents(slots).map((event) => event.message)).toEqual([
       "",
       expect.stringMatching(/always fails/),
       "",
@@ -207,7 +215,7 @@ describe("SlotPool", () => {
     const slots = pool();
     slots.handle(START);
     await vi.advanceTimersByTimeAsync(STEP_MS * 3);
-    expect(slots.pendingEvents()[1]?.message).toMatch(/^Bash: git commit failed: fatal: not a git repository/);
+    expect(workEvents(slots)[1]?.message).toMatch(/^Bash: git commit failed: fatal: not a git repository/);
   });
 
   it("never commits in a repository above its workspace", async () => {
@@ -218,7 +226,7 @@ describe("SlotPool", () => {
     const slots = pool("failed", undefined, { open: async () => workdir, close: async () => undefined });
     slots.handle(START);
     await vi.advanceTimersByTimeAsync(STEP_MS * 3);
-    expect(slots.pendingEvents()[1]?.message).toMatch(/^Bash: git commit failed: fatal: not a git repository/);
+    expect(workEvents(slots)[1]?.message).toMatch(/^Bash: git commit failed: fatal: not a git repository/);
     expect(fixture.git(fixture.developer, "rev-parse", "HEAD")).toBe(head);
     expect(fixture.git(fixture.developer, "status", "--porcelain")).toBe("?? kept/");
   });
@@ -255,7 +263,7 @@ describe("SlotPool", () => {
     await settle();
     expect(start).not.toHaveBeenCalled();
     expect(slot(slots)?.status).toBe("idle");
-    expect(slots.pendingEvents()).toEqual([
+    expect(workEvents(slots)).toEqual([
       { id: "event-1", kind: "failed", slotId: "slot-1", issueNumber: 39, pr: undefined, message: "No worktree: disk full" },
     ]);
     expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
@@ -281,7 +289,7 @@ describe("SlotPool", () => {
     opened?.(fixture.developer);
     await settle();
     expect(start).not.toHaveBeenCalled();
-    expect(slots.pendingEvents().map((event) => event.message)).toEqual(["Stopped: the server asked"]);
+    expect(workEvents(slots).map((event) => event.message)).toEqual(["Stopped: the server asked"]);
     expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
   });
 
@@ -363,7 +371,7 @@ describe("SlotPool", () => {
     // Nothing on GitHub: no link to it, and it says it is simulated.
     const pr = { number: 1_000_039, title: "[mock] Night shift", url: "", simulated: true };
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE, pr });
-    expect(slots.pendingEvents()[1]).toEqual({
+    expect(workEvents(slots)[1]).toEqual({
       id: "event-2",
       kind: "pr-opened",
       slotId: "slot-1",
@@ -376,7 +384,7 @@ describe("SlotPool", () => {
     // Handed in, the work waits on review rather than the task timeout, its worktree kept.
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 2);
     expect(slot(slots)?.issueNumber).toBe(39);
-    expect(slots.pendingEvents()).toHaveLength(2);
+    expect(workEvents(slots)).toHaveLength(2);
     expect(asked).toEqual(["open slot-1 #39"]);
   });
 
@@ -388,7 +396,7 @@ describe("SlotPool", () => {
     expect(slot(slots)).toMatchObject({ status: "working", issueNumber: 39, activity: "Rename the lift.", pr: { number: 1_000_039 } });
     await vi.advanceTimersByTimeAsync(STEP_MS * 6);
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE });
-    expect(slots.pendingEvents().map((event) => [event.kind, event.pr?.number])).toEqual([
+    expect(workEvents(slots).map((event) => [event.kind, event.pr?.number])).toEqual([
       ["started", undefined],
       ["pr-opened", 1_000_039],
       ["pr-opened", 1_000_039],
@@ -400,7 +408,7 @@ describe("SlotPool", () => {
     expect(slot(slots)?.issueNumber).toBe(39);
     slots.handle({ id: "command-4", slotId: "slot-1", kind: "stop", reason: "the work is done", issueNumber: 39 });
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined, pr: undefined });
-    expect(slots.pendingEvents().at(-1)).toMatchObject({ kind: "failed", message: "Stopped: the work is done" });
+    expect(workEvents(slots).at(-1)).toMatchObject({ kind: "failed", message: "Stopped: the work is done" });
     expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
   });
 
@@ -417,9 +425,9 @@ describe("SlotPool", () => {
     const slots = pool("pr-opened");
     slots.handle(START);
     await runScript(slots);
-    slots.delivered(new Set(slots.pendingEvents().map((event) => event.id)));
+    slots.delivered(new Set(workEvents(slots).map((event) => event.id)));
     slots.handle({ ...START, id: "command-2" });
-    expect(slots.pendingEvents().map((event) => [event.kind, event.pr?.number])).toEqual([
+    expect(workEvents(slots).map((event) => [event.kind, event.pr?.number])).toEqual([
       ["started", undefined],
       ["pr-opened", 1_000_039],
     ]);
@@ -437,7 +445,7 @@ describe("SlotPool", () => {
     await settle();
     expect(start).not.toHaveBeenCalled();
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined });
-    expect(slots.pendingEvents()).toEqual([
+    expect(workEvents(slots)).toEqual([
       {
         id: "event-1",
         kind: "failed",
@@ -471,7 +479,7 @@ describe("SlotPool", () => {
     await settle();
     expect(pullRequest).toHaveBeenCalledTimes(1);
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE, pr: { number: 95 } });
-    expect(slots.pendingEvents().map((event) => [event.kind, event.pr?.url])).toEqual([
+    expect(workEvents(slots).map((event) => [event.kind, event.pr?.url])).toEqual([
       ["started", undefined],
       ["pr-opened", `https://github.com/${REPO}/pull/95`],
     ]);
@@ -509,7 +517,7 @@ describe("SlotPool", () => {
     reporter?.prOpened(pr);
     reporter?.prOpened(pr);
     await settle();
-    expect(slots.pendingEvents().filter((event) => event.kind === "pr-opened")).toHaveLength(1);
+    expect(workEvents(slots).filter((event) => event.kind === "pr-opened")).toHaveLength(1);
     expect(slot(slots)).toMatchObject({ status: "working", pr });
   });
 
@@ -530,7 +538,7 @@ describe("SlotPool", () => {
     reporter?.prOpened({ number: 96, title: "", url: `https://github.com/${REPO}/pull/96` });
     await settle();
     expect(pullRequestTitle).toHaveBeenCalledWith(96);
-    expect(slots.pendingEvents().find((event) => event.kind === "pr-opened")?.pr).toEqual({
+    expect(workEvents(slots).find((event) => event.kind === "pr-opened")?.pr).toEqual({
       number: 96,
       title: "Night shift",
       url: `https://github.com/${REPO}/pull/96`,
@@ -558,12 +566,12 @@ describe("SlotPool", () => {
     await settle();
     expect(pullRequest).not.toHaveBeenCalled();
     expect(slot(slots)).toMatchObject({ status: "idle", activity: TURN_DONE });
-    expect(slots.pendingEvents().filter((event) => event.kind === "pr-opened")).toHaveLength(0);
+    expect(workEvents(slots).filter((event) => event.kind === "pr-opened")).toHaveLength(0);
 
     giveTitle("Night shift");
     await settle();
     expect(slot(slots)).toMatchObject({ status: "idle", pr: { number: 96, title: "Night shift" } });
-    expect(slots.pendingEvents().filter((event) => event.kind === "pr-opened").map((event) => event.pr?.title)).toEqual(["Night shift"]);
+    expect(workEvents(slots).filter((event) => event.kind === "pr-opened").map((event) => event.pr?.title)).toEqual(["Night shift"]);
   });
 
   it("honours stop: the script goes no further, and the work is reported failed with the reason", async () => {
@@ -575,7 +583,7 @@ describe("SlotPool", () => {
     await vi.advanceTimersByTimeAsync(TO_WAIT_MS * 2);
     slots.handle(ANSWER);
     await vi.advanceTimersByTimeAsync(FROM_ANSWER_MS * 2);
-    expect(slots.pendingEvents().map((event) => [event.kind, event.message])).toEqual([
+    expect(workEvents(slots).map((event) => [event.kind, event.message])).toEqual([
       ["started", ""],
       ["failed", "Stopped: CEO changed their mind"],
     ]);
@@ -584,7 +592,7 @@ describe("SlotPool", () => {
   it("ignores a stop for an idle slot", () => {
     const slots = pool();
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "" });
-    expect(slots.pendingEvents()).toEqual([]);
+    expect(workEvents(slots)).toEqual([]);
   });
 
   it("refuses a start on a busy slot without disturbing its work", () => {
@@ -592,7 +600,7 @@ describe("SlotPool", () => {
     slots.handle(START);
     slots.handle({ ...START, id: "command-2", issueNumber: 40 });
     expect(slot(slots)?.issueNumber).toBe(39);
-    expect(slots.pendingEvents()).toEqual([
+    expect(workEvents(slots)).toEqual([
       { id: "event-1", kind: "failed", slotId: "slot-1", issueNumber: 40, pr: undefined, message: `${FIRST} is busy with #39` },
     ]);
   });
@@ -603,7 +611,7 @@ describe("SlotPool", () => {
     slots.handle(START);
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
     expect(slot(slots)?.status).toBe("idle");
-    expect(slots.pendingEvents()[0]).toMatchObject({ kind: "failed", message: "Timed out after 1 minute" });
+    expect(workEvents(slots)[0]).toMatchObject({ kind: "failed", message: "Timed out after 1 minute" });
   });
 
   it("holds the task timeout while its agent waits on a person, and counts on from there once it works again", async () => {
@@ -624,14 +632,14 @@ describe("SlotPool", () => {
     // However long the person takes, the agent is not taking too long.
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 5);
     expect(slot(slots)).toMatchObject({ status: "needs-input", issueNumber: 39 });
-    expect(slots.pendingEvents().map((event) => event.kind)).toEqual(["started"]);
+    expect(workEvents(slots).map((event) => event.kind)).toEqual(["started"]);
 
     reporter?.progress("Bash: git push");
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 0.6 - 1);
     expect(slot(slots)).toMatchObject({ status: "working", issueNumber: 39 });
     await vi.advanceTimersByTimeAsync(1);
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined });
-    expect(slots.pendingEvents().at(-1)).toMatchObject({ kind: "failed", message: "Timed out after 1 minute" });
+    expect(workEvents(slots).at(-1)).toMatchObject({ kind: "failed", message: "Timed out after 1 minute" });
   });
 
   it("stops every run as the runner shuts down", () => {
@@ -640,7 +648,7 @@ describe("SlotPool", () => {
     slots.handle({ ...START, id: "command-2", slotId: "slot-2", issueNumber: 40 });
     slots.stopAll();
     expect(slots.report().every((report) => report.status === "idle")).toBe(true);
-    expect(slots.pendingEvents().map((event) => [event.slotId, event.message])).toEqual([
+    expect(workEvents(slots).map((event) => [event.slotId, event.message])).toEqual([
       ["slot-1", "Stopped: the runner shut down"],
       ["slot-2", "Stopped: the runner shut down"],
     ]);
@@ -651,7 +659,7 @@ describe("SlotPool", () => {
     slots.handle({ ...START, slotId: "slot-9" });
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "prompt", text: "hurry", requestedBy: "Dana" });
     expect(slots.report().every((report) => report.status === "idle")).toBe(true);
-    expect(slots.pendingEvents()).toEqual([]);
+    expect(workEvents(slots)).toEqual([]);
   });
 
   it("forgets only the events a sync delivered", async () => {
@@ -659,7 +667,7 @@ describe("SlotPool", () => {
     slots.handle(START);
     await runScript(slots);
     slots.delivered(new Set(["event-1"]));
-    expect(slots.pendingEvents().map((event) => event.id)).toEqual(["event-2"]);
+    expect(workEvents(slots).map((event) => event.id)).toEqual(["event-2"]);
   });
 
   it("cuts what an agent says to the contract's budgets", async () => {
@@ -712,7 +720,7 @@ describe("SlotPool", () => {
     expect(asked).toEqual(["open slot-1 #39"]);
     reporter?.exited("Claude exited with code 0", true);
     expect(slot(slots)).toMatchObject({ status: "exited", issueNumber: undefined, activity: "" });
-    expect(slots.pendingEvents().map((event) => [event.kind, event.message])).toEqual([
+    expect(workEvents(slots).map((event) => [event.kind, event.message])).toEqual([
       ["started", ""],
       ["finished", "Claude exited with code 0"],
     ]);
@@ -734,7 +742,7 @@ describe("SlotPool", () => {
     reporter?.needsInput("Claude isn't signed in");
     reporter?.started();
     reporter?.exited("Claude exited with code 1", false);
-    expect(slots.pendingEvents().map((event) => [event.kind, event.message])).toEqual([
+    expect(workEvents(slots).map((event) => [event.kind, event.message])).toEqual([
       ["started", ""],
       ["failed", "Claude exited with code 1"],
     ]);
@@ -769,7 +777,7 @@ describe("SlotPool", () => {
     expect(Buffer.byteLength(slot(slots)?.activity ?? "")).toBe(MAX_TITLE_LENGTH);
     expect(slot(slots)?.activity).toMatch(/ \*+$/);
     reporter?.exited(`Claude exited with code 1: ${secret}`, false);
-    const messages = slots.pendingEvents().map((event) => event.message);
+    const messages = workEvents(slots).map((event) => event.message);
     expect(messages.at(-1)).toBe(`Claude exited with code 1: ${"*".repeat(secret.length)}`);
   });
 
@@ -793,7 +801,7 @@ describe("SlotPool", () => {
     expect(late).toBeDefined();
     late?.();
     expect(slot(slots)?.status).toBe("idle");
-    expect(slots.pendingEvents()).toHaveLength(1);
+    expect(workEvents(slots)).toHaveLength(1);
   });
 });
 
@@ -864,14 +872,14 @@ describe("SlotPool spend", () => {
     slots.handle(START);
     await settle();
     reporters[0]?.spent(2.5);
-    slots.delivered(new Set(slots.pendingEvents().map((event) => event.id)));
+    slots.delivered(new Set(workEvents(slots).map((event) => event.id)));
 
     slots.handle({ ...START, id: "command-2", slotId: "slot-2", issueNumber: 40 });
     await settle();
     expect(reporters).toHaveLength(1);
     expect(slot(slots, "slot-2")).toMatchObject({ status: "idle", issueNumber: undefined });
     expect(asked).toEqual(["open slot-1 #39"]);
-    expect(slots.pendingEvents()).toEqual([
+    expect(workEvents(slots)).toEqual([
       {
         id: "event-2",
         kind: "failed",
@@ -885,7 +893,7 @@ describe("SlotPool spend", () => {
     // Work already under way carries on, and a start it already holds is not new work.
     slots.handle({ ...START, id: "command-3" });
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39 });
-    expect(slots.pendingEvents().filter((event) => event.refusal !== undefined)).toHaveLength(1);
+    expect(workEvents(slots).filter((event) => event.refusal !== undefined)).toHaveLength(1);
   });
 });
 
@@ -1029,7 +1037,7 @@ describe("SlotPool prompts from the CEO", () => {
     expect(slot(slots)).toMatchObject({ status: "working", activity: "Yes, the empty case too." });
     await vi.advanceTimersByTimeAsync(STEP_MS * 6);
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: 39, activity: TURN_DONE, pr: { number: 1_000_039 } });
-    expect(slots.pendingEvents().map((event) => event.kind)).toEqual(["started", "pr-opened"]);
+    expect(workEvents(slots).map((event) => event.kind)).toEqual(["started", "pr-opened"]);
   });
 });
 
@@ -1074,7 +1082,7 @@ describe("SlotPool during a standup", () => {
     slots.setStandup(true);
     await vi.advanceTimersByTimeAsync(STEP_MS * 20);
     expect(slot(slots)).toMatchObject({ status: "working", issueNumber: 39, activity: "Reading issue #39" });
-    expect(slots.pendingEvents().map((event) => event.kind)).toEqual(["started"]);
+    expect(workEvents(slots).map((event) => event.kind)).toEqual(["started"]);
 
     slots.setStandup(false);
     await vi.advanceTimersByTimeAsync(STEP_MS);
@@ -1548,7 +1556,7 @@ describe("SlotPool screens", () => {
     await vi.waitFor(() => expect(slot(slots)?.status).toBe("needs-input"), { timeout: 10_000 });
     slots.handle(ANSWER);
     // `idle` is also the status just after `started`; the run is over once its pull request is handed in.
-    await vi.waitFor(() => expect(slots.pendingEvents().map((event) => event.kind)).toContain("pr-opened"), {
+    await vi.waitFor(() => expect(workEvents(slots).map((event) => event.kind)).toContain("pr-opened"), {
       timeout: 10_000,
     });
     const screen = await screenText(slots);
@@ -1607,13 +1615,192 @@ describe("SlotPool screens", () => {
     slots.handle(ANSWER);
     await vi.waitFor(() => expect(slot(slots)?.activity).toBe(NO_PULL_REQUEST), { timeout: 10_000 });
     slots.handle({ id: "command-2", slotId: "slot-1", kind: "prompt", text: "Yes.\nBoth cases.", requestedBy: "Dana", fromCeo: true });
-    await vi.waitFor(() => expect(slots.pendingEvents().map((event) => event.kind)).toContain("pr-opened"), {
+    await vi.waitFor(() => expect(workEvents(slots).map((event) => event.kind)).toContain("pr-opened"), {
       timeout: 10_000,
     });
     const text = await screenText(slots);
     expect(text).toContain(`? ${MOCK_QUESTION}`);
     expect(text).toContain("> Yes.");
     expect(text).toContain("  Both cases.");
+  });
+
+  it("shows a desk session on a cleared screen, and the CEO's prompt and its answer", async () => {
+    const slots = new SlotPool({
+      count: 1,
+      agent: createMockAgent({ outcome: "failed", stepMs: 1 }),
+      workspaces: workspaces(),
+      desks: { open: async () => "/desks/slot-1", close: async () => undefined },
+      taskTimeoutMs: TIMEOUT_MS,
+    });
+    slots.handle({ id: "command-1", slotId: "slot-1", kind: "desk-open", seatId: "seat-desk-north-1-1", requestedBy: "Dana" });
+    await vi.waitFor(() => expect(slot(slots)?.status).toBe("idle"), { timeout: 10_000 });
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "prompt", text: "List the routes.", requestedBy: "Dana", fromCeo: true });
+    await vi.waitFor(() => expect(slot(slots)?.activity).toBe(TURN_DONE), { timeout: 10_000 });
+    const text = await screenText(slots);
+    expect(text).not.toContain(`${FIRST} is waiting for work.`);
+    expect(text[0]).toBe("mock agent at Dana's desk");
+    expect(text).toContain(MOCK_SESSION_HINT);
+    expect(text).toContain("> List the routes.");
+    expect(text).toContain(`✓ ${MOCK_SESSION_ANSWER}: List the routes.`);
+  });
+});
+
+describe("SlotPool desk sessions", () => {
+  const OPEN: RunnerSlotCommand = { id: "command-desk", slotId: "slot-1", kind: "desk-open", seatId: "seat-desk-north-1-1", requestedBy: "Dana" };
+  const CLOSE: RunnerSlotCommand = { id: "command-close", slotId: "slot-1", kind: "desk-close", seatId: "seat-desk-north-1-1", reason: "the CEO stood up" };
+  const PROMPT: RunnerSlotCommand = { id: "command-p", slotId: "slot-1", kind: "prompt", text: "List the routes.", requestedBy: "Dana", fromCeo: true };
+
+  /** The desk worktrees the pool asked for and gave back, in order. */
+  let deskAsked: string[];
+
+  function deskPool(options: { failOpen?: string; ledger?: SpendLedger; agent?: Agent } = {}) {
+    let nextId = 1;
+    return new SlotPool({
+      count: 2,
+      agent: options.agent ?? createMockAgent({ outcome: "pr-opened", stepMs: STEP_MS }),
+      workspaces: workspaces(),
+      desks: {
+        open: async (slotId) => {
+          deskAsked.push(`open ${slotId}`);
+          if (options.failOpen !== undefined) {
+            throw new Error(options.failOpen);
+          }
+          return `/desks/${slotId}`;
+        },
+        close: async (workdir) => {
+          deskAsked.push(`close ${workdir}`);
+        },
+      },
+      taskTimeoutMs: TIMEOUT_MS,
+      eventId: () => `event-${nextId++}`,
+      ...(options.ledger === undefined ? {} : { ledger: options.ledger }),
+    });
+  }
+
+  function deskEvents(slots: SlotPool) {
+    return slots.pendingEvents().filter((event) => event.kind === "desk-ended");
+  }
+
+  beforeEach(() => {
+    fixture = gitFixture();
+    asked = [];
+    deskAsked = [];
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    fixture.cleanup();
+  });
+
+  it("lends an idle slot to a desk: a fresh session on a cleared screen, at its prompt, with no issue", async () => {
+    const slots = deskPool();
+    slots.handle(OPEN);
+    expect(slot(slots)).toMatchObject({ status: "starting", issueNumber: undefined, desk: { seatId: "seat-desk-north-1-1" } });
+    await settle();
+    expect(deskAsked).toEqual(["open slot-1"]);
+    await vi.advanceTimersByTimeAsync(STEP_MS);
+    expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined, pr: undefined, desk: { seatId: "seat-desk-north-1-1" } });
+    // Nothing about an issue, and no work events.
+    expect(slots.pendingEvents()).toEqual([]);
+    expect(slots.freeForStanding()).toEqual(["slot-2"]);
+  });
+
+  it("types the CEO's prompt only while the session waits at its prompt, and reports each", async () => {
+    const slots = deskPool();
+    slots.handle(OPEN);
+    slots.handle({ ...PROMPT, id: "command-early" });
+    await settle();
+    await vi.advanceTimersByTimeAsync(STEP_MS);
+    slots.handle(PROMPT);
+    expect(slot(slots)).toMatchObject({ status: "working", activity: "Thinking: List the routes." });
+    slots.handle({ ...PROMPT, id: "command-busy" });
+    await vi.advanceTimersByTimeAsync(STEP_MS);
+    expect(slot(slots)).toMatchObject({ status: "idle", activity: TURN_DONE });
+    expect(slots.pendingPromptOutcomes()).toEqual([
+      { commandId: "command-early", slotId: "slot-1", outcome: "busy" },
+      { commandId: "command-p", slotId: "slot-1", outcome: "delivered" },
+      { commandId: "command-busy", slotId: "slot-1", outcome: "busy" },
+    ]);
+  });
+
+  it("presses no key on a session that waits on no choice", async () => {
+    const slots = deskPool();
+    slots.handle(OPEN);
+    await settle();
+    await vi.advanceTimersByTimeAsync(STEP_MS);
+    slots.handle({ id: "command-k", slotId: "slot-1", kind: "key", key: "enter", requestedBy: "Dana" });
+    expect(slots.pendingPromptOutcomes()).toEqual([{ commandId: "command-k", slotId: "slot-1", outcome: "unavailable" }]);
+  });
+
+  it("closes the session the server asks to, and only for that desk, discarding its worktree and saying nothing", async () => {
+    const slots = deskPool();
+    slots.handle(OPEN);
+    await settle();
+    await vi.advanceTimersByTimeAsync(STEP_MS);
+    slots.handle({ ...CLOSE, seatId: "seat-desk-north-2-1" });
+    expect(slot(slots)?.desk).toEqual({ seatId: "seat-desk-north-1-1" });
+    slots.handle(CLOSE);
+    await settle();
+    expect(slot(slots)).toEqual({ id: "slot-1", name: FIRST, ...DEFAULT_PROFILE, status: "idle", issueNumber: undefined, activity: "", pr: undefined });
+    expect(deskAsked).toEqual(["open slot-1", "close /desks/slot-1"]);
+    expect(slots.pendingEvents()).toEqual([]);
+  });
+
+  it("gives the desk up to an issue's start, saying why, as a standing run does", async () => {
+    const slots = deskPool();
+    slots.handle(OPEN);
+    await settle();
+    await vi.advanceTimersByTimeAsync(STEP_MS);
+    slots.handle(START);
+    expect(slot(slots)).toMatchObject({ status: "starting", issueNumber: 39 });
+    expect(slot(slots)?.desk).toBeUndefined();
+    expect(deskEvents(slots)).toEqual([
+      { id: "event-1", kind: "desk-ended", slotId: "slot-1", seatId: "seat-desk-north-1-1", message: `${FIRST} was taken back for issue #39` },
+    ]);
+  });
+
+  it("refuses a desk for a slot on an issue, or past the day's budget, saying why", async () => {
+    const ledger = new SpendLedger({ budgetUsd: 0 });
+    const broke = deskPool({ ledger });
+    broke.handle(OPEN);
+    expect(slot(broke)?.desk).toBeUndefined();
+    expect(deskEvents(broke)[0]).toMatchObject({ kind: "desk-ended", seatId: "seat-desk-north-1-1" });
+
+    const busy = deskPool();
+    busy.handle(START);
+    busy.handle(OPEN);
+    expect(slot(busy)).toMatchObject({ issueNumber: 39 });
+    expect(deskEvents(busy)).toEqual([
+      { id: "event-1", kind: "desk-ended", slotId: "slot-1", seatId: "seat-desk-north-1-1", message: `${FIRST} is busy with #39` },
+    ]);
+  });
+
+  it("refuses a desk for a slot on a standing run, leaving the run on it", () => {
+    const slots = deskPool();
+    const lease = slots.leaseForStanding("slot-1", { taskId: "nightly", pr: undefined }, "Reviewing");
+    slots.handle(OPEN);
+    expect(lease?.signal.aborted).toBe(false);
+    expect(slot(slots)).toMatchObject({ status: "working", standing: { taskId: "nightly" } });
+    expect(slot(slots)?.desk).toBeUndefined();
+    expect(deskEvents(slots)).toEqual([
+      { id: "event-1", kind: "desk-ended", slotId: "slot-1", seatId: "seat-desk-north-1-1", message: `${FIRST} is busy with nightly` },
+    ]);
+  });
+
+  it("ends a session whose worktree could not be made, saying why", async () => {
+    const slots = deskPool({ failOpen: "no clone" });
+    slots.handle(OPEN);
+    await settle();
+    expect(slot(slots)?.desk).toBeUndefined();
+    expect(deskEvents(slots)[0]).toMatchObject({ message: "No worktree: no clone" });
+  });
+
+  it("refuses a desk for an agent that takes no desk sessions", () => {
+    const agent: Agent = { label: "Plain", start: () => ({ stop: () => undefined }) };
+    const slots = deskPool({ agent });
+    slots.handle(OPEN);
+    expect(deskEvents(slots)[0]).toMatchObject({ message: "The Plain agent takes no desk sessions on this runner" });
   });
 });
 

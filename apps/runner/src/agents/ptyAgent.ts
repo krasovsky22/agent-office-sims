@@ -1,7 +1,9 @@
 // Adapted from agent-office (MIT, Copyright (c) 2026 AgentSystemLabs): src/server/workers/manager.ts. See THIRD_PARTY_NOTICES.md.
 /**
  * An agent CLI in a terminal of its own: a PTY per task, started in the
- * task's worktree with its first prompt, and read for what it is doing.
+ * task's worktree with its first prompt, and read for what it is doing. A desk
+ * session is started the same way with no first prompt, in its scratch
+ * worktree, and waits at its prompt for the CEO's.
  *
  * Its hooks are what say so first (`./hookServer.ts`); its OSC 9;4 progress
  * catches a turn that ends without one; and its output, read as text, catches
@@ -30,7 +32,7 @@ import { HOOK_ENV, type HookServer } from "./hookServer.js";
 import { startPrompt } from "./prompt.js";
 import type { ProviderAdapter, RunHandle, RunStatus } from "./provider.js";
 import { ScreenReader } from "./screen.js";
-import type { Agent, AgentReporter, AgentRun, AgentTask } from "./types.js";
+import type { Agent, AgentReporter, AgentRun } from "./types.js";
 import { TranscriptMeter } from "./usage.js";
 
 /** How long a stopped agent has to exit before its process group is killed outright. */
@@ -120,8 +122,17 @@ export function createPtyAgent<P>(options: PtyAgentOptions<P>): Agent {
   const setup = adapter.prepare(options.dataDir);
   return {
     label: adapter.label,
-    start: (task, reporter) => startRun(options, command, setup, source, task, reporter),
+    start: (task, reporter) => startRun(options, command, setup, source, { prompt: startPrompt(task), workdir: task.workdir, systemPrompt: task.systemPrompt }, reporter),
+    // No first prompt: it comes up at its prompt, for the CEO at the desk to type to.
+    startSession: (session, reporter) => startRun(options, command, setup, source, { prompt: "", workdir: session.workdir, systemPrompt: session.systemPrompt }, reporter),
   };
+}
+
+/** What one run is started with: its first prompt, `""` for none, where, and its system prompt. */
+interface RunStart {
+  readonly prompt: string;
+  readonly workdir: string;
+  readonly systemPrompt: string;
 }
 
 function startRun<P>(
@@ -129,7 +140,7 @@ function startRun<P>(
   command: string,
   setup: P,
   source: NodeJS.ProcessEnv,
-  task: AgentTask,
+  task: RunStart,
   reporter: AgentReporter,
 ): AgentRun {
   const { adapter } = options;
@@ -211,7 +222,7 @@ function startRun<P>(
       spendTimer.unref();
     }
   });
-  const plan = adapter.launch({ prompt: startPrompt(task), cwd: task.workdir, systemPrompt: task.systemPrompt, setup });
+  const plan = adapter.launch({ prompt: task.prompt, cwd: task.workdir, systemPrompt: task.systemPrompt, setup });
   const scrub = [...(adapter.scrubEnv ?? []), ...(options.github?.scrub ?? [])];
   const env = childEnv(
     {

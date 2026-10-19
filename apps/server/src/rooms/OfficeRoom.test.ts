@@ -22,6 +22,7 @@ import {
   type CeoChangedEvent,
   type ChatEvent,
   CLIENT_MESSAGE,
+  DESK_TERMINAL_PHASE,
   EMPTY_BOARD_LISTS,
   IssueWork,
   NO_RUNNER_SPEND,
@@ -475,6 +476,27 @@ describe("the runners' books", () => {
     await settled(() => milo.room.state.spendRunners === 2);
     expect(milo.room.state).toMatchObject({ budgeted: false, budgetSpent: true });
     runnerSpend = NO_RUNNER_SPEND;
+
+    await milo.room.leave();
+    await dana.room.leave();
+  });
+
+  it("tells every tab the CEO's desk has no coding agent while no runner is connected, and forgets it on standing up", async () => {
+    const dana = await openOffice("Dana");
+    const milo = await joinOffice(dana, "Milo");
+    const seated = serverRoom(dana).state.occupants.get(dana.room.sessionId);
+    if (seated === undefined) {
+      throw new Error("Dana is not in the office");
+    }
+    // As a granted sit would leave her; the grant itself is `sim/interaction.ts`'s, tested there.
+    seated.interactableId = "seat-desk-north-1-1";
+    for (const tab of [dana, milo]) {
+      await settled(() => tab.room.state.desk?.phase === DESK_TERMINAL_PHASE.noRunner);
+      expect(tab.room.state.desk).toMatchObject({ seatId: "seat-desk-north-1-1", ownerId: dana.room.sessionId, agentId: "" });
+    }
+    seated.interactableId = "";
+    await settled(() => milo.room.state.desk?.phase === DESK_TERMINAL_PHASE.off);
+    expect(milo.room.state.desk.seatId).toBe("");
 
     await milo.room.leave();
     await dana.room.leave();

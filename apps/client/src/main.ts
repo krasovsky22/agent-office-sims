@@ -28,6 +28,7 @@ import {
   type WorkData,
   authorizeInteract,
   describeLiveAgentTask,
+  deskTerminalSeat,
   heldAnimationFor,
   interactableById,
   nearestInteractable,
@@ -42,6 +43,7 @@ import * as THREE from "three";
 
 import { agentProfileAccessFor, agentProfileRejectionText } from "./agentProfileAccess.js";
 import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
+import { deskForbiddenText, deskPanelFor, deskScreenKey, sameDeskPanel } from "./deskTerminalAccess.js";
 import { standupAccessFor, standupRejectionText } from "./standupAccess.js";
 import { boardAccessFor, issueStateRejectionText, rejectionText } from "./boardAccess.js";
 import { DayClock } from "./dayClock.js";
@@ -304,6 +306,9 @@ function start(): void {
   let lastKeyAgentId = "";
   // The agent whose profile was last saved, for an edit the limiter dropped.
   let lastProfileAgentId = "";
+  // The agent whose terminal panel is open: the one watched at its screen, or the one lent to the CEO's desk.
+  const openTerminalAgentId = (): string | undefined =>
+    hud.terminalAgentId ?? (hud.desk === undefined || hud.desk.agentId === "" ? undefined : hud.desk.agentId);
 
   /** Shows a line to this player only, and takes it down again shortly. */
   const showNotice = (text: string) => {
@@ -541,7 +546,7 @@ function start(): void {
         publishHud({
           agentPromptRefusal: {
             id: nextRefusalId++,
-            agentId: hud.terminalAgentId ?? "",
+            agentId: openTerminalAgentId() ?? "",
             text: "Too many prompts — that one was dropped. Wait a few seconds and send it again.",
           },
         });
@@ -551,7 +556,7 @@ function start(): void {
         publishHud({
           agentPromptRefusal: {
             id: nextRefusalId++,
-            agentId: hud.terminalAgentId ?? lastKeyAgentId,
+            agentId: openTerminalAgentId() ?? lastKeyAgentId,
             text: "Too many keys — that one was not pressed. Check the terminal, then go on.",
             forKey: true,
           },
@@ -707,7 +712,7 @@ function start(): void {
           : agentKeyRejectionText(event.rejection, agentName, event.key);
       publishHud({ agentPromptRefusal: { id: nextRefusalId++, agentId: event.agentId, text, forKey: event.key !== undefined } });
       // The standup panel says it under the agent's key pad, as the terminal panel does.
-      if (hud.terminalAgentId !== event.agentId && !hud.standup.active) {
+      if (openTerminalAgentId() !== event.agentId && !hud.standup.active) {
         showNotice(text);
       }
     },
@@ -737,6 +742,11 @@ function start(): void {
   // `""`. Local to this tab: reading a board, talking to the manager or
   // watching an agent holds nothing, so there is nothing for the server to know.
   let readingBoard = "";
+
+  // The desk panel's Stand up button, taken by the next frame as `E` would be.
+  let standUpRequested = false;
+  // The computer the local player last sat at and was told is the CEO's alone, so it is said once a sitting.
+  let toldDeskForbidden = "";
 
   // Who holds what, as the last patch said, for the shared rules to read.
   const holderOf = (interactableId: string) => room.holderOf(interactableId);
@@ -775,6 +785,9 @@ function start(): void {
             lastProfileAgentId = agentId;
             return room.sendAgentProfile(agentId, profile);
           },
+        },
+        standUp: () => {
+          standUpRequested = true;
         },
         standup: {
           start: () => room.sendStandupStart(),
@@ -920,9 +933,10 @@ function start(): void {
       }
       hiddenAgentId = hide;
     }
-    if (controller.takeReleaseRequest()) {
+    if (controller.takeReleaseRequest() || (standUpRequested && locallyHeldWith !== "")) {
       room.sendRelease();
     }
+    standUpRequested = false;
     // Stepping out of reach closes a close-up just as `E` does, and so does an
     // agent's screen stopping being offered when it stands up or leaves.
     if (target?.id !== readingBoard) {
@@ -962,6 +976,21 @@ function start(): void {
     const terminalAgentId = watchedSeat === undefined ? undefined : room.holderOf(watchedSeat);
     if (terminalAgentId !== hud.terminalAgentId) {
       publishHud({ terminalAgentId });
+    }
+    // The CEO sitting at a computer has its terminal; anyone else is told why not, once.
+    const desk = room.desk();
+    // A sitting lists only the prompts typed after it began.
+    const promptsAfter = hud.desk?.promptsAfter ?? hud.agentPrompts.at(-1)?.id ?? 0;
+    const deskPanel = deskPanelFor(desk, localId, locallyHeldWith, promptsAfter);
+    if (!sameDeskPanel(deskPanel, hud.desk)) {
+      publishHud({ desk: deskPanel });
+    }
+    const deskSeat = deskTerminalSeat(OFFICE_LAYOUT, locallyHeldWith);
+    if (deskSeat === undefined) {
+      toldDeskForbidden = "";
+    } else if (room.viewOf(localId)?.isCeo === false && toldDeskForbidden !== deskSeat.id) {
+      toldDeskForbidden = deskSeat.id;
+      showNotice(deskForbiddenText(hud.roster.find((entry) => entry.isCeo)?.name));
     }
 
     room.sendPose(controller.pose, nowMs);
@@ -1024,6 +1053,11 @@ function start(): void {
         if (view?.agentStatus !== undefined && view.interactableId !== "") {
           agentScreens.show(id, view.interactableId, room.screenOf(id), nowMs, camera.position);
         }
+      }
+      // The CEO's desk shows its lent agent's terminal, in every tab, and is lit while one is on its way.
+      const deskKey = deskScreenKey(desk);
+      if (desk !== undefined && deskKey !== undefined) {
+        agentScreens.show(deskKey, desk.seatId, room.screenOf(deskKey), nowMs, camera.position);
       }
       agentScreens.sweep();
     }

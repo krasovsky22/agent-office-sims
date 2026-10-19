@@ -187,6 +187,13 @@ export function taskReference(url: string): string {
 }
 
 /**
+ * What a slot lent to the CEO's desk does on the floor, instead of its
+ * session's activity; the one activity an idle agent's line shows, since the
+ * agent is taken though it holds no task.
+ */
+export const LENT_TO_DESK_ACTIVITY = "At the CEO's desk";
+
+/**
  * The line under a live agent's name: what it is doing, as briefly as it reads.
  *
  * A working agent's task, then what it is doing about it; an agent that needs
@@ -195,7 +202,7 @@ export function taskReference(url: string): string {
  */
 export function describeLiveAgentTask(status: LiveAgentStatus, title: string, url: string, activity = ""): string {
   if (!isLiveAgentOnTask(status)) {
-    return "idle";
+    return activity === LENT_TO_DESK_ACTIVITY ? activity : "idle";
   }
   const reference = taskReference(url);
   if (status === LIVE_AGENT_STATUS.needsInput) {

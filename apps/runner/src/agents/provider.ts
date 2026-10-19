@@ -26,7 +26,7 @@ export interface RunHandle {
 
 /** One run, for its adapter to turn into a command line. */
 export interface LaunchInput<P> {
-  /** Its first message. */
+  /** Its first message; `""` for none, as a desk session starts at its prompt. */
   readonly prompt: string;
   /** The folder it runs in: its task's worktree. */
   readonly cwd: string;

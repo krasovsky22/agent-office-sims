@@ -38,6 +38,9 @@ export interface TerminalLinks {
   readonly simulatedPullRequest: boolean;
 }
 
+/** No links: a desk's computer works on no issue. */
+export const NO_LINKS: TerminalLinks = { issue: undefined, pullRequests: [], simulatedPullRequest: false };
+
 /** Anything that looks like a URL in free text; {@link parseTaskUrl} decides whether it is one. */
 const URL_IN_TEXT = /https:\/\/[^\s<>"']+/g;
 
