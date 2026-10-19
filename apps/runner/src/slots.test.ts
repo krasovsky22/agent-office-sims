@@ -1613,6 +1613,18 @@ describe("SlotPool desk sessions", () => {
     ]);
   });
 
+  it("refuses a desk for a slot on a standing run, leaving the run on it", () => {
+    const slots = deskPool();
+    const lease = slots.leaseForStanding("slot-1", { taskId: "nightly", pr: undefined }, "Reviewing");
+    slots.handle(OPEN);
+    expect(lease?.signal.aborted).toBe(false);
+    expect(slot(slots)).toMatchObject({ status: "working", standing: { taskId: "nightly" } });
+    expect(slot(slots)?.desk).toBeUndefined();
+    expect(deskEvents(slots)).toEqual([
+      { id: "event-1", kind: "desk-ended", slotId: "slot-1", seatId: "seat-desk-north-1-1", message: "Mock 1 is busy with nightly" },
+    ]);
+  });
+
   it("ends a session whose worktree could not be made, saying why", async () => {
     const slots = deskPool({ failOpen: "no clone" });
     slots.handle(OPEN);

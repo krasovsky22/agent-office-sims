@@ -59,9 +59,9 @@
  * A slot holding nothing can also be lent to a desk in the office
  * ({@link SlotPool.handle} with `desk-open`): a fresh session of its agent with
  * no issue and no first prompt, in a scratch worktree of the default branch,
- * that the CEO sitting at that desk prompts as any agent is prompted. It takes
- * the slot from a standing run as an issue does, and gives the slot up to an
- * issue's start in turn, since work the office assigned comes first. It has no
+ * that the CEO sitting at that desk prompts as any agent is prompted. A slot
+ * on a standing run is refused it, and it gives the slot up to an issue's
+ * start, since work the office assigned comes first. It has no
  * task timeout and does not pause for a standup: the CEO sitting there is what
  * bounds it, and the server closes it the moment the CEO stands up. Ending,
  * however it ends, stops its agent and discards its worktree; a session that
@@ -1035,10 +1035,6 @@ export class SlotPool {
       this.log(`desk session on ${slot.id} for ${command.requestedBy} refused: ${refusal}`);
       return;
     }
-    if (slot.standing !== undefined) {
-      this.log(`${slot.id} gives its standing run for ${slot.standing.report.taskId} up to ${command.requestedBy}'s desk`);
-      this.endStanding(slot, STANDING_SLOT_END.preempted);
-    }
     const desk: DeskOnSlot = {
       seatId: command.seatId,
       requestedBy: command.requestedBy,
@@ -1065,6 +1061,9 @@ export class SlotPool {
   private deskRefusal(slot: Slot): string | undefined {
     if (slot.run !== undefined) {
       return `${slot.name} is busy with #${slot.run.issueNumber}`;
+    }
+    if (slot.standing !== undefined) {
+      return `${slot.name} is busy with ${slot.standing.report.taskId}`;
     }
     if (slot.desk !== undefined) {
       return `${slot.name} is at another desk`;
