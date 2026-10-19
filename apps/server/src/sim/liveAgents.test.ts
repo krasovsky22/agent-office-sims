@@ -25,6 +25,8 @@ import {
   LIVE_AGENT_STATUS,
   LiveAgent,
   MANAGER_OFFICE_ROOM_ID,
+  MAX_LIVE_AGENTS,
+  MAX_RUNNER_SLOTS,
   OCCUPANT_RADIUS,
   OFFICE_LAYOUT,
   type Occupant,
@@ -156,8 +158,8 @@ const SEATS = liveAgentSeats(OFFICE_LAYOUT);
 const COFFEE = "coffee-machine";
 
 describe("the chairs live agents may take", () => {
-  it("are the open floor's workstations, and only those", () => {
-    expect(SEATS.length).toBeGreaterThan(12);
+  it("are the open floor's workstations, and only those, one for every agent the floor admits", () => {
+    expect(SEATS.length).toBeGreaterThanOrEqual(MAX_LIVE_AGENTS + MAX_RUNNER_SLOTS);
     for (const seat of SEATS) {
       expect(seat.kind).toBe(INTERACTION_KIND.seat);
       expect(roomAt(OFFICE_LAYOUT, seat.anchor)?.id).toBe("open-floor");

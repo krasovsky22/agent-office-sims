@@ -31,15 +31,18 @@ import {
   type OfficeLayout,
   type PropSpec,
   type TabletopSpec,
+  type Vec2,
   type WallSpec,
   OFFICE_LAYOUT,
   collisionBoxes,
   groundsOf,
+  interactables,
   localToWorld,
   roomAt,
   seatInteractableId,
   workstations,
 } from "./layout.js";
+import { OCCUPANT_RADIUS } from "./constants.js";
 
 /**
  * The kinds of prop a renderer has to know how to draw.
@@ -240,17 +243,41 @@ function wallAxis(spec: WallSpec): WallAxis {
 }
 
 /**
- * A door frame in every doorway the floor plan leaves.
+ * One doorway as the walls leave it: the gap between two wall segments, with
+ * the frame height a door hangs to and the wall height the lintel fills up to.
  *
- * A doorway is not recorded anywhere — it is the gap between two wall segments
- * that are otherwise the same wall. So this looks for exactly that: two walls on
- * the same axis, sharing a thickness span, separated by no more than
- * {@link DOORWAY_MAX_SPAN}. The frame is then fitted to the gap it found, which
- * is why no door position or width appears in this file.
+ * Positioned like a prop, by the centre of the gap, with local X running along
+ * the gap and local Z across the wall's thickness.
  */
-function doorProps(layout: OfficeLayout): AssetPropSpec[] {
+export interface DoorwayGap {
+  /** Id of the wall segment on the gap's low side, which names everything hung in it. */
+  readonly id: string;
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+  /** Clear span of the gap, along local X. */
+  readonly width: number;
+  /** Thickness of the wall the gap breaks, along local Z. */
+  readonly depth: number;
+  /** Top of the door frame. */
+  readonly frameHeight: number;
+  /** Top of the lower of the two walls either side, where the lintel stops. */
+  readonly wallHeight: number;
+}
+
+/**
+ * Every doorway the floor plan leaves.
+ *
+ * A doorway is not recorded anywhere as geometry — it is the gap between two
+ * wall segments that are otherwise the same wall. So this looks for exactly
+ * that: two walls on the same axis, sharing a thickness span, separated by no
+ * more than {@link DOORWAY_MAX_SPAN}. Door frames, doors and the lintel over
+ * them are all fitted to the gap it found, which is why no door position or
+ * width appears in this file.
+ */
+export function doorwayGaps(layout: OfficeLayout): readonly DoorwayGap[] {
   const axes = layout.walls.map(wallAxis);
-  const props: AssetPropSpec[] = [];
+  const gaps: DoorwayGap[] = [];
 
   for (let i = 0; i < axes.length; i += 1) {
     for (let j = i + 1; j < axes.length; j += 1) {
@@ -269,26 +296,93 @@ function doorProps(layout: OfficeLayout): AssetPropSpec[] {
         continue;
       }
 
-      const thickness = a.crossMax - a.crossMin;
       const alongCentre = first.longMax + span / 2;
       const crossCentre = (a.crossMin + a.crossMax) / 2;
-      const height = Math.min(DOORWAY_HEIGHT, Math.min(a.spec.height, b.spec.height));
+      const wallHeight = Math.min(a.spec.height, b.spec.height);
 
-      props.push({
-        id: `prop-door-${first.spec.id}`,
-        kind: "door",
-        // Local X runs along the gap, so a wall running north-south needs the
-        // frame turned a quarter turn to span it.
+      gaps.push({
+        id: first.spec.id,
+        // Local X runs along the gap, so a wall running north-south needs
+        // turning a quarter turn to span it.
         x: a.along === "x" ? alongCentre : crossCentre,
-        y: 0,
         z: a.along === "x" ? crossCentre : alongCentre,
         yaw: a.along === "x" ? 0 : QUARTER_TURN,
-        fit: { width: span, depth: thickness, height },
+        width: span,
+        depth: a.crossMax - a.crossMin,
+        frameHeight: Math.min(DOORWAY_HEIGHT, wallHeight),
+        wallHeight,
       });
     }
   }
 
-  return props;
+  return gaps;
+}
+
+/** A door frame fitted to every doorway the floor plan leaves. */
+function doorProps(layout: OfficeLayout): AssetPropSpec[] {
+  return doorwayGaps(layout).map((gap) => ({
+    id: `prop-door-${gap.id}`,
+    kind: "door",
+    x: gap.x,
+    y: 0,
+    z: gap.z,
+    yaw: gap.yaw,
+    fit: { width: gap.width, depth: gap.depth, height: gap.frameHeight },
+  }));
+}
+
+/**
+ * Clear distance a free-standing prop keeps from every walkway: an occupant's
+ * radius plus the prop's own, so a body walking down the middle never brushes it.
+ */
+const WALKWAY_CLEARANCE = OCCUPANT_RADIUS + PROP_CLEARANCE;
+
+/** How far into either room a doorway's approach reaches, from the middle of its wall. */
+const DOORWAY_APPROACH = 1.2;
+
+/** Distance from a point to the segment between two others. */
+function distanceToSegment(point: Vec2, from: Vec2, to: Vec2): number {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const lengthSquared = dx * dx + dz * dz;
+  const t =
+    lengthSquared === 0
+      ? 0
+      : Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.z - from.z) * dz) / lengthSquared));
+  return Math.hypot(point.x - (from.x + t * dx), point.z - (from.z + t * dz));
+}
+
+/**
+ * Whether a point is somewhere people walk: in a doorway or its approach, on
+ * a carpet runner, where someone stands to use a seat or a board or gets up
+ * from one, or within reach of a link of the nav graph, which is the route
+ * every agent takes and so the walkway a player follows too.
+ *
+ * Free-standing props are kept off all of it, so nothing derived or placed
+ * later can end up standing in a door or across an aisle.
+ */
+export function onWalkway(layout: OfficeLayout, point: Vec2): boolean {
+  for (const door of layout.doorways) {
+    const along = door.axis === "x" ? point.x - door.centre.x : point.z - door.centre.z;
+    const across = door.axis === "x" ? point.z - door.centre.z : point.x - door.centre.x;
+    if (Math.abs(along) < door.width / 2 + PROP_CLEARANCE && Math.abs(across) < DOORWAY_APPROACH) {
+      return true;
+    }
+  }
+  if (layout.carpets.some((carpet) => nearBox(carpet.footprint, point, PROP_CLEARANCE))) {
+    return true;
+  }
+  const near = (spot: Vec2) => Math.hypot(point.x - spot.x, point.z - spot.z) < WALKWAY_CLEARANCE;
+  if (interactables(layout).some((spec) => near(spec.anchor) || (spec.exit !== undefined && near(spec.exit)))) {
+    return true;
+  }
+  const byId = new Map(layout.waypoints.map((waypoint) => [waypoint.id, waypoint]));
+  return layout.waypoints.some((waypoint) =>
+    waypoint.links.some((link) => {
+      const other = byId.get(link);
+      return other !== undefined && distanceToSegment(point, waypoint, other) < WALKWAY_CLEARANCE;
+    }),
+  );
 }
 
 /** Room corners, tried in this order, rotated per room so the office varies. */
@@ -304,7 +398,8 @@ const CORNERS = [
  *
  * Corners are tried in a rotating order so the rooms do not all grow a plant in
  * the same corner, and a corner already occupied by a desk, or claimed by a
- * room listed before this one, is skipped — which is what keeps this
+ * room listed before this one, or standing on a walkway (see {@link onWalkway}),
+ * is skipped — which is what keeps this
  * derivation safe when the floor plan changes under it.
  */
 function plantProps(layout: OfficeLayout): AssetPropSpec[] {
@@ -319,7 +414,11 @@ function plantProps(layout: OfficeLayout): AssetPropSpec[] {
       }
       const x = corner.x < 0 ? room.bounds.minX + PLANT_INSET : room.bounds.maxX - PLANT_INSET;
       const z = corner.z < 0 ? room.bounds.minZ + PLANT_INSET : room.bounds.maxZ - PLANT_INSET;
-      if (boxes.some((box) => nearBox(box, { x, z }, PROP_CLEARANCE)) || roomAt(layout, { x, z })?.id !== room.id) {
+      if (
+        boxes.some((box) => nearBox(box, { x, z }, PROP_CLEARANCE)) ||
+        roomAt(layout, { x, z })?.id !== room.id ||
+        onWalkway(layout, { x, z })
+      ) {
         continue;
       }
       props.push({
@@ -497,6 +596,9 @@ export function describePropProblems(
       if (nearBox(box, point, PROP_CLEARANCE)) {
         problems.push(`prop ${prop.id} stands inside an obstacle at (${prop.x}, ${prop.z})`);
       }
+    }
+    if (onWalkway(layout, point)) {
+      problems.push(`prop ${prop.id} stands in a doorway or walkway at (${prop.x}, ${prop.z})`);
     }
     // A negative margin shrinks the floor slab, so a prop has to stand a clear
     // radius inside it rather than half-buried in the shell wall. The pavement

@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
   INTERACTION_KIND,
   OFFICE_LAYOUT,
+  OPEN_FLOOR_ROOM_ID,
   type DeskSpec,
   type OfficeLayout,
   interactables,
@@ -26,7 +27,9 @@ import {
   derivedProps,
   describePropProblems,
   groupPropsByKind,
+  doorwayGaps,
   monitorOfSeat,
+  onWalkway,
 } from "./props.js";
 
 function kinds(props: readonly { kind: AssetPropKind }[]): Set<AssetPropKind> {
@@ -164,7 +167,13 @@ describe("the shipped office's props", () => {
 
   it("stands one plant in each room, never two in the same corner of the floor", () => {
     const plants = OFFICE_PROPS.filter((prop) => prop.kind === "plant");
-    expect(plants).toHaveLength(OFFICE_LAYOUT.rooms.length);
+    // All but the open floor, whose every corner is on one of its walkways.
+    expect(plants.map((plant) => plant.id).sort()).toEqual(
+      OFFICE_LAYOUT.rooms
+        .filter((room) => room.id !== OPEN_FLOOR_ROOM_ID)
+        .map((room) => `prop-plant-${room.id}`)
+        .sort(),
+    );
 
     const corners = new Set(plants.map((plant) => `${plant.x},${plant.z}`));
     expect(corners.size).toBe(plants.length);
@@ -217,6 +226,63 @@ describe("prop derivation", () => {
     expect(describePropProblems(swallowed, [plant!])).toEqual([
       `prop ${plant!.id} stands inside an obstacle at (${plant!.x}, ${plant!.z})`,
     ]);
+  });
+});
+
+describe("walkways", () => {
+  it("counts every doorway, either side of its wall, as walkway", () => {
+    for (const door of OFFICE_LAYOUT.doorways) {
+      const across = door.axis === "x" ? { x: 0, z: 0.8 } : { x: 0.8, z: 0 };
+      expect(onWalkway(OFFICE_LAYOUT, door.centre), door.id).toBe(true);
+      expect(onWalkway(OFFICE_LAYOUT, { x: door.centre.x + across.x, z: door.centre.z + across.z }), door.id).toBe(true);
+      expect(onWalkway(OFFICE_LAYOUT, { x: door.centre.x - across.x, z: door.centre.z - across.z }), door.id).toBe(true);
+    }
+  });
+
+  it("counts every carpet runner and every link of the nav graph as walkway", () => {
+    for (const carpet of OFFICE_LAYOUT.carpets) {
+      const { footprint } = carpet;
+      expect(onWalkway(OFFICE_LAYOUT, { x: (footprint.minX + footprint.maxX) / 2, z: (footprint.minZ + footprint.maxZ) / 2 })).toBe(true);
+    }
+    const byId = new Map(OFFICE_LAYOUT.waypoints.map((waypoint) => [waypoint.id, waypoint]));
+    for (const waypoint of OFFICE_LAYOUT.waypoints) {
+      for (const link of waypoint.links) {
+        const other = byId.get(link)!;
+        const middle = { x: (waypoint.x + other.x) / 2, z: (waypoint.z + other.z) / 2 };
+        expect(onWalkway(OFFICE_LAYOUT, middle), `${waypoint.id} to ${link}`).toBe(true);
+      }
+    }
+  });
+
+  it("never stands a plant in a doorway or on a walkway, the kitchen's included", () => {
+    const plants = OFFICE_PROPS.filter((prop) => prop.kind === "plant");
+    for (const plant of plants) {
+      expect(onWalkway(OFFICE_LAYOUT, plant), plant.id).toBe(false);
+    }
+    const kitchenDoor = OFFICE_LAYOUT.doorways.find((door) => door.id === "door-kitchen")!;
+    const kitchenPlant = plants.find((plant) => plant.id === "prop-plant-kitchen")!;
+    expect(Math.hypot(kitchenPlant.x - kitchenDoor.centre.x, kitchenPlant.z - kitchenDoor.centre.z)).toBeGreaterThan(2);
+  });
+
+  it("reports a free-standing prop left in a doorway", () => {
+    const door = OFFICE_LAYOUT.doorways.find((spec) => spec.id === "door-kitchen")!;
+    const plant = { id: "prop-plant-stray", kind: "plant" as const, x: door.centre.x + 0.9, y: 0, z: door.centre.z, yaw: 0 };
+    expect(describePropProblems(OFFICE_LAYOUT, [plant])).toContain(
+      `prop ${plant.id} stands in a doorway or walkway at (${plant.x}, ${plant.z})`,
+    );
+  });
+});
+
+describe("doorwayGaps", () => {
+  it("finds one gap per doorway the layout names, centred on it and as wide", () => {
+    const gaps = doorwayGaps(OFFICE_LAYOUT);
+    expect(gaps).toHaveLength(OFFICE_LAYOUT.doorways.length);
+    for (const door of OFFICE_LAYOUT.doorways) {
+      const gap = gaps.find((candidate) => Math.hypot(candidate.x - door.centre.x, candidate.z - door.centre.z) < 1e-6);
+      expect(gap, door.id).toBeDefined();
+      expect(gap!.width).toBeCloseTo(door.width);
+      expect(gap!.frameHeight).toBeLessThan(gap!.wallHeight);
+    }
   });
 });
 

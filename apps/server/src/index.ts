@@ -31,6 +31,7 @@
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
+  MAX_LIVE_AGENTS,
   type IssueState,
   type IssueStateRejection,
   MAX_RUNNER_SLOTS,
@@ -74,9 +75,6 @@ const projectFeed = new ProjectFeed({
   // eslint-disable-next-line no-console -- a stale or recovered feed is an operator's business
   log: (line) => console.warn(line),
 });
-
-/** Most live agents on the floor at once: a little over half the open floor's chairs. */
-const MAX_LIVE_AGENTS = 12;
 
 const liveAgentRegistry =
   liveAgents.secret === undefined

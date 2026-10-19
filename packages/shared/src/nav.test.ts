@@ -70,6 +70,7 @@ const FIXTURE_LAYOUT: OfficeLayout = {
   boards: [],
   lifts: [],
   doorways: [],
+  carpets: [],
   // Nav never reads rooms; they are here so the fixture is a complete layout
   // and so the "outside every room" case can be stated with `roomAt`.
   rooms: [
