@@ -103,13 +103,30 @@ describe("SlotWorktrees", () => {
     const path = await slots.open("slot-1", 39);
     fixture.commit(path, "work.txt");
     writeFileSync(join(path, "draft.txt"), "draft");
-    await slots.close("slot-1", 39, true);
+    const discarded: string[] = [];
+    await slots.close("slot-1", 39, async (workdir) => {
+      discarded.push(workdir);
+    });
+    expect(discarded).toEqual([path]);
     expect(existsSync(path)).toBe(false);
     expect(fixture.git(join(fixture.dataDir, "repo"), "branch", "--list", "sims/*")).toBe("");
     expect(state()).toEqual({ worktrees: [] });
     expect(logged).toContain("slot-1 removed its worktree for #39: cancelled, discarding 1 uncommitted change, 1 unpushed commit");
     // Nothing of it comes back with the issue.
     expect(existsSync(join(await slots.open("slot-1", 39), "work.txt"))).toBe(false);
+  });
+
+  it("discards a cancelled task's worktree before the same issue opens it again", async () => {
+    const { slots } = boot();
+    const path = await slots.open("slot-1", 39);
+    writeFileSync(join(path, "draft.txt"), "draft");
+    let release = (): void => undefined;
+    const github = new Promise<void>((resolve) => (release = resolve));
+    const closing = slots.close("slot-1", 39, () => github);
+    const opening = slots.open("slot-1", 39);
+    release();
+    await closing;
+    expect(existsSync(join(await opening, "draft.txt"))).toBe(false);
   });
 
   it("gives up a worktree stopped while it was being made only once it is there", async () => {

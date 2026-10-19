@@ -131,13 +131,14 @@ export class SlotWorktrees implements SlotWorkspaces {
   /**
    * A task is over: its worktree goes when nothing in it would be lost, and
    * stays, saying why, when something would, unless it is a cancelled task's
-   * to `discard`.
+   * to `discard`, which is given its path first.
    */
-  public close(slotId: string, issueNumber: number, discard = false): Promise<void> {
+  public close(slotId: string, issueNumber: number, discard?: (workdir: string) => Promise<void>): Promise<void> {
     return this.chain(slotId, async () => {
       const record = this.find(slotId, issueNumber);
       if (record !== undefined) {
-        await this.settle(record, discard);
+        await discard?.(this.refOf(record).path);
+        await this.settle(record, discard !== undefined);
       }
     }).catch((error: unknown) => {
       this.log(`${slotId} could not give up its worktree for #${issueNumber}: ${(error as Error).message}`);

@@ -139,10 +139,11 @@ export interface SlotWorkspaces {
   /** A working directory for the task, ready to work in; rejects with why not. */
   open(slotId: string, issueNumber: number): Promise<string>;
   /**
-   * The task is over, whether or not its directory was ever opened; `discard`
-   * when it was cancelled, so nothing in it is kept. Never rejects.
+   * The task is over, whether or not its directory was ever opened. A task
+   * that was cancelled passes `discard`, given the directory first if there is
+   * one, and then nothing in it is kept. Never rejects.
    */
-  close(slotId: string, issueNumber: number, discard?: boolean): Promise<void>;
+  close(slotId: string, issueNumber: number, discard?: (workdir: string) => Promise<void>): Promise<void>;
 }
 
 /** Where a slot's desk sessions work. */
@@ -510,6 +511,11 @@ export class SlotPool {
   /** Carries out one command from the server for one of the slots. */
   public handle(command: RunnerSlotCommand): void {
     const slot = this.slots.find((candidate) => candidate.id === command.slotId);
+    if (slot === undefined && command.kind === RUNNER_COMMAND_KIND.stop && command.discard === true && this.firedIds.has(command.slotId)) {
+      // The task of an agent fired with it: the work its slot kept goes too.
+      this.discardKept(command.slotId, command.issueNumber);
+      return;
+    }
     if (slot === undefined) {
       this.log(`command ${command.id} names no slot of ours (${command.slotId}); ignored`);
       return;
@@ -521,11 +527,13 @@ export class SlotPool {
       case RUNNER_COMMAND_KIND.stop:
         if (slot.run === undefined) {
           this.debug(`stop for ${slot.id} ignored: it holds no task`);
+          this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined);
           return;
         }
         if (command.issueNumber !== undefined && command.issueNumber !== slot.run.issueNumber) {
-          // Meant for work the slot has already left behind.
+          // Meant for work the slot has already left behind, whose kept worktree a cancel still discards.
           this.log(`stop for ${slot.id} on #${command.issueNumber} ignored: it is on #${slot.run.issueNumber}`);
+          this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined);
           return;
         }
         this.end(
@@ -1401,21 +1409,31 @@ export class SlotPool {
     // The message can quote the agent's last line, so it is masked as its event's is.
     const said = this.redactor.redactText(message);
     this.log(`${slot.id} ${kind} on #${run.issueNumber}${said === "" ? "" : `: ${said}`} (${formatUsd(run.spentUsd)} spent)`);
-    if (!discard) {
+    if (discard) {
+      this.discardKept(slot.id, run.issueNumber);
+    } else {
       void this.options.workspaces.close(slot.id, run.issueNumber);
+    }
+  }
+
+  /**
+   * Throws a cancelled task's work away: its pull request and pushed branch
+   * on GitHub, then its worktree and branch, whatever is in them. Its branch
+   * is read off the worktree, so GitHub goes first; with no worktree, nothing
+   * was pushed.
+   */
+  private discardKept(slotId: string, issueNumber: number | undefined): void {
+    if (issueNumber === undefined) {
       return;
     }
-    // Its branch is read off the worktree, so GitHub goes first; with no worktree yet, nothing was pushed.
-    const workdir = run.workdir;
-    void (workdir === undefined ? Promise.resolve(undefined) : this.github.discard(workdir))
-      .then((failed) => {
-        this.log(
-          failed === undefined
-            ? `${slot.id} discarded its work on #${run.issueNumber}`
-            : `${slot.id} could not discard its work on #${run.issueNumber} on GitHub: ${failed}`,
-        );
-      })
-      .finally(() => this.options.workspaces.close(slot.id, run.issueNumber, true));
+    void this.options.workspaces.close(slotId, issueNumber, async (workdir) => {
+      const failed = await this.github.discard(workdir);
+      this.log(
+        failed === undefined
+          ? `${slotId} discarded its work on #${issueNumber}`
+          : `${slotId} could not discard its work on #${issueNumber} on GitHub: ${failed}`,
+      );
+    });
   }
 
   private emit(

@@ -99,7 +99,10 @@ function workspaces(fail?: string): SlotWorkspaces {
       return fixture.developer;
     },
     close: async (slotId, issueNumber, discard) => {
-      asked.push(`close ${slotId} #${issueNumber}${discard === true ? " discarding" : ""}`);
+      if (discard !== undefined) {
+        await discard(fixture.developer);
+      }
+      asked.push(`close ${slotId} #${issueNumber}${discard === undefined ? "" : " discarding"}`);
     },
   };
 }
@@ -608,13 +611,38 @@ describe("SlotPool", () => {
     expect(workEvents(slots).at(-1)).toMatchObject({ kind: "failed", message: "Stopped: the CEO cancelled the task" });
   });
 
-  it("keeps a stop, discarding or not, off work the slot moved on to", async () => {
+  it("keeps a stop, discarding or not, off work the slot moved on to, discarding only what it kept of the cancelled issue", async () => {
     const slots = pool("pr-opened");
     slots.handle(START);
     await settle();
-    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "cancelled", issueNumber: 40, discard: true });
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "", issueNumber: 40 });
+    slots.handle({ id: "command-3", slotId: "slot-1", kind: "stop", reason: "cancelled", issueNumber: 40, discard: true });
+    await settle();
     expect(slot(slots)?.issueNumber).toBe(39);
-    expect(asked).toEqual(["open slot-1 #39"]);
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #40 discarding"]);
+  });
+
+  it("discards a cancelled task whose run had already ended, so its kept work does not come back", async () => {
+    const discard = vi.fn(async () => undefined);
+    const github: TaskGithub = { refusal: async () => undefined, pullRequest: async () => undefined, pullRequestTitle: async () => "", discard };
+    const stalled: Agent = { label: "Stuck", start: () => ({ stop: vi.fn() }) };
+    const slots = pool("failed", stalled, workspaces(), github);
+    slots.handle(START);
+    await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "the CEO cancelled the task", issueNumber: 39, discard: true });
+    await settle();
+    expect(discard).toHaveBeenCalledWith(fixture.developer);
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39", "close slot-1 #39 discarding"]);
+  });
+
+  it("discards the cancelled task of an agent fired while idle", async () => {
+    const slots = pool();
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "fire", requestedBy: "Dana" });
+    slots.handle({ id: "command-3", slotId: "slot-1", kind: "stop", reason: "the CEO cancelled the task", issueNumber: 39, discard: true });
+    slots.handle({ id: "command-4", slotId: "slot-1", kind: "stop", reason: "", issueNumber: 40 });
+    await settle();
+    expect(asked).toEqual(["close slot-1 #39 discarding"]);
   });
 
   it("fires a slot: its task ends discarded, and the slot is reported no more and takes no command", async () => {
