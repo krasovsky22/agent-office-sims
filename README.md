@@ -113,7 +113,9 @@ on), so nothing in development calls a model or spends anything.
 `MOCK_MANAGER=off` with `ANTHROPIC_API_KEY` set gives it a real model, on a call
 budget.
 
-Walk with `W A S D` or the arrow keys. Click the canvas to capture the mouse,
+Walk with `W A S D` or the arrow keys, and jump with `Space`, standing or on
+the move; everyone in the office sees the jump, and walls and furniture still
+stop you in the air. Click the canvas to capture the mouse,
 then move it to swing the camera; `Esc` releases it. `V`, or the button under
 the HUD's hints, switches between the camera behind you and first person, at
 your avatar's eyes with its hands in view; the browser remembers the choice.

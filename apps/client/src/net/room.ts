@@ -63,6 +63,7 @@ import {
   type Emote,
   type EmoteEvent,
   type EmoteMessage,
+  type JumpEvent,
   INTERPOLATION_DELAY_MS,
   NO_STANDUP,
   type InteractMessage,
@@ -210,6 +211,8 @@ export interface RoomConnectionEvents {
   onLocalSpawn?: (x: number, z: number, yaw: number) => void;
   /** An occupant emoted. Fired for the local player too, via the server. */
   onEmote?: (event: EmoteEvent) => void;
+  /** Another occupant jumped; the local player's own jump is not echoed back. */
+  onJump?: (event: JumpEvent) => void;
   /** An occupant said something. Fired for the local player too. */
   onChat?: (event: ChatEvent) => void;
   /** The local client's own emote or chat was dropped by the rate limiter. */
@@ -438,6 +441,11 @@ export class RoomConnection {
    */
   public sendEmote(emote: Emote): void {
     this.room?.send(CLIENT_MESSAGE.emote, { emote } satisfies EmoteMessage);
+  }
+
+  /** Tells the others the local player jumped; the local avatar has already left the floor. */
+  public sendJump(): void {
+    this.room?.send(CLIENT_MESSAGE.jump);
   }
 
   /**
@@ -740,6 +748,10 @@ export class RoomConnection {
     // the handler's job is only to pass it on.
     room.onMessage<EmoteEvent>(SERVER_MESSAGE.emote, (event) => {
       this.events.onEmote?.(event);
+    });
+
+    room.onMessage<JumpEvent>(SERVER_MESSAGE.jump, (event) => {
+      this.events.onJump?.(event);
     });
 
     room.onMessage<ChatEvent>(SERVER_MESSAGE.chat, (event) => {

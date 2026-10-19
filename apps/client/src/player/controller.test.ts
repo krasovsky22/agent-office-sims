@@ -11,10 +11,13 @@
  * The camera can be switched to first person, where the body faces where the
  * player looks, and back; the wheel zooms the third-person boom and never
  * pushes it through the ceiling.
+ *
+ * `Space` jumps only from the floor: never again in mid-air, never from a chair.
  */
 
 import {
   INTERACTION_KIND,
+  JUMP_SECONDS,
   doorwayGaps,
   type InteractableSpec,
   OFFICE_LAYOUT,
@@ -433,5 +436,53 @@ describe("PlayerController camera modes", () => {
     controller.setCameraMode(CAMERA_MODE.thirdPerson);
 
     expect(Math.hypot(camera.position.x, camera.position.z)).toBeGreaterThan(1);
+  });
+});
+
+describe("PlayerController jumping", () => {
+  let controller: PlayerController;
+
+  beforeEach(() => {
+    vi.stubGlobal("window", new EventTarget());
+    vi.stubGlobal("HTMLElement", class {});
+    controller = new PlayerController(
+      new THREE.PerspectiveCamera(),
+      new EventTarget() as HTMLCanvasElement,
+    );
+    controller.attach();
+  });
+
+  afterEach(() => {
+    controller.detach();
+    vi.unstubAllGlobals();
+  });
+
+  it("jumps once per Space press, never again in mid-air, and again once landed", () => {
+    window.dispatchEvent(keyDown("Space"));
+    window.dispatchEvent(keyDown("Space", true));
+    controller.update(FRAME);
+    expect(controller.takeJumpStart()).toBe(true);
+    expect(controller.takeJumpStart()).toBe(false);
+
+    window.dispatchEvent(keyDown("Space"));
+    controller.update(FRAME);
+    expect(controller.takeJumpStart()).toBe(false);
+
+    controller.update(JUMP_SECONDS);
+    window.dispatchEvent(keyDown("Space"));
+    controller.update(FRAME);
+    expect(controller.takeJumpStart()).toBe(true);
+  });
+
+  it("does not jump from a chair, nor stand up for it", () => {
+    const seat = firstSeat();
+    controller.teleport(seat.anchor.x, seat.anchor.z, seat.anchor.yaw);
+    controller.setHold(seat);
+    window.dispatchEvent(keyDown("Space"));
+    controller.update(FRAME);
+
+    expect(controller.takeJumpStart()).toBe(false);
+    expect(controller.held).toBe(true);
+    expect(controller.takeReleaseRequest()).toBe(false);
   });
 });

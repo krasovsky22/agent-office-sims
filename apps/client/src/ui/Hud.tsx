@@ -836,6 +836,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           {assetNote === undefined ? null : <p className="hud__status">{assetNote}</p>}
           <p className="hud__hint">
             <span className="hud__keys">W A S D</span> to walk,{" "}
+            <span className="hud__keys">Space</span> to jump,{" "}
             <span className="hud__keys">E</span> to use what you are standing by, drag to look
             around, <span className="hud__keys">Enter</span> to chat.
           </p>

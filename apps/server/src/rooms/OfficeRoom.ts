@@ -88,6 +88,7 @@ import {
   DEFAULT_AGENT_RESTRICT_LABEL,
   EMOTE,
   type EmoteEvent,
+  type JumpEvent,
   HumanPlayer,
   type IssueWork,
   type RunnerSpendTotal,
@@ -153,7 +154,7 @@ import {
   requestInteract,
 } from "../sim/interaction.js";
 import { LiveAgentCrew } from "../sim/liveAgents.js";
-import { type OccupantMotion, applyPose, createMotion, recordPose } from "../sim/movement.js";
+import { type OccupantMotion, applyPose, createMotion, recordPose, tryJump } from "../sim/movement.js";
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
 import { StandupMeeting } from "../sim/standup.js";
 import { registerAgentProfileHandlers } from "./agentProfileHandlers.js";
@@ -501,6 +502,16 @@ export class OfficeRoom extends Room<OfficeState> {
         return;
       }
       recordPose(motion, pose, this.clock.currentTime);
+    });
+
+    this.onMessage(CLIENT_MESSAGE.jump, (client) => {
+      const occupant = this.state.occupants.get(client.sessionId);
+      const motion = this.motions.get(client.sessionId);
+      if (occupant === undefined || motion === undefined || !tryJump(occupant, motion, this.clock.currentTime)) {
+        return;
+      }
+      // Not back to the jumper, who drew the jump the moment the key went down.
+      this.broadcast(SERVER_MESSAGE.jump, { occupantId: client.sessionId } satisfies JumpEvent, { except: client });
     });
 
     this.onMessage(CLIENT_MESSAGE.interact, (client, raw: unknown) => {
