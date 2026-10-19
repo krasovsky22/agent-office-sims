@@ -43,6 +43,10 @@ describe("ghIssueState", () => {
     await expect(ghIssueState({ repo: REPO, env, run: failing("error connecting to api.github.com") })(39, "open")).resolves.toBe(
       "failed",
     );
+    await expect(
+      ghIssueState({ repo: REPO, env, run: failing("HTTP 403: API rate limit exceeded for installation ID 1") })(39, "closed"),
+    ).resolves.toBe("failed");
+    await expect(ghIssueState({ repo: REPO, env, run: failing("HTTP 429: Too Many Requests") })(39, "open")).resolves.toBe("failed");
   });
 });
 

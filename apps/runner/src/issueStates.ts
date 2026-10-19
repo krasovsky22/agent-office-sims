@@ -42,6 +42,9 @@ export interface GhIssueStateOptions {
  */
 const REFUSED = /HTTP 4\d\d|not accessible|permission|could not resolve to an issue|not found/i;
 
+/** A limit GitHub lifts on its own, which `gh` reports as an HTTP 403 or 429 too. */
+const RATE_LIMITED = /rate limit|HTTP 429/i;
+
 /** The change as one `gh` call with the runner's GitHub identity. */
 export function ghIssueState(options: GhIssueStateOptions): SetIssueState {
   const run = options.run ?? runCommand;
@@ -52,7 +55,8 @@ export function ghIssueState(options: GhIssueStateOptions): SetIssueState {
       return RUNNER_ISSUE_STATE_OUTCOME.done;
     } catch (error) {
       const { stderr, message } = error as { stderr?: string; message?: string };
-      return REFUSED.test(String(stderr ?? message ?? error))
+      const said = String(stderr ?? message ?? error);
+      return !RATE_LIMITED.test(said) && REFUSED.test(said)
         ? RUNNER_ISSUE_STATE_OUTCOME.refused
         : RUNNER_ISSUE_STATE_OUTCOME.failed;
     }
