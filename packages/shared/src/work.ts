@@ -40,6 +40,7 @@ import {
   type WorkReleaseMessage,
   sanitizeWorkNote,
 } from "./messages.js";
+import { heldIssue } from "./agentActions.js";
 import { isLiveAgentKey } from "./liveAgents.js";
 import { clip } from "./text.js";
 import { type BoardIssue, type ProjectBoardSnapshot, isIssueGone, openBoardIssue } from "./projectBoard.js";
@@ -374,6 +375,8 @@ export const WORK_REJECTION = {
   missingArtifact: "missing-artifact",
   /** The issue carries the label that keeps the real coding agents off it. */
   restricted: "restricted",
+  /** The named assignee already has another issue in hand; an agent works one at a time. */
+  busy: "busy",
 } as const;
 
 export type WorkRejection = (typeof WORK_REJECTION)[keyof typeof WORK_REJECTION];
@@ -526,7 +529,8 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
  * Only an {@link isIssueAssignee} does issues, and only one the board shows
  * open without the office's restriction label, {@link isAgentRestricted}:
  * giving work in hand to another agent puts that one to work too, so it is
- * checked again.
+ * checked again. An agent works one issue at a time, review included, so one
+ * with another unfinished issue in hand ({@link heldIssue}) takes no more.
  */
 function assignWork(
   work: IssueWork | undefined,
@@ -545,6 +549,10 @@ function assignWork(
   const assignee = context.occupants.get(payload.assigneeId);
   if (assignee === undefined || !isIssueAssignee(assignee)) {
     return reject(WORK_REJECTION.unknownAssignee);
+  }
+  const held = heldIssue(payload.assigneeId, context.work.values());
+  if (held !== undefined && held !== payload.issueNumber) {
+    return reject(WORK_REJECTION.busy);
   }
   const label = context.restrictLabel ?? "";
   if (label !== "" && work?.assigneeId !== payload.assigneeId) {

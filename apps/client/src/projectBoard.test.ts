@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   type BoardAgent,
   NO_BOARD_FILTER,
+  assignOption,
   boardColumns,
   boardDrop,
   boardIssue,
@@ -274,6 +275,21 @@ describe("the office's work on an issue", () => {
       "Have them start again",
     );
     expect(workMoveLabel({ action: WORK_ACTION.release }, work)).toBe("Unassign");
+  });
+
+  it("offers an agent with an unfinished issue as busy on it, and one without as free", () => {
+    const lena: BoardAgent = { id: ada.id, name: "Lena", title: "Software Developer" };
+    for (const status of [WORK_STATUS.assigned, WORK_STATUS.in_progress, WORK_STATUS.review]) {
+      expect(assignOption(lena, [{ ...work, issueNumber: 162, status }])).toEqual({
+        label: "Lena · Software Developer — busy on #162",
+        busy: true,
+      });
+    }
+    expect(assignOption(lena, [{ ...work, status: WORK_STATUS.done }])).toEqual({
+      label: "Lena · Software Developer",
+      busy: false,
+    });
+    expect(assignOption({ id: "agent-2", name: "Marcus" }, [work])).toEqual({ label: "Marcus", busy: false });
   });
 
   it("finds an issue in any column, and carries its number on its card", () => {

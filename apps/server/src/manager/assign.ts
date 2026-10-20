@@ -78,6 +78,7 @@ export const REFUSAL_TEXT: Readonly<Record<WorkRejection, string>> = {
   [WORK_REJECTION.unknownAssignee]: "that agent can no longer take issues",
   [WORK_REJECTION.missingArtifact]: "it has no deliverable",
   [WORK_REJECTION.restricted]: "it carries the label that keeps the coding agents off it",
+  [WORK_REJECTION.busy]: "that agent already has another issue in hand",
 };
 
 /**
