@@ -58,6 +58,7 @@ import { boardAccessFor, issueStateRejectionText, rejectionText } from "./boardA
 import { DayClock } from "./dayClock.js";
 import { hasIssueMoveLanded } from "./projectBoard.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
+import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
 import { standingAccessFor, standingRejectionText } from "./standingAccess.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
@@ -341,6 +342,11 @@ function start(): void {
   // The agent whose terminal panel is open: the one watched at its screen, or the one lent to the CEO's desk.
   const openTerminalAgentId = (): string | undefined =>
     hud.terminalAgentId ?? (hud.desk === undefined || hud.desk.agentId === "" ? undefined : hud.desk.agentId);
+  // The agent whose terminal the CEO opened from the roster's Answer button, from wherever they stand.
+  let answeringAgentId: string | undefined;
+  // The agents waiting on a person as of the last roster, so only one that has just started waiting chimes.
+  let waitingIds: ReadonlySet<string> = new Set();
+  const baseTitle = document.title;
 
   /** Shows a line to this player only, and takes it down again shortly. */
   const showNotice = (text: string) => {
@@ -553,6 +559,22 @@ function start(): void {
         agentProfileAccess: local === undefined ? undefined : agentProfileAccessFor(local, ceo?.name),
       });
       refreshStickerNotes();
+
+      // Only the CEO can answer, so only the CEO's tab counts, chimes and notifies.
+      const waiting = present.filter((view) => view.agentStatus === LIVE_AGENT_STATUS.needsInput);
+      const ceoTab = local?.isCeo === true;
+      document.title = needsYouTitle(baseTitle, ceoTab ? waiting.length : 0);
+      const fresh = newlyWaiting(waitingIds, waiting.map((view) => view.id));
+      if (ceoTab && fresh.length > 0) {
+        chime();
+        // A visible tab already shows the beacon and the roster's Answer button.
+        if (document.hidden) {
+          for (const view of waiting.filter((candidate) => fresh.includes(candidate.id))) {
+            notifyNeedsYou(view.id, view.name, captionOf(view), () => answer(view.id));
+          }
+        }
+      }
+      waitingIds = new Set(waiting.map((view) => view.id));
     },
 
     // Expression events arrive for everyone, the local player included, so
@@ -786,6 +808,12 @@ function start(): void {
   // watching an agent holds nothing, so there is nothing for the server to know.
   let readingBoard = "";
 
+  /** Opens an agent's terminal panel from the roster or a notification, wherever the player stands. */
+  const answer = (agentId: string) => {
+    readingBoard = "";
+    answeringAgentId = agentId;
+  };
+
   // The desk panel's Stand up button, taken by the next frame as `E` would be.
   let standUpRequested = false;
   // The computer the local player last sat at and was told is the CEO's alone, so it is said once a sitting.
@@ -808,6 +836,7 @@ function start(): void {
         sendEmote: (emote) => room.sendEmote(emote),
         sendChat: (text) => room.sendChat(text),
         toggleCamera: toggleCameraMode,
+        answer,
         rejoin: () => {
           // A refusal is already on the HUD, with the button still by it.
           void room.rejoin().catch(() => {});
@@ -834,6 +863,7 @@ function start(): void {
           resizeDesk: (cols, rows) => room.sendDeskTerminalSize(cols, rows),
           close: () => {
             readingBoard = "";
+            answeringAgentId = undefined;
           },
         },
         profile: {
@@ -1060,6 +1090,8 @@ function start(): void {
       interactPressed = false;
     } else if (closeRequested && closesWithEscape(readingBoard)) {
       readingBoard = "";
+    } else if (closeRequested) {
+      answeringAgentId = undefined;
     }
     // Facing an agent, `E` waits to see whether it is held for the agent's menu.
     if (interactPressed && facing !== undefined) {
@@ -1117,8 +1149,16 @@ function start(): void {
     }
     // The agent at the screen's seat: it stays the same while the panel is
     // open, since the screen is only offered while that agent sits there.
+    // A panel opened with `E`, sitting at the desk, or the agent leaving, closes the one opened from the roster.
+    if (
+      readingBoard !== "" ||
+      hud.desk !== undefined ||
+      (answeringAgentId !== undefined && room.viewOf(answeringAgentId) === undefined)
+    ) {
+      answeringAgentId = undefined;
+    }
     const watchedSeat = interactableById(OFFICE_LAYOUT, readingBoard)?.seatId;
-    const terminalAgentId = watchedSeat === undefined ? undefined : room.holderOf(watchedSeat);
+    const terminalAgentId = watchedSeat === undefined ? answeringAgentId : room.holderOf(watchedSeat);
     if (terminalAgentId !== hud.terminalAgentId) {
       publishHud({ terminalAgentId });
     }

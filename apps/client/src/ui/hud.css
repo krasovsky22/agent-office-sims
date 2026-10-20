@@ -274,6 +274,21 @@
   pointer-events: auto;
 }
 
+/* Answering an agent that waits on the CEO opens its terminal from here. */
+.hud__answer {
+  margin-left: auto;
+  pointer-events: auto;
+}
+
+.hud__answer + .hud__profile-toggle {
+  margin-left: 0;
+}
+
+.hud__notify {
+  margin-top: 4px;
+  pointer-events: auto;
+}
+
 .hud__profile {
   display: flex;
   flex-direction: column;
