@@ -136,6 +136,11 @@ export function pullRequestArtifact(pr: RunnerPullRequest): string {
 
 const LIVE_AGENT_PREFIX = liveAgentKey("");
 
+/** Why a slot is stopped to start its issue again from the top. */
+const FRESH_START_REASON = "the CEO asked for a fresh start";
+/** The runner's `failed` for that stop, which ends only the old run and is no failure of the work. */
+const FRESH_START_ECHO = `Stopped: ${FRESH_START_REASON}`;
+
 /** A slot holding an issue, as one string. */
 function heldKey(runnerId: string, slotId: string, issueNumber: number): string {
   return `${runnerId}:${slotId}#${issueNumber}`;
@@ -161,9 +166,6 @@ export class RunnerWork {
   private readonly orphans = new Set<string>();
   /** Slots whose work the CEO cancelled, as `runner:slot#issue`, so a later stop for it discards too. */
   private readonly cancelled = new Set<string>();
-
-  /** Slots stopped for a fresh start while holding the issue, as `runner:slot#issue`, whose old run's `failed` is no failure. */
-  private readonly restarting = new Set<string>();
 
   public constructor(private readonly options: RunnerWorkOptions) {
     this.log = options.log ?? (() => undefined);
@@ -281,7 +283,7 @@ export class RunnerWork {
           break;
         }
         case RUNNER_EVENT_KIND.failed:
-          if (this.restarting.delete(heldKey(runnerId, event.slotId, issueNumber))) {
+          if (event.message === FRESH_START_ECHO) {
             break;
           }
           applyAs(this.options.host, agent, {
@@ -322,12 +324,7 @@ export class RunnerWork {
 
   /** Stops the slot on the issue and starts it again from the top. */
   private restart(work: IssueWork, actor: OfficeActor): void {
-    const slot = slotOf(work.assigneeId);
-    // A slot holding nothing reports nothing for the stop, so only one still on the issue is remembered.
-    if (slot !== undefined && this.options.runner.slotIssue(slot.runnerId, slot.slotId) === work.issueNumber) {
-      this.restarting.add(heldKey(slot.runnerId, slot.slotId, work.issueNumber));
-    }
-    this.stop(work.assigneeId, work.issueNumber, "the CEO asked for a fresh start");
+    this.stop(work.assigneeId, work.issueNumber, FRESH_START_REASON);
     this.start(work, actor, "");
   }
 

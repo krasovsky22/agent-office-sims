@@ -266,7 +266,7 @@ describe("RunnerWork outward: the CEO's word to the slots", () => {
   });
 
   it("does not mark work stopped for the old run its own fresh start ended, only for a genuine failure", () => {
-    const { ceoDoes, state, syncSlots, pending, ack, runnerWork } = setup();
+    const { ceoDoes, state, syncSlots, pending, ack, runnerWork, announced } = setup();
     const freshStartEnded = () =>
       runnerWork.receive([{ runnerId: "box", event: event("failed", 39, { message: "Stopped: the CEO asked for a fresh start" }) }]);
     ceoDoes(assign(39));
@@ -293,6 +293,15 @@ describe("RunnerWork outward: the CEO's word to the slots", () => {
 
     runnerWork.receive([{ runnerId: "box", event: event("failed", 39, { message: "Timed out after 60 minutes" }) }]);
     expect(state.work.get(workKey(39))?.note).toBe("Timed out after 60 minutes");
+
+    // Start again whose stop had nothing to end, the run gone since the last sync: the restarted run's own refusal still counts.
+    syncSlots({ "slot-1": 39 });
+    expect(ceoDoes(assign(39)).ok).toBe(true);
+    expect(pending().map((command) => command.kind)).toEqual(["stop", "start"]);
+    ack();
+    runnerWork.receive([{ runnerId: "box", event: event("failed", 39, { message: "Over budget", refusal: "budget" }) }]);
+    expect(state.work.get(workKey(39))?.note).toBe("Over budget");
+    expect(announced).toHaveLength(1);
   });
 
   it("stops a slot whose work GitHub finished, shipped or closed", () => {
