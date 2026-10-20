@@ -35,10 +35,12 @@ import {
   actorOf,
   isIssueAssignee,
   isLiveAgent,
+  isStandingTaskId,
   mayManageStandingTasks,
   parseStandingCreateMessage,
   parseStandingRescheduleMessage,
   parseStandingTaskMessage,
+  scheduleRefusal,
 } from "@sim/shared";
 
 import { slotOf } from "../agents/runnerWork.js";
@@ -52,6 +54,17 @@ export interface StandingHandlerHost {
   readonly allow: (client: Client, command: StandingClientMessage | typeof CLIENT_MESSAGE.standingHistory) => boolean;
   /** A task's last runs, newest first, with their links built on the board's repository. */
   readonly history: (taskId: string) => readonly StandingRunView[];
+}
+
+/**
+ * A reschedule the parser dropped only for its cron, too frequent or no cron
+ * at all, so the board can be told why rather than nothing.
+ */
+function refusedCron(raw: unknown): { readonly taskId: string; readonly reason: string } | undefined {
+  const { taskId, schedule } = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
+  const cron = typeof schedule === "object" && schedule !== null ? (schedule as Record<string, unknown>)["cron"] : undefined;
+  const why = typeof cron === "string" ? scheduleRefusal(cron) : undefined;
+  return isStandingTaskId(taskId) && why !== undefined ? { taskId, reason: `I can't schedule that: ${why}.` } : undefined;
 }
 
 const ACTIONS: ReadonlyArray<readonly [StandingClientMessage, StandingTaskAction]> = [
@@ -89,19 +102,26 @@ export function registerStandingHandlers(room: Pick<Room<OfficeState>, "onMessag
 
   room.onMessage(CLIENT_MESSAGE.standingReschedule, (client, raw: unknown) => {
     const message = parseStandingRescheduleMessage(raw);
+    const refused = message === undefined ? refusedCron(raw) : undefined;
+    const taskId = message?.taskId ?? refused?.taskId;
     const sender = host.state.occupants.get(client.sessionId);
-    if (message === undefined || sender === undefined) {
+    if (taskId === undefined || sender === undefined) {
       return;
     }
     const actor = actorOf(sender);
-    const refuse = (rejection: StandingRejectedEvent["rejection"]): void => {
-      client.send(SERVER_MESSAGE.standingRejected, { action: STANDING_ACTION.reschedule, taskId: message.taskId, rejection } satisfies StandingRejectedEvent);
+    const refuse = (rejection: StandingRejectedEvent["rejection"], reason?: string): void => {
+      const event: StandingRejectedEvent = { action: STANDING_ACTION.reschedule, taskId, rejection, ...(reason === undefined ? {} : { reason }) };
+      client.send(SERVER_MESSAGE.standingRejected, event);
     };
     if (!mayManageStandingTasks(actor)) {
       refuse(STANDING_REJECTION.forbidden);
       return;
     }
     if (!host.allow(client, CLIENT_MESSAGE.standingReschedule)) {
+      return;
+    }
+    if (message === undefined) {
+      refuse(STANDING_REJECTION.invalid, refused?.reason);
       return;
     }
     const result = host.control.reschedule(actor, sender.name, message.taskId, message.schedule);

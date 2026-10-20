@@ -462,6 +462,8 @@ export interface StandingRejectedEvent {
   readonly action: StandingTaskAction | typeof STANDING_ACTION.reschedule | typeof STANDING_ACTION.create;
   readonly taskId: string;
   readonly rejection: StandingRejection;
+  /** Why, in the server's words, where the rejection alone can't say: a refused schedule's. */
+  readonly reason?: string;
 }
 
 /** One kept run, with the links the server built for it on the board's repository: the pull request's, the review comment's. */

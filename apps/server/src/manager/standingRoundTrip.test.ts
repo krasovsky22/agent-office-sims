@@ -250,6 +250,17 @@ describe("a standing task from the AI Manager to the mock runner and back", () =
     // The CEO's standing commands share one allowance, four at once and one more every five seconds.
     await new Promise((resolve) => setTimeout(resolve, 5_200));
 
+    // A schedule firing too often is refused with the reason, not dropped.
+    dana.room.send(CLIENT_MESSAGE.standingReschedule, { taskId, schedule: { cron: "* * * * *" } });
+    await settled(() => dana.standingRejected.length === 1);
+    expect(dana.standingRejected[0]).toEqual({
+      action: "reschedule",
+      taskId,
+      rejection: STANDING_REJECTION.invalid,
+      reason: "I can't schedule that: it would fire more often than every 5 minutes.",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5_200));
+
     dana.room.send(CLIENT_MESSAGE.standingPause, { taskId });
     await settled(() => row(eve)?.status === "paused");
 

@@ -757,7 +757,7 @@ function start(): void {
     },
 
     onStandingRejected: (event) => {
-      showNotice(standingRejectionText(event.rejection));
+      showNotice(event.reason ?? standingRejectionText(event.rejection));
     },
 
     onStandingHistory: (event) => {
