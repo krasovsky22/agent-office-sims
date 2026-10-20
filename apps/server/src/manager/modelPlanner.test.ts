@@ -64,10 +64,13 @@ describe("the request", () => {
     };
     const planner = createModelPlanner({ apiKey: "test-key", model: "claude-opus-5-5", send });
 
-    expect(await planner(REQUEST, SIGNAL)).toEqual({ reply: "Ada is idle.", assignments: [], standing: [], tokensUsed: 1000 });
+    expect(await planner(REQUEST, SIGNAL)).toEqual({ reply: "Ada is idle.", assignments: [], hires: [], standing: [], tokensUsed: 1000 });
     const params = sent[0];
     expect(params?.model).toBe("claude-opus-5-5");
-    expect(params?.output_config).toMatchObject({ effort: "low", format: { type: "json_schema" } });
+    expect(params?.output_config).toMatchObject({
+      effort: "low",
+      format: { type: "json_schema", schema: { required: expect.arrayContaining(["hires"]) as unknown } },
+    });
     expect(params?.messages).toHaveLength(1);
     const prompt = JSON.stringify(params?.messages);
     expect(prompt).toContain("Ada Byrne");
@@ -123,6 +126,25 @@ describe("readReply", () => {
     expect(plan("none")).toBeUndefined();
     expect(plan("reboot")).toBeUndefined();
     expect(plan(undefined)).toBeUndefined();
+  });
+
+  it("reads the agents to hire with the profiles the model wrote, dropping one with no work", () => {
+    const plan = readReply(
+      reply(
+        JSON.stringify({
+          reply: "Hiring a specialist.",
+          assignments: [],
+          hires: [
+            { work: " #39 ", name: " Nova ", title: "Accessibility Specialist", description: "Makes the HUD work with a screen reader." },
+            { work: "", name: "Nobody", title: "", description: "" },
+            "junk",
+          ],
+        }),
+      ),
+    );
+    expect(plan.hires).toEqual([
+      { work: "#39", name: "Nova", title: "Accessibility Specialist", description: "Makes the HUD work with a screen reader." },
+    ]);
   });
 
   it("is asked for a standup field, and told what a standup is", () => {

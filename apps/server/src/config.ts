@@ -11,7 +11,7 @@
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { readAgentRestrictLabel } from "@sim/shared";
+import { MAX_RUNNER_SLOTS, readAgentRestrictLabel } from "@sim/shared";
 
 const DEFAULT_PORT = 2567;
 
@@ -104,6 +104,8 @@ export interface RunnerConfig {
   readonly secret: string | undefined;
   /** The label that keeps an issue from a runner's agent; every other open issue may go to one. */
   readonly restrictLabel: string;
+  /** Most coding agents the AI Manager may have in the office, hired ones and the runners' own together. */
+  readonly maxAgents: number;
 }
 
 export interface ServerConfig {
@@ -267,6 +269,9 @@ export function readLiveAgentsConfig(env: NodeJS.ProcessEnv = process.env): Live
  *   not exist and no runner's slots appear.
  * - `REAL_AGENT_RESTRICT_LABEL`: the label that keeps an issue from a runner's
  *   agent, `agent-restricted` by default; see `readAgentRestrictLabel`.
+ * - `MAX_CODING_AGENTS`: the most coding agents the AI Manager may hire up to,
+ *   counting the runners' own, from 1 to `MAX_RUNNER_SLOTS`, the floor's cap,
+ *   and that by default.
  */
 export function readRunnerConfig(env: NodeJS.ProcessEnv = process.env): RunnerConfig {
   const raw = env["RUNNER_SECRET"]?.trim() ?? "";
@@ -277,7 +282,12 @@ export function readRunnerConfig(env: NodeJS.ProcessEnv = process.env): RunnerCo
       `RUNNER_SECRET must be at least ${MIN_LIVE_AGENTS_SECRET_LENGTH} characters, got ${secret.length}`,
     );
   }
-  return { secret, restrictLabel: readAgentRestrictLabel(env["REAL_AGENT_RESTRICT_LABEL"]) };
+  const rawMax = env["MAX_CODING_AGENTS"]?.trim() ?? "";
+  const maxAgents = rawMax === "" ? MAX_RUNNER_SLOTS : Number(rawMax);
+  if (!Number.isInteger(maxAgents) || maxAgents < 1 || maxAgents > MAX_RUNNER_SLOTS) {
+    throw new Error(`MAX_CODING_AGENTS must be a whole number from 1 to ${MAX_RUNNER_SLOTS}, the floor's slot cap; got "${rawMax}"`);
+  }
+  return { secret, restrictLabel: readAgentRestrictLabel(env["REAL_AGENT_RESTRICT_LABEL"]), maxAgents };
 }
 
 /**

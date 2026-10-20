@@ -29,6 +29,10 @@
  *   changed", "pause the pull request watch", "what are you watching?":
  *   standing tasks, read by `./standingPlan.ts` and carried out, like an
  *   assignment, afterwards and through the office's own gate.
+ * - **"Hire someone for #39"**, "hire a frontend specialist to work on the
+ *   jumping ticket": a plan to hire a new coding agent for each issue named,
+ *   titled from the words before "for" when they say more than "an agent",
+ *   carried out afterwards like an assignment (`./hire.ts`).
  * - **"Call a standup"**, "let's have a standup", "end the standup", "the
  *   standup's over": a plan to call or end one, carried out afterwards through
  *   the standup's own gate; "how did the standup go?" says what each agent
@@ -83,6 +87,17 @@ const AGENT_CLAUSES: readonly string[] = ["who's free", "who is free", "who's id
 const WORK_CONNECTORS: ReadonlySet<string> = new Set(["the", "and", ",", "#"]);
 const NUMBER = /^#?\d+$/;
 
+/** A message starting with one of these asks for a new agent: "hire someone for #39". */
+const HIRE_VERBS: ReadonlySet<string> = new Set(["hire", "recruit"]);
+/** What joins the new agent to its WORK: "hire someone to work on #39". */
+const HIRE_LINKS: readonly string[] = ["to work on", "to start on", "to pick up", "to do", "to take", "to handle", "to fix", "for", "on"];
+/** Who to hire, when it says no more than that: "an agent", "someone", "a new developer". */
+const ANY_HIRE =
+  /^(?:(?:a|an|one|another|some) )?(?:new )?(?:agent|coding agent|developer|dev|engineer|coder|someone|somebody|person|specialist)?$/;
+
+export const HIRE_REPHRASE_TEXT =
+  "I couldn't tell which issue to hire someone for, so I haven't hired anyone. Say it like “hire someone for #39”.";
+
 export const REPHRASE_TEXT =
   "I couldn't tell exactly what to hand out, so I haven't changed anything. Say it like “assign #39” or “put Maya on #12”.";
 
@@ -117,6 +132,7 @@ export const HELP_TEXT = [
   "- “What is Maya doing?”",
   "- “Assign #39”, “Put someone on #39” or “Have Maya do #39”",
   "- “Hand out the backlog”",
+  "- “Hire someone for #39”, or “Hire a frontend specialist to work on #39”",
   "- “Watch for new pull requests”, or “Every weekday at 9, summarise what changed yesterday”",
   "- “What are you watching?”, “Pause the pull request watch”",
   "- “Call a standup” or “End the standup”",
@@ -137,6 +153,10 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   const standing = standingAnswer(message, view);
   if (standing !== undefined) {
     return standing;
+  }
+  const hire = readHire(message, view);
+  if (hire !== undefined) {
+    return hire;
   }
   const work = findWork(message, view);
   const agents = findAgents(message, view);
@@ -226,6 +246,43 @@ function standingAnswer(message: string, view: OfficeView): Omit<ManagerPlan, "t
   return instruction.kind === "unclear"
     ? { reply: instruction.reply, assignments: [] }
     : { reply: "Here's how that went:", assignments: [], standing: instruction.standing };
+}
+
+/**
+ * A message asking for a new agent, by a strict grammar: hire [WHO]
+ * (for|on|to work on|to do|…) WORK, where WHO is anything, "someone" or "a
+ * frontend specialist", and WORK names issues as an assignment's does.
+ * `undefined` for any other message, a question about hiring included.
+ */
+function readHire(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUsed"> | undefined {
+  const words = wordsOf(message);
+  if (!HIRE_VERBS.has(words[0] ?? "") || QUESTION_START.test(words.join(" "))) {
+    return undefined;
+  }
+  for (let at = 1; at < words.length; at += 1) {
+    for (const link of HIRE_LINKS) {
+      const slot = startsWith(words.slice(at), link) ? readWork(words.slice(at + link.split(" ").length), view) : null;
+      if (slot === null) {
+        continue;
+      }
+      if (slot.unknown.length > 0) {
+        return { reply: cannotFind(slot.unknown, view), assignments: [] };
+      }
+      const who = words.slice(1, at).join(" ");
+      // "a frontend specialist" is a title; "an agent" says nothing the office would not.
+      const title = ANY_HIRE.test(who) ? "" : titleCase(who.replace(/^(?:a|an|one|another|some) /, "").replace(/^new /, ""));
+      return {
+        reply: "Here's how that went:",
+        assignments: [],
+        hires: slot.work.map((ref) => ({ work: workId(ref), name: "", title, description: "" })),
+      };
+    }
+  }
+  return { reply: HIRE_REPHRASE_TEXT, assignments: [] };
+}
+
+function titleCase(words: string): string {
+  return words.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
 }
 
 /** Whether the whole message tells the manager to call or end a standup; one that only mentions it does neither. */

@@ -183,6 +183,8 @@ export const RUNNER_COMMAND_KIND = {
   deskResize: "desk-resize",
   /** The CEO fired the slot's agent: end whatever it runs and report the slot no more; see {@link RunnerFireCommand}. */
   fire: "fire",
+  /** The CEO had the AI Manager hire an agent: add a slot with this id and profile; see {@link RunnerHireCommand}. */
+  hire: "hire",
 } as const;
 
 export type RunnerCommandKind = (typeof RUNNER_COMMAND_KIND)[keyof typeof RUNNER_COMMAND_KIND];
@@ -506,6 +508,22 @@ export interface RunnerFireCommand {
 }
 
 /**
+ * The CEO had the AI Manager hire a new agent: the runner adds a slot with
+ * this id, which the server picked and no slot of the runner's has had, and
+ * this profile, written for the task it is hired for, and keeps both across a
+ * restart. The task itself comes afterwards as an ordinary `start`, once the
+ * slot is on the floor. A runner with {@link MAX_RUNNER_SLOTS} slots already,
+ * or one that has had a slot by this id, takes no hire.
+ */
+export interface RunnerHireCommand extends AgentProfile {
+  readonly id: string;
+  readonly slotId: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.hire;
+  /** The CEO who asked, by name. */
+  readonly requestedBy: string;
+}
+
+/**
  * Say something to the slot's agent.
  *
  * The office's own rework prompt is given whatever the agent is doing. One
@@ -635,7 +653,8 @@ export type RunnerSlotCommand =
   | RunnerDeskOpenCommand
   | RunnerDeskCloseCommand
   | RunnerDeskResizeCommand
-  | RunnerFireCommand;
+  | RunnerFireCommand
+  | RunnerHireCommand;
 
 /** The commands for the runner's standing tasks, which address no slot. */
 export type RunnerStandingCommand = RunnerStandingSetCommand | RunnerStandingTaskCommand;
@@ -655,7 +674,8 @@ export function isRunnerSlotCommand<T extends { readonly kind: RunnerCommandKind
     command.kind === RUNNER_COMMAND_KIND.deskOpen ||
     command.kind === RUNNER_COMMAND_KIND.deskClose ||
     command.kind === RUNNER_COMMAND_KIND.deskResize ||
-    command.kind === RUNNER_COMMAND_KIND.fire
+    command.kind === RUNNER_COMMAND_KIND.fire ||
+    command.kind === RUNNER_COMMAND_KIND.hire
   );
 }
 
@@ -669,7 +689,8 @@ export type RunnerSlotCommandDraft =
   | Omit<RunnerDeskOpenCommand, "id">
   | Omit<RunnerDeskCloseCommand, "id">
   | Omit<RunnerDeskResizeCommand, "id">
-  | Omit<RunnerFireCommand, "id">;
+  | Omit<RunnerFireCommand, "id">
+  | Omit<RunnerHireCommand, "id">;
 
 /** A command before the server has given it an id. */
 export type RunnerCommandDraft =
@@ -1280,5 +1301,11 @@ function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCom
         : undefined;
     case RUNNER_COMMAND_KIND.fire:
       return { id, slotId: draft.slotId, kind: draft.kind, requestedBy: sanitizeName(draft.requestedBy) };
+    case RUNNER_COMMAND_KIND.hire: {
+      const profile = parseAgentProfile(draft);
+      return profile === undefined
+        ? undefined
+        : { id, slotId: draft.slotId, kind: draft.kind, ...profile, requestedBy: sanitizeName(draft.requestedBy) };
+    }
   }
 }

@@ -46,6 +46,12 @@
  * runner long since told. It takes no part in anything else on the way, a
  * standup included, and what its runner reports of it meanwhile is not news.
  *
+ * An agent the AI Manager has just hired (its record says {@link LiveAgentRecord.hired})
+ * makes the same walk the other way round: it turns up out on the pavement,
+ * walks in through the lobby to the open floor's doorway, waves to everyone and
+ * says hello, and only then gets on with the task it was hired for. Until then
+ * it, too, takes part in nothing else.
+ *
  * All of it is synchronous and runs inside the room's tick. What the agents are
  * meant to be doing arrives from the feed as a finished list; the tick reads it
  * through {@link LiveAgentCrew.sync} without waiting on anything.
@@ -142,6 +148,23 @@ export const NOTE_HANDLING_MS = 1200;
 /** How often an agent waiting for a note another agent still holds looks again. */
 const NOTE_RETRY_MS = 1500;
 
+/** How long a new hire stands in the open floor's doorway waving, before it gets to work. */
+export const WAVE_MS = 2500;
+
+/** What a new hire says as it waves, after its name. */
+export const HELLO_LINE = "just joined the team. Hi, everyone!";
+
+/** How far a route walks from `from`. */
+function routeLength(from: Vec2, route: readonly Vec2[]): number {
+  let length = 0;
+  let cursor = from;
+  for (const point of route) {
+    length += Math.hypot(point.x - cursor.x, point.z - cursor.z);
+    cursor = point;
+  }
+  return length;
+}
+
 /** What an agent says as it is fired, one picked at random. */
 export const FIRED_LINES: readonly string[] = [
   "Oh. Okay. I'll go pack my things…",
@@ -216,6 +239,11 @@ interface AgentBody {
   coffeeRun: boolean;
   /** The CEO fired it: it is on its way out, and leaves once it is outside. */
   leaving: boolean;
+  /**
+   * Just hired: walking in from the pavement, or waving in the doorway until
+   * `waveUntil`, room clock time; `undefined` once it is in.
+   */
+  arrival: { waveUntil: number | undefined } | undefined;
 }
 
 /** What the crew needs from the room, named so a test can supply it. */
@@ -234,6 +262,8 @@ export interface LiveAgentHost {
   readonly work: MapSchema<IssueWork>;
   /** Broadcasts a line of chat from an occupant. */
   readonly say: (occupantId: string, text: string) => void;
+  /** Broadcasts a wave from an occupant. */
+  readonly wave: (occupantId: string) => void;
   /** In [0, 1). Injected so a test can make the wandering repeatable. */
   readonly random: () => number;
 }
@@ -242,6 +272,8 @@ export class LiveAgentCrew {
   private readonly bodies = new Map<string, AgentBody>();
   private readonly conversations = new Set<Conversation>();
   private readonly entrances: readonly Vec2[];
+  /** Where a new hire turns up: out on the pavement by the front door; `undefined` in a floor plan without one. */
+  private readonly street: Vec2 | undefined;
   private entranceCursor = 0;
   /** The places in the conference room while a standup is on; `undefined` otherwise. */
   private standupSpots: readonly StandupSpot[] | undefined;
@@ -259,6 +291,12 @@ export class LiveAgentCrew {
     this.entrances = host.layout.doorways
       .filter((doorway) => floorId !== undefined && doorway.connects.includes(floorId))
       .map((doorway) => doorway.centre);
+    const frontDoor = host.layout.doorways.find((doorway) => doorway.connects.includes(SIDEWALK_ROOM_ID))?.centre;
+    const pavement = host.layout.waypoints.filter((node) => roomAt(host.layout, node)?.id === SIDEWALK_ROOM_ID);
+    this.street =
+      frontDoor === undefined
+        ? undefined
+        : pavement.sort((a, b) => Math.hypot(a.x - frontDoor.x, a.z - frontDoor.z) - Math.hypot(b.x - frontDoor.x, b.z - frontDoor.z))[0];
   }
 
   /** How many agents are on the floor. */
@@ -306,6 +344,7 @@ export class LiveAgentCrew {
         continue;
       }
       body.leaving = true;
+      body.arrival = undefined;
       if (body.conversation !== undefined) {
         this.endConversation(body.conversation, now);
       }
@@ -381,18 +420,20 @@ export class LiveAgentCrew {
     for (const [id, body] of this.bodies) {
       if (body.leaving) {
         this.stepLeaving(id, body, now, deltaSeconds);
+      } else if (body.arrival !== undefined) {
+        this.stepArriving(body, body.arrival, now, deltaSeconds);
       }
     }
     if (this.standupSpots !== undefined) {
       for (const body of this.bodies.values()) {
-        if (!body.leaving) {
+        if (!body.leaving && body.arrival === undefined) {
           this.stepStandup(body, now, deltaSeconds);
         }
       }
       return;
     }
     for (const body of this.bodies.values()) {
-      if (body.leaving) {
+      if (body.leaving || body.arrival !== undefined) {
         continue;
       }
       if (this.stepErrand(body, now, deltaSeconds)) {
@@ -418,12 +459,14 @@ export class LiveAgentCrew {
       z: 0,
     };
     this.entranceCursor += 1;
+    // A new hire comes in off the street, through the front door.
+    const start = record.hired === true ? (this.street ?? entrance) : entrance;
 
     const key = liveAgentKey(record.id);
     const occupant = new LiveAgent();
     occupant.id = key;
-    occupant.x = entrance.x;
-    occupant.z = entrance.z;
+    occupant.x = start.x;
+    occupant.z = start.z;
     occupant.animation = ANIMATION_STATE.idle;
 
     const body: AgentBody = {
@@ -445,7 +488,15 @@ export class LiveAgentCrew {
       homeSeatId: "",
       coffeeRun: false,
       leaving: false,
+      arrival: record.hired === true ? { waveUntil: undefined } : undefined,
     };
+    if (body.arrival !== undefined) {
+      // In by the open floor's nearest doorway, not the next one round.
+      body.route = this.entrances
+        .map((doorway) => this.routeTo(start, doorway))
+        .filter((route) => route.length > 0)
+        .reduce<Vec2[]>((best, route) => (best.length === 0 || routeLength(start, route) < routeLength(start, best) ? route : best), []);
+    }
     this.bodies.set(record.id, body);
     this.host.occupants.set(key, occupant);
     return body;
@@ -539,6 +590,29 @@ export class LiveAgentCrew {
     if (this.walk(body, deltaSeconds)) {
       this.depart(id, body, now);
       this.fired.add(id);
+    }
+  }
+
+  /**
+   * One tick of a new hire's way in: along the route to the open floor's
+   * doorway, then a wave and a hello there, and once it has waved a while it
+   * is in. One with no way in waves where it stands.
+   */
+  private stepArriving(body: AgentBody, arrival: { waveUntil: number | undefined }, now: number, deltaSeconds: number): void {
+    if (arrival.waveUntil === undefined) {
+      if (body.route.length > 0 && !this.walk(body, deltaSeconds)) {
+        return;
+      }
+      body.route = [];
+      this.standStill(body);
+      arrival.waveUntil = now + WAVE_MS;
+      this.host.wave(body.key);
+      this.host.say(body.key, `${body.occupant.name} here, ${HELLO_LINE}`);
+      return;
+    }
+    if (now >= arrival.waveUntil) {
+      body.arrival = undefined;
+      body.restUntil = now;
     }
   }
 
@@ -928,6 +1002,7 @@ export class LiveAgentCrew {
         (other) =>
           other !== body &&
           !other.leaving &&
+          other.arrival === undefined &&
           other.status === LIVE_AGENT_STATUS.idle &&
           other.conversation === undefined &&
           other.errand === undefined &&
@@ -1066,6 +1141,7 @@ export class LiveAgentCrew {
     for (const body of this.bodies.values()) {
       if (
         !body.leaving &&
+        body.arrival === undefined &&
         body.status === LIVE_AGENT_STATUS.idle &&
         body.conversation === undefined &&
         body.errand === undefined &&

@@ -174,6 +174,16 @@ server.define(OFFICE_ROOM_NAME, OfficeRoom, {
   ...(issueStates === undefined ? {} : { issueStates }),
   ...(screens === undefined ? {} : { screens }),
   ...(standingMirror === undefined ? {} : { standing: standingMirror }),
+  ...(runnerLink === undefined
+    ? {}
+    : {
+        agentHiring: {
+          cap: runner.maxAgents,
+          count: () => runnerLink.agentCount(),
+          hire: (profile, requestedBy) => runnerLink.hire(profile, requestedBy),
+          withdraw: (hire) => runnerLink.withdrawHire(hire),
+        },
+      }),
 } satisfies OfficeRoomOptions);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -211,6 +221,7 @@ console.log(
     ? "runner link: off (RUNNER_SECRET is not set)"
     : `runner link: POST ${RUNNER_SYNC_PATH} for ${projectBoard.repository}, ` +
         `up to ${MAX_RUNNER_SLOTS} slots, leaving after ${liveAgents.timeoutMs / 1000}s of silence; ` +
+        `the AI Manager hires up to ${runner.maxAgents} coding agents in all; ` +
         `screens on POST ${RUNNER_SCREENS_PATH}; issues with the "${runner.restrictLabel}" label are kept from agents; ` +
         `the CEO's profile edits kept in ${join(dataDir, "agent-profiles.json")}`,
 );

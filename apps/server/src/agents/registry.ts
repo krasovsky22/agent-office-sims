@@ -58,6 +58,12 @@ export interface LiveAgentRecord {
    * runner, sets it, and absent means it cannot.
    */
   readonly profileEditable?: boolean;
+  /**
+   * It has just been hired, and this is its first appearance: it walks in
+   * from the street and waves before anything else. Only a runner's slot the
+   * AI Manager hired sets it, and only until the floor has seen it once.
+   */
+  readonly hired?: boolean;
 }
 
 /**

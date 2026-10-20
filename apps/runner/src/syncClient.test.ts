@@ -209,13 +209,16 @@ describe("readCommands", () => {
       { id: "command-3", slotId: "slot-1", kind: "stop", reason: "", issueNumber: -1 },
       { id: "command-4", slotId: "slot-1", kind: "fire", requestedBy: "Dana" },
       { id: "command-5", slotId: "slot-1", kind: "fire" },
+      { id: "command-6", slotId: "hired-1", kind: "hire", name: "Nova", title: "Specialist", description: "", requestedBy: "Dana" },
+      { id: "command-7", slotId: "hired-2", kind: "hire", name: "Nova", requestedBy: "Dana" },
     ]);
     expect(reply.commands).toEqual([
       { id: "command-1", slotId: "slot-1", kind: "stop", reason: "the CEO cancelled the task", issueNumber: 39, discard: true },
       { id: "command-2", slotId: "slot-1", kind: "stop", reason: "" },
       { id: "command-4", slotId: "slot-1", kind: "fire", requestedBy: "Dana" },
+      { id: "command-6", slotId: "hired-1", kind: "hire", name: "Nova", title: "Specialist", description: "", requestedBy: "Dana" },
     ]);
-    expect(reply.unreadable).toEqual(["command-3", "command-5"]);
+    expect(reply.unreadable).toEqual(["command-3", "command-5", "command-7"]);
   });
 
   it("sets aside a command it cannot read, by id, so it can be acked", () => {

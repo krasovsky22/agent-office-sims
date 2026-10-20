@@ -60,7 +60,7 @@ none. And someone is in charge of all of them: the AI Manager, a
 crimson body at its own desk in its office. The CEO walks up and talks to it —
 "what's open?", "what's the status of #12?", "which PRs are open?", "what is
 Maya doing?", "assign the jumping ticket", "put someone on #39", "have
-Maya do #39" — and it answers from the office's live state and the project
+Maya do #39", "hire someone for #40" — and it answers from the office's live state and the project
 board the server already polls, with labels, linked pull requests and who is on
 each issue. An issue goes to the coding agent the CEO names, or else to a free
 one of the runner's coding agents, whatever the CEO calls it — by number, or by
@@ -148,10 +148,45 @@ orchestrator's agent, which the office cannot stop, offers neither.
   pavement in tears, a crying face over its head, head bowed and a box of its
   belongings in both hands, then leaves the floor. Its runner reports the slot
   no more, and keeps it out across a restart in `<RUNNER_DATA_DIR>/fired.json`;
-  removing the slot's id from that file hires it back at the next start.
+  removing the slot's id from that file hires it back at the next start,
+  unless the AI Manager hired it, which a fire forgets for good.
 
 The AI Manager says in its conversation what was cancelled or who was fired.
 Both are limited to four in a burst, one more every five seconds.
+
+The CEO can also have the AI Manager hire a new coding agent for one issue:
+`hire someone for #39`, or `hire a frontend specialist to work on #39`, and
+with a model however the CEO puts it. It writes the new agent a profile for
+that issue: a name nobody in the office has, a title (`Frontend Specialist`,
+or `Specialist for #39` when the CEO named none) and
+a description of what it is hired for, which is its system prompt (see
+[Agent profiles](#agent-profiles)). The title and description are the CEO's
+own words from their message, never an issue's title or body; when the CEO
+gave none they are fixed ones naming the issue by its number alone. A runner adds a slot for it, and in every
+tab it turns up out on the pavement, walks in through the lobby to the open
+floor's doorway, waves and says hello to everyone, and then fetches the
+issue's note and sits down to work on it: the AI Manager hands it the issue,
+as the CEO who asked, the moment it is on the floor, and says so. From then on
+it is a runner's agent like the others, on the board, cancelled and fired the
+same way, and back after a restart of the runner, which keeps it in
+`<RUNNER_DATA_DIR>/hired.json` and its profile in `profiles.json`, as the
+server keeps the profile too.
+
+The office holds at most `MAX_CODING_AGENTS` coding agents (4 by default, and
+at most 4, the floor's slot cap), the runners' own slots and hires on their
+way counted together. Past it the AI Manager says the office is full and
+suggests firing one or putting one already there on the issue instead. It
+hires nobody for a closed issue, a pull request, an issue carrying the
+restriction label or one an agent already has, or with no runner connected,
+and says why; a new agent not on the floor within a minute, its runner
+having refused it, is given up on and the AI Manager says that too. Only the
+CEO's instructions reach the AI Manager, so only the CEO hires.
+
+A hire on its way in is held in the server's memory only, since the issue is
+handed over as the CEO who asked, whose session a restart ends. A server that
+restarts after the runner took the hire, but before the new agent reached the
+floor, loses it: the agent still arrives and stays, but idle, and the CEO
+gives it the issue again, from the board or the AI Manager.
 
 Behind the chair of an open-floor desk where a live agent is working, the
 prompt reads `Watch the agent's terminal` and `E` opens its terminal at full
@@ -539,7 +574,10 @@ sitting there, see [The desk terminal](#the-desk-terminal)), `desk-close`
 `desk-resize` (`seatId`, `cols`, `rows`: size that desk session's terminal to
 the CEO's panel), or `fire` (`requestedBy`: the CEO fired the slot's agent, so
 the slot ends whatever it runs, a task discarded as a cancelled one is, and is
-reported no more), each
+reported no more), or `hire` (`name`, `title`, `description`, `requestedBy`:
+the AI Manager hired an agent, so the runner adds a slot under this new
+`slotId`, which no slot of its has had, with this profile, unless it already
+has 4; its task follows as a `start` once it is reported), each
 with an `id` and a `slotId`. A command comes back in every reply until a sync lists its id in
 `acked`, and never after, so a lost reply loses nothing and a runner tells a
 repeat by its id. The one exception is a CEO's prompt or key the runner has not
@@ -740,7 +778,7 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_MOCK_OUTCOME` | `failed` | How a mock agent's work ends: `failed`, `pr-opened`, or `question`, waiting at its prompt for the CEO's answer before it opens one. |
 | `RUNNER_MODEL` | Claude Code's | The model a `claude` agent runs, passed as `--model`: `sonnet`, `claude-sonnet-4-5`. |
 | `RUNNER_AGENT_PERMISSIONS` | `allowlist` | What a `claude` agent runs without asking: `allowlist`, the short list below, anything else stopping at a permission prompt; or `all`, every command, unprompted, which lets an agent run anything on the runner's machine as its user. See [Claude Code in the runner](#claude-code-in-the-runner). |
-| `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. |
+| `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. Agents the AI Manager hires are added to them, up to 4 slots in all. |
 | `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it; time it waits on a person does not count. |
 | `RUNNER_DAILY_BUDGET_USD` | none | US dollars, `0` or more, the agents may spend in a day before the runner refuses new starts; see [The runner's budget](#the-runners-budget). Unset, spend is counted and nothing is refused. |
 | `RUNNER_STANDING_DAILY_BUDGET_USD` | none | US dollars, `0` or more, all [standing tasks](#standing-tasks) together may spend in a day. For `RUNNER_AGENT=claude` it is also the opt-in: unset, the runner takes no standing tasks. Refused at boot when above `RUNNER_DAILY_BUDGET_USD`, so issue work always keeps the difference. |
@@ -780,6 +818,8 @@ id, the machine's name, so a runner's agents never share a name and keep theirs
 from run to run, and a second runner most likely gets a block of its own. Its
 title starts as `Software Developer` and its description as
 `Takes the GitHub issues it is given, implements and tests the change, and opens a pull request for a person to review.`
+An agent the AI Manager hires starts instead with the profile the manager
+wrote for the issue it was hired for, kept as an edit is.
 The nameplate over an agent's head reads `Maya · Software Developer`, and the
 roster, the project board's `Assign…` picker, the standup panel and the agent's
 terminal panel show its title beside its name; the AI Manager sees each
@@ -1577,6 +1617,7 @@ public.
 | `RUNNER_SECRET` | server | runtime | No. The shared secret an agent runner syncs with, at least 16 characters; without it the runner link is off. |
 | `SERVER_DATA_DIR` | server | runtime | No. An absolute path for the server's own files: today `agent-profiles.json`, the CEO's profile edits, given to a runner again after a restart. Defaults to `apps/server/.data`. On a platform whose disk does not outlive a deploy, the runner's own copy still keeps them. |
 | `REAL_AGENT_RESTRICT_LABEL` | server | runtime | No. The label that keeps an issue from a runner's agent, the same as the runner's; every other open issue may go to one. Defaults to `agent-restricted`. |
+| `MAX_CODING_AGENTS` | server | runtime | No. The most coding agents the AI Manager may hire up to, the runners' own slots counted, from 1 to 4. Defaults to 4. |
 
 `VITE_SERVER_URL` is read when the bundle is built, not when it is served — a
 static file cannot be reconfigured afterwards. Changing it means rebuilding and
@@ -1736,6 +1777,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/agents/standingControl.ts  creating and managing standing tasks through the one gate
   src/agents/standingAnnouncer.ts  what the AI Manager says of each standing run
   src/manager/standingPlan.ts    the AI Manager's words for standing tasks, schedules read into cron
+  src/manager/hire.ts            hiring a new coding agent for an issue: the cap, the profile, and the issue once it walks in
   src/rooms/standupHandlers.ts  the CEO's standup commands: call, end, direct, and the refusals sent back
   src/sim/standup.ts      the standup: gathering, the turns and each update read off an agent's real state, directions, blockers, the end
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk, and carry the sticky notes between boards and desk
@@ -1746,7 +1788,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/issueStates.ts      closing and reopening issues for the CEO with gh, and what came of each
   src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it, slots lent to the CEO's desk, and each slot's agent's profile
   src/profiles.ts         profiles.json: the CEO's edits to the agents' profiles, kept across restarts
-  src/firedSlots.ts       fired.json: the slots whose agents the CEO fired, kept out of the pool across restarts
+  src/slotIds.ts          fired.json and hired.json: the slots whose agents the CEO fired, kept out of the pool, and those the AI Manager hired, kept in it, across restarts
   src/budget.ts           the day's spend, and the daily budget that refuses new starts
   src/slotWorktrees.ts    which slot works in which worktree, kept and re-attached across restarts
   src/deskWorktrees.ts    the desk sessions' scratch worktrees, discarded as each ends

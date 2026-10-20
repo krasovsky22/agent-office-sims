@@ -56,6 +56,13 @@
  * edit outlives a server stopped before its runner took it, and a runner that
  * came back without its own copy.
  *
+ * The AI Manager hires an agent for the CEO through the same outbox
+ * ({@link RunnerLink.hire}): a `hire` command for a slot no runner has
+ * reported, under an id minted here, to a runner with room for it. The new
+ * slot's profile is kept as an edit is, so the hire outlives a restart of
+ * either side, and its first appearance on the floor is marked as a new
+ * hire's. Hires on their way count against the floor's slots like slots on it.
+ *
  * Like the registry, everything here runs on Node's event loop, from an HTTP
  * request or this module's own sweep timer, and never inside a tick. The
  * slots reach the rooms through {@link LiveAgentSource}: a finished list, and
@@ -65,6 +72,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  type AgentProfile,
   ISSUE_STATE_REJECTION,
   type IssueState,
   type IssueStateRejection,
@@ -203,6 +211,8 @@ export interface RunnerLinkOptions {
   readonly now?: () => number;
   /** Command ids. Injected so a test can read them. */
   readonly commandId?: () => string;
+  /** The ids hired slots are given. Injected so a test can read them. */
+  readonly hiredSlotId?: () => string;
   /** Where every runner's standing tasks are mirrored for the rooms; none kept without it. */
   readonly standing?: StandingMirror;
   /** An open pull request's title on the project board, for a slot reviewing it; `undefined` when the board does not list it. */
@@ -303,6 +313,13 @@ interface Runner {
   changesIssues: boolean;
   /** When each slot's kept profile last went out again, by slot id. */
   readonly profileResentAt: Map<string, number>;
+  /** Slots hired into it that it has not reported yet, by id. */
+  readonly arriving: Set<string>;
+}
+
+/** A hire queued for a runner: where the new agent will be, and the command that asks for it. */
+export interface RunnerHire extends RunnerSlotRef {
+  readonly commandId: string;
 }
 
 /** A change to an issue's state sent to a runner, waiting for what came of it. */
@@ -336,6 +353,7 @@ function sameRecord(a: LiveAgentRecord, b: LiveAgentRecord): boolean {
     a.status === b.status &&
     a.activity === b.activity &&
     a.canTakeIssues === b.canTakeIssues &&
+    a.hired === b.hired &&
     a.task?.title === b.task?.title &&
     a.task?.url === b.task?.url
   );
@@ -429,6 +447,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
         standingNames: new Map(),
         changesIssues: false,
         profileResentAt: new Map(),
+        arriving: new Set(),
       };
       this.runners.set(sync.runnerId, runner);
     }
@@ -461,6 +480,9 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
     }
 
     const records = sync.slots.map((slot) => this.record(sync.runnerId, runner, slot));
+    for (const slot of sync.slots) {
+      runner.arriving.delete(slot.id);
+    }
     runner.slots = sync.slots;
     for (const slotId of runner.startedTitles.keys()) {
       if (!sync.slots.some((slot) => slot.id === slotId)) {
@@ -485,7 +507,9 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
    */
   public enqueue(runnerId: string, draft: RunnerCommandDraft): RunnerCommand | undefined {
     const runner = this.runners.get(runnerId);
-    if (runner === undefined || (isRunnerSlotCommand(draft) && !runner.slots.some((slot) => slot.id === draft.slotId))) {
+    // A hire is for a slot the runner does not have yet; every other slot command, for one it reported.
+    const reported = isRunnerSlotCommand(draft) && runner?.slots.some((slot) => slot.id === draft.slotId) === true;
+    if (runner === undefined || (isRunnerSlotCommand(draft) && reported === (draft.kind === RUNNER_COMMAND_KIND.hire))) {
       return undefined;
     }
     if (runner.outbox.size >= (this.options.maxPendingCommands ?? DEFAULT_MAX_PENDING_COMMANDS)) {
@@ -496,7 +520,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
       return undefined;
     }
     runner.outbox.set(command.id, command);
-    if (command.kind === RUNNER_COMMAND_KIND.profile) {
+    if (command.kind === RUNNER_COMMAND_KIND.profile || command.kind === RUNNER_COMMAND_KIND.hire) {
       const { name, title, description, requestedBy } = command;
       const kept = this.options.profiles?.get(runnerId, command.slotId);
       // A re-send is the kept edit itself, so the file is written for a new edit only.
@@ -507,7 +531,44 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
     if (command.kind === RUNNER_COMMAND_KIND.start) {
       runner.startedTitles.set(command.slotId, { issueNumber: command.issueNumber, title: command.title });
     }
+    if (command.kind === RUNNER_COMMAND_KIND.hire) {
+      runner.arriving.add(command.slotId);
+    }
     return command;
+  }
+
+  /**
+   * The runners' agents, on the floor or hired and on their way: what the
+   * cap on hiring counts.
+   */
+  public agentCount(): number {
+    let hires = 0;
+    for (const runner of this.runners.values()) {
+      hires += [...runner.outbox.values()].filter((command) => command.kind === RUNNER_COMMAND_KIND.hire).length;
+    }
+    return this.slotCount() + hires;
+  }
+
+  /**
+   * Hires an agent with this profile, for `requestedBy`: a `hire` command for
+   * a new slot, on the first runner with room for one.
+   *
+   * @returns where the agent will be, or `undefined` when no runner is
+   * connected, the floor holds {@link MAX_RUNNER_SLOTS} already, or the
+   * profile is not one a runner takes.
+   */
+  public hire(profile: AgentProfile, requestedBy: string): RunnerHire | undefined {
+    if (this.agentCount() >= MAX_RUNNER_SLOTS) {
+      return undefined;
+    }
+    for (const runnerId of this.runners.keys()) {
+      const slotId = this.options.hiredSlotId?.() ?? `hired-${randomUUID().slice(0, 8)}`;
+      const command = this.enqueue(runnerId, { kind: RUNNER_COMMAND_KIND.hire, slotId, ...profile, requestedBy });
+      if (command !== undefined) {
+        return { runnerId, slotId, commandId: command.id };
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -545,6 +606,20 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
    */
   public withdraw(runnerId: string, commandId: string): boolean {
     return this.runners.get(runnerId)?.outbox.delete(commandId) ?? false;
+  }
+
+  /**
+   * Gives up on a hire whose agent never came: its command taken back if the
+   * runner has not taken it, and the slot no longer awaited nor its profile
+   * kept, unless the runner has reported it after all.
+   */
+  public withdrawHire(hire: RunnerHire): void {
+    const runner = this.runners.get(hire.runnerId);
+    runner?.outbox.delete(hire.commandId);
+    runner?.arriving.delete(hire.slotId);
+    if (runner?.slots.some((slot) => slot.id === hire.slotId) !== true) {
+      this.options.profiles?.forget(hire.runnerId, hire.slotId);
+    }
   }
 
   /** Whether a connected runner closes and reopens issues on GitHub. */
@@ -810,6 +885,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
       canTakeIssues: true,
       // Its runner keeps its profile and prompts its agent with it.
       profileEditable: true,
+      ...(runner.arriving.has(slot.id) ? { hired: true } : {}),
     };
   }
 

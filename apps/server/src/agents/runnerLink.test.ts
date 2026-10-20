@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { isLiveAgentSource } from "./registry.js";
 import { RunnerLink, isRunnerEventSource, isRunnerSpendSource, runnerSlotAgentId } from "./runnerLink.js";
+import { MemoryRunnerProfiles } from "./runnerProfiles.js";
 
 const TIMEOUT_MS = 30_000;
 const REPO = "krasovsky22/agent-office-sims";
@@ -265,6 +266,94 @@ describe("RunnerLink commands", () => {
     link.sweep();
     expect(link.pending("runner-1")).toEqual([]);
     expect(link.sync(sync())).toEqual({ kind: "accepted", commands: [], standup: false });
+  });
+});
+
+describe("RunnerLink hiring", () => {
+  const NOVA = { name: "Nova", title: "Accessibility Specialist", description: "Makes the HUD readable." };
+
+  function hiringSetup() {
+    const profiles = new MemoryRunnerProfiles();
+    let nextSlot = 1;
+    let nextCommand = 1;
+    const link = new RunnerLink({
+      repository: REPO,
+      timeoutMs: TIMEOUT_MS,
+      commandId: () => `hire-${nextCommand++}`,
+      hiredSlotId: () => `hired-${nextSlot++}`,
+      profiles,
+    });
+    return { link, profiles };
+  }
+
+  it("asks a runner for a new slot with the profile, keeps the profile, and counts the hire before it arrives", () => {
+    const { link, profiles } = hiringSetup();
+    expect(link.hire(NOVA, "Dana")).toBeUndefined();
+    link.sync(sync());
+    expect(link.agentCount()).toBe(2);
+
+    expect(link.hire(NOVA, "Dana")).toEqual({ runnerId: "runner-1", slotId: "hired-1", commandId: "hire-1" });
+    expect(link.agentCount()).toBe(3);
+    expect(link.pending("runner-1")).toEqual([{ id: "hire-1", kind: "hire", slotId: "hired-1", ...NOVA, requestedBy: "Dana" }]);
+    expect(profiles.get("runner-1", "hired-1")).toEqual({ ...NOVA, requestedBy: "Dana" });
+  });
+
+  it("marks the new slot's first appearance as a new hire's, and only that one", () => {
+    const { link } = hiringSetup();
+    link.sync(sync());
+    link.hire(NOVA, "Dana");
+    const hired = { id: "hired-1", ...NOVA, status: "idle", issueNumber: undefined, activity: "", pr: undefined } as const;
+    const slots = [...sync().slots, hired];
+    link.sync(sync({ acked: ["hire-1"], slots }));
+    expect(link.agentCount()).toBe(3);
+    expect(link.current().find((record) => record.id === "runner:runner-1:hired-1")).toMatchObject({ name: "Nova", hired: true });
+    link.sync(sync({ slots }));
+    expect(link.current().find((record) => record.id === "runner:runner-1:hired-1")?.hired).toBeUndefined();
+  });
+
+  it("forgets a hire given up on, whether or not its runner took the command, but not a slot it reported", () => {
+    const { link, profiles } = hiringSetup();
+    link.sync(sync());
+    const waiting = link.hire(NOVA, "Dana");
+    const taken = link.hire({ ...NOVA, name: "Orla" }, "Dana");
+    if (waiting === undefined || taken === undefined) {
+      throw new Error("expected both hires to be queued");
+    }
+    link.sync(sync({ acked: [taken.commandId] }));
+    link.withdrawHire(waiting);
+    link.withdrawHire(taken);
+    expect(link.pending("runner-1")).toEqual([]);
+    expect(link.agentCount()).toBe(2);
+    expect(profiles.get("runner-1", waiting.slotId)).toBeUndefined();
+    expect(profiles.get("runner-1", taken.slotId)).toBeUndefined();
+
+    const late = { id: taken.slotId, ...NOVA, status: "idle", issueNumber: undefined, activity: "", pr: undefined } as const;
+    link.sync(sync({ slots: [...sync().slots, late] }));
+    expect(link.current().find((record) => record.id === `runner:runner-1:${taken.slotId}`)?.hired).toBeUndefined();
+
+    const reported = link.hire({ ...NOVA, name: "Pia" }, "Dana");
+    if (reported === undefined) {
+      throw new Error("expected the hire to be queued");
+    }
+    link.sync(sync({ acked: [reported.commandId], slots: [...sync().slots, late, { ...late, id: reported.slotId }] }));
+    link.withdrawHire(reported);
+    expect(profiles.get("runner-1", reported.slotId)).toMatchObject({ name: "Pia" });
+  });
+
+  it("hires nobody once the floor holds as many slots as it takes, hires on their way included", () => {
+    const { link } = hiringSetup();
+    link.sync(sync());
+    expect(link.hire(NOVA, "Dana")).toBeDefined();
+    expect(link.hire({ ...NOVA, name: "Orla" }, "Dana")).toBeDefined();
+    expect(link.agentCount()).toBe(4);
+    expect(link.hire({ ...NOVA, name: "Pia" }, "Dana")).toBeUndefined();
+  });
+
+  it("takes no hire for a slot the runner already reports, and no other command for one it does not", () => {
+    const { link } = hiringSetup();
+    link.sync(sync());
+    expect(link.enqueue("runner-1", { kind: "hire", slotId: "slot-1", ...NOVA, requestedBy: "Dana" })).toBeUndefined();
+    expect(link.enqueue("runner-1", { kind: "profile", slotId: "hired-9", ...NOVA, requestedBy: "Dana" })).toBeUndefined();
   });
 });
 

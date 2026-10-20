@@ -140,6 +140,7 @@ import { type StandingMirror, copyStandingTasks, isStandingSource } from "../age
 import type { ProjectBoardSource } from "../github/feed.js";
 import { type SimClock, createSimClock, stepClock } from "../sim/clock.js";
 import { type ManagerAdvisor, isManagerAdvisor } from "../manager/advisor.js";
+import { type AgentHiring, isAgentHiring } from "../manager/hire.js";
 import { type LiveAssignmentQueue, isLiveAssignmentQueue } from "../manager/liveAssignments.js";
 import { OfficeManager } from "../manager/officeManager.js";
 import { CoffeeCups } from "../sim/coffee.js";
@@ -229,6 +230,8 @@ export interface OfficeRoomOptions {
   readonly standing?: StandingMirror;
   /** Where a standup is said to be on, so the runners pause their agents; absent when no runner is configured. */
   readonly runnerStandup?: RunnerStandupHold;
+  /** Where the AI Manager hires new agents, with the office's cap on them; absent when no runner is configured. */
+  readonly agentHiring?: AgentHiring;
 }
 
 /** Reads the restriction label off the room's options, bounded for the same reason as the grace period. */
@@ -364,6 +367,9 @@ export class OfficeRoom extends Room<OfficeState> {
       work: this.state.work,
       say: (occupantId, text) => {
         this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
+      },
+      wave: (occupantId) => {
+        this.broadcast(SERVER_MESSAGE.emote, { occupantId, emote: EMOTE.wave } satisfies EmoteEvent);
       },
       random: Math.random,
     });
@@ -832,6 +838,7 @@ export class OfficeRoom extends Room<OfficeState> {
       floor: this.liveAgents,
       assignments,
       ...(this.standingControl === undefined ? {} : { standing: this.standingControl }),
+      ...(isAgentHiring(options?.agentHiring) ? { hiring: options.agentHiring } : {}),
       origin: this.roomId,
       publish: (entry) => {
         this.broadcast(SERVER_MESSAGE.managerEntry, entry satisfies ManagerEntry);

@@ -51,7 +51,7 @@ import { deskWorktrees } from "./deskWorktrees.js";
 import { NO_GITHUB, type TaskGithub, createTaskGithub, runCommand } from "./github.js";
 import { GITHUB_TOKEN_ENV, GithubAppCredentials, type GithubCredentials } from "./githubApp.js";
 import { PersonalGithubCredentials } from "./githubPersonal.js";
-import { FiredSlotStore } from "./firedSlots.js";
+import { SlotIdStore } from "./slotIds.js";
 import { ProfileStore } from "./profiles.js";
 import { IssueStateDesk, ghIssueState } from "./issueStates.js";
 import { createRedactor, runnerSecrets } from "./redact.js";
@@ -221,7 +221,8 @@ const pool = new SlotPool({
   agent,
   runnerId: config.runnerId,
   profiles: new ProfileStore({ file: join(config.dataDir, "profiles.json"), log }),
-  fired: new FiredSlotStore({ file: join(config.dataDir, "fired.json"), log }),
+  fired: new SlotIdStore({ file: join(config.dataDir, "fired.json"), list: "fired", log }),
+  hired: new SlotIdStore({ file: join(config.dataDir, "hired.json"), list: "hired", log }),
   workspaces,
   desks,
   taskTimeoutMs: config.taskTimeoutMs,

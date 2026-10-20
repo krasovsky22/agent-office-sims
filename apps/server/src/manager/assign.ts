@@ -69,7 +69,8 @@ export interface AssignContext {
   readonly note: string;
 }
 
-const REFUSAL_TEXT: Readonly<Record<WorkRejection, string>> = {
+/** Why the work's rules refused an assignment, as the manager says it. */
+export const REFUSAL_TEXT: Readonly<Record<WorkRejection, string>> = {
   [WORK_REJECTION.forbidden]: "only the CEO can hand out work",
   [WORK_REJECTION.unknownIssue]: "it is not open on the project board",
   [WORK_REJECTION.noWork]: "nobody is working it",

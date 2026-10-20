@@ -79,7 +79,13 @@
  * request and pushed branch go on GitHub. Firing the slot's agent, `fire`,
  * ends whatever the slot runs, discarding a task the same way, and takes the
  * slot out of the pool: it is reported no more and takes no command, and it
- * stays out across a restart, kept in `./firedSlots.ts`.
+ * stays out across a restart, kept in `./slotIds.ts`.
+ *
+ * The AI Manager can hire an agent for the CEO, `hire`: a new slot, under the
+ * id the server picked and with the profile it wrote, added to the pool up to
+ * {@link MAX_RUNNER_SLOTS} and kept, with its profile, across a restart, after
+ * the configured slots. From then on it is a slot like any other, given its
+ * task by an ordinary `start`, and fired the same way.
  */
 
 import { randomUUID } from "node:crypto";
@@ -88,6 +94,7 @@ import {
   AGENT_KEY_LABEL,
   type AgentProfile,
   MAX_NAME_LENGTH,
+  MAX_RUNNER_SLOTS,
   MAX_TITLE_LENGTH,
   MAX_WORK_NOTE_LENGTH,
   RUNNER_COMMAND_KIND,
@@ -116,7 +123,7 @@ import { systemPrompt } from "./agents/prompt.js";
 import type { Agent, AgentReporter, AgentRun, AgentSession } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { NO_GITHUB, type TaskGithub } from "./github.js";
-import type { FiredSlots } from "./firedSlots.js";
+import type { SlotIds } from "./slotIds.js";
 import type { AgentProfiles } from "./profiles.js";
 import { type Redactor, createRedactor } from "./redact.js";
 import { SCREEN_COLS, SCREEN_ROWS, ScreenMirror } from "./terminal.js";
@@ -165,6 +172,7 @@ type KeyCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.
 type ProfileCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.profile }>;
 type DeskResizeCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.deskResize }>;
 type FireCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.fire }>;
+type HireCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.hire }>;
 
 /** Why a standing run gave its slot up before it finished. */
 export const STANDING_SLOT_END = {
@@ -228,7 +236,9 @@ export interface SlotPoolOptions {
   /** Where the CEO's edits to the agents' profiles are kept; every agent keeps its default without it. */
   readonly profiles?: AgentProfiles;
   /** Where the slots whose agents were fired are kept, out of the pool; none is kept without it. */
-  readonly fired?: FiredSlots;
+  readonly fired?: SlotIds;
+  /** Where the slots the AI Manager hired agents into are kept, back in the pool at the next start; none is kept without it. */
+  readonly hired?: SlotIds;
   readonly workspaces: SlotWorkspaces;
   /** Where desk sessions work; without it, the slots are lent to no desk. */
   readonly desks?: DeskWorkspaces;
@@ -313,6 +323,8 @@ export class SlotPool {
   private standup = false;
   /** The slots whose agents were fired, by id, kept out of the pool. */
   private readonly firedIds: Set<string>;
+  /** The slots the AI Manager hired agents into, by id, in the order they were hired. */
+  private readonly hiredIds: Set<string>;
 
   public constructor(private readonly options: SlotPoolOptions) {
     this.redactor = options.redactor ?? createRedactor([]);
@@ -324,32 +336,43 @@ export class SlotPool {
     const now = Date.now();
     const kept = options.profiles?.load() ?? new Map<string, AgentProfile>();
     this.firedIds = new Set(options.fired?.load() ?? []);
-    this.slots = Array.from({ length: options.count }, (_, index) => {
-      const id = `slot-${index + 1}`;
+    const configured = Array.from({ length: options.count }, (_, index) => `slot-${index + 1}`);
+    this.hiredIds = new Set([...(options.hired?.load() ?? [])].filter((id) => !configured.includes(id) && !this.firedIds.has(id)));
+    // Each keeps the index its default name is picked by, whoever before it was fired.
+    const ids = [...configured, ...this.hiredIds].map((id, index) => ({ id, index })).filter(({ id }) => !this.firedIds.has(id));
+    // More than the server takes would have every sync refused, so the newest hires wait outside.
+    const left = ids.splice(MAX_RUNNER_SLOTS).map(({ id }) => id);
+    this.slots = ids.map(({ id, index }) => {
       const edited = kept.get(id);
-      const profile = edited ?? defaultAgentProfile(options.runnerId ?? "runner", index);
-      const screen = new ScreenMirror(now);
-      screen.write(`\u001b[2m${profile.name} is waiting for work.\u001b[0m\r\n`);
-      return {
-        id,
-        profile: { ...profile, name: fitBytes(profile.name, MAX_NAME_LENGTH) },
-        edited: edited !== undefined,
-        status: RUNNER_SLOT_STATUS.idle,
-        issueNumber: undefined,
-        activity: "",
-        pr: undefined,
-        run: undefined,
-        standing: undefined,
-        desk: undefined,
-        screen,
-        kept: [],
-      };
-    }).filter((slot) => !this.firedIds.has(slot.id));
+      return this.newSlot(id, edited ?? defaultAgentProfile(options.runnerId ?? "runner", index), edited !== undefined, now);
+    });
     if (this.firedIds.size > 0) {
       this.log(`fired, and so not on the floor: ${[...this.firedIds].join(", ")}`);
     }
+    if (left.length > 0) {
+      this.log(`hired, but not on the floor, which takes ${MAX_RUNNER_SLOTS} slots at most: ${left.join(", ")}`);
+    }
     const inPool = new Set(this.slots.map((slot) => slot.id));
     this.keptOutsidePool = new Map([...kept].filter(([id]) => !inPool.has(id)));
+  }
+
+  private newSlot(id: string, profile: AgentProfile, edited: boolean, now: number): Slot {
+    const screen = new ScreenMirror(now);
+    screen.write(`\u001b[2m${profile.name} is waiting for work.\u001b[0m\r\n`);
+    return {
+      id,
+      profile: { ...profile, name: fitBytes(profile.name, MAX_NAME_LENGTH) },
+      edited,
+      status: RUNNER_SLOT_STATUS.idle,
+      issueNumber: undefined,
+      activity: "",
+      pr: undefined,
+      run: undefined,
+      standing: undefined,
+      desk: undefined,
+      screen,
+      kept: [],
+    };
   }
 
   /** Each slot's id and terminal screen. */
@@ -517,6 +540,10 @@ export class SlotPool {
       this.discardKept(command.slotId, command.issueNumber);
       return;
     }
+    if (command.kind === RUNNER_COMMAND_KIND.hire) {
+      this.hire(command);
+      return;
+    }
     if (slot === undefined) {
       this.log(`command ${command.id} names no slot of ours (${command.slotId}); ignored`);
       return;
@@ -587,6 +614,30 @@ export class SlotPool {
   }
 
   /**
+   * Adds the slot the AI Manager hired an agent into, with the profile it
+   * wrote, idle until its task's `start`, and keeps both for the next start.
+   * Refused, with the reason logged, for an id this runner has had a slot by,
+   * or a pool already as large as the server takes.
+   */
+  private hire(command: HireCommand): void {
+    const by = command.requestedBy || "the CEO";
+    if (this.slots.some((slot) => slot.id === command.slotId) || this.firedIds.has(command.slotId) || this.hiredIds.has(command.slotId)) {
+      this.log(`hire of ${command.name} into ${command.slotId} for ${by} refused: this runner has had a slot by that id`);
+      return;
+    }
+    if (this.slots.length >= MAX_RUNNER_SLOTS) {
+      this.log(`hire of ${command.name} for ${by} refused: this runner has ${MAX_RUNNER_SLOTS} slots, the most the server takes`);
+      return;
+    }
+    const slot = this.newSlot(command.slotId, { name: command.name, title: command.title, description: command.description }, true, Date.now());
+    this.slots.push(slot);
+    this.hiredIds.add(slot.id);
+    this.options.hired?.save(this.hiredIds);
+    this.saveProfiles();
+    this.log(`${slot.id} hired: ${slot.profile.name}, ${slot.profile.title}, for ${by}`);
+  }
+
+  /**
    * Lets the slot's agent go: whatever it runs ends, a task discarded as a
    * cancelled one is, and the slot leaves the pool, so no sync reports it and
    * no command reaches it again, this run or the next.
@@ -602,6 +653,9 @@ export class SlotPool {
     this.slots.splice(this.slots.indexOf(slot), 1);
     this.firedIds.add(slot.id);
     this.options.fired?.save(this.firedIds);
+    if (this.hiredIds.delete(slot.id)) {
+      this.options.hired?.save(this.hiredIds);
+    }
   }
 
   /**
@@ -611,13 +665,17 @@ export class SlotPool {
   private setProfile(slot: Slot, command: ProfileCommand): void {
     slot.profile = { name: fitBytes(command.name, MAX_NAME_LENGTH), title: command.title, description: command.description };
     slot.edited = true;
-    this.options.profiles?.save(
-      new Map([...this.keptOutsidePool, ...this.slots.filter((each) => each.edited).map((each) => [each.id, each.profile] as const)]),
-    );
+    this.saveProfiles();
     const busy = slot.run !== undefined || slot.standing !== undefined;
     this.log(
       `${slot.id} is now ${slot.profile.name}, ${slot.profile.title}, as ${command.requestedBy || "the CEO"} asked` +
         (busy ? "; its agent's prompt changes from its next session" : ""),
+    );
+  }
+
+  private saveProfiles(): void {
+    this.options.profiles?.save(
+      new Map([...this.keptOutsidePool, ...this.slots.filter((each) => each.edited).map((each) => [each.id, each.profile] as const)]),
     );
   }
 

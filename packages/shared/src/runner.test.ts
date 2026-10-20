@@ -18,6 +18,7 @@ import {
   MAX_RUNNER_SLOTS,
   type RunnerWorkEvent,
   SIMULATED_PULL_REQUEST,
+  isRunnerSlotCommand,
   isRunnerWorkEvent,
   isSimulatedPullRequestArtifact,
   parseRunnerSync,
@@ -349,6 +350,14 @@ describe("toRunnerCommand", () => {
       description: "Keeps it green.\n\nNever skips the changelog.",
       requestedBy: "Dana",
     });
+  });
+
+  it("builds a hire command for a new slot, its profile sanitised as an edit's is, and refuses one with no name", () => {
+    expect(
+      toRunnerCommand("command-12", { kind: "hire", slotId: "hired-1", name: " Nova ", title: "Accessibility\nSpecialist", description: "Hired for #39.", requestedBy: "Dana" }),
+    ).toEqual({ id: "command-12", slotId: "hired-1", kind: "hire", name: "Nova", title: "Accessibility Specialist", description: "Hired for #39.", requestedBy: "Dana" });
+    expect(toRunnerCommand("command-13", { kind: "hire", slotId: "hired-1", name: " ", title: "Specialist", description: "", requestedBy: "" })).toBeUndefined();
+    expect(isRunnerSlotCommand({ kind: "hire" })).toBe(true);
   });
 
   it("builds the commands that lend a slot to a desk and take it back, sanitised", () => {

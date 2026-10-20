@@ -34,6 +34,8 @@ export interface RunnerProfiles {
   get(runnerId: string, slotId: string): KeptProfile | undefined;
   /** Keeps an edit, replacing the one kept for that slot. */
   keep(runnerId: string, slotId: string, profile: KeptProfile): void;
+  /** Drops the one kept for a slot that never came to be. */
+  forget(runnerId: string, slotId: string): void;
 }
 
 /** Kept in memory alone: for tests, and a server given nowhere to write. */
@@ -51,6 +53,10 @@ export class MemoryRunnerProfiles implements RunnerProfiles {
       this.kept.set(runnerId, slots);
     }
     slots.set(slotId, profile);
+  }
+
+  public forget(runnerId: string, slotId: string): void {
+    this.kept.get(runnerId)?.delete(slotId);
   }
 }
 
@@ -71,6 +77,11 @@ export class RunnerProfileFile extends MemoryRunnerProfiles {
 
   public override keep(runnerId: string, slotId: string, profile: KeptProfile): void {
     super.keep(runnerId, slotId, profile);
+    this.save();
+  }
+
+  public override forget(runnerId: string, slotId: string): void {
+    super.forget(runnerId, slotId);
     this.save();
   }
 

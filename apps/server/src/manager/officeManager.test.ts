@@ -30,14 +30,17 @@ import {
   WORK_STATUS,
   employManager,
   isAiManager,
+  liveAgentKey,
   workKey,
 } from "@sim/shared";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type LiveAgentRecord, LiveAgentRegistry, type LiveAgentSource } from "../agents/registry.js";
+import { runnerSlotAgentId } from "../agents/runnerLink.js";
 import type { WorkHost } from "../rooms/workHandlers.js";
 import { type ManagerAdvisor, type ManagerPlan, type ManagerPlanner, createManagerAdvisor } from "./advisor.js";
 import { LiveAssignmentQueue } from "./liveAssignments.js";
+import type { AgentHiring } from "./hire.js";
 import { MAX_WAITING_MESSAGES, OfficeManager } from "./officeManager.js";
 import { ADVICE_FAILURE } from "./plannerError.js";
 import { planFromRules } from "./rulePlanner.js";
@@ -88,6 +91,7 @@ function setUp(
   floor?: LiveAgentSource,
   /** What the office already holds when the manager arrives. */
   arrival?: (state: OfficeState) => void,
+  hiring?: AgentHiring,
 ) {
   const state = new OfficeState();
   const dana = player("session-dana", "Dana", true);
@@ -118,6 +122,7 @@ function setUp(
     liveAgents: queue,
     assignments: queue,
     ...(floor === undefined ? {} : { floor }),
+    ...(hiring === undefined ? {} : { hiring }),
     origin: "room-a",
     publish: (entry) => published.push(entry),
     updateIntervalMs,
@@ -177,6 +182,34 @@ describe("OfficeManager", () => {
       "Here's how that went:\n✓ #10 “Fix the login redirect loop” → Crewmate; queued for the orchestrator to hand over.",
     );
     expect(queue.collect()).toEqual([expect.objectContaining({ agentId: "crew-1", requestedBy: "Dana" })]);
+  });
+
+  it("hires an agent for the CEO, and gives it the issue once it has walked in", async () => {
+    let agents = 0;
+    const hiring: AgentHiring = {
+      cap: 1,
+      count: () => agents,
+      hire: () => {
+        agents += 1;
+        return { runnerId: "runner-1", slotId: "hired-1", commandId: "command-1" };
+      },
+      withdraw: () => undefined,
+    };
+    const { state, dana, office, published } = setUp(rules(), 20, undefined, undefined, hiring);
+    office.instruct(dana, "hire someone for #10");
+    await until(() => published.length === 2);
+    expect(published[1]?.text).toMatch(/^Here's how that went:\n✓ Hired \w+, Specialist for #10, for #10 “Fix the login redirect loop”; on the way in\.$/);
+
+    const hired = new LiveAgent();
+    hired.id = liveAgentKey(runnerSlotAgentId("runner-1", "hired-1"));
+    hired.name = "New hire";
+    hired.canTakeIssues = true;
+    state.occupants.set(hired.id, hired);
+    await until(() => published.some((entry) => entry.text.includes("is here and on #10")));
+    expect(state.work.get(workKey(10))?.assigneeId).toBe(hired.id);
+
+    office.instruct(dana, "hire someone for #11");
+    await until(() => published.some((entry) => entry.text.includes("the office is full")));
   });
 
   it("hands nothing out for a CEO who lost the role while it was thinking", async () => {

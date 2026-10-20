@@ -183,7 +183,8 @@ function readDraft(raw: Record<string, unknown>, slotId: string): RunnerCommandD
       const { key, requestedBy } = raw;
       return isAgentKey(key) && typeof requestedBy === "string" ? { kind, slotId, key, requestedBy } : undefined;
     }
-    case RUNNER_COMMAND_KIND.profile: {
+    case RUNNER_COMMAND_KIND.profile:
+    case RUNNER_COMMAND_KIND.hire: {
       const { name, title, description, requestedBy } = raw;
       if (typeof name !== "string" || typeof title !== "string" || typeof description !== "string" || typeof requestedBy !== "string") {
         return undefined;
