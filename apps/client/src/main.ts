@@ -8,14 +8,12 @@
  */
 
 import {
-  type AgentPromptEntry,
   ANIMATION_STATE,
   INTERACT_RANGE,
   INTERACTION_KIND,
   type InteractableSpec,
   LIVE_AGENT_STATUS,
   MANAGER_INTERACTABLE_ID,
-  type ManagerEntry,
   OFFICE_DECOR,
   OFFICE_LAYOUT,
   OFFICE_PROPS,
@@ -43,25 +41,24 @@ import {
   AGENT_MENU_RANGE,
   type AgentMenuView,
   type AgentSpot,
-  agentActionRejectionText,
   agentMenuFor,
   facedAgent,
 } from "./agentMenu.js";
-import { agentProfileAccessFor, agentProfileRejectionText } from "./agentProfileAccess.js";
-import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
+import { agentProfileAccessFor } from "./agentProfileAccess.js";
+import { agentPromptAccessFor } from "./agentPromptAccess.js";
 import { deskForbiddenText, deskPanelFor, deskScreenKey, sameDeskPanel } from "./deskTerminalAccess.js";
-import { standupAccessFor, standupRejectionText } from "./standupAccess.js";
-import { boardAccessFor, rejectionText } from "./boardAccess.js";
+import { standupAccessFor } from "./standupAccess.js";
+import { boardAccessFor } from "./boardAccess.js";
 import { browserStorage, readDebugEnabled, readPropsEnabled, readServerUrl, requireCanvas, requireHudMount } from "./browserEnv.js";
 import { DayClock } from "./dayClock.js";
 import { helpSeen, markHelpSeen } from "./help.js";
+import { hudRoomEvents } from "./hudRoomEvents.js";
 import { withOfficeWork } from "./projectBoard.js";
-import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
+import { managerAccessFor } from "./managerAccess.js";
 import { PendingIssueMoves } from "./pendingIssueMoves.js";
 import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
-import { keepAcceptedName, nameRejectionText, readPlayerName } from "./playerName.js";
-import { standingAccessFor, standingRejectionText } from "./standingAccess.js";
-import { THROTTLED_PLACE, throttledNotice } from "./throttledNotice.js";
+import { keepAcceptedName, readPlayerName } from "./playerName.js";
+import { standingAccessFor } from "./standingAccess.js";
 import { timedNotice } from "./timedNotice.js";
 import type { RemotePose } from "./net/poseBuffer.js";
 import { type OccupantView, RoomConnection } from "./net/room.js";
@@ -99,15 +96,6 @@ const MAX_FRAME_SECONDS = 0.1;
  * has nothing at the top worth keeping on the frame budget.
  */
 const CHAT_LOG_LIMIT = 50;
-
-/**
- * Lines of the conversation with the manager kept on the client: the server
- * keeps fewer than this, so it is only ever a guard against a runaway session.
- */
-const MANAGER_LOG_LIMIT = 200;
-
-/** Prompts typed into the agents' terminals kept on the client; the server hands a joiner fewer. */
-const AGENT_PROMPT_LIMIT = 100;
 
 /** How long a "you are going too fast" notice stays on the HUD. */
 const NOTICE_DURATION_MS = 2500;
@@ -260,14 +248,10 @@ function start(): void {
   };
 
   let nextChatId = 1;
-  let nextRefusalId = 1;
   // The agent whose key pad in the standup panel was last pressed, for a key the limiter dropped.
   let lastKeyAgentId = "";
   // The agent whose profile was last saved, for an edit the limiter dropped.
   let lastProfileAgentId = "";
-  // The agent whose terminal panel is open: the one watched at its screen, or the one lent to the CEO's desk.
-  const openTerminalAgentId = (): string | undefined =>
-    hud.terminalAgentId ?? (hud.desk === undefined || hud.desk.agentId === "" ? undefined : hud.desk.agentId);
   // The agent whose terminal the CEO opened from the roster's Answer button, from wherever they stand.
   let answeringAgentId: string | undefined;
   // The agents waiting on a person as of the last roster, so only one that has just started waiting chimes.
@@ -363,19 +347,27 @@ function start(): void {
   let askedName: string | undefined;
 
   const room: RoomConnection = new RoomConnection({
-    onStatusChanged: (status, detail) => {
-      publishHud({ status, detail });
-    },
+    ...hudRoomEvents({
+      publish: publishHud,
+      hud: () => hud,
+      notice: showNotice,
+      standupNotice: showStandupNotice,
+      nameOf: (id) => room.occupantName(id),
+      localId: () => room.sessionId,
+      restrictLabel: () => room.agentRestrictLabel(),
+      lastKeyAgentId: () => lastKeyAgentId,
+      lastProfileAgentId: () => lastProfileAgentId,
+    }),
     onLocalSpawn: (x, z, yaw) => {
       controller.teleport(x, z, yaw);
     },
+
     onOccupantsChanged: () => {
       if (askedName !== undefined && keepAcceptedName(browserStorage(), askedName, room.occupantName(room.sessionId))) {
         askedName = undefined;
       }
       const present = room.occupants();
       const ids = new Set<string>();
-
       for (const view of present) {
         ids.add(view.id);
         const caption = captionOf(view);
@@ -403,14 +395,12 @@ function start(): void {
           existing.setFired(view.fired);
         }
       }
-
       for (const [id, avatar] of avatars) {
         if (!ids.has(id)) {
           avatar.dispose();
           avatars.delete(id);
         }
       }
-
       const local = present.find((view) => view.isLocal);
       const ceo = present.find((view) => view.isCeo);
       publishHud({
@@ -438,7 +428,6 @@ function start(): void {
         agentProfileAccess: local === undefined ? undefined : agentProfileAccessFor(local, ceo?.name),
       });
       refreshStickerNotes();
-
       // Only the CEO can answer, so only the CEO's tab counts, chimes and notifies.
       const waiting = present.filter((view) => view.agentStatus === LIVE_AGENT_STATUS.needsInput);
       const ceoTab = local?.isCeo === true;
@@ -464,6 +453,7 @@ function start(): void {
     onJump: (event) => {
       avatars.get(event.occupantId)?.jump();
     },
+
     onEmote: (event) => {
       avatars.get(event.occupantId)?.showEmote(event.emote, performance.now());
     },
@@ -476,33 +466,6 @@ function start(): void {
         text: event.text,
         isLocal: event.occupantId === room.sessionId,
       });
-    },
-
-    onThrottled: (event) => {
-      const { place, text } = throttledNotice(event.command);
-      switch (place) {
-        case THROTTLED_PLACE.prompt:
-          publishHud({ agentPromptRefusal: { id: nextRefusalId++, agentId: openTerminalAgentId() ?? "", text } });
-          return;
-        case THROTTLED_PLACE.key:
-          publishHud({
-            agentPromptRefusal: { id: nextRefusalId++, agentId: openTerminalAgentId() ?? lastKeyAgentId, text, forKey: true },
-          });
-          return;
-        case THROTTLED_PLACE.profile:
-          publishHud({ agentProfileNotice: { id: nextRefusalId++, agentId: lastProfileAgentId, text } });
-          return;
-        case THROTTLED_PLACE.standup:
-          showStandupNotice(text);
-          return;
-        case THROTTLED_PLACE.notice:
-          showNotice(text);
-          return;
-      }
-    },
-
-    onWorkRejected: (event) => {
-      showNotice(rejectionText(event.rejection, room.agentRestrictLabel()));
     },
 
     onIssueStateResult: (event) => {
@@ -545,93 +508,6 @@ function start(): void {
       officeWork = work;
       showWallBoard();
       refreshStickerNotes();
-    },
-
-    onSpendChanged: (runnerSpend) => {
-      publishHud({ runnerSpend });
-    },
-
-    onStandingChanged: (standingTasks) => {
-      publishHud({ standingTasks });
-    },
-
-    onStandingRejected: (event) => {
-      showNotice(standingRejectionText(event.rejection));
-    },
-
-    // Handed over whole on every join, a reconnection included, so it replaces
-    // what this tab had rather than adding to it.
-    onManagerHistory: (entries) => {
-      publishHud({ managerLog: entries.slice(-MANAGER_LOG_LIMIT), managerUnread: 0 });
-    },
-
-    onManagerEntry: (entry) => {
-      if (hud.managerLog.some((line) => line.id === entry.id)) {
-        return;
-      }
-      const managerLog: readonly ManagerEntry[] = [...hud.managerLog, entry].slice(-MANAGER_LOG_LIMIT);
-      publishHud({ managerLog, managerUnread: hud.managerOpen ? 0 : hud.managerUnread + 1 });
-    },
-
-    onManagerRejected: (event) => {
-      showNotice(managerRejectionText(event.rejection));
-    },
-
-    // Handed over on every join, a reconnection included, so it replaces what this tab had.
-    onAgentPromptHistory: (entries) => {
-      publishHud({ agentPrompts: entries.slice(-AGENT_PROMPT_LIMIT) });
-    },
-
-    onAgentPrompted: (entry) => {
-      if (hud.agentPrompts.some((known) => known.id === entry.id)) {
-        return;
-      }
-      const agentPrompts: readonly AgentPromptEntry[] = [...hud.agentPrompts, entry].slice(-AGENT_PROMPT_LIMIT);
-      publishHud({ agentPrompts });
-    },
-
-    // Shown in the agent's terminal panel, and as a notice for a panel already closed.
-    onAgentPromptRejected: (event) => {
-      const agentName = room.occupantName(event.agentId) ?? "The agent";
-      const text =
-        event.key === undefined
-          ? agentPromptRejectionText(event.rejection, agentName)
-          : agentKeyRejectionText(event.rejection, agentName, event.key);
-      publishHud({ agentPromptRefusal: { id: nextRefusalId++, agentId: event.agentId, text, forKey: event.key !== undefined } });
-      // The standup panel says it under the agent's key pad, as the terminal panel does.
-      if (openTerminalAgentId() !== event.agentId && !hud.standup.active) {
-        showNotice(text);
-      }
-    },
-
-    onAgentActionRejected: (event) => {
-      showNotice(
-        agentActionRejectionText(event.rejection, room.occupantName(event.agentId) ?? "The agent", hud.roster.find((entry) => entry.isCeo)?.name),
-      );
-    },
-
-    // On the agent's profile card, where the edit was saved from.
-    onAgentProfileRejected: (event) => {
-      const text = agentProfileRejectionText(event, room.occupantName(event.agentId) ?? "The agent");
-      publishHud({ agentProfileNotice: { id: nextRefusalId++, agentId: event.agentId, text } });
-    },
-
-    onNameRejected: (event) => {
-      showNotice(nameRejectionText(event, room.occupantName(room.sessionId)));
-    },
-
-    onStandupChanged: (standup) => {
-      publishHud({ standup });
-    },
-
-    // In the standup panel while one is on, where the command came from; as a notice otherwise.
-    onStandupRejected: (event) => {
-      const text = standupRejectionText(event);
-      if (hud.standup.active) {
-        showStandupNotice(text);
-      } else {
-        showNotice(text);
-      }
     },
   });
 
