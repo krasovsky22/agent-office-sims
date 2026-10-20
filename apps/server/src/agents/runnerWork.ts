@@ -17,7 +17,7 @@
  * - Work the CEO cancelled stops the slot and has it discard the task: its
  *   worktree, branch and pull request go, whatever is in them.
  * - A slot holding an issue on which the office has no unfinished work of its
- *   own, as after the room was closed and opened again, is stopped too, by
+ *   own, as after the server restarted, is stopped too, by
  *   {@link RunnerWork.reconcile}: the office's work is the record of what each
  *   agent should be doing, and an agent nobody can see the work of could never
  *   be taken off it. What it had is kept in its worktree, as for any stop,

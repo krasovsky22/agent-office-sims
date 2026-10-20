@@ -28,7 +28,8 @@
  *
  * A player whose socket drops without leaving keeps their place, role
  * included, for {@link RECONNECT_GRACE_SECONDS}. Only a player who left on
- * purpose, or did not come back in time, is removed.
+ * purpose, or did not come back in time, is removed. The office itself stays
+ * open once the last player is gone: the agents' work lives in it.
  *
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
  * one feed polls GitHub on its own timer and is handed to every room as a room option;
@@ -259,6 +260,8 @@ function graceSecondsOf(options: Partial<OfficeRoomOptions> | undefined): number
 
 export class OfficeRoom extends Room<OfficeState> {
   public override maxClients = 16;
+  // Stays open with nobody in it, so the agents keep working while the CEO is away.
+  public override autoDispose = false;
 
   /** Server-only per-occupant bookkeeping, keyed by session id. */
   private readonly motions = new Map<string, OccupantMotion>();
@@ -722,7 +725,7 @@ export class OfficeRoom extends Room<OfficeState> {
       this.agentPrompts.receive(prompts);
     }
     // Once a second: a slot still holding work this room has no record of,
-    // as after the room was closed and opened again, is stopped, and a prompt
+    // as after the server restarted, is stopped, and a prompt
     // its runner never answered is given up on.
     if (this.state.tick % TICK_RATE_HZ === 0) {
       this.runnerWork?.reconcile();

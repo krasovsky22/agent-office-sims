@@ -525,7 +525,7 @@ the work, whoever gave it, the board or the manager:
 | moved back from `in_progress` to `assigned` | `stop`, then `start`: a fresh start |
 | unassigned, approved as `done`, or finished by GitHub closing the issue | `stop` |
 | cancelled by the CEO from the agent's menu | `stop` marked `discard`, and again, still marked, if the slot is seen holding the issue afterwards (its runner missed the first) |
-| none in the office, while the slot still holds the issue (the room was closed and opened again, say) | `stop`, checked once a second |
+| none in the office, while the slot still holds the issue (the server restarted, say) | `stop`, checked once a second |
 
 A slot given a `start` for the issue it already holds says again how far it
 got, `started` and its `pr-opened`, so work the office lost track of catches
@@ -1266,7 +1266,8 @@ Then confirm all twenty-five:
    left), and every tab's chat log announces who the new CEO is. A dropped
    connection is not a leave: the server holds the player's place, role
    included, for `RECONNECT_GRACE_SECONDS`, and the client reconnects as the
-   same person.
+   same person. Closing the last tab does not close the office: reopen it and
+   the board's work is still there, the agents still on it, and you are CEO.
 5. **An emote in one tab appears in the other.** Press `1`; the other tab shows
    it above that avatar within normal latency, and it clears after a couple of
    seconds. Say something and the bubble does the same, for longer, and the line

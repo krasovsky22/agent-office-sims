@@ -458,6 +458,26 @@ describe("the project board's work", () => {
 
     await dana.room.leave();
   });
+
+  it("is still there, and its next arrival the CEO, after the last player leaves", async () => {
+    const dana = await openOffice("Dana");
+    const room = serverRoom(dana);
+    seedWork(dana, 1, WORK_STATUS.in_progress);
+    const work = workOf(dana);
+
+    await dana.room.leave();
+    await settled(() => room.clients.length === 0);
+    // Past the second Colyseus waits before closing an empty room.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const milo = await joinOffice(dana, "Milo");
+    expect(serverRoom(milo)).toBe(room);
+    expect(workOf(milo)).toEqual(work);
+    expect(roleOf(milo, milo.room.sessionId)).toBe(PLAYER_ROLE.ceo);
+    expect(describeRoleProblems(room.state.occupants)).toEqual([]);
+
+    await milo.room.leave();
+  });
 });
 
 describe("the runners' books", () => {
