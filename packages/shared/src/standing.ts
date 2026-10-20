@@ -376,11 +376,11 @@ export interface PullState {
 
 /**
  * Whether a pull request's checks let the steward merge it: **every required
- * check green**. The checks that count are the ones the base branch requires,
- * or, where it requires none, every check on the head commit; a skipped one is
- * passed over, and at least one must have passed, so a pull request with no
- * checks at all is never merged. **The one rule** for a merge: the runner asks
- * it before it queues one and again just before it merges.
+ * check green, and no check failing**, required or not. Every check on the
+ * head commit counts; a skipped one is passed over, and at least one must
+ * have passed, so a pull request with no checks at all is never merged.
+ * **The one rule** for a merge: the runner asks it before it queues one and
+ * again just before it merges.
  *
  * @returns `undefined` when they do, or why not in a few words, and whether
  * it is only a check still running.
@@ -389,10 +389,9 @@ export function mergeGate(checks: readonly PullCheck[], truncated: boolean): { r
   if (truncated) {
     return { why: "it has more checks than the runner reads", pending: false };
   }
-  const required = checks.filter((check) => check.required);
-  const counted = (required.length > 0 ? required : checks).filter((check) => check.state !== "skipped");
+  const counted = checks.filter((check) => check.state !== "skipped");
   if (counted.length === 0) {
-    return { why: required.length > 0 ? "every required check was skipped" : "it has no checks", pending: false };
+    return { why: checks.length > 0 ? "every check was skipped" : "it has no checks", pending: false };
   }
   const failing = counted.find((check) => check.state === "fail");
   if (failing !== undefined) {
@@ -417,8 +416,8 @@ export type StewardStep =
    */
   | { readonly kind: "hold"; readonly why: string };
 
-/** The merge states GitHub would merge in: clean, a failing check that is not required, or pre-receive hooks. */
-const MERGEABLE_STATES: ReadonlySet<string> = new Set(["CLEAN", "UNSTABLE", "HAS_HOOKS"]);
+/** The merge states the steward merges in: clean, or pre-receive hooks; never `UNSTABLE`, a check failing. */
+const MERGEABLE_STATES: ReadonlySet<string> = new Set(["CLEAN", "HAS_HOOKS"]);
 
 /**
  * The steward's next step for an open pull request it has reviewed. A merge

@@ -57,7 +57,7 @@ import type { PlannedHire, StandingRole } from "./advisor.js";
 import { REFUSAL_TEXT } from "./assign.js";
 import type { OfficeView } from "./officeView.js";
 import { describeWork, resolveWork, titleLengthFor } from "./resolve.js";
-import { readHireSchedule } from "./standingPlan.js";
+import { asksToMerge, readHireSchedule } from "./standingPlan.js";
 
 /** How long a hired agent has to reach the floor before the manager gives up on it. */
 export const HIRE_ARRIVAL_MS = 60_000;
@@ -128,10 +128,12 @@ const ROLES: Readonly<Record<StandingRole, { readonly label: string; readonly ti
   },
 };
 
-/** The task a standing hire sets up, or why not: a scheduled job's schedule and instruction come from the CEO's message alone. */
+/** The task a standing hire sets up, or why not: a steward, and a scheduled job's schedule and instruction, come from the CEO's message alone. */
 function standingRequest(role: StandingRole, message: string): StandingRequest | string {
   if (role === "pr-steward") {
-    return { kind: STANDING_KIND.prSteward };
+    return asksToMerge(message)
+      ? { kind: STANDING_KIND.prSteward }
+      : "I only hire a pull request steward when you ask yourself for pull requests to be merged, like “hire someone to review, resolve conflicts and merge pull requests”.";
   }
   if (role === "pr-review") {
     return { kind: STANDING_KIND.prReview };

@@ -220,9 +220,12 @@ describe("carrying a standing plan out", () => {
     expect(carry("make the pull requests faster", "st-watch01")[0]).toMatch(/^✗ /);
     expect(carry("check the morning summary every 10 minutes", "st-morning")).toEqual(["✓ rescheduled"]);
     expect(carry("run the watch every weekday at 9", "st-watch01")[0]).toMatch(/^✗ A pull request task checks every so many minutes/);
-    expect(
-      carryOutStanding([{ action: "steward-pull-requests" }], { message: "", control, actor: { id: "ceo", kind: "human", isCeo: true }, ceoName: "Dana", view: VIEW }),
-    ).toEqual(["✓ set up"]);
+    const steward = (message: string): string[] =>
+      carryOutStanding([{ action: "steward-pull-requests" }], { message, control, actor: { id: "ceo", kind: "human", isCeo: true }, ceoName: "Dana", view: VIEW });
+    // A model's plan alone, steered by a pull request's title say, never switches merging on.
+    expect(steward("")[0]).toMatch(/^✗ I only set up the pull request steward when you ask yourself/);
+    expect(steward("what's open on the board?")[0]).toMatch(/^✗ /);
+    expect(steward("Please merge pull requests once their checks pass")).toEqual(["✓ set up"]);
     expect(calls).toEqual([
       ["st-morning", { cron: "0 8 * * *" }],
       ["st-watch01", { intervalSeconds: 600 }],

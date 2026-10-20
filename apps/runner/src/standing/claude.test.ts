@@ -113,9 +113,10 @@ function steward(state: PullState, conflicts: readonly string[] = []) {
     inspect: async () => state,
     merge: async (number, headSha) => {
       merged.push([number, headSha]);
+      return "squash";
     },
-    startMerge: async () => ({ conflicts, upToDate: false }),
-    finishMerge: async (_dir, _state, files) => {
+    startMerge: async () => ({ conflicts, upToDate: false, gitDir: "/scratch/.git" }),
+    finishMerge: async (_dir, _gitDir, _state, files) => {
       pushed.push(files);
       return "def5678";
     },
@@ -257,6 +258,10 @@ describe("the steward's merge", () => {
   it("merges nothing with a failed, running or missing check, asking the gate again on its own look", async () => {
     for (const checks of [
       [{ name: "ci", state: "fail", required: true }],
+      [
+        { name: "ci", state: "pass", required: true },
+        { name: "e2e", state: "fail", required: false },
+      ],
       [{ name: "ci", state: "pending", required: true }],
       [],
     ] as const) {

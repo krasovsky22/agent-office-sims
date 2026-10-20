@@ -129,19 +129,30 @@ describe("HireDesk: a standing hire", () => {
   });
 
   it("counts against the office's cap, and hires nobody when the task cannot be set up", () => {
-    const full = office({ agents: 4, cap: 4 });
+    const asked = "hire someone to merge pull requests";
+    const full = office({ agents: 4, cap: 4, message: asked });
     const { standing } = gate();
     expect(full.desk.carryOut([{ work: "", name: "", title: "", description: "", standing: "pr-steward" }], { ...full.context(), standing })).toEqual([
       expect.stringContaining("the office is full, with 4 of 4 coding agents"),
     ]);
     expect(full.hired).toEqual([]);
 
-    const taken = office();
+    const taken = office({ message: asked });
     const refused = gate("I'm already watching for new pull requests.");
     expect(taken.desk.carryOut([{ work: "", name: "", title: "", description: "", standing: "pr-steward" }], { ...taken.context(), standing: refused.standing })).toEqual([
       "✗ I'm already watching for new pull requests.",
     ]);
     expect(taken.hired).toEqual([]);
+  });
+
+  it("hires a steward only when the CEO's own message asks for merging pull requests", () => {
+    const { desk, context, hired } = office({ message: "Hire a reviewer for #40" });
+    const { standing, created } = gate();
+    expect(desk.carryOut([{ work: "", name: "", title: "", description: "", standing: "pr-steward" }], { ...context(), standing })).toEqual([
+      expect.stringMatching(/^✗ I only hire a pull request steward when you ask yourself for pull requests to be merged/),
+    ]);
+    expect(hired).toEqual([]);
+    expect(created).toEqual([]);
   });
 
   it("hires for a scheduled job only from the CEO's own words for it", () => {

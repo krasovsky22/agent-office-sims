@@ -179,20 +179,22 @@ describe("a new task from the wall board", () => {
 describe("the merge gate", () => {
   const check = (name: string, state: PullCheck["state"], required = false): PullCheck => ({ name, state, required });
 
-  it("merges only when every required check passed", () => {
-    expect(mergeGate([check("ci", "pass", true), check("lint", "fail")], false)).toBeUndefined();
+  it("merges only when every check passed, a failing one held whether required or not", () => {
+    expect(mergeGate([check("ci", "pass", true), check("lint", "pass")], false)).toBeUndefined();
+    expect(mergeGate([check("ci", "pass", true), check("lint", "fail")], false)).toEqual({ why: "the check “lint” failed", pending: false });
     expect(mergeGate([check("ci", "fail", true), check("lint", "pass")], false)).toEqual({ why: "the check “ci” failed", pending: false });
     expect(mergeGate([check("ci", "pending", true)], false)).toEqual({ why: "the check “ci” has not finished", pending: true });
+    expect(mergeGate([check("ci", "pass", true), check("e2e", "pending")], false)).toEqual({ why: "the check “e2e” has not finished", pending: true });
   });
 
-  it("counts every check when the branch requires none, passing over skipped ones", () => {
+  it("passes over skipped checks", () => {
     expect(mergeGate([check("ci", "pass"), check("deploy", "skipped")], false)).toBeUndefined();
-    expect(mergeGate([check("ci", "pass"), check("e2e", "fail")], false)?.why).toBe("the check “e2e” failed");
+    expect(mergeGate([check("ci", "skipped", true), check("lint", "pass")], false)).toBeUndefined();
   });
 
   it("never merges a pull request with no checks, only skipped ones, or more than it read", () => {
     expect(mergeGate([], false)).toEqual({ why: "it has no checks", pending: false });
-    expect(mergeGate([check("ci", "skipped", true)], false)).toEqual({ why: "every required check was skipped", pending: false });
+    expect(mergeGate([check("ci", "skipped", true)], false)).toEqual({ why: "every check was skipped", pending: false });
     expect(mergeGate([check("ci", "pass")], true)?.pending).toBe(false);
   });
 });
@@ -213,7 +215,15 @@ describe("the steward's next step", () => {
 
   it("merges a clean pull request whose required checks are green", () => {
     expect(stewardStep(green)).toEqual({ kind: "merge" });
-    expect(stewardStep({ ...green, mergeState: "UNSTABLE" })).toEqual({ kind: "merge" });
+    expect(stewardStep({ ...green, mergeState: "HAS_HOOKS" })).toEqual({ kind: "merge" });
+  });
+
+  it("never merges with a check failing that is not required, whatever GitHub's merge state says", () => {
+    const failing = { ...green, checks: [...green.checks, { name: "e2e", state: "fail", required: false }] } satisfies PullState;
+    expect(stewardStep(failing)).toEqual({ kind: "hold", why: "the check “e2e” failed" });
+    expect(stewardStep({ ...failing, mergeState: "UNSTABLE" }).kind).toBe("hold");
+    // A failing check GitHub reports but the runner did not read still holds it.
+    expect(stewardStep({ ...green, mergeState: "UNSTABLE" }).kind).toBe("wait");
   });
 
   it("resolves conflicts, or a branch behind its base, on the repository's own branches only", () => {

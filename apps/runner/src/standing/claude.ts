@@ -32,8 +32,8 @@
  *   commits only those files, refusing any left with a conflict marker, and
  *   pushes, never forced.
  * - **Merging**: no agent at all. The runner looks at the pull request again,
- *   asks `stewardStep` (every required check green), and merges it squashed
- *   with `--match-head-commit`, so only the commit whose checks it read can
+ *   asks `stewardStep` (every required check green, none failing), and merges
+ *   it in a method the repository allows with `--match-head-commit`, so only the commit whose checks it read can
  *   be merged.
  *
  * None ever waits on a person, and none but the steward's own two steps is
@@ -350,6 +350,7 @@ export function createClaudeStandingRunners(options: ClaudeStandingOptions): Sta
         const resolved = merged.conflicts.length === 0 ? "" : `, its conflicts in ${merged.conflicts.join(", ")} resolved by ${job.lease.slotName}`;
         const head = await options.steward.finishMerge(
           dir,
+          merged.gitDir,
           found,
           merged.conflicts,
           `Merge ${found.baseRef} into ${found.headRef}\n\nBy the office's agent runner for the standing task “${job.spec.name}”${resolved}.`,
@@ -385,13 +386,14 @@ export function createClaudeStandingRunners(options: ClaudeStandingOptions): Sta
         return { outcome: "skipped", costUsd: 0, message: `It is not merged: ${step.kind === "resolve" ? "its base has to be merged in first" : step.why}.` };
       }
       job.lease.activity(`Merging PR #${pr.number}`);
+      let method;
       try {
-        await options.steward.merge(pr.number, state.headSha);
+        method = await options.steward.merge(pr.number, state.headSha);
       } catch (error) {
         return { outcome: "failed", costUsd: 0, message: `The merge was refused on GitHub: ${(error as Error).message}` };
       }
       job.lease.output(`merged PR #${pr.number}\r\n`);
-      return { outcome: "merged", costUsd: 0, message: `Every required check was green at ${state.headSha.slice(0, 7)}, so it was squash-merged.` };
+      return { outcome: "merged", costUsd: 0, message: `Every required check was green at ${state.headSha.slice(0, 7)}, so it was ${method === "squash" ? "squash-merged" : method === "rebase" ? "rebased and merged" : "merged"}.` };
     },
 
     async schedule(job) {

@@ -4,7 +4,7 @@
  * committed only once its markers are gone and pushed only as a fast-forward.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { PullState } from "@sim/shared";
@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { type GitFixture, gitFixture } from "../gitFixture.js";
 import { runCommand } from "../github.js";
-import { createStewardGithub, readPullState } from "./steward.js";
+import { createStewardGithub, readMergeMethod, readPullState } from "./steward.js";
 
 describe("readPullState", () => {
   it("reads the merge state and each check, required or not", () => {
@@ -82,6 +82,17 @@ describe("readPullState", () => {
   });
 });
 
+describe("readMergeMethod", () => {
+  const allowed = (squashMergeAllowed: boolean, mergeCommitAllowed: boolean, rebaseMergeAllowed: boolean) =>
+    readMergeMethod({ data: { repository: { squashMergeAllowed, mergeCommitAllowed, rebaseMergeAllowed } } });
+
+  it("squashes where the repository allows it, and otherwise merges in a way it does allow", () => {
+    expect(allowed(true, true, true)).toBe("squash");
+    expect(allowed(false, true, true)).toBe("merge");
+    expect(allowed(false, false, true)).toBe("rebase");
+  });
+});
+
 describe("resolving a pull request's conflicts", () => {
   let fixture: GitFixture;
   let scratch: string;
@@ -135,20 +146,36 @@ describe("resolving a pull request's conflicts", () => {
 
   it("commits nothing with a conflict marker left in, then pushes the merge once resolved", async () => {
     const github = steward();
-    expect(await github.startMerge(scratch, 7, state)).toEqual({ conflicts: ["a.txt"], upToDate: false });
-    await expect(github.finishMerge(scratch, state, ["a.txt"], "Merge main into feature")).rejects.toThrow("a.txt still has conflict markers");
+    const started = await github.startMerge(scratch, 7, state);
+    expect(started).toEqual({ conflicts: ["a.txt"], upToDate: false, gitDir: expect.stringContaining("worktrees") });
+    await expect(github.finishMerge(scratch, started.gitDir, state, ["a.txt"], "Merge main into feature")).rejects.toThrow("a.txt still has conflict markers");
     expect(originFeature()).toBe(state.headSha);
 
     writeFileSync(join(scratch, "a.txt"), "main and feature\n");
-    const head = await github.finishMerge(scratch, state, ["a.txt"], "Merge main into feature");
+    const head = await github.finishMerge(scratch, started.gitDir, state, ["a.txt"], "Merge main into feature");
     expect(originFeature()).toBe(head);
     // A merge of the base onto the pull request's own head: a fast-forward of its branch.
     expect(fixture.git(fixture.origin, "rev-list", "--parents", "-n", "1", head).split(" ")).toContain(state.headSha);
   });
 
+  it("never lets the checkout's .git file, rewritten while the agent had it, choose the repository git uses", async () => {
+    const github = steward();
+    const { gitDir } = await github.startMerge(scratch, 7, state);
+    const decoy = join(fixture.root, "decoy");
+    fixture.git(fixture.root, "init", "--quiet", decoy);
+    const pwned = join(fixture.root, "pwned");
+    fixture.git(decoy, "config", "core.fsmonitor", `touch ${pwned}; false`);
+    writeFileSync(join(scratch, ".git"), `gitdir: ${join(decoy, ".git")}\n`);
+
+    writeFileSync(join(scratch, "a.txt"), "main and feature\n");
+    const head = await github.finishMerge(scratch, gitDir, state, ["a.txt"], "Merge main into feature");
+    expect(originFeature()).toBe(head);
+    expect(existsSync(pwned)).toBe(false);
+  });
+
   it("never overwrites a branch someone pushed to since it looked", async () => {
     const github = steward();
-    await github.startMerge(scratch, 7, state);
+    const { gitDir } = await github.startMerge(scratch, 7, state);
     const { developer, git } = fixture;
     git(developer, "checkout", "--quiet", "feature");
     writeFileSync(join(developer, "b.txt"), "more\n");
@@ -158,7 +185,7 @@ describe("resolving a pull request's conflicts", () => {
     const pushed = originFeature();
 
     writeFileSync(join(scratch, "a.txt"), "resolved\n");
-    await expect(github.finishMerge(scratch, state, ["a.txt"], "Merge main into feature")).rejects.toThrow();
+    await expect(github.finishMerge(scratch, gitDir, state, ["a.txt"], "Merge main into feature")).rejects.toThrow();
     expect(originFeature()).toBe(pushed);
   });
 

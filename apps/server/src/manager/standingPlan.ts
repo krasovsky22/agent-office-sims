@@ -33,7 +33,8 @@
  * set up from the CEO's own message, its schedule and instruction read from
  * it by {@link readSchedule}: never from a board's issue or pull request
  * title a model read and took for an order. A new schedule is read from the
- * CEO's own message the same way.
+ * CEO's own message the same way, and the steward, which pushes and merges
+ * unattended, only when the CEO's own message asks for merging pull requests.
  */
 
 import {
@@ -72,6 +73,12 @@ const MERGES = /\b(?:merg(?:e|es|ing|er)|auto-?merge|stewards?)\b/;
 
 /** Pull requests, by any name. */
 const PULLS = /\b(?:pull requests?|prs?)\b/;
+
+/** Whether the CEO's own message asks for pull requests to be merged: the only thing that may set the steward up. */
+export function asksToMerge(message: string): boolean {
+  const text = message.toLowerCase().replace(/\s+/g, " ");
+  return MERGES.test(text) && PULLS.test(text);
+}
 
 /** "run the morning summary every day at 8", "change the PR watch to every 10 minutes", "check pull requests every 10 minutes". */
 const RESCHEDULE =
@@ -476,6 +483,10 @@ export function carryOutStanding(actions: readonly PlannedStanding[], context: S
     switch (action.action) {
       case "watch-pull-requests":
       case "steward-pull-requests": {
+        if (action.action === "steward-pull-requests" && !asksToMerge(context.message)) {
+          lines.push("✗ I only set up the pull request steward when you ask yourself for pull requests to be merged, like “review, resolve conflicts and merge new pull requests”.");
+          break;
+        }
         const kind = action.action === "watch-pull-requests" ? STANDING_KIND.prReview : STANDING_KIND.prSteward;
         const result = control.create(context.actor, context.ceoName, { kind }, "");
         lines.push(result.ok ? result.text : `✗ ${result.text}`);

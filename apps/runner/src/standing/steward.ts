@@ -6,13 +6,16 @@
  *
  * The merge is never an agent's: the runner reads the checks itself, asks
  * `stewardStep` in `@sim/shared` (whose `mergeGate` wants every required
- * check green), and merges with `--match-head-commit`, so a push after its
+ * check green and none failing), and merges with `--match-head-commit`, in a
+ * method the repository allows, so a push after its
  * look can never be merged on the strength of the checks it read. An agent
  * resolving conflicts gets no GitHub identity and no shell; the runner
  * commits only the files that were in conflict, refuses any that still carry
  * conflict markers, and pushes without force, so a branch that moved since is
- * never overwritten. Git's hooks are off for all of it: they would be the
- * pull request's code running on the runner's machine.
+ * never overwritten. Git's hooks and fsmonitor are off for all of it: they
+ * would be the pull request's code running on the runner's machine; and once
+ * the agent has had the checkout, git is told its repository outright, never
+ * reading it off a `.git` file the agent could have rewritten.
  */
 
 import { readFileSync } from "node:fs";
@@ -42,6 +45,25 @@ const PULL_STATE_QUERY = `query($owner: String!, $name: String!, $number: Int!) 
     }
   }
 }`;
+
+/** Which merges the repository allows, so the steward merges in one of them. */
+const MERGE_METHODS_QUERY = `query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) { squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed }
+}`;
+
+export type MergeMethod = "squash" | "merge" | "rebase";
+
+/** The merge method to use off GitHub's answer: squashed where allowed, else a merge commit, else rebased. */
+export function readMergeMethod(raw: unknown): MergeMethod {
+  const repository = asRecord(asRecord(asRecord(raw)?.["data"])?.["repository"]);
+  if (repository?.["squashMergeAllowed"] !== true && repository?.["mergeCommitAllowed"] === true) {
+    return "merge";
+  }
+  if (repository?.["squashMergeAllowed"] !== true && repository?.["rebaseMergeAllowed"] === true) {
+    return "rebase";
+  }
+  return "squash";
+}
 
 /** A check run's or a status's result, as the merge gate counts it. */
 function checkState(node: Record<string, unknown>): PullCheck["state"] {
@@ -110,23 +132,34 @@ const CONFLICT_MARKER = /^(?:<{7}|>{7})(?: |$)|^={7}$/m;
 export interface StewardGithub {
   /** Rejects with why when GitHub could not be asked. */
   inspect(number: number): Promise<PullState>;
-  /** Merges it, squashed, if its head is still `headSha`; rejects with GitHub's why otherwise. */
-  merge(number: number, headSha: string): Promise<void>;
+  /**
+   * Merges it, in a method the repository allows, if its head is still
+   * `headSha`; rejects with GitHub's why otherwise.
+   *
+   * @returns the method it merged in.
+   */
+  merge(number: number, headSha: string): Promise<MergeMethod>;
   /**
    * Checks the pull request's head out in the scratch worktree `dir` and
    * merges its base in, uncommitted.
    *
-   * @returns the files left in conflict, none when it merged cleanly, and
-   * whether there was nothing to merge at all.
+   * @returns the files left in conflict, none when it merged cleanly,
+   * whether there was nothing to merge at all, and the worktree's own git
+   * directory, read before anyone else touches the checkout.
    */
-  startMerge(dir: string, number: number, state: PullState): Promise<{ readonly conflicts: readonly string[]; readonly upToDate: boolean }>;
+  startMerge(
+    dir: string,
+    number: number,
+    state: PullState,
+  ): Promise<{ readonly conflicts: readonly string[]; readonly upToDate: boolean; readonly gitDir: string }>;
   /**
    * Commits the merge with `files` as they are now, refusing any that still
-   * carry a conflict marker, and pushes it to the pull request's branch.
+   * carry a conflict marker, and pushes it to the pull request's branch,
+   * with git told `gitDir`, the one `startMerge` read, outright.
    *
    * @returns the new head commit.
    */
-  finishMerge(dir: string, state: PullState, files: readonly string[], message: string): Promise<string>;
+  finishMerge(dir: string, gitDir: string, state: PullState, files: readonly string[], message: string): Promise<string>;
 }
 
 export interface StewardGithubOptions {
@@ -141,14 +174,18 @@ export function createStewardGithub(options: StewardGithubOptions): StewardGithu
   const { repo, run } = options;
   const [owner, name] = repo.split("/");
   const gh = async (args: readonly string[]): Promise<string> => run("gh", args, { env: await options.env() });
-  /** Git in a scratch worktree, hooks off, and never looking above the folder the scratch worktrees are in. */
-  const git = async (dir: string, args: readonly string[]): Promise<string> =>
-    run("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+  /**
+   * Git in a scratch worktree, hooks and fsmonitor off, and never looking
+   * above the folder the scratch worktrees are in; given `gitDir`, never
+   * looking for its repository at all.
+   */
+  const git = async (dir: string, args: readonly string[], gitDir?: string): Promise<string> =>
+    run("git", [...(gitDir === undefined ? [] : ["--git-dir", gitDir, "--work-tree", dir]), "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", ...args], {
       cwd: dir,
       env: { ...(await options.env()), GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(dir) },
     });
-  const unmerged = async (dir: string): Promise<string[]> =>
-    (await git(dir, ["diff", "--name-only", "--diff-filter=U", "-z"])).split("\u0000").filter((path) => path !== "");
+  const unmerged = async (dir: string, gitDir?: string): Promise<string[]> =>
+    (await git(dir, ["diff", "--name-only", "--diff-filter=U", "-z"], gitDir)).split("\u0000").filter((path) => path !== "");
 
   return {
     async inspect(number) {
@@ -157,13 +194,17 @@ export function createStewardGithub(options: StewardGithubOptions): StewardGithu
     },
 
     async merge(number, headSha) {
-      await gh(["pr", "merge", String(number), "--repo", repo, "--squash", "--match-head-commit", headSha]);
+      const out = await gh(["api", "graphql", "-f", `query=${MERGE_METHODS_QUERY}`, "-F", `owner=${owner}`, "-F", `name=${name}`]);
+      const method = readMergeMethod(JSON.parse(out) as unknown);
+      await gh(["pr", "merge", String(number), "--repo", repo, `--${method}`, "--match-head-commit", headSha]);
+      return method;
     },
 
     async startMerge(dir, number, state) {
       if (state.crossRepository || !BRANCH.test(state.headRef) || !BRANCH.test(state.baseRef)) {
         throw new Error(`PR #${number}'s branches are not ones the runner pushes to`);
       }
+      const gitDir = await git(dir, ["rev-parse", "--absolute-git-dir"]);
       await git(dir, ["fetch", "--no-tags", "origin", `refs/heads/${state.baseRef}`]);
       const base = await git(dir, ["rev-parse", "FETCH_HEAD"]);
       await git(dir, ["fetch", "--no-tags", "origin", `refs/pull/${number}/head`]);
@@ -174,17 +215,17 @@ export function createStewardGithub(options: StewardGithubOptions): StewardGithu
       await git(dir, ["checkout", "--quiet", "--detach", head]);
       try {
         const out = await git(dir, ["merge", "--no-ff", "--no-commit", base]);
-        return { conflicts: [], upToDate: /already up to date/i.test(out) };
+        return { conflicts: [], upToDate: /already up to date/i.test(out), gitDir };
       } catch (error) {
         const conflicts = await unmerged(dir);
         if (conflicts.length === 0) {
           throw error;
         }
-        return { conflicts, upToDate: false };
+        return { conflicts, upToDate: false, gitDir };
       }
     },
 
-    async finishMerge(dir, state, files, message) {
+    async finishMerge(dir, gitDir, state, files, message) {
       for (const file of files) {
         const path = headPath(dir, file);
         if (path === undefined) {
@@ -202,18 +243,18 @@ export function createStewardGithub(options: StewardGithubOptions): StewardGithu
         }
       }
       if (files.length > 0) {
-        await git(dir, ["add", "--all", "--", ...files]);
+        await git(dir, ["add", "--all", "--", ...files], gitDir);
       }
-      const left = await unmerged(dir);
+      const left = await unmerged(dir, gitDir);
       if (left.length > 0) {
         throw new Error(`still in conflict: ${left.join(", ")}`);
       }
-      const email = await git(dir, ["config", "user.email"]).catch(() => "");
+      const email = await git(dir, ["config", "user.email"], gitDir).catch(() => "");
       const who = email === "" ? ["-c", "user.name=Agent office runner", "-c", "user.email=runner@agent-office-sims.invalid"] : [];
-      await git(dir, [...who, "commit", "--quiet", "--no-verify", "-m", message]);
+      await git(dir, [...who, "commit", "--quiet", "--no-verify", "-m", message], gitDir);
       // Never forced: a branch someone pushed to since is refused, and looked at again.
-      await git(dir, ["push", "--quiet", "--no-verify", "origin", `HEAD:refs/heads/${state.headRef}`]);
-      return git(dir, ["rev-parse", "HEAD"]);
+      await git(dir, ["push", "--quiet", "--no-verify", "origin", `HEAD:refs/heads/${state.headRef}`], gitDir);
+      return git(dir, ["rev-parse", "HEAD"], gitDir);
     },
   };
 }

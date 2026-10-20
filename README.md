@@ -1379,27 +1379,33 @@ the project board's repository.
 The steward reviews each new pull request, as the watch does, and leaves the
 ones open when it was set up alone, as the watch does. An outside
 contributor's is never pushed to or merged, whatever else; a draft waits
-until it is ready. Then, on every check, for each pull request it has
+until it is ready. The AI Manager sets one up, or hires for one, only when
+the CEO's own message asks for pull requests to be merged, never on a
+model's plan alone. Then, on every check, for each pull request it has
 reviewed that is still open, the runner reads GitHub's merge state and every
 check on its head commit, required or not (one GraphQL call,
 `apps/runner/src/standing/steward.ts`), and `stewardStep` in
 `packages/shared/src/standing.ts` decides:
 
-- **Merge**, only when **every required check is green**: the checks the
-  base branch requires, or every check on the head where it requires none;
-  a skipped one is passed over, and at least one must have passed, so a pull
-  request with no checks, a check failing or a check still running is never
-  merged (`mergeGate`). GitHub's own merge state must agree as well (`CLEAN`,
-  or `UNSTABLE` for a failing check that is not required), so a required
-  check that has not even reported yet holds it too. The merge is the
-  runner's, never an agent's: it looks again just before, asks the gate
-  again on that look, and merges squashed with `gh pr merge --squash
-  --match-head-commit <the head it read>`, so a push after its look is never
-  merged on the strength of the checks it read.
+- **Merge**, only when **every required check is green and no check is
+  failing**: every check on the head counts, required or not; a skipped one
+  is passed over, and at least one must have passed, so a pull request with
+  no checks, any check failing or a check still running is never merged
+  (`mergeGate`). GitHub's own merge state must agree as well (`CLEAN`, never
+  `UNSTABLE`, GitHub's word for a failing check that is not required), so a
+  required check that has not even reported yet holds it too. The merge is
+  the runner's, never an agent's: it looks again just before, asks the gate
+  again on that look, and merges with `gh pr merge --match-head-commit <the
+  head it read>`, squashed where the repository allows it and otherwise as a
+  merge commit or rebased, whichever it allows, so a push after its look is
+  never merged on the strength of the checks it read.
 - **Resolve**, for a pull request in conflict with its base, or behind it
   where the base branch's rules want it up to date. The runner checks the
   pull request's branch out in a scratch worktree (`refs/pull/<n>/head`,
-  checked to be the head it read), git's hooks off, and merges the base in.
+  checked to be the head it read), git's hooks and fsmonitor off, and merges
+  the base in; once the agent has had the checkout, git is told the
+  worktree's repository outright rather than reading the `.git` file the
+  agent could have rewritten.
   Where that conflicts, an agent resolves the conflicted files with the
   review's restrictions and `Edit` and `Write` (`--restricted
   --strict-mcp-config --tools Read,Grep,Glob,Edit,Write --permission-mode
