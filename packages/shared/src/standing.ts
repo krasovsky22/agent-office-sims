@@ -29,6 +29,7 @@
 import { MAX_MANAGER_MESSAGE_LENGTH } from "./constants.js";
 import { parseCron, scheduleRefusal } from "./cron.js";
 import { sanitizeManagerText, sanitizeTitle } from "./messages.js";
+import { asRecord, truncate } from "./text.js";
 import type { OfficeActor } from "./work.js";
 
 /** What a standing task does. */
@@ -172,11 +173,7 @@ export const PR_REVIEW_TASK_NAME = "Watch for new pull requests";
 
 /** A task name, one line of at most {@link MAX_STANDING_NAME_LENGTH} code points. */
 export function sanitizeStandingName(raw: unknown): string {
-  return Array.from(sanitizeTitle(raw)).slice(0, MAX_STANDING_NAME_LENGTH).join("").trim();
-}
-
-function asRecord(raw: unknown): Record<string, unknown> | undefined {
-  return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
+  return truncate(sanitizeTitle(raw), MAX_STANDING_NAME_LENGTH).trim();
 }
 
 function inRange(value: unknown, min: number, max: number): value is number {

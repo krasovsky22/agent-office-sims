@@ -18,6 +18,7 @@
  */
 
 import { MAX_RUNNER_SLOTS, isRunnerName } from "./runner.js";
+import { asRecord, replaceControls } from "./text.js";
 
 /** The route a runner posts its screens to, on the game server. */
 export const RUNNER_SCREENS_PATH = "/agents/runner/screens";
@@ -159,22 +160,10 @@ export const MAX_SCREEN_HISTORY = 500;
  */
 export const MAX_SCREEN_TEXT_PER_COL = 4;
 
-/**
- * C0 and C1 controls and DEL, which would make a run move or restyle what it
- * is drawn on, and the bidirectional overrides, which would make a row read
- * in an order other than its cells'.
- */
-// eslint-disable-next-line no-control-regex -- matching control characters is the point
-const SCREEN_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
-
 /** A row index as a JSON key: a whole number with no leading zero. */
 const ROW_KEY = /^(?:0|[1-9][0-9]*)$/;
 
 const ALL_FLAGS = SCREEN_FLAG_BOLD | SCREEN_FLAG_INVERSE | SCREEN_FLAG_DIM;
-
-function asRecord(raw: unknown): Record<string, unknown> | undefined {
-  return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
-}
 
 function isWholeNumberIn(value: unknown, min: number, max: number): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
@@ -188,9 +177,12 @@ export function isScreenColor(value: unknown): value is number {
   );
 }
 
-/** A run's text with every control character taken out. */
+/**
+ * A run's text with every control character taken out: a control would move
+ * or restyle what the run is drawn on, a bidi mark read the row out of order.
+ */
 export function stripScreenControls(text: string): string {
-  return text.replace(SCREEN_CONTROL_CHARACTERS, "");
+  return replaceControls(text, "");
 }
 
 /**

@@ -21,7 +21,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-import { type AgentProfile, isRunnerName, parseAgentProfile, sanitizeName } from "@sim/shared";
+import { type AgentProfile, asRecord, isRunnerName, parseAgentProfile, sanitizeName } from "@sim/shared";
 
 /** A profile as the CEO edited it, with who did, so the runner hears it again in the same words. */
 export interface KeptProfile extends AgentProfile {
@@ -123,8 +123,4 @@ export class RunnerProfileFile extends MemoryRunnerProfiles {
       this.log(`could not save the agents' profiles to ${file}: ${(error as Error).message}`);
     }
   }
-}
-
-function asRecord(raw: unknown): Record<string, unknown> | undefined {
-  return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
 }

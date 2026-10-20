@@ -15,6 +15,7 @@ import { MAX_AGENT_DESCRIPTION_BYTES } from "./agentProfile.js";
 import { MAX_AGENT_PROMPT_LENGTH, MAX_CHAT_LENGTH } from "./constants.js";
 import {
   EMOTE,
+  MAX_TITLE_LENGTH,
   EMOTES,
   parseAgentKeyMessage,
   parseAgentProfileMessage,
@@ -25,7 +26,9 @@ import {
   parseInteractMessage,
   parsePoseMessage,
   sanitizeChatText,
+  sanitizeName,
   sanitizePromptText,
+  sanitizeTitle,
 } from "./messages.js";
 import { MAX_SCREEN_COLS, MAX_SCREEN_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS } from "./screens.js";
 import { ANIMATION_STATE } from "./state.js";
@@ -87,6 +90,20 @@ describe("sanitizeChatText", () => {
   it("returns nothing for a value that is not a string", () => {
     expect(sanitizeChatText(42)).toBe("");
     expect(sanitizeChatText(undefined)).toBe("");
+  });
+});
+
+describe("the one-line sanitizers", () => {
+  it("strip C1 controls and the bidi marks from a name, a chat line and a title", () => {
+    for (const sanitize of [sanitizeName, sanitizeChatText, sanitizeTitle]) {
+      expect(sanitize("ab\u202ecd\u2066e\u0085f\u200eg")).toBe("ab cd e f g");
+    }
+  });
+
+  it("cut a title between emoji, never inside one", () => {
+    const title = sanitizeTitle(`a${"\u{1f600}".repeat(MAX_TITLE_LENGTH)}`);
+    expect(Array.from(title)).toHaveLength(MAX_TITLE_LENGTH);
+    expect(title.endsWith("\u{1f600}")).toBe(true);
   });
 });
 

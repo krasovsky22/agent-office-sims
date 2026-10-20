@@ -1,6 +1,7 @@
 /** The contract both the browser client and the Colyseus server import. */
 
 export * from "./constants.js";
+export * from "./text.js";
 export * from "./layout.js";
 export * from "./decor.js";
 export * from "./props.js";

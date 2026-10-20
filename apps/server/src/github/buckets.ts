@@ -25,8 +25,11 @@ import {
   MAX_ITEM_LABELS,
   MAX_LABEL_LENGTH,
   type ProjectBoardLists,
+  asRecord,
+  isIssueNumber,
   sanitizeBody,
   sanitizeTitle,
+  truncate,
 } from "@sim/shared";
 
 /**
@@ -59,14 +62,6 @@ export interface PullRequestDetail {
   readonly checks: CheckStatus;
 }
 
-function asRecord(raw: unknown): Record<string, unknown> | undefined {
-  return typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : undefined;
-}
-
-function isIssueNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
-}
-
 function loginOf(raw: unknown): string | undefined {
   const login = asRecord(raw)?.["login"];
   if (typeof login !== "string") {
@@ -88,7 +83,7 @@ const LABEL_COLOUR = /^[0-9a-f]{6}$/i;
  */
 function labelOf(raw: unknown): BoardLabel | undefined {
   const record = asRecord(raw);
-  const name = sanitizeTitle(record === undefined ? raw : record["name"]).slice(0, MAX_LABEL_LENGTH).trim();
+  const name = truncate(sanitizeTitle(record === undefined ? raw : record["name"]), MAX_LABEL_LENGTH).trim();
   if (name === "") {
     return undefined;
   }
