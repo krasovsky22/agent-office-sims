@@ -11,9 +11,7 @@ import {
   type Emote,
   NO_STANDUP,
   type ManagerEntry,
-  type ManagerStatus,
   OCCUPANT_KIND,
-  type OccupantKind,
   type ProjectBoardSnapshot,
   type RunnerSpendTotal,
   type StandingCreateMessage,
@@ -33,7 +31,7 @@ import type { DeskPanelView } from "../deskTerminalAccess.js";
 import type { ManagerAccess } from "../managerAccess.js";
 import type { IssueMove } from "../projectBoard.js";
 import type { StandingAccess, StandingTaskData } from "../standingAccess.js";
-import type { ConnectionStatus } from "../net/room.js";
+import type { ConnectionStatus, OccupantHudFields } from "../net/room.js";
 import { CAMERA_MODE, type CameraMode } from "../player/cameraMode.js";
 import type { StandupAccess } from "../standupAccess.js";
 import type { AgentMenuActions } from "./AgentMenu.js";
@@ -43,30 +41,14 @@ import type { ManagerPanelActions } from "./ManagerPanel.js";
 import type { ProjectBoardActions } from "./ProjectBoardPanel.js";
 import type { StandupActions } from "./StandupPanel.js";
 
-export interface RosterEntry {
+/** One occupant on the roster: its {@link OccupantHudFields}, and what the HUD makes of them. */
+export interface RosterEntry extends Readonly<OccupantHudFields> {
   readonly id: string;
-  readonly name: string;
-  readonly kind: OccupantKind;
-  readonly isCeo: boolean;
   readonly isLocal: boolean;
   /** A live agent's status and task, `""` for anyone else. */
   readonly caption: string;
   /** Whether a live agent is stuck until a person acts. */
   readonly needsInput: boolean;
-  /** The task's issue or pull request, `""` when not known. The server only passes `https:`. */
-  readonly taskUrl: string;
-  /** What the manager assigned a live agent next, `""` when nothing. Only `https:`. */
-  readonly assignedUrl: string;
-  /** Whether a live agent can be given issue work; `false` for anyone else. */
-  readonly canTakeIssues: boolean;
-  /** A live agent's title, `""` when it has none and for anyone else. */
-  readonly title: string;
-  /** A live agent's description, its system prompt with the title; `""` when none. */
-  readonly description: string;
-  /** Whether a live agent's profile can be edited from the office; `false` for anyone else. */
-  readonly profileEditable: boolean;
-  /** The AI manager's status; `undefined` for anyone else. */
-  readonly managerStatus: ManagerStatus | undefined;
 }
 
 /**

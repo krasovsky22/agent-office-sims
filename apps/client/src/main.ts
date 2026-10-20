@@ -384,7 +384,7 @@ function start(): void {
         if (existing === undefined) {
           const avatar = new Avatar({
             name: view.name,
-            title: view.agentTitle,
+            title: view.title,
             kind: view.kind,
             isCeo: view.isCeo,
             isLocal: view.isLocal,
@@ -397,7 +397,7 @@ function start(): void {
           scene.add(avatar.group);
           avatars.set(view.id, avatar);
         } else {
-          existing.setLabel(view.name, view.isCeo, caption, view.agentTitle);
+          existing.setLabel(view.name, view.isCeo, caption, view.title);
           existing.setManagerStatus(view.managerStatus);
           existing.setNeedsInput(needsInput);
           existing.setFired(view.fired);
@@ -413,20 +413,9 @@ function start(): void {
       const ceo = present.find((view) => view.isCeo);
       publishHud({
         roster: present.map((view) => ({
-          id: view.id,
-          name: view.name,
-          kind: view.kind,
-          isCeo: view.isCeo,
-          isLocal: view.isLocal,
+          ...view,
           caption: captionOf(view),
           needsInput: view.agentStatus === LIVE_AGENT_STATUS.needsInput,
-          taskUrl: view.taskUrl,
-          assignedUrl: view.assignedUrl,
-          canTakeIssues: view.canTakeIssues,
-          title: view.agentTitle,
-          description: view.agentDescription,
-          profileEditable: view.profileEditable,
-          managerStatus: view.managerStatus,
         })),
         boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name, room.issuesWritable()),
         managerAccess: local === undefined ? undefined : managerAccessFor(local, ceo?.name),

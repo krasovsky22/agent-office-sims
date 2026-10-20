@@ -49,7 +49,6 @@ import {
   type AnimationState,
   type DeskTerminal,
   NO_STANDUP,
-  type IssueWork,
   type LiveAgentStatus,
   type ManagerStatus,
   OFFICE_ROOM_NAME,
@@ -60,16 +59,12 @@ import {
   type RunnerSpendTotal,
   SERVER_MESSAGE,
   type ScreenFramesEvent,
-  type Standup,
-  type StandupData,
-  type WorkData,
   isAiManager,
   isCeo,
   isLiveAgent,
 } from "@sim/shared";
 import { Client, ErrorCode, MatchMakeError, type Room, getStateCallbacks } from "colyseus.js";
 
-import { copyStandingTask } from "../standingAccess.js";
 import { type PoseSample, type RemotePose, pushPose, samplePoses } from "./poseBuffer.js";
 import { RoomCommands } from "./roomCommands.js";
 import { type RoomConnectionEvents, forwardServerEvents } from "./roomEvents.js";
@@ -87,41 +82,32 @@ export type ConnectionStatus =
 const RECONNECT_RETRY_MS = 1000;
 
 /**
- * What the HUD and the avatar layer need to know about an occupant.
+ * What the HUD renders of an occupant, read off its replicated state.
  *
- * Mutated in place as patches arrive rather than replaced, so the game loop can
- * read one every frame without allocating. Only the fields the HUD renders
- * trigger an `onOccupantsChanged`; `interactableId` and `animation` change far
- * too often for that and are read from the loop instead.
+ * The one list of these fields: {@link hudFieldsOf} builds them, a change to
+ * any of them is what triggers an `onOccupantsChanged`, and the HUD's roster
+ * entry is typed from them.
  */
-export interface OccupantView {
-  readonly id: string;
+export interface OccupantHudFields {
   name: string;
   kind: OccupantKind;
   isCeo: boolean;
-  readonly isLocal: boolean;
-  /** Interactable this occupant is engaged with, or `""` when free. */
-  interactableId: string;
-  /** As replicated, so a seated agent can be drawn typing rather than just sitting. */
-  animation: AnimationState;
-  /** Sips left in the coffee in hand, `0` for no cup; each drop is a sip. */
-  coffeeSips: number;
   /** A live coding agent's status, or `undefined` for anyone else. */
   agentStatus: LiveAgentStatus | undefined;
-  /** A live agent's task title and link, `""` when it has none. */
+  /** A live agent's task title and link, `""` when it has none. The server only passes `https:` links. */
   taskTitle: string;
   taskUrl: string;
   /** What a live agent is doing, or waits on while it needs input; `""` when unknown. */
   agentActivity: string;
-  /** What the manager has assigned a live agent next, `""` when nothing. */
+  /** What the manager has assigned a live agent next, `""` when nothing. Only `https:` links. */
   assignedTitle: string;
   assignedUrl: string;
   /** Whether a live agent can be given issue work; `false` for anyone else. */
   canTakeIssues: boolean;
   /** A live agent's title, `""` when it has none and for anyone else. */
-  agentTitle: string;
+  title: string;
   /** A live agent's description, its system prompt with the title; `""` when none. */
-  agentDescription: string;
+  description: string;
   /** Whether the CEO can edit a live agent's profile from the office; `false` for anyone else. */
   profileEditable: boolean;
   /** Whether a live agent was fired and is walking out; `false` for anyone else. */
@@ -130,6 +116,57 @@ export interface OccupantView {
   carriedIssue: number;
   /** The AI manager's status, or `undefined` for anyone else. */
   managerStatus: ManagerStatus | undefined;
+}
+
+/** Reads the {@link OccupantHudFields} off an occupant as replicated. */
+export function hudFieldsOf(occupant: Occupant): OccupantHudFields {
+  const agent = isLiveAgent(occupant) ? occupant : undefined;
+  return {
+    name: occupant.name,
+    kind: occupant.kind,
+    isCeo: isCeo(occupant),
+    agentStatus: agent?.status,
+    taskTitle: agent?.taskTitle ?? "",
+    taskUrl: agent?.taskUrl ?? "",
+    agentActivity: agent?.activity ?? "",
+    assignedTitle: agent?.assignedTitle ?? "",
+    assignedUrl: agent?.assignedUrl ?? "",
+    canTakeIssues: agent?.canTakeIssues ?? false,
+    title: agent?.title ?? "",
+    description: agent?.description ?? "",
+    profileEditable: agent?.profileEditable ?? false,
+    fired: agent?.fired ?? false,
+    carriedIssue: agent?.carriedIssue ?? 0,
+    managerStatus: isAiManager(occupant) ? occupant.status : undefined,
+  };
+}
+
+/** Copies `fields` onto `view` if any of them differ, and says whether they did. */
+export function assignHudFields(view: OccupantHudFields, fields: OccupantHudFields): boolean {
+  const changed = (Object.keys(fields) as (keyof OccupantHudFields)[]).some((key) => view[key] !== fields[key]);
+  if (changed) {
+    Object.assign(view, fields);
+  }
+  return changed;
+}
+
+/**
+ * What the HUD and the avatar layer need to know about an occupant.
+ *
+ * Mutated in place as patches arrive rather than replaced, so the game loop can
+ * read one every frame without allocating. Only the {@link OccupantHudFields}
+ * trigger an `onOccupantsChanged`; `interactableId` and `animation` change far
+ * too often for that and are read from the loop instead.
+ */
+export interface OccupantView extends OccupantHudFields {
+  readonly id: string;
+  readonly isLocal: boolean;
+  /** Interactable this occupant is engaged with, or `""` when free. */
+  interactableId: string;
+  /** As replicated, so a seated agent can be drawn typing rather than just sitting. */
+  animation: AnimationState;
+  /** Sips left in the coffee in hand, `0` for no cup; each drop is a sip. */
+  coffeeSips: number;
 }
 
 /** The runners' books as the state replicates them, back as one total. */
@@ -157,9 +194,8 @@ export class RoomConnection extends RoomCommands {
   private readonly buffers = new Map<string, PoseSample[]>();
   private readonly screens = new Map<string, TerminalScreen>();
 
-  private workQueued = false;
-  private standingQueued = false;
-  private standupQueued = false;
+  /** The publishers already due this patch, by {@link queue}. */
+  private readonly queued = new Set<(state: OfficeState) => void>();
 
   public constructor(private readonly events: RoomConnectionEvents = {}) {
     super();
@@ -339,26 +375,11 @@ export class RoomConnection extends RoomCommands {
       const isLocal = sessionId === room.sessionId;
       const view: OccupantView = {
         id: sessionId,
-        name: occupant.name,
-        kind: occupant.kind,
-        isCeo: isCeo(occupant),
         isLocal,
         interactableId: occupant.interactableId,
         animation: occupant.animation,
         coffeeSips: occupant.coffeeSips,
-        agentStatus: isLiveAgent(occupant) ? occupant.status : undefined,
-        taskTitle: isLiveAgent(occupant) ? occupant.taskTitle : "",
-        taskUrl: isLiveAgent(occupant) ? occupant.taskUrl : "",
-        agentActivity: isLiveAgent(occupant) ? occupant.activity : "",
-        assignedTitle: isLiveAgent(occupant) ? occupant.assignedTitle : "",
-        assignedUrl: isLiveAgent(occupant) ? occupant.assignedUrl : "",
-        canTakeIssues: isLiveAgent(occupant) && occupant.canTakeIssues,
-        agentTitle: isLiveAgent(occupant) ? occupant.title : "",
-        agentDescription: isLiveAgent(occupant) ? occupant.description : "",
-        profileEditable: isLiveAgent(occupant) && occupant.profileEditable,
-        fired: isLiveAgent(occupant) && occupant.fired,
-        carriedIssue: isLiveAgent(occupant) ? occupant.carriedIssue : 0,
-        managerStatus: isAiManager(occupant) ? occupant.status : undefined,
+        ...hudFieldsOf(occupant),
       };
       this.views.set(sessionId, view);
 
@@ -403,38 +424,41 @@ export class RoomConnection extends RoomCommands {
       this.events.onOccupantsChanged?.();
     });
 
+    const workChanged = (): void => this.queue(room, this.publishWork);
     $(room.state).work.onAdd((work) => {
-      $(work).onChange(() => this.queueWork(room));
-      this.queueWork(room);
+      $(work).onChange(workChanged);
+      workChanged();
     });
-    $(room.state).work.onRemove(() => this.queueWork(room));
+    $(room.state).work.onRemove(workChanged);
 
+    const standingChanged = (): void => this.queue(room, this.publishStanding);
     $(room.state).standing.onAdd((task) => {
-      $(task).onChange(() => this.queueStanding(room));
-      this.queueStanding(room);
+      $(task).onChange(standingChanged);
+      standingChanged();
     });
-    $(room.state).standing.onRemove(() => this.queueStanding(room));
+    $(room.state).standing.onRemove(standingChanged);
 
     // Every part of the standup, down to one direction's fate, comes out as one
     // fresh copy. Bound once the standup itself has arrived: the first patch
     // may not have decoded it yet, and Colyseus' callbacks cannot reach a
     // collection inside a schema that is not there.
+    const standupChanged = (): void => this.queue(room, this.publishStandup);
     $(room.state).listen("standup", (instance) => {
       const standup = $(instance);
-      standup.onChange(() => this.queueStandup(room));
-      standup.order.onAdd(() => this.queueStandup(room));
-      standup.order.onRemove(() => this.queueStandup(room));
+      standup.onChange(standupChanged);
+      standup.order.onAdd(standupChanged);
+      standup.order.onRemove(standupChanged);
       standup.updates.onAdd((update) => {
-        $(update).onChange(() => this.queueStandup(room));
-        this.queueStandup(room);
+        $(update).onChange(standupChanged);
+        standupChanged();
       });
-      standup.updates.onRemove(() => this.queueStandup(room));
+      standup.updates.onRemove(standupChanged);
       standup.directions.onAdd((direction) => {
-        $(direction).onChange(() => this.queueStandup(room));
-        this.queueStandup(room);
+        $(direction).onChange(standupChanged);
+        standupChanged();
       });
-      standup.directions.onRemove(() => this.queueStandup(room));
-      this.queueStandup(room);
+      standup.directions.onRemove(standupChanged);
+      standupChanged();
     });
 
     forwardServerEvents(room, this.events);
@@ -482,59 +506,11 @@ export class RoomConnection extends RoomCommands {
     isLocal: boolean,
     view: OccupantView,
   ): void {
-    const ceo = isCeo(occupant);
-    const agent = isLiveAgent(occupant) ? occupant : undefined;
-    const agentStatus = agent?.status;
-    const taskTitle = agent?.taskTitle ?? "";
-    const taskUrl = agent?.taskUrl ?? "";
-    const agentActivity = agent?.activity ?? "";
-    const assignedTitle = agent?.assignedTitle ?? "";
-    const assignedUrl = agent?.assignedUrl ?? "";
-    const canTakeIssues = agent?.canTakeIssues ?? false;
-    const agentTitle = agent?.title ?? "";
-    const agentDescription = agent?.description ?? "";
-    const profileEditable = agent?.profileEditable ?? false;
-    const fired = agent?.fired ?? false;
-    const carriedIssue = agent?.carriedIssue ?? 0;
-    const managerStatus = isAiManager(occupant) ? occupant.status : undefined;
     if (isLocal) {
       // A later rejoin asks for the name the player has now, not the one they arrived with.
       this.name = occupant.name;
     }
-    if (
-      view.name !== occupant.name ||
-      view.isCeo !== ceo ||
-      view.kind !== occupant.kind ||
-      view.agentStatus !== agentStatus ||
-      view.taskTitle !== taskTitle ||
-      view.taskUrl !== taskUrl ||
-      view.agentActivity !== agentActivity ||
-      view.assignedTitle !== assignedTitle ||
-      view.assignedUrl !== assignedUrl ||
-      view.canTakeIssues !== canTakeIssues ||
-      view.agentTitle !== agentTitle ||
-      view.agentDescription !== agentDescription ||
-      view.profileEditable !== profileEditable ||
-      view.fired !== fired ||
-      view.carriedIssue !== carriedIssue ||
-      view.managerStatus !== managerStatus
-    ) {
-      view.name = occupant.name;
-      view.kind = occupant.kind;
-      view.isCeo = ceo;
-      view.agentStatus = agentStatus;
-      view.taskTitle = taskTitle;
-      view.taskUrl = taskUrl;
-      view.agentActivity = agentActivity;
-      view.assignedTitle = assignedTitle;
-      view.assignedUrl = assignedUrl;
-      view.canTakeIssues = canTakeIssues;
-      view.agentTitle = agentTitle;
-      view.agentDescription = agentDescription;
-      view.profileEditable = profileEditable;
-      view.fired = fired;
-      view.carriedIssue = carriedIssue;
-      view.managerStatus = managerStatus;
+    if (assignHudFields(view, hudFieldsOf(occupant))) {
       this.events.onOccupantsChanged?.();
     }
 
@@ -557,55 +533,38 @@ export class RoomConnection extends RoomCommands {
   }
 
   /**
-   * Publishes the work once per patch, however much of it the patch touched.
+   * Publishes one part of the state once per patch, however much of it the
+   * patch touched.
    *
    * One patch can carry a change to every issue's work — a join decodes all of
    * it at once — and copying it per field would hand React a burst of
    * intermediate states nobody will see.
    */
-  private queueWork(room: Room<OfficeState>): void {
-    if (this.workQueued) {
+  private queue(room: Room<OfficeState>, publish: (state: OfficeState) => void): void {
+    if (this.queued.has(publish)) {
       return;
     }
-    this.workQueued = true;
+    this.queued.add(publish);
     queueMicrotask(() => {
-      this.workQueued = false;
-      if (this.room !== room) {
-        return;
+      this.queued.delete(publish);
+      if (this.room === room) {
+        publish(room.state);
       }
-      this.events.onWorkChanged?.([...room.state.work.values()].map(copyWork));
     });
   }
 
-  /** Publishes the standing tasks once per patch, as {@link queueWork} does the work. */
-  private queueStanding(room: Room<OfficeState>): void {
-    if (this.standingQueued) {
-      return;
-    }
-    this.standingQueued = true;
-    queueMicrotask(() => {
-      this.standingQueued = false;
-      if (this.room !== room) {
-        return;
-      }
-      this.events.onStandingChanged?.([...room.state.standing.values()].map(copyStandingTask));
-    });
-  }
+  // Plain copies, so React never holds a schema object that mutates under it.
+  private readonly publishWork = (state: OfficeState): void => {
+    this.events.onWorkChanged?.([...state.work.values()].map((work) => work.toJSON()));
+  };
 
-  /** Publishes the standup once per patch, however much of it the patch touched, as {@link queueWork} does the work. */
-  private queueStandup(room: Room<OfficeState>): void {
-    if (this.standupQueued) {
-      return;
-    }
-    this.standupQueued = true;
-    queueMicrotask(() => {
-      this.standupQueued = false;
-      if (this.room !== room) {
-        return;
-      }
-      this.events.onStandupChanged?.(copyStandup(room.state.standup));
-    });
-  }
+  private readonly publishStanding = (state: OfficeState): void => {
+    this.events.onStandingChanged?.([...state.standing.values()].map((task) => task.toJSON()));
+  };
+
+  private readonly publishStandup = (state: OfficeState): void => {
+    this.events.onStandupChanged?.(state.standup.toJSON());
+  };
 
   private readLocalPose(occupant: Occupant): void {
     this.localServerPose.x = occupant.x;
@@ -646,51 +605,6 @@ export function describeError(error: unknown): string {
   }
   const described = String(error);
   return described === "" || described.startsWith("[object ") ? "unknown error" : described;
-}
-
-function copyWork(work: IssueWork): WorkData {
-  return {
-    issueNumber: work.issueNumber,
-    title: work.title,
-    status: work.status,
-    assigneeId: work.assigneeId,
-    outputArtifact: work.outputArtifact,
-    note: work.note,
-    assignedAt: work.assignedAt,
-    updatedAt: work.updatedAt,
-  };
-}
-
-/** A plain copy of the replicated standup. */
-function copyStandup(standup: Standup): StandupData {
-  return {
-    active: standup.active,
-    calledBy: standup.calledBy,
-    startedAt: standup.startedAt,
-    endedAt: standup.endedAt,
-    order: standup.order.toArray(),
-    speakerId: standup.speakerId,
-    updates: standup.updates.map((update) => ({
-      agentId: update.agentId,
-      agentName: update.agentName,
-      workedOn: update.workedOn,
-      blockers: update.blockers,
-      needsYou: update.needsYou,
-      resolved: update.resolved,
-      at: update.at,
-    })),
-    directions: standup.directions.map((direction) => ({
-      id: direction.id,
-      agentId: direction.agentId,
-      agentName: direction.agentName,
-      authorName: direction.authorName,
-      text: direction.text,
-      everyone: direction.everyone,
-      status: direction.status,
-      reason: direction.reason,
-      at: direction.at,
-    })),
-  };
 }
 
 function sampleOf(occupant: Occupant): PoseSample {

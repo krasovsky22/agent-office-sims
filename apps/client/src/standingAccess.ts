@@ -51,32 +51,6 @@ export type StandingTaskData = Readonly<
   >
 >;
 
-/** Copies a replicated task into plain data, so React never holds a schema object. */
-export function copyStandingTask(task: StandingTaskData): StandingTaskData {
-  return {
-    id: task.id,
-    runnerId: task.runnerId,
-    kind: task.kind,
-    name: task.name,
-    status: task.status,
-    trigger: task.trigger,
-    cron: task.cron,
-    intervalSeconds: task.intervalSeconds,
-    agentId: task.agentId,
-    lastCheckAt: task.lastCheckAt,
-    nextCheckAt: task.nextCheckAt,
-    queued: task.queued,
-    handledToday: task.handledToday,
-    spentTodayUsd: task.spentTodayUsd,
-    dailyUsd: task.dailyUsd,
-    lastError: task.lastError,
-    lastOutcome: task.lastOutcome,
-    lastRunAt: task.lastRunAt,
-    lastRunPr: task.lastRunPr,
-    runningAgentId: task.runningAgentId,
-  };
-}
-
 /** The local player's standing with the standing tasks. */
 export interface StandingAccess {
   /** Whether the buttons do anything the server will take. */
