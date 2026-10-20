@@ -460,6 +460,7 @@ describe("the project board's work", () => {
   });
 
   it("is still there, and its next arrival the CEO, after the last player leaves", async () => {
+    await closeEveryOffice();
     const dana = await openOffice("Dana");
     const room = serverRoom(dana);
     seedWork(dana, 1, WORK_STATUS.in_progress);
@@ -478,7 +479,31 @@ describe("the project board's work", () => {
 
     await milo.room.leave();
   });
+
+  it("is kept only in the main office: an overflow office still closes when it empties", async () => {
+    await closeEveryOffice();
+    const dana = await openOffice("Dana");
+    const main = serverRoom(dana);
+    const milo = await openOffice("Milo");
+    const overflowId = milo.room.roomId;
+    seedWork(milo, 1, WORK_STATUS.in_progress);
+
+    await milo.room.leave();
+    await dana.room.leave();
+    await settled(() => main.clients.length === 0);
+    // Past the second Colyseus waits before closing an empty room.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    expect(matchMaker.getLocalRoomById(overflowId)).toBeUndefined();
+    expect(matchMaker.getLocalRoomById(main.roomId)).toBe(main);
+  });
 });
+
+/** Closes every office earlier tests left open, so the next one opened is the main office. */
+async function closeEveryOffice(): Promise<void> {
+  const listings = await matchMaker.query({});
+  await Promise.all(listings.map((listing) => matchMaker.getLocalRoomById(listing.roomId)?.disconnect()));
+}
 
 describe("the runners' books", () => {
   it("shows what the runners spent today against their budgets in every tab", async () => {

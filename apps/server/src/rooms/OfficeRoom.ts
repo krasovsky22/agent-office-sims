@@ -28,8 +28,8 @@
  *
  * A player whose socket drops without leaving keeps their place, role
  * included, for {@link RECONNECT_GRACE_SECONDS}. Only a player who left on
- * purpose, or did not come back in time, is removed. The office itself stays
- * open once the last player is gone: the agents' work lives in it.
+ * purpose, or did not come back in time, is removed. The main office itself
+ * stays open once the last player is gone: the agents' work lives in it.
  *
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
  * one feed polls GitHub on its own timer and is handed to every room as a room option;
@@ -258,10 +258,16 @@ function graceSecondsOf(options: Partial<OfficeRoomOptions> | undefined): number
     : RECONNECT_GRACE_SECONDS;
 }
 
+/**
+ * The first office opened on this server, which stays open with nobody in it
+ * so the agents keep working while the CEO is away. An overflow office, opened
+ * once it is full, still closes when it empties: left open, its once-a-second
+ * check would stop the main office's work on the shared runner link.
+ */
+let mainOfficeId: string | undefined;
+
 export class OfficeRoom extends Room<OfficeState> {
   public override maxClients = 16;
-  // Stays open with nobody in it, so the agents keep working while the CEO is away.
-  public override autoDispose = false;
 
   /** Server-only per-occupant bookkeeping, keyed by session id. */
   private readonly motions = new Map<string, OccupantMotion>();
@@ -327,6 +333,10 @@ export class OfficeRoom extends Room<OfficeState> {
   private runnerStandup: RunnerStandupHold | undefined;
 
   public override onCreate(options?: unknown): void {
+    if (mainOfficeId === undefined) {
+      mainOfficeId = this.roomId;
+      this.autoDispose = false;
+    }
     this.state = new OfficeState();
     this.patchRate = TICK_INTERVAL_MS;
     this.interaction = {
@@ -645,6 +655,9 @@ export class OfficeRoom extends Room<OfficeState> {
   }
 
   public override onDispose(): void {
+    if (mainOfficeId === this.roomId) {
+      mainOfficeId = undefined;
+    }
     // First, so no manager is left writing to a room that is closing.
     this.manager?.stop();
     this.stopRelayingProjectBoard?.();
