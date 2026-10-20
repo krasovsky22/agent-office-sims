@@ -354,7 +354,7 @@ describe("runner slots in a live room", () => {
         issueNumber: 39,
       }));
       const body = { ...SYNC, runnerId: "runner-flood", events };
-      const startTick = room.state.tick;
+      const startTick = room.ticks;
       const startedAt = performance.now();
       // Authenticated syncs past the rate limit, strangers, and bodies over the
       // size limit, in waves, for about a second.
@@ -366,7 +366,7 @@ describe("runner slots in a live room", () => {
         ]);
       }
       const elapsedMs = performance.now() - startedAt;
-      const ticks = room.state.tick - startTick;
+      const ticks = room.ticks - startTick;
       const expected = (elapsedMs / 1000) * TICK_RATE_HZ;
       expect(ticks).toBeGreaterThanOrEqual(Math.floor(expected * 0.9));
     } finally {

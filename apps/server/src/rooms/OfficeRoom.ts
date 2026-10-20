@@ -285,6 +285,16 @@ export class OfficeRoom extends Room<OfficeState> {
 
   /** The version of the runners' standing tasks last copied into the state. */
   private standingVersion = -1;
+  /**
+   * Ticks run so far. Kept off the replicated state: a field that changes
+   * every tick would send every client a patch every tick, office idle or not.
+   */
+  private tickCount = 0;
+
+  /** {@link tickCount}, read by the tests that measure the tick rate. */
+  public get ticks(): number {
+    return this.tickCount;
+  }
 
   public override onCreate(): void {
     if (mainOfficeId === undefined) {
@@ -464,7 +474,7 @@ export class OfficeRoom extends Room<OfficeState> {
    */
   private simulate(deltaMs: number): void {
     const now = this.clock.currentTime;
-    this.state.tick = (this.state.tick + 1) % 0xffffffff;
+    this.tickCount = (this.tickCount + 1) % 0xffffffff;
 
     // However many reports arrived since the last tick, this reads the source
     // once: the list it returns is already finished, so nothing here waits.
@@ -499,7 +509,7 @@ export class OfficeRoom extends Room<OfficeState> {
     // Once a second: a slot still holding work this room has no record of,
     // as after the server restarted, is stopped, and a prompt
     // its runner never answered is given up on.
-    if (this.state.tick % TICK_RATE_HZ === 0) {
+    if (this.tickCount % TICK_RATE_HZ === 0) {
       this.runners.runnerWork?.reconcile();
       this.runners.agentPrompts.expire();
     }

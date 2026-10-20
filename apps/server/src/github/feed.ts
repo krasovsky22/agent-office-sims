@@ -23,7 +23,9 @@
  * within seconds rather than at the next scheduled poll.
  */
 
-import { EMPTY_BOARD_LISTS, type ProjectBoardSnapshot } from "@sim/shared";
+import { isDeepStrictEqual } from "node:util";
+
+import { EMPTY_BOARD_LISTS, type ProjectBoardLists, type ProjectBoardSnapshot } from "@sim/shared";
 
 import { type BoardLoader, GithubRateLimitError } from "./client.js";
 
@@ -80,6 +82,8 @@ function describeFailure(error: unknown): string {
 
 export class ProjectFeed implements ProjectBoardSource {
   private snapshot: ProjectBoardSnapshot | undefined;
+  /** The lists the last published fetch brought, to tell a poll with news from one without. */
+  private lists: ProjectBoardLists | undefined;
   private readonly listeners = new Set<(snapshot: ProjectBoardSnapshot) => void>();
   private readonly now: () => number;
   private readonly timeoutMs: number;
@@ -154,7 +158,7 @@ export class ProjectFeed implements ProjectBoardSource {
 
   /**
    * One poll: fetch, then publish either the new lists or the old ones marked
-   * stale.
+   * stale, or nothing when the lists have not changed.
    *
    * Never rejects. Exposed for the tests and for {@link start}'s loop.
    *
@@ -165,16 +169,22 @@ export class ProjectFeed implements ProjectBoardSource {
     const signal = AbortSignal.any([this.stopped.signal, AbortSignal.timeout(this.timeoutMs)]);
     try {
       const lists = await this.options.load(signal);
-      if (this.snapshot?.stale === true) {
+      this.backingOff = false;
+      const recovered = this.snapshot?.stale === true;
+      if (recovered) {
         this.options.log?.(`project board: GitHub feed for ${this.options.repository} recovered`);
+      } else if (isDeepStrictEqual(lists, this.lists)) {
+        // Most polls find the board as it was, often from a `304`; sending it
+        // again would hand every client the whole board for nothing.
+        return this.options.intervalMs;
       }
+      this.lists = lists;
       this.publish({
         repository: this.options.repository,
         ...lists,
         updatedAt: this.now(),
         stale: false,
       });
-      this.backingOff = false;
       return this.options.intervalMs;
     } catch (error) {
       if (this.stopped.signal.aborted) {

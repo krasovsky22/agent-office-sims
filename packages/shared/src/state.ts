@@ -714,7 +714,6 @@ export class OfficeState extends Schema {
    * keeps the fraction to itself.
    */
   declare public minuteOfDay: number;
-  declare public tick: number;
   /**
    * The GitHub label that keeps an issue from the live coding agents,
    * `agent-restricted` unless the server says otherwise; `""` when the office
@@ -752,7 +751,6 @@ export class OfficeState extends Schema {
     this.work = new MapSchema<IssueWork>();
     this.standing = new MapSchema<StandingTask>();
     this.minuteOfDay = STARTING_MINUTE_OF_DAY;
-    this.tick = 0;
     this.agentRestrictLabel = "";
     this.spendRunners = 0;
     this.spentUsd = 0;
@@ -770,7 +768,6 @@ defineTypes(OfficeState, {
   work: { map: IssueWork },
   standing: { map: StandingTask },
   minuteOfDay: "uint16",
-  tick: "uint32",
   agentRestrictLabel: "string",
   spendRunners: "uint8",
   spentUsd: "float64",

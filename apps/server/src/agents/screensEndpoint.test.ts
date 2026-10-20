@@ -352,12 +352,12 @@ describe("screens in a live room", () => {
       const oversized = JSON.stringify({ ...batch(), padding: "x".repeat(MAX_RUNNER_SCREENS_BYTES) });
       /** Ticks per second over about `ms`, while `load` runs back to back. */
       const tickRate = async (ms: number, load: () => Promise<void>): Promise<number> => {
-        const startTick = room.state.tick;
+        const startTick = room.ticks;
         const startedAt = performance.now();
         while (performance.now() - startedAt < ms) {
           await load();
         }
-        return (room.state.tick - startTick) / ((performance.now() - startedAt) / 1000);
+        return (room.ticks - startTick) / ((performance.now() - startedAt) / 1000);
       };
       // The same length of quiet first, so the comparison is with this room
       // on this machine right now, however busy the rest of the test run

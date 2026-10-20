@@ -1501,7 +1501,7 @@ Then confirm all twenty-seven:
     floor's north wall, straight ahead as you come in off the lobby. Within one poll interval of
     the server starting, the wall board lists the repository's open,
     in-progress and recently closed issues and its open pull requests, each with
-    its label chips, and the time it last updated; walk up to it and press `E`
+    its label chips, and the time it last changed; walk up to it and press `E`
     at the `Read the project board` prompt to open the full view, which frees
     the mouse; clicking an issue or pull request opens its GitHub page in a new
     tab. `/` puts the

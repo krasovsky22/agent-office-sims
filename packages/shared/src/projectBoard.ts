@@ -97,8 +97,9 @@ export interface ProjectBoardSnapshot extends ProjectBoardLists {
   /** `owner/name` of the repository the lists describe. */
   readonly repository: string;
   /**
-   * Epoch milliseconds of the last successful fetch, or `null` if there has
-   * not been one yet.
+   * Epoch milliseconds of the last successful fetch that changed the lists or
+   * cleared {@link stale}, or `null` if there has not been one yet. A fetch
+   * that finds the board unchanged is not published, so it leaves this alone.
    */
   readonly updatedAt: number | null;
   /**
