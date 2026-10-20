@@ -373,10 +373,10 @@ export interface BoardDropContext {
  *
  * Open or In progress onto Closed closes the issue, and Closed onto Open
  * reopens it. Open onto In progress asks which agent to give it to, the
- * board's assign control, since the office has no "in progress" of its own to
- * set on GitHub. Pull requests are neither picked up nor dropped on, and a card
- * goes nowhere else: In progress back to Open would mean undoing GitHub's
- * assignees or linked pull requests, which the board does not touch.
+ * board's assign control; once given, {@link withOfficeWork} shows it there.
+ * Pull requests are neither picked up nor dropped on, and a card goes nowhere
+ * else: In progress back to Open would mean undoing GitHub's assignees or
+ * linked pull requests, or the agent's work, which a drop does not take back.
  */
 export function boardDrop(from: BoardColumnKey, to: BoardColumnKey, context: BoardDropContext): BoardDrop | undefined {
   if (to === "closed" && (from === "open" || from === "inProgress") && context.mayChangeState) {
@@ -436,6 +436,33 @@ export function withIssueMoves(
     board = move.state === ISSUE_STATE.closed ? closeOnBoard(board, move.issueNumber, now) : reopenOnBoard(board, move.issueNumber);
   }
   return board;
+}
+
+/**
+ * The snapshot with the office's own work placed on it: an open issue an agent
+ * has, assigned, in progress, waiting for review or stopped, is in progress
+ * however GitHub sees it, so handing one to an agent moves its card across.
+ * Work waiting for review stays there, under its "Waiting for review" badge;
+ * done work goes back to where GitHub has the issue.
+ *
+ * Counts move with the cards, as {@link withIssueMoves}'s do.
+ */
+export function withOfficeWork(snapshot: ProjectBoardSnapshot, work: readonly WorkData[]): ProjectBoardSnapshot {
+  const worked = new Set(work.filter((entry) => entry.status !== WORK_STATUS.done).map((entry) => entry.issueNumber));
+  const moved = snapshot.open.filter((issue) => worked.has(issue.number));
+  if (moved.length === 0) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    open: snapshot.open.filter((issue) => !worked.has(issue.number)),
+    inProgress: [...snapshot.inProgress, ...moved].sort((a, b) => a.number - b.number),
+    counts: {
+      ...snapshot.counts,
+      open: snapshot.counts.open - moved.length,
+      inProgress: snapshot.counts.inProgress + moved.length,
+    },
+  };
 }
 
 function closeOnBoard(board: ProjectBoardSnapshot, issueNumber: number, now: number): ProjectBoardSnapshot {

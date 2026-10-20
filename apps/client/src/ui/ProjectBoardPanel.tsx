@@ -27,7 +27,7 @@
  * drop it on Closed to close the issue on GitHub, or a closed one on Open to
  * reopen it, which a connected agent runner does with its own GitHub
  * identity; dropping an open issue on In progress opens its detail to choose
- * the agent, as its assign button does. `boardDrop` in `projectBoard.ts`
+ * the agent, as its assign button does, and once given the card stays there. `boardDrop` in `projectBoard.ts`
  * decides which column takes which card. A dropped card shows in its new
  * column at once, from the moves `main.ts` keeps, and goes back with the
  * reason, said here on the board, if GitHub does not take it.
@@ -73,6 +73,7 @@ import {
   workMoveLabel,
   workStatusText,
   withIssueMoves,
+  withOfficeWork,
 } from "../projectBoard.js";
 
 /** The key that puts the cursor in the search field, as `Enter` does for chat. */
@@ -134,8 +135,12 @@ export function ProjectBoardPanel({
   const draggedRef = useRef<DraggedCard | undefined>(undefined);
   const [dropColumn, setDropColumn] = useState<BoardColumnKey | undefined>(undefined);
   // Every list, count and detail below reads the board with this player's
-  // unanswered drops already made, so a dropped card is where it was put.
-  const snapshot = received === undefined || moves.length === 0 ? received : withIssueMoves(received, moves, Date.now());
+  // unanswered drops already made, so a dropped card is where it was put, and
+  // with the office's work placed, as the wall board shows it.
+  const snapshot =
+    received === undefined
+      ? undefined
+      : withOfficeWork(moves.length === 0 ? received : withIssueMoves(received, moves, Date.now()), work);
   const moving = new Set(moves.map((move) => move.issueNumber));
   const searchRef = useRef<HTMLInputElement>(null);
 

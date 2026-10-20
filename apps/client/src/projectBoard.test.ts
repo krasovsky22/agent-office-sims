@@ -24,6 +24,7 @@ import {
   workBadge,
   workMoveLabel,
   withIssueMoves,
+  withOfficeWork,
 } from "./projectBoard.js";
 
 const time = (epochMs: number) => `t${epochMs}`;
@@ -372,5 +373,36 @@ describe("withIssueMoves", () => {
 
   it("takes the second fresh snapshot as GitHub's word, wherever it shows the issue", () => {
     expect(hasIssueMoveLanded(board, { issueNumber: 1, state: "closed" }, 1)).toBe(true);
+  });
+});
+
+describe("withOfficeWork", () => {
+  const work = (issueNumber: number, status: WorkData["status"]): WorkData => ({
+    issueNumber,
+    title: `Issue ${issueNumber}`,
+    status,
+    assigneeId: "agent-1",
+    outputArtifact: "",
+    note: "",
+    assignedAt: 1,
+    updatedAt: 1,
+  });
+  const board: ProjectBoardSnapshot = {
+    ...SNAPSHOT,
+    open: [...SNAPSHOT.open, { ...SNAPSHOT.open[0]!, number: 35 }],
+  };
+
+  it("moves an open issue an agent has into In progress, in number order, with the counts", () => {
+    for (const status of [WORK_STATUS.assigned, WORK_STATUS.in_progress, WORK_STATUS.review]) {
+      const placed = withOfficeWork(board, [work(31, status)]);
+      expect(placed.open.map((issue) => issue.number)).toEqual([35]);
+      expect(placed.inProgress.map((issue) => issue.number)).toEqual([31, 32]);
+      expect(placed.counts).toMatchObject({ open: 4, inProgress: 2 });
+    }
+  });
+
+  it("leaves done work, and work on issues not open, where GitHub has them", () => {
+    expect(withOfficeWork(board, [work(31, WORK_STATUS.done)])).toBe(board);
+    expect(withOfficeWork(board, [work(2, WORK_STATUS.in_progress), work(32, WORK_STATUS.review)])).toBe(board);
   });
 });
