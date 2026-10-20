@@ -1840,6 +1840,8 @@ packages/shared/   @sim/shared   the contract both sides import
 apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/workHandlers.ts  the CEO's work commands: assign, release, move
   src/rooms/issueStateHandlers.ts  the CEO's drops on Closed and Open, sent to a runner, and the answer sent back
+  src/rooms/presenceHandlers.ts  moving, jumping, using things, emoting, chatting and renaming
+  src/rooms/runnerWiring.ts  what a room builds round the runners: the work's host, the prompts, the standing tasks, the standup, the desk terminal
   src/sim/expression.ts   per-occupant emote, chat, manager-message and agent-prompt budgets
   src/sim/clock.ts        the in-game clock, stepped by the simulation tick
   src/sim/roles.ts        who holds the CEO role, and who inherits it
@@ -1869,7 +1871,10 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/shutdown.ts         stopping on a signal or a crash: agents waited for up to a grace, then killed
   src/syncClient.ts       one sync over HTTP, and reading back its commands
   src/issueStates.ts      closing and reopening issues for the CEO with gh, and what came of each
-  src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it, slots lent to the CEO's desk, and each slot's agent's profile
+  src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it, and each slot's agent's profile
+  src/deskSessions.ts     a slot lent to the CEO's desk: its session, from the worktree made to the worktree discarded
+  src/slotRuns.ts         what a task, a desk session and a standing run share: the spend, the screen, when a prompt is taken
+  src/eventOutbox.ts      the events held until a sync delivers them, for the slot pool and the standing scheduler alike
   src/profiles.ts         profiles.json: the CEO's edits to the agents' profiles, kept across restarts
   src/slotIds.ts          fired.json and hired.json: the slots whose agents the CEO fired, kept out of the pool, and those the AI Manager hired, kept in it, across restarts
   src/budget.ts           the day's spend, and the daily budget that refuses new starts
@@ -1901,6 +1906,18 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/standing/review.ts  the review's GitHub side: .sims-review, the marker, the comment
   src/standing/mock.ts    the mock's scripted standing runs, which post nothing
 apps/client/       @sim/client   Three.js scene, React HUD overlay
+  src/browserEnv.ts       the page's mount points, the build's settings, the URL's flags, the browser's storage
+  src/hudActions.ts       what the HUD's buttons and fields do: a command to the office, or a panel closed
+  src/hudRoomEvents.ts    the room's events only the HUD hears of: the logs, the spend, the standing tasks, the standup, every refusal
+  src/throttledNotice.ts  what a message the rate limiter dropped says, and where
+  src/timedNotice.ts      a line on the HUD that takes itself down again
+  src/pendingIssueMoves.ts  the cards dropped on Closed or Open, until GitHub's state catches up
+  src/net/poseBuffer.ts   each remote occupant's buffered poses, and the interpolation between them
+  src/net/roomCommands.ts every command the client sends the office
+  src/net/roomEvents.ts   what the connection tells its caller, and the server events it passes straight on
+  src/ui/hudStore.ts      the HUD's snapshot, its actions and its store: the seam with the game loop
+  src/ui/Roster.tsx       the roster: people, the manager, the live agents, the spend, the standing tasks
+  src/ui/Chat.tsx         the office chat, its field and the emote bar
   src/boardAccess.ts      what the local player may do about the project board's work, and why
   src/dayClock.ts         the replicated clock, run on smoothly between patches
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
