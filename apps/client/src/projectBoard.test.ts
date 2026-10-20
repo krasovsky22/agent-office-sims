@@ -82,6 +82,13 @@ describe("boardColumns", () => {
     });
   });
 
+  it("cuts a long title on a card, and still finds it by its tail", () => {
+    const title = `Office entrance ${"opens onto ".repeat(10)}a New York street`;
+    const long = boardColumns({ ...SNAPSHOT, open: [{ ...SNAPSHOT.open[0]!, title }] }, time)[0]?.rows[0];
+    expect(long?.title).toMatch(/^Office entrance .+…$/);
+    expect(long?.searchText).toContain("new york street");
+  });
+
   it("carries each card's labels, issue and pull request alike", () => {
     expect(columns[0]?.rows[0]?.labels).toEqual([WAVE_2, CLIENT]);
     expect(columns[3]?.rows[0]?.labels).toEqual([CLIENT, WAVE_1]);

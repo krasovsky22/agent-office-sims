@@ -4,7 +4,7 @@
  * word takes work off an agent.
  */
 
-import { MapSchema } from "@colyseus/schema";
+import { Encoder, MapSchema, Reflection } from "@colyseus/schema";
 import { describe, expect, it } from "vitest";
 
 import { MAX_WORK_NOTE_LENGTH } from "./constants.js";
@@ -22,6 +22,7 @@ import {
   IssueWork,
   LiveAgent,
   type Occupant,
+  OfficeState,
   PLAYER_ROLE,
   WORK_STATUS,
   type WorkStatus,
@@ -171,6 +172,24 @@ describe("assigning an issue", () => {
     expect(run(at, assign(1, "agent-2"), CEO_ID, T0 + 5).ok).toBe(true);
     expect(work).toMatchObject({ status: WORK_STATUS.in_progress, assigneeId: "agent-2", note: "", updatedAt: T0 + 5 });
     expect(describeWorkProblems(at.work)).toEqual([]);
+  });
+
+  it("keeps a 255-byte title off the wire, where the schema would send it with length 0", () => {
+    const at = office();
+    const title = `${"word ".repeat(50)}tails`;
+    at.board = snapshot({ open: [issue(1, title)] });
+    expect(run(at, assign(1, "agent-1")).ok).toBe(true);
+
+    const state = new OfficeState();
+    at.work.forEach((work, key) => state.work.set(key, work));
+    const encoder = new Encoder(state);
+    const decoder = Reflection.decode<OfficeState>(Reflection.encode(encoder));
+    decoder.decode(encoder.encodeAll());
+
+    const sent = decoder.state.work.get(workKey(1));
+    expect(sent).toMatchObject({ status: WORK_STATUS.assigned, assigneeId: "agent-1" });
+    expect(sent?.title.endsWith("…")).toBe(true);
+    expect(title.startsWith(sent?.title.slice(0, -1) ?? "")).toBe(true);
   });
 
   it("does not reassign finished work", () => {

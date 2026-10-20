@@ -12,6 +12,8 @@
  * `PR N` say which, and an issue can also be named by its title.
  */
 
+import { MAX_TITLE_LENGTH, clip } from "@sim/shared";
+
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView } from "./officeView.js";
 
 /** Work the manager can talk about or hand out: an issue or a pull request on the project board. */
@@ -219,12 +221,17 @@ export function findAgents(message: string, view: OfficeView): (IssueAgentView |
   return found.sort((a, b) => a.at - b.at).map((entry) => entry.agent);
 }
 
-/** How the manager writes a piece of work: `#39 “Title”`, `PR #40 “Title”`. */
-export function describeWork(ref: WorkRef): string {
+/** How long a title a reply about `count` things quotes: all of it for one, clipped in a list so the list fits. */
+export function titleLengthFor(count: number): number {
+  return count === 1 ? Infinity : MAX_TITLE_LENGTH;
+}
+
+/** How the manager writes a piece of work: `#39 “Title”`, `PR #40 “Title”`, the title clipped to `titleLength`. */
+export function describeWork(ref: WorkRef, titleLength: number): string {
   switch (ref.kind) {
     case "issue":
-      return `#${ref.issue.number} “${ref.issue.title}”`;
+      return `#${ref.issue.number} “${clip(ref.issue.title, titleLength)}”`;
     case "pull":
-      return `PR #${ref.pull.number} “${ref.pull.title}”`;
+      return `PR #${ref.pull.number} “${clip(ref.pull.title, titleLength)}”`;
   }
 }

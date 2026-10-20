@@ -3,7 +3,7 @@
  * built from the office and the project board it is shown and nothing else.
  */
 
-import { CHECK_STATUS, LIVE_AGENT_STATUS, WORK_STATUS } from "@sim/shared";
+import { CHECK_STATUS, LIVE_AGENT_STATUS, MAX_TITLE_LENGTH, WORK_STATUS, clip, sanitizeManagerReply } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import type { ManagerRequest } from "./advisor.js";
@@ -184,6 +184,19 @@ describe("planFromRules: status", () => {
     }
   });
 
+  it("clips each long title in a list so every section of the board still fits in a reply", () => {
+    const long = (number: number) => `Issue ${number} ${"with a very long title that keeps going ".repeat(6)}`.trim();
+    const issues = [8, 9, 10, 11, 12, 13, 14, 15].map((number) => issue(number, long(number), "open", { labels: ["wave-2"] }));
+    const view = { ...VIEW, project: { ...VIEW.project!, issues } };
+    const reply = sanitizeManagerReply(ask("what's open?", view).reply);
+    expect(reply).toContain(`#8 “${clip(long(8), MAX_TITLE_LENGTH)}” [wave-2]`);
+    expect(reply).not.toContain(long(8));
+    expect(reply).toContain("Waiting for your review: #14 (Ada Byrne).");
+    expect(reply).toContain("Nobody on yet: #8, #9, #10, #13, #15.");
+    expect(reply).toContain("Open pull requests: PR #46 (checks failing), PR #47.");
+    expect(ask("what's the status of #8?", view).reply).toContain(`#8 “${long(8)}”`);
+  });
+
   it("lists the open pull requests when asked about PRs", () => {
     expect(ask("which PRs are open?").reply).toBe(
       [
@@ -339,6 +352,15 @@ describe("planFromRules: the runners' coding agents", () => {
       ].join("\n"),
     );
     expect(ask("what is Claude 2 doing?", RUNNER_VIEW).reply).toBe("Claude 2 (coding agent) is idle.");
+  });
+
+  it("quotes the whole title when asked about one agent, and clips it in the team list", () => {
+    const long = `Night shift ${"with a very long title that keeps going ".repeat(6)}`.trim();
+    const view = claude2({ status: LIVE_AGENT_STATUS.working }, { title: long });
+    expect(ask("what is Claude 2 doing?", view).reply).toBe(`Claude 2 (coding agent) is working on #39 “${long}”.`);
+    const team = ask("who's free?", view).reply;
+    expect(team).toContain(`Claude 2 (coding agent) is working on #39 “${clip(long, MAX_TITLE_LENGTH)}”.`);
+    expect(team).not.toContain(long);
   });
 
   it("says what one is doing right now, what it waits on, and the pull request it opened", () => {
@@ -567,6 +589,31 @@ describe("planFromRules: standups", () => {
     expect(ask("is the standup still going?", { ...view, standup: { ...view.standup, active: true } }).reply).toMatch(
       /^A standup is on, called by Dana: 2 of 2 updates so far\./,
     );
+  });
+
+  it("clips each long title it quotes so every agent's blocker still fits in a reply", () => {
+    const long = (number: number) => `Issue ${number} ${"with a very long title that keeps going ".repeat(6)}`.trim();
+    const agents = [1, 2, 3, 4, 5, 6].map((number) => `Claude ${number}`);
+    const view: OfficeView = {
+      ...VIEW,
+      standup: {
+        active: false,
+        calledBy: "Dana",
+        order: agents,
+        updates: agents.map((agent, index) => ({
+          agent,
+          workedOn: `#${index + 1} “${long(index + 1)}”, in progress, last step Bash: pnpm test`,
+          blockers: `waiting on you: Permission: Bash git push ${index + 1}`,
+          waitingOnYou: true,
+          resolved: false,
+        })),
+      },
+    };
+    const reply = sanitizeManagerReply(ask("what came up at the standup?", view).reply);
+    expect(reply).toContain(`- Claude 1: #1 “${clip(long(1), MAX_TITLE_LENGTH)}”, in progress`);
+    expect(reply).not.toContain(long(1));
+    expect(reply).toContain("Blocker: waiting on you: Permission: Bash git push 6.");
+    expect(view.standup.updates[0]?.workedOn).toContain(long(1));
   });
 
   it("lists standups among what it can do", () => {

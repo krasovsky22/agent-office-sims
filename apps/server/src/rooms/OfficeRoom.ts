@@ -95,6 +95,7 @@ import {
   type RunnerSpendTotal,
   MAX_CHAT_LENGTH,
   MAX_LABEL_LENGTH,
+  MAX_TITLE_LENGTH,
   type ManagerEntry,
   type ManagerHistoryEvent,
   type NameRejectedEvent,
@@ -109,6 +110,7 @@ import {
   TICK_RATE_HZ,
   type ThrottledEvent,
   arrivalName,
+  clip,
   conciergePost,
   employConcierge,
   employManager,
@@ -928,7 +930,7 @@ export class OfficeRoom extends Room<OfficeState> {
    */
   private announceShipped(work: IssueWork): void {
     recordOfficeEvent("work-shipped", { agent: work.assigneeId, issue: work.issueNumber });
-    const text = `Shipped #${work.issueNumber}: ${work.title}`.slice(0, MAX_CHAT_LENGTH);
+    const text = `Shipped #${work.issueNumber}: ${clip(work.title, MAX_TITLE_LENGTH)}`.slice(0, MAX_CHAT_LENGTH);
     this.broadcast(SERVER_MESSAGE.chat, { occupantId: work.assigneeId, text } satisfies ChatEvent);
   }
 

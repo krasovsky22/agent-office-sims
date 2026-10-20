@@ -50,7 +50,7 @@ import { type WorkHost, applyAs } from "../rooms/workHandlers.js";
 import { ANY_CODING_AGENT, type PlannedAssignment } from "./advisor.js";
 import type { LiveAssignmentQueue } from "./liveAssignments.js";
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView } from "./officeView.js";
-import { type WorkRef, describeWork, resolveAgent, resolveWork } from "./resolve.js";
+import { type WorkRef, describeWork, resolveAgent, resolveWork, titleLengthFor } from "./resolve.js";
 
 /** Most assignments one plan may make, so a runaway model cannot reassign the whole board. */
 export const MAX_ASSIGNMENTS_PER_PLAN = 10;
@@ -88,8 +88,9 @@ export const REFUSAL_TEXT: Readonly<Record<WorkRejection, string>> = {
 export function carryOut(assignments: readonly PlannedAssignment[], context: AssignContext): string[] {
   const load = new Map<string, number>();
   const lines: string[] = [];
+  const titleLength = titleLengthFor(assignments.length);
   for (const assignment of assignments.slice(0, MAX_ASSIGNMENTS_PER_PLAN)) {
-    lines.push(carryOutOne(assignment, context, load));
+    lines.push(carryOutOne(assignment, context, load, titleLength));
   }
   if (assignments.length > MAX_ASSIGNMENTS_PER_PLAN) {
     lines.push(`I stopped after ${MAX_ASSIGNMENTS_PER_PLAN} assignments; ask again for the rest.`);
@@ -101,12 +102,13 @@ function carryOutOne(
   assignment: PlannedAssignment,
   context: AssignContext,
   load: Map<string, number>,
+  titleLength: number,
 ): string {
   const work = resolveWork(assignment.work, context.view);
   if (work === undefined) {
     return `✗ ${assignment.work}: I can't find that on the project board.`;
   }
-  const label = describeWork(work);
+  const label = describeWork(work, titleLength);
   if (work.kind === "issue" && work.issue.column === "closed") {
     return `✗ ${label}: it is closed.`;
   }

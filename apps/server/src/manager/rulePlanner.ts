@@ -46,11 +46,11 @@
  * answer comes from the {@link OfficeView} it is handed.
  */
 
-import { LIVE_AGENT_STATUS, WORK_STATUS, type WorkStatus } from "@sim/shared";
+import { LIVE_AGENT_STATUS, MAX_TITLE_LENGTH, WORK_STATUS, type WorkStatus, clip } from "@sim/shared";
 
 import { ANY_CODING_AGENT, type ManagerPlan, type ManagerRequest, type PlannedStandup, type WorkMoveKind } from "./advisor.js";
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, WorkView } from "./officeView.js";
-import { type WorkRef, findAgents, findIssueByTitle, findUnknownWork, findWork, resolveAgent } from "./resolve.js";
+import { type WorkRef, findAgents, findIssueByTitle, findUnknownWork, findWork, resolveAgent, titleLengthFor } from "./resolve.js";
 import { readStandingInstruction, standingSummary } from "./standingPlan.js";
 
 /** Most items one list in an answer names before saying how many more there are. */
@@ -209,7 +209,8 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   }
 
   if (work.length > 0) {
-    const lines = work.slice(0, LIST_LIMIT).map((ref) => describeRef(ref, view));
+    const titleLength = titleLengthFor(work.length);
+    const lines = work.slice(0, LIST_LIMIT).map((ref) => describeRef(ref, view, titleLength));
     if (ASKING_ADVICE.test(message)) {
       lines.push(adviceFor(view));
     }
@@ -220,7 +221,8 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     return { reply: standupSummary(view), assignments: [] };
   }
   if (agents.length > 0) {
-    return { reply: agents.slice(0, LIST_LIMIT).map((agent) => describeAgent(agent, view)).join("\n"), assignments: [] };
+    const titleLength = titleLengthFor(agents.length);
+    return { reply: agents.slice(0, LIST_LIMIT).map((agent) => describeAgent(agent, view, titleLength)).join("\n"), assignments: [] };
   }
   const pulls = PULL_WORDS.test(message);
   const board = BOARD_WORDS.test(message);
@@ -419,7 +421,7 @@ function standupSummary(view: OfficeView): string {
     : `No standup is on. At the last one, called by ${standup.calledBy}:`;
   const lines = standup.updates.map(
     (update) =>
-      `- ${update.agent}: ${update.workedOn}. ${update.blockers === "" ? "No blockers." : `Blocker: ${update.blockers}${update.resolved ? " (since resolved)" : ""}.`}`,
+      `- ${update.agent}: ${update.workedOn.replace(/“([^”]*)”/g, (_, title: string) => `“${clip(title, MAX_TITLE_LENGTH)}”`)}. ${update.blockers === "" ? "No blockers." : `Blocker: ${update.blockers}${update.resolved ? " (since resolved)" : ""}.`}`,
   );
   return [heading, ...(lines.length === 0 && !standup.active ? ["- Nobody gave an update."] : lines)].join("\n");
 }
@@ -701,12 +703,13 @@ function adviceFor(view: OfficeView): string {
   return `${free.join(", ")} ${free.length === 1 ? "is" : "are"} free. Say “put ${say} on it” and I'll hand it over.`;
 }
 
-function describeRef(ref: WorkRef, view: OfficeView): string {
+/** `ref` in words, its title clipped to `titleLength` so a list of several stays within a reply. */
+function describeRef(ref: WorkRef, view: OfficeView, titleLength: number): string {
   switch (ref.kind) {
     case "issue":
-      return describeIssue(ref.issue, view);
+      return describeIssue(ref.issue, view, titleLength);
     case "pull":
-      return describePull(ref.pull, view);
+      return describePull(ref.pull, view, titleLength);
   }
 }
 
@@ -757,7 +760,7 @@ function labelText(labels: readonly string[]): string {
   return labels.length === 0 ? "" : ` [${labels.join(", ")}]`;
 }
 
-function describeIssue(issue: IssueView, view: OfficeView): string {
+function describeIssue(issue: IssueView, view: OfficeView, titleLength: number): string {
   const assignees = issue.assignees.length === 0 ? "" : `, assigned on GitHub to ${issue.assignees.join(", ")}`;
   const pulls =
     issue.pullRequests.length === 0
@@ -765,28 +768,28 @@ function describeIssue(issue: IssueView, view: OfficeView): string {
       : ` ${issue.pullRequests.map((number) => `PR #${number}`).join(", ")} ${issue.pullRequests.length === 1 ? "closes" : "close"} it.`;
   const people = sentences([workText(issue.work), liveAgentsOn(issue.url, view)]);
   const office = people === "" && issue.column !== "closed" ? " Nobody in the office is on it yet." : people;
-  return `#${issue.number} “${issue.title}” is ${issue.column}${labelText(issue.labels)}${assignees}.${pulls}${office}${stale(view)}`;
+  return `#${issue.number} “${clip(issue.title, titleLength)}” is ${issue.column}${labelText(issue.labels)}${assignees}.${pulls}${office}${stale(view)}`;
 }
 
-function describePull(pull: PullRequestView, view: OfficeView): string {
-  return `${pullLine(pull)}${sentences([liveAgentsOn(pull.url, view)])}${stale(view)}`;
+function describePull(pull: PullRequestView, view: OfficeView, titleLength: number): string {
+  return `${pullLine(pull, titleLength)}${sentences([liveAgentsOn(pull.url, view)])}${stale(view)}`;
 }
 
-function pullLine(pull: PullRequestView): string {
+function pullLine(pull: PullRequestView, titleLength: number): string {
   const draft = pull.draft ? ", a draft," : "";
   const checks = pull.checks === "unknown" || pull.checks === "none" ? "" : ` Checks are ${pull.checks}.`;
-  return `PR #${pull.number} “${pull.title}”${labelText(pull.labels)} by ${pull.author}${draft} is open.${checks}`;
+  return `PR #${pull.number} “${clip(pull.title, titleLength)}”${labelText(pull.labels)} by ${pull.author}${draft} is open.${checks}`;
 }
 
 type FloorAgent = IssueAgentView | LiveAgentView;
 
-function describeAgent(agent: FloorAgent, view: OfficeView): string {
+function describeAgent(agent: FloorAgent, view: OfficeView, titleLength: number): string {
   const coder = view.issueAgents.find((candidate) => candidate === agent);
-  return coder === undefined ? describeLiveAgent(agent as LiveAgentView) : describeCodingAgent(coder);
+  return coder === undefined ? describeLiveAgent(agent as LiveAgentView, titleLength) : describeCodingAgent(coder, titleLength);
 }
 
 /** A runner's coding agent: what it is doing about the issue it has, and the pull request it opened. */
-function describeCodingAgent(agent: IssueAgentView): string {
+function describeCodingAgent(agent: IssueAgentView, titleLength: number): string {
   const work = agent.issue;
   const activity = agent.activity === "" ? "" : ` (${agent.activity})`;
   const who = `${agent.name} (coding agent)`;
@@ -795,12 +798,12 @@ function describeCodingAgent(agent: IssueAgentView): string {
     const review = /^Review (PR #\d+)(?:: (.*))?$/.exec(task.title);
     return review === null
       ? `${who} is running the standing task “${taskName}”${activity}; an issue handed to it comes first.`
-      : `${who} is reviewing ${review[1]}${review[2] === undefined ? "" : ` “${review[2]}”`} for the standing task “${taskName}”${activity}; an issue handed to it comes first.`;
+      : `${who} is reviewing ${review[1]}${review[2] === undefined ? "" : ` “${clip(review[2], titleLength)}”`} for the standing task “${taskName}”${activity}; an issue handed to it comes first.`;
   }
   if (work === undefined) {
     return `${who} is idle.`;
   }
-  const issue = `#${work.issueNumber} “${work.title}”`;
+  const issue = `#${work.issueNumber} “${clip(work.title, titleLength)}”`;
   const note = work.note === undefined ? "" : ` Its last word on it: ${work.note}`;
   if (work.status === WORK_STATUS.review) {
     const pull = work.pullRequest;
@@ -831,20 +834,21 @@ function freeAgents(view: OfficeView): string[] {
   ].map((agent) => agent.name);
 }
 
-function describeLiveAgent(agent: LiveAgentView): string {
-  const task = agent.task === undefined ? "something it hasn't named" : linkText(agent.task);
+function describeLiveAgent(agent: LiveAgentView, titleLength: number): string {
+  const task = agent.task === undefined ? "something it hasn't named" : linkText(agent.task, titleLength);
   const doing =
     agent.status === "working"
       ? `working on ${task}`
       : agent.status === "needs-input"
         ? `waiting on you on ${task}${agent.activity === "" ? "" : ` (${agent.activity})`}`
         : "idle";
-  const next = agent.assigned === undefined ? "" : ` Next up: ${linkText(agent.assigned)}.`;
+  const next = agent.assigned === undefined ? "" : ` Next up: ${linkText(agent.assigned, titleLength)}.`;
   return `${agent.name} (live coding agent) is ${doing}.${next}`;
 }
 
-function linkText(link: { readonly title: string; readonly reference: string }): string {
-  return link.reference === "" ? `“${link.title}”` : `${link.reference} “${link.title}”`;
+function linkText(link: { readonly title: string; readonly reference: string }, titleLength: number): string {
+  const title = clip(link.title, titleLength);
+  return link.reference === "" ? `“${title}”` : `${link.reference} “${title}”`;
 }
 
 function teamSummary(view: OfficeView): string {
@@ -852,7 +856,7 @@ function teamSummary(view: OfficeView): string {
   if (agents.length === 0) {
     return "Nobody is on the floor right now: there are no agents to report on.";
   }
-  const lines = ["Live coding agents:", ...agents.map((agent) => `- ${describeAgent(agent, view)}`)];
+  const lines = ["Live coding agents:", ...agents.map((agent) => `- ${describeAgent(agent, view, MAX_TITLE_LENGTH)}`)];
   const free = freeAgents(view);
   lines.push(free.length === 0 ? "Nobody is free." : `Free for something new: ${free.join(", ")}.`);
   return lines.join("\n");
@@ -862,7 +866,7 @@ function teamSummary(view: OfficeView): string {
 function issueItem(issue: IssueView): string {
   const who =
     issue.work === undefined ? "" : ` — ${issue.work.assignee ?? "someone who has left"}, ${WORK_TEXT[issue.work.status]}`;
-  return `#${issue.number} “${issue.title}”${labelText(issue.labels)}${who}`;
+  return `#${issue.number} “${clip(issue.title, MAX_TITLE_LENGTH)}”${labelText(issue.labels)}${who}`;
 }
 
 function boardSummary(view: OfficeView): string {
@@ -904,7 +908,7 @@ function pullRequestSummary(view: OfficeView): string {
   const more = project.counts.pullRequests - shown.length;
   return [
     `${project.repository} has ${project.counts.pullRequests} open pull requests:${stale(view)}`,
-    ...shown.map((pull) => `- ${pullLine(pull)}`),
+    ...shown.map((pull) => `- ${pullLine(pull, MAX_TITLE_LENGTH)}`),
     ...(more > 0 ? [`…and ${more} more on GitHub.`] : []),
   ].join("\n");
 }

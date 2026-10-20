@@ -34,6 +34,23 @@ export function truncate(text: string, maxLength: number): string {
   return Array.from(text).slice(0, maxLength).join("");
 }
 
+/**
+ * At most `maxLength` code points of `text`, ending in `…` when anything was
+ * cut, and cut between words where a word boundary sits in the latter half.
+ */
+export function clip(text: string, maxLength: number): string {
+  const characters = Array.from(text);
+  if (characters.length <= maxLength) {
+    return text;
+  }
+  if (maxLength < 1) {
+    return "";
+  }
+  const kept = characters.slice(0, maxLength - 1).join("");
+  const space = kept.lastIndexOf(" ");
+  return `${(space > kept.length / 2 ? kept.slice(0, space) : kept).trimEnd()}…`;
+}
+
 /** An untrusted value as a JSON object, or `undefined` for `null`, an array or a primitive. */
 export function asRecord(raw: unknown): Record<string, unknown> | undefined {
   return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;

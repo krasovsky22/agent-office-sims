@@ -10,6 +10,7 @@ import {
   HumanPlayer,
   IssueWork,
   LiveAgent,
+  MAX_TITLE_LENGTH,
   OCCUPANT_KIND,
   OfficeState,
   PLAYER_ROLE,
@@ -18,6 +19,8 @@ import {
   WORK_ACTION,
   WORK_STATUS,
   type WorkStatus,
+  clip,
+  sanitizeManagerReply,
   workKey,
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
@@ -84,6 +87,49 @@ function office(status: WorkStatus, note = "", assigneeId = BO) {
 }
 
 const on39 = (move: WorkMoveKind, note = ""): PlannedWorkMove => ({ move, work: "#39", note });
+
+describe("carryOutMoves: long titles", () => {
+  const long = (number: number) => `Issue ${number} ${"with a very long title that keeps going ".repeat(6)}`.trim();
+  const numbers = [1, 2, 3, 4, 5, 6];
+
+  function reviewOffice() {
+    const state = new OfficeState();
+    const ceo = player("session-dana", "Dana", PLAYER_ROLE.ceo);
+    const bo = new LiveAgent();
+    bo.id = BO;
+    bo.name = "Bo";
+    bo.canTakeIssues = true;
+    state.occupants.set(ceo.id, ceo);
+    state.occupants.set(bo.id, bo);
+    for (const number of numbers) {
+      const work = new IssueWork();
+      work.issueNumber = number;
+      work.title = long(number);
+      work.status = WORK_STATUS.review;
+      work.assigneeId = BO;
+      work.outputArtifact = `PR #${number + 50}`;
+      state.work.set(workKey(number), work);
+    }
+    const project = { ...SNAPSHOT, open: numbers.map((number) => issue(number, long(number))) };
+    return (moves: readonly PlannedWorkMove[]) =>
+      carryOutMoves(moves, {
+        work: { state, now: () => 100, board: () => project, observe: () => undefined },
+        ceo,
+        view: readOfficeView({ state, project, liveAgents: undefined }),
+      });
+  }
+
+  it("clips each title in a six-item reply so every result line fits, and keeps a single one whole", () => {
+    const run = reviewOffice();
+    const reply = sanitizeManagerReply(run(numbers.map((number) => ({ move: "approve", work: `#${number}`, note: "" }))).join("\n"));
+    for (const number of numbers) {
+      expect(reply).toContain(`✓ #${number} “${clip(long(number), MAX_TITLE_LENGTH)}”: approved; Bo's work on it is done.`);
+    }
+    expect(reviewOffice()([{ move: "approve", work: "#1", note: "" }])).toEqual([
+      `✓ #1 “${long(1)}”: approved; Bo's work on it is done.`,
+    ]);
+  });
+});
 
 describe("carryOutMoves", () => {
   it("approves work waiting for review", () => {

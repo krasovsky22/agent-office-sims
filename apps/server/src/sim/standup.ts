@@ -43,6 +43,7 @@ import {
   type IssueWork,
   LIVE_AGENT_STATUS,
   type LiveAgent,
+  MAX_CHAT_LENGTH,
   MAX_STANDUP_DIRECTIONS,
   type Occupant,
   type OfficeLayout,
@@ -59,6 +60,7 @@ import {
   type AgentPromptRejection,
   AGENT_PROMPT_REJECTION,
   actorOf,
+  clip,
   isLiveAgent,
   isSimulatedPullRequestArtifact,
   mayRunStandup,
@@ -120,15 +122,16 @@ function workInHand(agentId: string, work: Iterable<IssueWork>): IssueWork | und
  * it got, with its last step and its pull request; or an orchestrator's
  * agent's task and what it is doing; and what holds it up, a wait on a person
  * first, then a review waiting on the CEO, then the latest word on work that
- * never started.
+ * never started. `titleLength` clips the title it quotes, for a line with no
+ * room for all of it.
  */
-export function standupUpdateOf(agent: LiveAgent, work: Iterable<IssueWork>): StandupWord {
+export function standupUpdateOf(agent: LiveAgent, work: Iterable<IssueWork>, titleLength = Infinity): StandupWord {
   const needsYou = agent.status === LIVE_AGENT_STATUS.needsInput;
   const waiting = needsYou ? `waiting on you: ${agent.activity === "" ? "it needs a person" : agent.activity}` : "";
   const step = !needsYou && agent.activity !== "" ? `, last step ${agent.activity}` : "";
   const inHand = workInHand(agent.id, work);
   if (inHand !== undefined) {
-    const issue = `#${inHand.issueNumber} “${inHand.title}”`;
+    const issue = `#${inHand.issueNumber} “${clip(inHand.title, titleLength)}”`;
     switch (inHand.status) {
       case WORK_STATUS.assigned:
         return { workedOn: `${issue}, not started yet`, blockers: waiting || inHand.note, needsYou };
@@ -147,10 +150,11 @@ export function standupUpdateOf(agent: LiveAgent, work: Iterable<IssueWork>): St
   }
   if (agent.taskTitle !== "") {
     const reference = taskReference(agent.taskUrl);
-    const task = reference === "" ? `“${agent.taskTitle}”` : `${reference} “${agent.taskTitle}”`;
+    const title = clip(agent.taskTitle, titleLength);
+    const task = reference === "" ? `“${title}”` : `${reference} “${title}”`;
     return { workedOn: `${task}${step}`, blockers: waiting, needsYou };
   }
-  const next = agent.assignedTitle === "" ? "" : `; next up “${agent.assignedTitle}”`;
+  const next = agent.assignedTitle === "" ? "" : `; next up “${clip(agent.assignedTitle, titleLength)}”`;
   const between = agent.canTakeIssues ? "No issue in hand, free for one" : "Between tasks";
   return { workedOn: `${between}${next}`, blockers: waiting, needsYou };
 }
@@ -158,6 +162,20 @@ export function standupUpdateOf(agent: LiveAgent, work: Iterable<IssueWork>): St
 /** An update as one sentence, for the conversation. */
 function updateLine(word: StandupWord): string {
   return `${word.workedOn}. ${word.blockers === "" ? "No blockers." : `Blocker: ${word.blockers}.`}`;
+}
+
+/** The bubble has no room for a link; the panel and the conversation have it. */
+function spokenLine(word: StandupWord): string {
+  return updateLine(word).replace(/\s?https:\/\/\S+/g, "");
+}
+
+/**
+ * An update as it fits the chat: the title it quotes gives up room before the
+ * blocker does, since the blocker is what the CEO has to act on.
+ */
+export function standupSpokenLine(agent: LiveAgent, work: readonly IssueWork[]): string {
+  const rest = Array.from(spokenLine(standupUpdateOf(agent, work, 0))).length;
+  return sanitizeChatText(spokenLine(standupUpdateOf(agent, work, Math.max(MAX_CHAT_LENGTH - rest, 1))));
 }
 
 /** Why a direction was not typed, in words for its record. */
@@ -405,8 +423,7 @@ export class StandupMeeting {
     standup.speakerId = agent.id;
     this.nextUpdateAt = now + UPDATE_GAP_MS;
     this.summarised = false;
-    // The bubble has no room for a link; the panel and the conversation have it.
-    this.host.say(agent.id, sanitizeChatText(updateLine(word).replace(/\s?https:\/\/\S+/g, "")));
+    this.host.say(agent.id, standupSpokenLine(agent, [...this.host.state.work.values()]));
     this.host.report(`${agent.name}: ${updateLine(word)}`);
   }
 

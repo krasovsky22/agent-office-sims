@@ -11,6 +11,7 @@ import {
   LIVE_AGENT_STATUS,
   LiveAgent,
   type LiveAgentStatus,
+  MAX_CHAT_LENGTH,
   OFFICE_LAYOUT,
   OfficeState,
   PLAYER_ROLE,
@@ -27,7 +28,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { runnerSlotAgentId } from "../agents/runnerLink.js";
-import { GATHER_TIMEOUT_MS, StandupMeeting, UPDATE_GAP_MS, standupUpdateOf } from "./standup.js";
+import { GATHER_TIMEOUT_MS, StandupMeeting, UPDATE_GAP_MS, standupSpokenLine, standupUpdateOf } from "./standup.js";
 
 const CLAUDE_1 = liveAgentKey(runnerSlotAgentId("runner-1", "slot-1"));
 const CLAUDE_2 = liveAgentKey(runnerSlotAgentId("runner-1", "slot-2"));
@@ -281,6 +282,17 @@ describe("the updates", () => {
     expect(
       standupUpdateOf(liveAgent(CREWMATE, "Crewmate", LIVE_AGENT_STATUS.idle, { assignedTitle: "Night shift" }), []).workedOn,
     ).toBe("Between tasks; next up “Night shift”");
+  });
+
+  it("shorten the title rather than the blocker when the update is longer than a chat line", () => {
+    const blocked = liveAgent(CLAUDE_1, "Claude 1", LIVE_AGENT_STATUS.needsInput, { activity: "Permission: Bash pnpm test --filter @sim/server" });
+    const title = `Standup call: ${"report progress and blockers, ".repeat(4)}take directions`;
+    const line = standupSpokenLine(blocked, [work(39, CLAUDE_1, WORK_STATUS.in_progress, { title })]);
+    expect(Array.from(line).length).toBeLessThanOrEqual(MAX_CHAT_LENGTH);
+    expect(line).toMatch(/^#39 “Standup call: .+…”, in progress\. Blocker: waiting on you: Permission: Bash pnpm test --filter @sim\/server\.$/);
+    expect(standupSpokenLine(blocked, [work(39, CLAUDE_1, WORK_STATUS.in_progress)])).toBe(
+      "#39 “Issue 39”, in progress. Blocker: waiting on you: Permission: Bash pnpm test --filter @sim/server.",
+    );
   });
 
   it("say a blocker in the bubble without its link, and mark it resolved once the agent carries on", () => {
