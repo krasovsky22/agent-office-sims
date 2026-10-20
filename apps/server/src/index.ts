@@ -66,7 +66,7 @@ import { LiveAssignmentQueue } from "./manager/liveAssignments.js";
 import { ProjectFeed } from "./github/feed.js";
 import { type RouteHandler, createHealthServer } from "./http.js";
 import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
-import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
+import { type OfficeRoomOptions, officeRoom } from "./rooms/OfficeRoom.js";
 import { openOnlyOffice } from "./rooms/onlyOffice.js";
 import type { IssueStates } from "./rooms/issueStateHandlers.js";
 
@@ -160,11 +160,11 @@ const server = new Server({
   }),
 });
 
-// Colyseus lets these server options win a collision with a client's join
-// options, so a client can never supply the feeds or the way the manager
-// thinks. The manager's advisor is made once, so its call budget is the whole
-// server's.
-server.define(OFFICE_ROOM_NAME, OfficeRoom, {
+// Handed to the room type, not as Colyseus room options, which a client's join
+// options are merged into: a client can never supply the feeds or the way the
+// manager thinks. The manager's advisor is made once, so its call budget is the
+// whole server's.
+server.define(OFFICE_ROOM_NAME, officeRoom({
   projectBoard: projectFeed,
   reconnectGraceSeconds: RECONNECT_GRACE_SECONDS,
   manager: createConfiguredManager(manager),
@@ -185,7 +185,7 @@ server.define(OFFICE_ROOM_NAME, OfficeRoom, {
           withdraw: (hire) => runnerLink.withdrawHire(hire),
         },
       }),
-} satisfies OfficeRoomOptions);
+} satisfies OfficeRoomOptions));
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {

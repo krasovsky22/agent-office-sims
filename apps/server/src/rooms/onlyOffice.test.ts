@@ -9,7 +9,7 @@ import { OFFICE_CAPACITY, OFFICE_ROOM_NAME, type OfficeState } from "@sim/shared
 import { Client, ErrorCode, type Room } from "colyseus.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { OfficeRoom, type OfficeRoomOptions } from "./OfficeRoom.js";
+import { officeRoom } from "./OfficeRoom.js";
 import { openOnlyOffice } from "./onlyOffice.js";
 
 let server: Server;
@@ -17,7 +17,7 @@ let endpoint: string;
 
 beforeAll(async () => {
   server = new Server({ transport: new WebSocketTransport(), greet: false });
-  server.define(OFFICE_ROOM_NAME, OfficeRoom, { reconnectGraceSeconds: 0 } satisfies Partial<OfficeRoomOptions>);
+  server.define(OFFICE_ROOM_NAME, officeRoom({ reconnectGraceSeconds: 0 }));
   await server.listen(0);
   const address = server.transport.server?.address();
   if (address === null || address === undefined || typeof address === "string") {

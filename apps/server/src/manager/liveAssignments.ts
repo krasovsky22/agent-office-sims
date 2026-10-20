@@ -103,14 +103,6 @@ export function toWire(assignment: LiveAssignment): LiveAssignmentWire {
   };
 }
 
-/**
- * Whether a room option is the queue the server handed over, rather than
- * whatever a client put in its join options under the same name.
- */
-export function isLiveAssignmentQueue(value: unknown): value is LiveAssignmentQueue {
-  return value instanceof LiveAssignmentQueue;
-}
-
 export interface LiveAssignmentQueueOptions {
   /** The registry the live agents report to. */
   readonly agents: LiveAgentSource & Pick<LiveAgentRegistry, "subscribeReports">;

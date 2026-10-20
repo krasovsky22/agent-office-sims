@@ -38,20 +38,6 @@ export interface StandingSource {
   standingVersion(): number;
 }
 
-/**
- * Whether a room option is the standing source the server handed over, rather
- * than whatever a client put in its join options under the same name.
- */
-export function isStandingSource(value: unknown): value is StandingSource {
-  const candidate = value as Partial<Record<keyof StandingSource, unknown>> | null;
-  return (
-    typeof value === "object" &&
-    candidate !== null &&
-    typeof candidate.standingTasks === "function" &&
-    typeof candidate.standingVersion === "function"
-  );
-}
-
 /** A runner as a new standing task's home. */
 export interface StandingRunnerView {
   readonly runnerId: string;

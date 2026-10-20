@@ -33,7 +33,7 @@ import { Client, type Room } from "colyseus.js";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { RunnerLink, runnerSlotAgentId } from "../agents/runnerLink.js";
-import { OfficeRoom, type OfficeRoomOptions } from "./OfficeRoom.js";
+import { officeRoom } from "./OfficeRoom.js";
 
 const REPO = "acme/office";
 const AGENT = liveAgentKey(runnerSlotAgentId("box", "slot-1"));
@@ -67,11 +67,11 @@ beforeAll(async () => {
   link = new RunnerLink({ repository: REPO, timeoutMs: 60_000 });
   runnerSync();
   server = new Server({ transport: new WebSocketTransport(), greet: false });
-  server.define(OFFICE_ROOM_NAME, OfficeRoom, {
+  server.define(OFFICE_ROOM_NAME, officeRoom({
     liveAgents: link,
     runnerEvents: link,
     runnerCommands: link,
-  } satisfies Partial<OfficeRoomOptions>);
+  }));
   await server.listen(0);
   const address = server.transport.server?.address();
   if (address === null || address === undefined || typeof address === "string") {

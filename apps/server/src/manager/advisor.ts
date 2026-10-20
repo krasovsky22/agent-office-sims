@@ -137,18 +137,6 @@ export interface ManagerAdvisor {
   advise(request: ManagerRequest, signal?: AbortSignal): Promise<AdviceResult>;
 }
 
-/**
- * Whether a value is a {@link ManagerAdvisor}, for a room handed one through
- * options a client's join options are merged into.
- */
-export function isManagerAdvisor(value: unknown): value is ManagerAdvisor {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as Partial<ManagerAdvisor>).advise === "function"
-  );
-}
-
 export interface ManagerAdvisorOptions {
   readonly planner: ManagerPlanner;
   readonly mode: ManagerAdvisor["mode"];

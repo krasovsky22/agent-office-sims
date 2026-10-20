@@ -9,7 +9,7 @@
 import { MAX_SCREEN_HISTORY, type ScreenFrame, type ScreenFramesEvent, type ScreenRun } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { ScreenStore, isScreenSource } from "./screens.js";
+import { ScreenStore } from "./screens.js";
 
 /** A runner link reporting exactly the slots in {@link reported}, as `runnerId/slotId`. */
 function fakeSlots(initial: readonly string[]) {
@@ -231,11 +231,5 @@ describe("ScreenStore", () => {
     store.stop();
     slots.leave("runner-1/slot-1");
     expect(store.fullScreens().screens).toHaveLength(1);
-  });
-
-  it("is a screen source, and a client's join options are not", () => {
-    expect(isScreenSource(storeWithSlots().store)).toBe(true);
-    expect(isScreenSource({ fullScreens: "x", onScreens: "y" })).toBe(false);
-    expect(isScreenSource(undefined)).toBe(false);
   });
 });

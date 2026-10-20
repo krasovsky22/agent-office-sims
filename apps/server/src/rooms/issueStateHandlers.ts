@@ -41,18 +41,6 @@ export interface IssueStates {
   changeIssueState(issueNumber: number, state: IssueState, requestedBy: string): Promise<IssueStateRejection | undefined>;
 }
 
-/**
- * Whether a room option is the server's {@link IssueStates}, rather than a
- * client's join option of the same name: JSON cannot carry a function.
- */
-export function isIssueStates(value: unknown): value is IssueStates {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as Partial<Record<keyof IssueStates, unknown>>;
-  return typeof candidate.canChangeIssues === "function" && typeof candidate.changeIssueState === "function";
-}
-
 /** What the handler needs from the room, named so a test can supply it. */
 export interface IssueStateHost {
   readonly state: OfficeState;

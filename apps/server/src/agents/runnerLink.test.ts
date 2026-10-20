@@ -9,8 +9,7 @@
 import type { RunnerSync } from "@sim/shared";
 import { describe, expect, it, vi } from "vitest";
 
-import { isLiveAgentSource } from "./registry.js";
-import { RunnerLink, isRunnerEventSource, isRunnerSpendSource, runnerSlotAgentId } from "./runnerLink.js";
+import { RunnerLink, runnerSlotAgentId } from "./runnerLink.js";
 import { MemoryRunnerProfiles } from "./runnerProfiles.js";
 
 const TIMEOUT_MS = 30_000;
@@ -66,8 +65,6 @@ describe("RunnerLink slots", () => {
     ]);
     expect(runnerSlotAgentId("runner-1", "slot-1")).toBe("runner:runner-1:slot-1");
     expect(notifications()).toBe(1);
-    expect(isLiveAgentSource(link)).toBe(true);
-    expect(isRunnerEventSource(link)).toBe(true);
   });
 
   it("tells nobody about a sync that changes nothing", () => {
@@ -362,8 +359,6 @@ describe("RunnerLink spend", () => {
     const { link } = setup();
     link.sync(sync());
     expect(link.spend()).toEqual({ runners: 0, spentUsd: 0, budgetUsd: undefined, budgetSpent: false });
-    expect(isRunnerSpendSource(link)).toBe(true);
-    expect(isRunnerSpendSource({ spend: "lots" })).toBe(false);
   });
 
   it("adds up every runner's spend, and their budgets while every one has one", () => {

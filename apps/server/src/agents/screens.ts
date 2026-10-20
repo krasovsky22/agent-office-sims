@@ -55,18 +55,6 @@ export interface ScreenSource {
   onScreens(listener: (event: ScreenFramesEvent) => void): () => void;
 }
 
-/**
- * Whether a room option is the screen source the server handed over, rather
- * than whatever a client put in its join options under the same name.
- */
-export function isScreenSource(value: unknown): value is ScreenSource {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as Partial<Record<keyof ScreenSource, unknown>>;
-  return typeof candidate.fullScreens === "function" && typeof candidate.onScreens === "function";
-}
-
 export interface ScreenStoreOptions {
   /** Which slots each runner reports right now; told when that changes. */
   readonly slots: Pick<RunnerLink, "hasRunner" | "hasSlot" | "subscribe">;

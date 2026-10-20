@@ -84,21 +84,6 @@ export interface LiveAgentSource {
   subscribe(listener: () => void): () => void;
 }
 
-/**
- * Whether a room option is a source the server handed over, rather than
- * whatever a client put in its join options under the same name.
- *
- * Colyseus merges the two with the server's winning, so this is belt and
- * braces, as it is for the project board: a JSON payload cannot carry a function.
- */
-export function isLiveAgentSource(value: unknown): value is LiveAgentSource {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as Partial<Record<keyof LiveAgentSource, unknown>>;
-  return typeof candidate.current === "function" && typeof candidate.subscribe === "function";
-}
-
 /** What came of one report. */
 export type ReportOutcome = "accepted" | "stopped" | "full";
 

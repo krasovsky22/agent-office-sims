@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 
 import { runnerSlotAgentId } from "../agents/runnerLink.js";
 import type { WorkHost } from "../rooms/workHandlers.js";
-import { type AgentHiring, HIRE_ARRIVAL_MS, HireDesk, hireDescription, hireTitle, isAgentHiring } from "./hire.js";
+import { type AgentHiring, HIRE_ARRIVAL_MS, HireDesk, hireDescription, hireTitle } from "./hire.js";
 import { readOfficeView } from "./officeView.js";
 
 const RESTRICTED = "agent-restricted";
@@ -225,11 +225,5 @@ describe("HireDesk", () => {
       "Nova is here, but whoever hired them is no longer the CEO, so #40 “Keyboard focus on the HUD” is not theirs yet.",
     ]);
     expect(state.work.get(workKey(40))).toBeUndefined();
-  });
-
-  it("is told apart from whatever a client put in its join options", () => {
-    expect(isAgentHiring(office().hiring)).toBe(true);
-    expect(isAgentHiring({ cap: 4 })).toBe(false);
-    expect(isAgentHiring(undefined)).toBe(false);
   });
 });

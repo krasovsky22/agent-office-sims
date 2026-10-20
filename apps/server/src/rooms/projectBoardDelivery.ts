@@ -28,21 +28,6 @@ export interface BoardClient {
 }
 
 /**
- * Whether a room option is a feed the server handed over, rather than whatever
- * a client put in its join options under the same name.
- *
- * Colyseus merges the two, server options winning, so this is belt and braces:
- * a JSON payload cannot carry a function, so it can never pass.
- */
-export function isProjectBoardSource(value: unknown): value is ProjectBoardSource {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as Partial<Record<keyof ProjectBoardSource, unknown>>;
-  return typeof candidate.current === "function" && typeof candidate.subscribe === "function";
-}
-
-/**
  * Relays every snapshot the feed publishes to the room.
  *
  * @returns the unsubscribe, for the room's `onDispose`; a disposed room left

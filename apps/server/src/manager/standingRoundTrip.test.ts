@@ -49,7 +49,7 @@ import { createRunnerEndpoint } from "../agents/runnerEndpoint.js";
 import { RunnerLink } from "../agents/runnerLink.js";
 import { StandingMirror } from "../agents/standingMirror.js";
 import { createHealthServer } from "../http.js";
-import { OfficeRoom, type OfficeRoomOptions } from "../rooms/OfficeRoom.js";
+import { officeRoom } from "../rooms/OfficeRoom.js";
 import { createManagerAdvisor } from "./advisor.js";
 import { createRulePlanner } from "./fromConfig.js";
 
@@ -77,14 +77,14 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
   const serverUrl = new URL(`http://127.0.0.1:${(http.address() as AddressInfo).port}`);
   server = new Server({ transport: new WebSocketTransport(), greet: false });
-  server.define(OFFICE_ROOM_NAME, OfficeRoom, {
+  server.define(OFFICE_ROOM_NAME, officeRoom({
     projectBoard: { current: () => BOARD, subscribe: () => () => undefined },
     manager: createManagerAdvisor({ planner: createRulePlanner(0), mode: "rules" }),
     liveAgents: link,
     runnerEvents: link,
     runnerCommands: link,
     standing: mirror,
-  } satisfies Partial<OfficeRoomOptions>);
+  }));
   await server.listen(0);
   const address = server.transport.server?.address();
   if (address === null || address === undefined || typeof address === "string") {
