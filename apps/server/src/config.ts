@@ -11,7 +11,16 @@
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { MAX_RUNNER_SLOTS, readAgentRestrictLabel } from "@sim/shared";
+import {
+  DEFAULT_REPOSITORY,
+  MAX_RUNNER_SLOTS,
+  MIN_SECRET_LENGTH,
+  REPOSITORY_PATTERN,
+  readAgentRestrictLabel,
+  readChoice,
+  readEnv,
+  readWholeNumber,
+} from "@sim/shared";
 
 const DEFAULT_PORT = 2567;
 
@@ -36,9 +45,6 @@ const DEV_ORIGINS: readonly string[] = ["http://localhost:5173", "http://127.0.0
  */
 export const DISALLOWED_ORIGIN = "https://disallowed.invalid";
 
-/** The repository whose issues the project board shows when none is configured: this one. */
-const DEFAULT_PROJECT_REPOSITORY = "krasovsky22/agent-office-sims";
-
 /**
  * Seconds between polls when no interval is configured.
  *
@@ -53,9 +59,6 @@ const DEFAULT_POLL_SECONDS_WITH_TOKEN = 60;
 /** Below this a poll interval is hammering GitHub for news that changes in minutes. */
 const MIN_POLL_SECONDS = 15;
 
-/** `owner/name`, in the characters GitHub allows in each. */
-const REPOSITORY_PATTERN = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
-
 /** Where the project board reads its issues from. */
 export interface ProjectBoardConfig {
   /** `owner/name`. */
@@ -67,15 +70,6 @@ export interface ProjectBoardConfig {
   readonly token: string | undefined;
   readonly pollIntervalMs: number;
 }
-
-/**
- * Shortest secret the live agents' report route will accept.
- *
- * The route is reachable by anyone who can reach the server, so the secret is
- * all that stands between a stranger and the people on the floor; a short one
- * is a configuration mistake worth refusing to boot over.
- */
-const MIN_LIVE_AGENTS_SECRET_LENGTH = 16;
 
 /** Silence after which a live agent leaves, when none is configured. */
 const DEFAULT_LIVE_AGENTS_TIMEOUT_SECONDS = 60;
@@ -191,12 +185,8 @@ export type ManagerConfig =
  * - `MANAGER_CALLS_PER_DAY`, `MANAGER_CALLS_PER_RUN`: optional call budgets.
  */
 export function readManagerConfig(env: NodeJS.ProcessEnv = process.env): ManagerConfig {
-  const rawMock = env["MOCK_MANAGER"]?.trim().toLowerCase() ?? "";
-  if (rawMock === "" || rawMock === "on") {
+  if (readChoice(env, "MOCK_MANAGER", ["on", "off"], "on") === "on") {
     return { mode: "mock" };
-  }
-  if (rawMock !== "off") {
-    throw new Error(`MOCK_MANAGER must be on or off, got "${env["MOCK_MANAGER"]}"`);
   }
 
   const apiKey = env["ANTHROPIC_API_KEY"]?.trim() ?? "";
@@ -212,27 +202,15 @@ export function readManagerConfig(env: NodeJS.ProcessEnv = process.env): Manager
     mode: "model",
     apiKey,
     model: rawModel === "" ? DEFAULT_MANAGER_MODEL : rawModel,
-    callsPerDay: readCallBudget(env, "MANAGER_CALLS_PER_DAY", DEFAULT_MANAGER_CALLS_PER_DAY),
-    callsPerRun: readCallBudget(env, "MANAGER_CALLS_PER_RUN", DEFAULT_MANAGER_CALLS_PER_RUN),
+    callsPerDay: readWholeNumber(env, "MANAGER_CALLS_PER_DAY", { fallback: DEFAULT_MANAGER_CALLS_PER_DAY, min: 0, means: "of calls" }),
+    callsPerRun: readWholeNumber(env, "MANAGER_CALLS_PER_RUN", { fallback: DEFAULT_MANAGER_CALLS_PER_RUN, min: 0, means: "of calls" }),
   };
-}
-
-function readCallBudget(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
-  const raw = env[name]?.trim() ?? "";
-  if (raw === "") {
-    return fallback;
-  }
-  const calls = Number(raw);
-  if (!Number.isInteger(calls) || calls < 0) {
-    throw new Error(`${name} must be a whole number of calls, got "${raw}"`);
-  }
-  return calls;
 }
 
 /**
  * Reads the live agents' report route settings.
  *
- * - `LIVE_AGENTS_SECRET`: optional, at least {@link MIN_LIVE_AGENTS_SECRET_LENGTH}
+ * - `LIVE_AGENTS_SECRET`: optional, at least {@link MIN_SECRET_LENGTH}
  *   characters. Without it the route does not exist and no live agent appears.
  * - `LIVE_AGENTS_TIMEOUT_SECONDS`: optional, at least
  *   {@link MIN_LIVE_AGENTS_TIMEOUT_SECONDS}. Defaults to a minute.
@@ -240,31 +218,25 @@ function readCallBudget(env: NodeJS.ProcessEnv, name: string, fallback: number):
 export function readLiveAgentsConfig(env: NodeJS.ProcessEnv = process.env): LiveAgentsConfig {
   const rawSecret = env["LIVE_AGENTS_SECRET"]?.trim() ?? "";
   const secret = rawSecret === "" ? undefined : rawSecret;
-  if (secret !== undefined && secret.length < MIN_LIVE_AGENTS_SECRET_LENGTH) {
+  if (secret !== undefined && secret.length < MIN_SECRET_LENGTH) {
     // The value itself stays out of the message, which lands in a platform log.
     throw new Error(
-      `LIVE_AGENTS_SECRET must be at least ${MIN_LIVE_AGENTS_SECRET_LENGTH} characters, got ${secret.length}`,
+      `LIVE_AGENTS_SECRET must be at least ${MIN_SECRET_LENGTH} characters, got ${secret.length}`,
     );
   }
 
-  const rawSeconds = env["LIVE_AGENTS_TIMEOUT_SECONDS"]?.trim() ?? "";
-  let seconds = DEFAULT_LIVE_AGENTS_TIMEOUT_SECONDS;
-  if (rawSeconds !== "") {
-    seconds = Number(rawSeconds);
-    if (!Number.isInteger(seconds) || seconds < MIN_LIVE_AGENTS_TIMEOUT_SECONDS) {
-      throw new Error(
-        `LIVE_AGENTS_TIMEOUT_SECONDS must be a whole number of seconds, at least ${MIN_LIVE_AGENTS_TIMEOUT_SECONDS}, got "${rawSeconds}"`,
-      );
-    }
-  }
-
+  const seconds = readWholeNumber(env, "LIVE_AGENTS_TIMEOUT_SECONDS", {
+    fallback: DEFAULT_LIVE_AGENTS_TIMEOUT_SECONDS,
+    min: MIN_LIVE_AGENTS_TIMEOUT_SECONDS,
+    means: `of seconds, at least ${MIN_LIVE_AGENTS_TIMEOUT_SECONDS}`,
+  });
   return { secret, timeoutMs: seconds * 1000 };
 }
 
 /**
  * Reads the runner link's settings.
  *
- * - `RUNNER_SECRET`: optional, at least {@link MIN_LIVE_AGENTS_SECRET_LENGTH}
+ * - `RUNNER_SECRET`: optional, at least {@link MIN_SECRET_LENGTH}
  *   characters, for the same reason. Without it the runner link's route does
  *   not exist and no runner's slots appear.
  * - `REAL_AGENT_RESTRICT_LABEL`: the label that keeps an issue from a runner's
@@ -276,17 +248,18 @@ export function readLiveAgentsConfig(env: NodeJS.ProcessEnv = process.env): Live
 export function readRunnerConfig(env: NodeJS.ProcessEnv = process.env): RunnerConfig {
   const raw = env["RUNNER_SECRET"]?.trim() ?? "";
   const secret = raw === "" ? undefined : raw;
-  if (secret !== undefined && secret.length < MIN_LIVE_AGENTS_SECRET_LENGTH) {
+  if (secret !== undefined && secret.length < MIN_SECRET_LENGTH) {
     // The value itself stays out of the message, which lands in a platform log.
     throw new Error(
-      `RUNNER_SECRET must be at least ${MIN_LIVE_AGENTS_SECRET_LENGTH} characters, got ${secret.length}`,
+      `RUNNER_SECRET must be at least ${MIN_SECRET_LENGTH} characters, got ${secret.length}`,
     );
   }
-  const rawMax = env["MAX_CODING_AGENTS"]?.trim() ?? "";
-  const maxAgents = rawMax === "" ? MAX_RUNNER_SLOTS : Number(rawMax);
-  if (!Number.isInteger(maxAgents) || maxAgents < 1 || maxAgents > MAX_RUNNER_SLOTS) {
-    throw new Error(`MAX_CODING_AGENTS must be a whole number from 1 to ${MAX_RUNNER_SLOTS}, the floor's slot cap; got "${rawMax}"`);
-  }
+  const maxAgents = readWholeNumber(env, "MAX_CODING_AGENTS", {
+    fallback: MAX_RUNNER_SLOTS,
+    min: 1,
+    max: MAX_RUNNER_SLOTS,
+    means: `from 1 to ${MAX_RUNNER_SLOTS} (the floor's slot cap)`,
+  });
   return { secret, restrictLabel: readAgentRestrictLabel(env["REAL_AGENT_RESTRICT_LABEL"]), maxAgents };
 }
 
@@ -299,25 +272,20 @@ export function readRunnerConfig(env: NodeJS.ProcessEnv = process.env): RunnerCo
  * - `PROJECT_BOARD_POLL_SECONDS`: optional, at least {@link MIN_POLL_SECONDS}.
  */
 export function readProjectBoardConfig(env: NodeJS.ProcessEnv = process.env): ProjectBoardConfig {
-  const rawRepository = env["PROJECT_BOARD_REPO"]?.trim() ?? "";
-  const repository = rawRepository === "" ? DEFAULT_PROJECT_REPOSITORY : rawRepository;
+  const rawRepository = readEnv(env, "PROJECT_BOARD_REPO");
+  const repository = rawRepository === "" ? DEFAULT_REPOSITORY : rawRepository;
   if (!REPOSITORY_PATTERN.test(repository)) {
     throw new Error(`PROJECT_BOARD_REPO must be owner/name, got "${rawRepository}"`);
   }
 
-  const rawToken = env["PROJECT_BOARD_TOKEN"]?.trim() ?? "";
+  const rawToken = readEnv(env, "PROJECT_BOARD_TOKEN");
   const token = rawToken === "" ? undefined : rawToken;
 
-  const rawSeconds = env["PROJECT_BOARD_POLL_SECONDS"]?.trim() ?? "";
-  let seconds = token === undefined ? DEFAULT_POLL_SECONDS_ANONYMOUS : DEFAULT_POLL_SECONDS_WITH_TOKEN;
-  if (rawSeconds !== "") {
-    seconds = Number(rawSeconds);
-    if (!Number.isInteger(seconds) || seconds < MIN_POLL_SECONDS) {
-      throw new Error(
-        `PROJECT_BOARD_POLL_SECONDS must be a whole number of seconds, at least ${MIN_POLL_SECONDS}, got "${rawSeconds}"`,
-      );
-    }
-  }
+  const seconds = readWholeNumber(env, "PROJECT_BOARD_POLL_SECONDS", {
+    fallback: token === undefined ? DEFAULT_POLL_SECONDS_ANONYMOUS : DEFAULT_POLL_SECONDS_WITH_TOKEN,
+    min: MIN_POLL_SECONDS,
+    means: `of seconds, at least ${MIN_POLL_SECONDS}`,
+  });
 
   return { repository, token, pollIntervalMs: seconds * 1000 };
 }
