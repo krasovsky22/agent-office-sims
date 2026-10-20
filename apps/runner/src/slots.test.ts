@@ -836,6 +836,25 @@ describe("SlotPool", () => {
     expect(stopped).toBe(true);
   });
 
+  it("opens a restarted run's worktree only once the stopped run on its slot has exited and given its worktree up", async () => {
+    const exits: Array<() => void> = [];
+    const slow: Agent = {
+      label: "Slow",
+      start: () => ({ stop: () => new Promise<void>((resolve) => exits.push(resolve)) }),
+    };
+    const slots = pool("failed", slow);
+    slots.handle(START);
+    await settle();
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "" });
+    slots.handle({ ...START, id: "command-3" });
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39"]);
+
+    exits[0]?.();
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39", "open slot-1 #39"]);
+  });
+
   it("ignores a command for a slot it does not have, and a prompt for a slot holding no task", () => {
     const slots = pool();
     slots.handle({ ...START, slotId: "slot-9" });

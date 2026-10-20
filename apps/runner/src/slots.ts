@@ -267,6 +267,8 @@ interface Slot {
   activity: string;
   pr: RunnerPullRequest | undefined;
   run: ActiveRun | undefined;
+  /** Its last run's stop-then-close, which a next run waits for before opening its worktree. */
+  ended: Promise<void>;
   /** A standing task's run, which holds the slot instead of an issue until an issue's start takes it back. */
   standing: StandingOnSlot | undefined;
   /** The desk it is lent to, which holds it instead of an issue until the server closes it or an issue's start takes it back. */
@@ -368,6 +370,7 @@ export class SlotPool {
       activity: "",
       pr: undefined,
       run: undefined,
+      ended: Promise.resolve(),
       standing: undefined,
       desk: undefined,
       screen,
@@ -1082,6 +1085,10 @@ export class SlotPool {
       return;
     }
     slot.activity = "Making a worktree";
+    await slot.ended;
+    if (!run.live) {
+      return;
+    }
     let workdir: string;
     try {
       workdir = await this.options.workspaces.open(slot.id, task.issueNumber);
@@ -1476,9 +1483,10 @@ export class SlotPool {
     // The message can quote the agent's last line, so it is masked as its event's is.
     const said = this.redactor.redactText(message);
     this.log(`${slot.id} ${kind} on #${run.issueNumber}${said === "" ? "" : `: ${said}`} (${formatUsd(run.spentUsd)} spent)`);
-    return stopped.then(() =>
+    slot.ended = stopped.then(() =>
       discard ? this.discardKept(slot.id, run.issueNumber) : this.options.workspaces.close(slot.id, run.issueNumber),
     );
+    return slot.ended;
   }
 
   /**
