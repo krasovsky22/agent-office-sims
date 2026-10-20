@@ -89,7 +89,6 @@ import {
   DEFAULT_AGENT_RESTRICT_LABEL,
   EMOTE,
   type EmoteEvent,
-  type JumpEvent,
   HumanPlayer,
   type IssueWork,
   type RunnerSpendTotal,
@@ -117,13 +116,8 @@ import {
   managerSeat,
   nameRefusal,
   normalizeYaw,
-  parseChatMessage,
   parseDeskTerminalSizeMessage,
-  parseEmoteMessage,
-  parseInteractMessage,
   parseJoinOptions,
-  parsePoseMessage,
-  parseRenameMessage,
   releaseGoneWork,
 } from "@sim/shared";
 
@@ -155,11 +149,9 @@ import {
   HoldRegistry,
   type InteractionHost,
   holdTick,
-  releaseHold,
-  requestInteract,
 } from "../sim/interaction.js";
 import { LiveAgentCrew } from "../sim/liveAgents.js";
-import { type OccupantMotion, applyPose, createMotion, recordPose, tryJump } from "../sim/movement.js";
+import { type OccupantMotion, applyPose, createMotion } from "../sim/movement.js";
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
 import { StandupMeeting } from "../sim/standup.js";
 import { registerAgentActionHandlers } from "./agentActionHandlers.js";
@@ -167,6 +159,7 @@ import { registerAgentProfileHandlers } from "./agentProfileHandlers.js";
 import { registerAgentPromptHandlers } from "./agentPromptHandlers.js";
 import { registerManagerHandlers } from "./managerHandlers.js";
 import { registerStandingHandlers } from "./standingHandlers.js";
+import { registerPresenceHandlers } from "./presenceHandlers.js";
 import { relayProjectBoard, sendProjectBoard } from "./projectBoardDelivery.js";
 import { registerStandupHandlers } from "./standupHandlers.js";
 import { type IssueStates, registerIssueStateHandler } from "./issueStateHandlers.js";
@@ -499,54 +492,12 @@ export class OfficeRoom extends Room<OfficeState> {
     this.openManagersDesk(workHost, services);
     this.openReception();
 
-    this.onMessage(CLIENT_MESSAGE.pose, (client, raw: unknown) => {
-      const pose = parsePoseMessage(raw);
-      const motion = this.motions.get(client.sessionId);
-      if (pose === undefined || motion === undefined) {
-        // A malformed payload is dropped; another pose follows in ~50ms.
-        return;
-      }
-      recordPose(motion, pose, this.clock.currentTime);
-    });
-
-    this.onMessage(CLIENT_MESSAGE.jump, (client) => {
-      const occupant = this.state.occupants.get(client.sessionId);
-      const motion = this.motions.get(client.sessionId);
-      if (occupant === undefined || motion === undefined || !tryJump(occupant, motion, this.clock.currentTime)) {
-        return;
-      }
-      // Not back to the jumper, who drew the jump the moment the key went down.
-      this.broadcast(SERVER_MESSAGE.jump, { occupantId: client.sessionId } satisfies JumpEvent, { except: client });
-    });
-
-    this.onMessage(CLIENT_MESSAGE.interact, (client, raw: unknown) => {
-      const message = parseInteractMessage(raw);
-      if (message === undefined) {
-        return;
-      }
-      // A refusal is not answered: the client ran the same rule before showing
-      // its prompt, so a refusal means either a race it will see resolved in
-      // the next patch or a client that was not asking honestly.
-      const outcome = requestInteract(
-        this.interaction,
-        client.sessionId,
-        message.target,
-        this.clock.currentTime,
-      );
-      if (outcome.result === "used") {
-        // An interaction that holds nothing has no state to change, so all it
-        // can do for now is leave a trace — see `sim/events.ts`. A wall board's
-        // close-up is the reading client's own view, so it changes nothing here.
-        recordOfficeEvent("interact", {
-          actor: this.state.occupants.get(client.sessionId)?.name ?? client.sessionId,
-          target: outcome.target.id,
-          kind: outcome.target.kind,
-        });
-      }
-    });
-
-    this.onMessage(CLIENT_MESSAGE.release, (client) => {
-      releaseHold(this.interaction, client.sessionId, this.clock.currentTime);
+    registerPresenceHandlers(this, {
+      state: this.state,
+      interaction: this.interaction,
+      now: () => this.clock.currentTime,
+      allow: (client, command) => this.spend(client, command),
+      say: (occupantId, text) => this.say(occupantId, text),
     });
 
     this.onMessage(CLIENT_MESSAGE.deskTerminalSize, (client, raw: unknown) => {
@@ -555,42 +506,6 @@ export class OfficeRoom extends Room<OfficeState> {
       if (size !== undefined) {
         this.deskTerminal.resize(client.sessionId, size.cols, size.rows);
       }
-    });
-
-    this.onMessage(CLIENT_MESSAGE.emote, (client, raw: unknown) => {
-      const message = parseEmoteMessage(raw);
-      if (message === undefined || !this.spend(client, CLIENT_MESSAGE.emote)) {
-        return;
-      }
-      this.broadcast(SERVER_MESSAGE.emote, {
-        occupantId: client.sessionId,
-        emote: message.emote,
-      } satisfies EmoteEvent);
-    });
-
-    this.onMessage(CLIENT_MESSAGE.chat, (client, raw: unknown) => {
-      // The text is sanitized by the parser, so what goes out over the wire is
-      // already capped and stripped. No client ever has to re-check it.
-      const message = parseChatMessage(raw);
-      if (message === undefined || !this.spend(client, CLIENT_MESSAGE.chat)) {
-        return;
-      }
-      this.say(client.sessionId, message.text);
-    });
-
-    this.onMessage(CLIENT_MESSAGE.rename, (client, raw: unknown) => {
-      const message = parseRenameMessage(raw);
-      const player = this.state.occupants.get(client.sessionId);
-      if (message === undefined || player === undefined || !this.spend(client, CLIENT_MESSAGE.rename)) {
-        return;
-      }
-      const others = [...this.state.occupants.values()].filter((occupant) => occupant !== player);
-      const rejection = nameRefusal(message.name, others);
-      if (rejection !== undefined) {
-        client.send(SERVER_MESSAGE.nameRejected, { name: message.name, rejection } satisfies NameRejectedEvent);
-        return;
-      }
-      player.name = message.name;
     });
 
     this.setSimulationInterval((deltaMs) => {
