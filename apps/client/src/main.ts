@@ -482,7 +482,7 @@ function start(): void {
 
   const room: RoomConnection = new RoomConnection({
     onStatusChanged: (status, detail) => {
-      publishHud(detail === undefined ? { status } : { status, detail });
+      publishHud({ status, detail });
     },
     onLocalSpawn: (x, z, yaw) => {
       controller.teleport(x, z, yaw);
@@ -808,6 +808,10 @@ function start(): void {
         sendEmote: (emote) => room.sendEmote(emote),
         sendChat: (text) => room.sendChat(text),
         toggleCamera: toggleCameraMode,
+        rejoin: () => {
+          // A refusal is already on the HUD, with the button still by it.
+          void room.rejoin().catch(() => {});
+        },
         projectBoard: {
           assign: (issueNumber, agentId) => room.sendWorkAssign(issueNumber, agentId),
           move: (issueNumber, status) => room.sendWorkMove(issueNumber, status),

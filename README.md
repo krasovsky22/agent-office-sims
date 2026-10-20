@@ -1269,8 +1269,12 @@ Then confirm all twenty-five:
    left), and every tab's chat log announces who the new CEO is. A dropped
    connection is not a leave: the server holds the player's place, role
    included, for `RECONNECT_GRACE_SECONDS`, and the client reconnects as the
-   same person. Closing the last tab does not close the office: reopen it and
-   the board's work is still there, the agents still on it, and you are CEO.
+   same person. Restart the server, as every deploy does: a server back inside
+   that window finds each tab rejoining on its own, under the same name, within
+   a second or two, and the first tab back is CEO. A tab that still cannot get
+   in shows a Rejoin button by its status. Closing the last tab does not close
+   the office: reopen it and the board's work is still there, the agents still
+   on it, and you are CEO.
 5. **An emote in one tab appears in the other.** Press `1`; the other tab shows
    it above that avatar within normal latency, and it clears after a couple of
    seconds. Say something and the bubble does the same, for longer, and the line

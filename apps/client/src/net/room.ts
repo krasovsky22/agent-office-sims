@@ -25,7 +25,10 @@
  * A dropped socket is reconnected rather than given up on. The server holds a
  * dropped player's place, and with it their role, for
  * {@link RECONNECT_GRACE_SECONDS}; reconnecting inside that window resumes the
- * same session, so a CEO whose wifi blinks is still the CEO afterwards.
+ * same session, so a CEO whose wifi blinks is still the CEO afterwards. A
+ * session the server no longer knows — it restarted, as every deploy does — is
+ * joined afresh under the same name instead, and anything else ends in a status
+ * the HUD offers to {@link RoomConnection.rejoin} from.
  *
  * The agents' work on the project board's issues is state too, and is handed
  * on as a fresh plain copy whenever any of it changes, so the panel re-renders
@@ -127,13 +130,6 @@ export type ConnectionStatus =
   | "disconnected"
   | "full"
   | "failed";
-
-/**
- * The close code of a deliberate `leave()`, which is not worth reconnecting
- * from. Colyseus' `CloseCode.CONSENTED`, which the client library does not
- * export.
- */
-const CONSENTED_CLOSE_CODE = 4000;
 
 /** Pause between reconnection attempts while the server's grace period lasts. */
 const RECONNECT_RETRY_MS = 1000;
@@ -286,7 +282,11 @@ export class RoomConnection {
   public readonly localServerPose = { x: 0, z: 0, yaw: 0, known: false };
 
   private client: Client | undefined;
+  /** The name first asked for, which a fresh join after a lost session asks for again. */
+  private name = "";
   private room: Room<OfficeState> | undefined;
+  /** Set while a join is in flight, so a second click on Rejoin cannot seat the player twice. */
+  private joining = false;
   /** Set by {@link leave}, so a deliberate exit is never reconnected. */
   private leaving = false;
   private readonly views = new Map<string, OccupantView>();
@@ -312,11 +312,26 @@ export class RoomConnection {
   }
 
   public async connect(serverUrl: string, name: string): Promise<void> {
+    this.client = new Client(serverUrl);
+    this.name = name;
+    await this.rejoin();
+  }
+
+  /** Joins the office afresh, as a new session; does nothing while one is attached or on its way. */
+  public async rejoin(): Promise<void> {
+    const client = this.client;
+    if (client === undefined || this.room !== undefined || this.joining || this.leaving) {
+      return;
+    }
+    this.joining = true;
     this.events.onStatusChanged?.("connecting");
     try {
-      const client = new Client(serverUrl);
-      this.client = client;
-      this.attach(await client.join<OfficeState>(OFFICE_ROOM_NAME, { name }));
+      const room = await client.join<OfficeState>(OFFICE_ROOM_NAME, { name: this.name });
+      if (this.leaving) {
+        void room.leave();
+        return;
+      }
+      this.attach(room);
     } catch (error) {
       if (isOfficeFull(error)) {
         this.events.onStatusChanged?.("full");
@@ -324,6 +339,8 @@ export class RoomConnection {
         this.events.onStatusChanged?.("failed", describeError(error));
       }
       throw error;
+    } finally {
+      this.joining = false;
     }
   }
 
@@ -625,7 +642,8 @@ export class RoomConnection {
   }
 
   /**
-   * Tries to resume a dropped session until the server's grace period ends.
+   * Tries to resume a dropped session until the server's grace period ends,
+   * or the server says it no longer has it, then joins afresh.
    *
    * Runs on its own async path, between frames; the game loop keeps drawing
    * the office it last knew, and nothing is sent until a room is attached
@@ -647,13 +665,16 @@ export class RoomConnection {
         }
         this.attach(room);
         return;
-      } catch {
+      } catch (error) {
+        if (isSessionGone(error)) {
+          break;
+        }
         await new Promise((resolve) => setTimeout(resolve, RECONNECT_RETRY_MS));
       }
     }
-    if (!this.leaving) {
-      this.events.onStatusChanged?.("disconnected");
-    }
+    await this.rejoin().catch(() => {
+      // The status is already on the HUD, and Rejoin with it.
+    });
   }
 
   private bind(room: Room<OfficeState>): void {
@@ -848,7 +869,7 @@ export class RoomConnection {
       this.events.onStatusChanged?.("failed", message ?? `error ${code}`);
     });
 
-    room.onLeave((code) => {
+    room.onLeave(() => {
       // A room this connection has already moved on from has nothing to clear.
       if (this.room !== room && this.room !== undefined) {
         return;
@@ -861,10 +882,12 @@ export class RoomConnection {
       this.events.onStandingChanged?.([]);
       this.events.onStandupChanged?.(NO_STANDUP);
       this.room = undefined;
-      if (this.leaving || code === CONSENTED_CLOSE_CODE) {
+      if (this.leaving) {
         this.events.onStatusChanged?.("disconnected");
         return;
       }
+      // Even a clean close is reconnected from: the server never sends one
+      // player away, so it is shutting down, and its successor needs joining.
       // Rebuilt from the full state the server sends on reconnection, which
       // re-adds every occupant through the handlers above.
       void this.reconnect(room.reconnectionToken);
@@ -1019,6 +1042,17 @@ export class RoomConnection {
 /** The server opens one office and lets clients only join it, so a join it cannot seat means the office is full. */
 export function isOfficeFull(error: unknown): boolean {
   return error instanceof MatchMakeError && error.code === ErrorCode.MATCHMAKE_INVALID_CRITERIA;
+}
+
+/**
+ * Whether the server answered a reconnection with "no such session", which no
+ * retry will change: its room is gone, as after a restart, or the seat expired.
+ */
+export function isSessionGone(error: unknown): boolean {
+  return (
+    error instanceof MatchMakeError &&
+    (error.code === ErrorCode.MATCHMAKE_INVALID_ROOM_ID || error.code === ErrorCode.MATCHMAKE_EXPIRED)
+  );
 }
 
 /**
