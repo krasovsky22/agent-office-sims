@@ -29,27 +29,28 @@ afterAll(async () => {
 });
 
 /**
- * A fake `claude`: reads `--settings` and the prompt after `--` as Claude
+ * A fake `claude`: skips `--settings` and reads the prompt after `--` as Claude
  * does, writes the prompt to its working directory, then runs `body`, where
- * `hook <Event> <json>` fires a hook the way Claude would.
+ * `hook <Event> <json>` fires a hook through the helper its settings name, as
+ * Claude would. The helper's path is written in rather than read from the
+ * settings, so a hook starts one node, not two.
  */
 function fakeClaude(name: string, body: string): string {
   const path = join(root, name);
+  const helper = join(root, "data", "claude", "hook.cjs");
   writeFileSync(
     path,
     `#!/bin/sh
-settings=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --settings) settings="$2"; shift 2 ;;
+    --settings) shift 2 ;;
     --) shift; break ;;
     *) shift ;;
   esac
 done
 printf '%s' "$1" > prompt.txt
 hook() {
-  command=$(node -e 'const s = require(process.argv[1]); process.stdout.write(s.hooks[process.argv[2]][0].hooks[0].command)' "$settings" "$1")
-  printf '%s' "$2" | sh -c "$command"
+  printf '%s' "$2" | '${process.execPath}' '${helper}' "$1" >/dev/null 2>&1
 }
 ${body}
 `,
@@ -361,15 +362,17 @@ while true; do sleep 1; done`,
     const command = fakeClaude(
       "spoof.sh",
       `hook SessionStart '{"source":"startup"}'
-SIMS_HOOK_TOKEN=not-mine hook Stop '{}'
+# A subshell, as sh keeps an assignment made before a function call.
+(SIMS_HOOK_TOKEN=not-mine hook Stop '{}')
+hook UserPromptSubmit '{"prompt":"Work on GitHub issue #39"}'
 sleep 30`,
     );
     const reporter = recorder();
     const run = agentFor(command).start(task(), reporter);
-    await reporter.waitFor(/^started/);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Each hook is answered before the next is sent, so once the genuine one is in, the spoofed one was turned away.
+    await reporter.waitFor(/^working/);
     run.stop();
-    expect(reporter.seen).toEqual(["started"]);
+    expect(reporter.seen).toEqual(["started", "working: Work on GitHub issue #39"]);
   });
 
   it("will not be made when its CLI is not on PATH", () => {

@@ -5,10 +5,13 @@
  *
  * The developer's checkout stands in for GitHub as well: whatever it pushes is
  * a pull request merged there, which the runner's clone has not fetched yet.
+ *
+ * Making one runs about nine git commands; a test file makes one in
+ * `beforeAll` and {@link GitFixture.copy}s it per test, which runs none.
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -28,11 +31,31 @@ export interface GitFixture {
   merge(file: string): string;
   /** Clones origin as `gh repo clone` would clone GitHub. */
   readonly clone: CloneRepository;
+  /** A fresh fixture in a folder of its own, as this one is now. */
+  copy(): GitFixture;
   cleanup(): void;
 }
 
+function newRoot(): string {
+  return realpathSync(mkdtempSync(join(tmpdir(), "sim-runner-worktrees-")));
+}
+
 export function gitFixture(): GitFixture {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "sim-runner-worktrees-")));
+  const root = newRoot();
+  const fixture = fixtureAt(root);
+  const { git, commit, origin, developer } = fixture;
+  git(root, "init", "--quiet", "--bare", "-b", "main", origin);
+  git(root, "clone", "--quiet", origin, developer);
+  git(developer, "checkout", "--quiet", "-b", "main");
+  commit(developer, "README.md");
+  git(developer, "push", "--quiet", "--no-verify", "-u", "origin", "main");
+  // As a clone of GitHub would have it, so the checkout is one the runner's worktrees could be cut from.
+  git(developer, "remote", "set-head", "origin", "main");
+  mkdirSync(fixture.dataDir);
+  return fixture;
+}
+
+function fixtureAt(root: string): GitFixture {
   const git = (cwd: string, ...args: string[]): string =>
     execFileSync(
       "git",
@@ -48,16 +71,8 @@ export function gitFixture(): GitFixture {
   };
 
   const origin = join(root, "origin.git");
-  git(root, "init", "--quiet", "--bare", "-b", "main", origin);
   const developer = join(root, "developer");
-  git(root, "clone", "--quiet", origin, developer);
-  git(developer, "checkout", "--quiet", "-b", "main");
-  commit(developer, "README.md");
-  git(developer, "push", "--quiet", "--no-verify", "-u", "origin", "main");
-  // As a clone of GitHub would have it, so the checkout is one the runner's worktrees could be cut from.
-  git(developer, "remote", "set-head", "origin", "main");
   const dataDir = join(root, "data");
-  mkdirSync(dataDir);
 
   return {
     root,
@@ -73,6 +88,14 @@ export function gitFixture(): GitFixture {
     },
     clone: async (target) => {
       git(root, "clone", "--quiet", origin, target);
+    },
+    copy() {
+      const copied = newRoot();
+      cpSync(root, copied, { recursive: true });
+      // The developer's checkout names origin by its absolute path, so the copy's must name its own.
+      const config = join(copied, "developer", ".git", "config");
+      writeFileSync(config, readFileSync(config, "utf8").replaceAll(root, copied));
+      return fixtureAt(copied);
     },
     cleanup() {
       rmSync(root, { recursive: true, force: true });
