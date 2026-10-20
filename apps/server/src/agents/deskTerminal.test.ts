@@ -80,6 +80,8 @@ describe("DeskTerminal", () => {
     });
     // On the floor it is free and takes no issues while it is lent, so nobody hands it work.
     expect(link.current()[0]).toMatchObject({ status: "idle", task: undefined, activity: LENT_TO_DESK_ACTIVITY, canTakeIssues: false });
+    // It is still the same agent, so its title stays and the CEO can still edit its profile.
+    expect(link.current()[0]).toMatchObject({ title: "Software Developer", description: "", profileEditable: true });
     desk.step();
     expect(sync([lent])).toEqual([]);
   });
