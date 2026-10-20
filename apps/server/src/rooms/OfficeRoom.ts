@@ -367,12 +367,8 @@ export class OfficeRoom extends Room<OfficeState> {
       occupants: this.state.occupants,
       interaction: this.interaction,
       work: this.state.work,
-      say: (occupantId, text) => {
-        this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
-      },
-      wave: (occupantId) => {
-        this.broadcast(SERVER_MESSAGE.emote, { occupantId, emote: EMOTE.wave } satisfies EmoteEvent);
-      },
+      say: (occupantId, text) => this.say(occupantId, text),
+      wave: (occupantId) => this.wave(occupantId),
       announce: (text) => this.manager?.report(text),
       random: Math.random,
     });
@@ -483,9 +479,7 @@ export class OfficeRoom extends Room<OfficeState> {
       now: () => Date.now(),
       clock: () => this.clock.currentTime,
       prompts: runnerCommands === undefined ? undefined : this.agentPrompts,
-      say: (occupantId, text) => {
-        this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
-      },
+      say: (occupantId, text) => this.say(occupantId, text),
       report: (text) => this.manager?.report(text),
       hold: (on) => this.runnerStandup?.holdForStandup(this.roomId, on),
       log: recordOfficeEvent,
@@ -581,10 +575,7 @@ export class OfficeRoom extends Room<OfficeState> {
       if (message === undefined || !this.spend(client, CLIENT_MESSAGE.chat)) {
         return;
       }
-      this.broadcast(SERVER_MESSAGE.chat, {
-        occupantId: client.sessionId,
-        text: message.text,
-      } satisfies ChatEvent);
+      this.say(client.sessionId, message.text);
     });
 
     this.onMessage(CLIENT_MESSAGE.rename, (client, raw: unknown) => {
@@ -815,12 +806,8 @@ export class OfficeRoom extends Room<OfficeState> {
       {
         layout: OFFICE_LAYOUT,
         occupants: this.state.occupants,
-        say: (occupantId, text) => {
-          this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
-        },
-        wave: (occupantId) => {
-          this.broadcast(SERVER_MESSAGE.emote, { occupantId, emote: EMOTE.wave } satisfies EmoteEvent);
-        },
+        say: (occupantId, text) => this.say(occupantId, text),
+        wave: (occupantId) => this.wave(occupantId),
       },
       concierge,
       post,
@@ -893,7 +880,17 @@ export class OfficeRoom extends Room<OfficeState> {
   private announceShipped(work: IssueWork): void {
     recordOfficeEvent("work-shipped", { agent: work.assigneeId, issue: work.issueNumber });
     const text = `Shipped #${work.issueNumber}: ${clip(work.title, MAX_TITLE_LENGTH)}`.slice(0, MAX_CHAT_LENGTH);
-    this.broadcast(SERVER_MESSAGE.chat, { occupantId: work.assigneeId, text } satisfies ChatEvent);
+    this.say(work.assigneeId, text);
+  }
+
+  /** Says something out loud on an occupant's behalf, through the chat everyone reads. */
+  private say(occupantId: string, text: string): void {
+    this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
+  }
+
+  /** Waves on an occupant's behalf, as a greeting. */
+  private wave(occupantId: string): void {
+    this.broadcast(SERVER_MESSAGE.emote, { occupantId, emote: EMOTE.wave } satisfies EmoteEvent);
   }
 
   /** Cycles the layout's spawn points so arrivals do not stack on one spot. */
