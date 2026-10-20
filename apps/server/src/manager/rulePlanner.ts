@@ -420,7 +420,7 @@ function standupSummary(view: OfficeView): string {
     : `No standup is on. At the last one, called by ${standup.calledBy}:`;
   const lines = standup.updates.map(
     (update) =>
-      `- ${update.agent}: ${update.workedOn}. ${update.blockers === "" ? "No blockers." : `Blocker: ${update.blockers}${update.resolved ? " (since resolved)" : ""}.`}`,
+      `- ${update.agent}: ${update.workedOn.replace(/“([^”]*)”/g, (_, title: string) => `“${clip(title, MAX_TITLE_LENGTH)}”`)}. ${update.blockers === "" ? "No blockers." : `Blocker: ${update.blockers}${update.resolved ? " (since resolved)" : ""}.`}`,
   );
   return [heading, ...(lines.length === 0 && !standup.active ? ["- Nobody gave an update."] : lines)].join("\n");
 }
@@ -846,7 +846,8 @@ function describeLiveAgent(agent: LiveAgentView): string {
 }
 
 function linkText(link: { readonly title: string; readonly reference: string }): string {
-  return link.reference === "" ? `“${link.title}”` : `${link.reference} “${link.title}”`;
+  const title = clip(link.title, MAX_TITLE_LENGTH);
+  return link.reference === "" ? `“${title}”` : `${link.reference} “${title}”`;
 }
 
 function teamSummary(view: OfficeView): string {

@@ -582,6 +582,31 @@ describe("planFromRules: standups", () => {
     );
   });
 
+  it("clips each long title it quotes so every agent's blocker still fits in a reply", () => {
+    const long = (number: number) => `Issue ${number} ${"with a very long title that keeps going ".repeat(6)}`.trim();
+    const agents = [1, 2, 3, 4, 5, 6].map((number) => `Claude ${number}`);
+    const view: OfficeView = {
+      ...VIEW,
+      standup: {
+        active: false,
+        calledBy: "Dana",
+        order: agents,
+        updates: agents.map((agent, index) => ({
+          agent,
+          workedOn: `#${index + 1} “${long(index + 1)}”, in progress, last step Bash: pnpm test`,
+          blockers: `waiting on you: Permission: Bash git push ${index + 1}`,
+          waitingOnYou: true,
+          resolved: false,
+        })),
+      },
+    };
+    const reply = sanitizeManagerReply(ask("what came up at the standup?", view).reply);
+    expect(reply).toContain(`- Claude 1: #1 “${clip(long(1), MAX_TITLE_LENGTH)}”, in progress`);
+    expect(reply).not.toContain(long(1));
+    expect(reply).toContain("Blocker: waiting on you: Permission: Bash git push 6.");
+    expect(view.standup.updates[0]?.workedOn).toContain(long(1));
+  });
+
   it("lists standups among what it can do", () => {
     expect(ask("help").reply).toContain("“Call a standup” or “End the standup”");
   });

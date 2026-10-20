@@ -64,12 +64,13 @@ function linkText(link: LinkView | undefined): string {
   if (link === undefined) {
     return "its task";
   }
-  return link.reference === "" ? `“${link.title}”` : `${link.reference} “${link.title}”`;
+  const title = clip(link.title, MAX_TITLE_LENGTH);
+  return link.reference === "" ? `“${title}”` : `${link.reference} “${title}”`;
 }
 
 /** `Maya needs you on #39: Permission: Bash`, naming the task as briefly as it can. */
 function needsYouText(name: string, task: LinkView | undefined, reason: string): string {
-  const on = task === undefined ? "" : ` on ${task.reference === "" ? `“${task.title}”` : task.reference}`;
+  const on = task === undefined ? "" : ` on ${task.reference === "" ? `“${clip(task.title, MAX_TITLE_LENGTH)}”` : task.reference}`;
   return `${name} needs you${on}${reason === "" ? "." : `: ${reason}`}`;
 }
 
