@@ -41,7 +41,7 @@ const MAX_DIFF_BYTES = 1024 * 1024;
 const MAX_BODY_CHARS = 20_000;
 
 /** Longest review posted, in characters. */
-export const MAX_REVIEW_CHARS = 8000;
+const MAX_REVIEW_CHARS = 8000;
 
 /** The hidden marker on a task's comment on one pull request. */
 export function reviewMarker(taskId: string, number: number): string {

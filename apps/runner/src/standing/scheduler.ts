@@ -70,7 +70,7 @@ import { LEDGER_STATE, type LedgerEntry, type SkipReason, type StandingFile, typ
 import type { StandingRunResult, StandingRunners } from "./types.js";
 
 /** Runs for one event, the first included. */
-export const MAX_ATTEMPTS = 3;
+const MAX_ATTEMPTS = 3;
 
 /** Waits before the second and third attempts. */
 const RETRY_BACKOFF_MS: readonly number[] = [60_000, 5 * 60_000];

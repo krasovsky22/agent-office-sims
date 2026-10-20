@@ -20,12 +20,12 @@ import type { GithubAppConfig } from "./githubApp.js";
 import type { PersonalGithubConfig } from "./githubPersonal.js";
 
 /** The agents a slot can run: `mock` needs no credentials and spends nothing; `claude` is Claude Code. */
-export const RUNNER_AGENT_KINDS = ["mock", "claude"] as const;
+const RUNNER_AGENT_KINDS = ["mock", "claude"] as const;
 
 export type RunnerAgentKind = (typeof RUNNER_AGENT_KINDS)[number];
 
 /** How much the runner logs: `debug` adds every step an agent reports to `info`'s lifecycle lines. */
-export const RUNNER_LOG_LEVELS = ["info", "debug"] as const;
+const RUNNER_LOG_LEVELS = ["info", "debug"] as const;
 
 export type RunnerLogLevel = (typeof RUNNER_LOG_LEVELS)[number];
 /**
@@ -33,7 +33,7 @@ export type RunnerLogLevel = (typeof RUNNER_LOG_LEVELS)[number];
  * `personal`, a person's own login, which the agent then acts as with all of
  * that account's access.
  */
-export const RUNNER_GITHUB_AUTHS = ["app", "personal"] as const;
+const RUNNER_GITHUB_AUTHS = ["app", "personal"] as const;
 
 export type RunnerGithubAuth = (typeof RUNNER_GITHUB_AUTHS)[number];
 

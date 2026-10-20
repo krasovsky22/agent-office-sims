@@ -19,7 +19,7 @@ import type { StandingJob, StandingRunResult, StandingRunners } from "./types.js
 export const MOCK_STANDING_STEP_USD = 0.05;
 
 /** Its anonymous look at GitHub, held well inside the 60 an hour GitHub allows an address. */
-export const MOCK_POLL_INTERVAL_MS = 5 * 60_000;
+const MOCK_POLL_INTERVAL_MS = 5 * 60_000;
 
 const DEFAULT_STEP_MS = 2000;
 

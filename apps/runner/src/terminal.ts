@@ -192,7 +192,7 @@ export function flushScreens(
  * @param historyFrom the buffer row the history starts at; the screen's top row for none.
  * @param historyCleared whether the scrollback was cleared since the last frame.
  */
-export function snapshotScreen(
+function snapshotScreen(
   term: HeadlessTerminal,
   last: string[],
   redactor: Redactor,

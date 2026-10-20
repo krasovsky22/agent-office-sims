@@ -289,7 +289,7 @@ export interface BoardAgent {
   readonly title?: string;
 }
 
-export const WORK_STATUS_TITLES: Readonly<Record<WorkStatus, string>> = {
+const WORK_STATUS_TITLES: Readonly<Record<WorkStatus, string>> = {
   [WORK_STATUS.assigned]: "Assigned",
   [WORK_STATUS.in_progress]: "In progress",
   [WORK_STATUS.review]: "Waiting for review",

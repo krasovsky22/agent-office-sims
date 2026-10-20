@@ -272,7 +272,7 @@ function paintStamp(context: Context, text: string, size: number): void {
  * heading, the title in hand lettering, a face doodle and a tag, and a stamp
  * when it has one.
  */
-export function paintNote(
+function paintNote(
   context: Context,
   wording: NoteWording,
   look: NoteLook,

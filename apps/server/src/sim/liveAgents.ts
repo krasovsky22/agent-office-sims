@@ -118,7 +118,7 @@ export const LINE_GAP_MS = 2400;
 const OPENING_PAUSE_MS = 400;
 
 /** How long after a conversation an agent will not start another. */
-export const CHAT_COOLDOWN_MS = 20_000;
+const CHAT_COOLDOWN_MS = 20_000;
 
 /** How long an idle agent rests at each stop, as a range. */
 const REST_MIN_MS = 2000;
@@ -271,7 +271,7 @@ export interface LiveAgentHost {
 }
 
 /** What the AI Manager says when an agent leaves the floor with work it had not handed in, now free on the board. */
-export function leftWorkText(agentName: string, issueNumbers: readonly number[]): string {
+function leftWorkText(agentName: string, issueNumbers: readonly number[]): string {
   const issues = issueNumbers.map((issueNumber) => `#${issueNumber}`).join(", ");
   const them = issueNumbers.length === 1 ? "it" : "them";
   return `${agentName} left the office with ${issues} unfinished, so nobody is working on ${them}. Hand ${them} to someone else from the board.`;
@@ -513,50 +513,19 @@ export class LiveAgentCrew {
 
   private update(body: AgentBody, record: LiveAgentRecord, now: number): void {
     const { occupant } = body;
-    const title = record.task?.title ?? "";
-    const url = record.task?.url ?? "";
-    // Written only when different, so a sync that changes one agent does not
-    // put every other agent's label in the next patch.
-    if (occupant.name !== record.name) {
-      occupant.name = record.name;
-    }
-    if (occupant.status !== record.status) {
-      occupant.status = record.status;
-    }
-    if (occupant.taskTitle !== title) {
-      occupant.taskTitle = title;
-    }
-    if (occupant.taskUrl !== url) {
-      occupant.taskUrl = url;
-    }
-    const activity = record.activity ?? "";
-    if (occupant.activity !== activity) {
-      occupant.activity = activity;
-    }
-    const assignedTitle = record.assignment?.title ?? "";
-    const assignedUrl = record.assignment?.url ?? "";
-    if (occupant.assignedTitle !== assignedTitle) {
-      occupant.assignedTitle = assignedTitle;
-    }
-    if (occupant.assignedUrl !== assignedUrl) {
-      occupant.assignedUrl = assignedUrl;
-    }
-    const canTakeIssues = record.canTakeIssues === true;
-    if (occupant.canTakeIssues !== canTakeIssues) {
-      occupant.canTakeIssues = canTakeIssues;
-    }
-    const agentTitle = record.title ?? "";
-    if (occupant.title !== agentTitle) {
-      occupant.title = agentTitle;
-    }
-    const description = record.description ?? "";
-    if (occupant.description !== description) {
-      occupant.description = description;
-    }
-    const profileEditable = record.profileEditable === true;
-    if (occupant.profileEditable !== profileEditable) {
-      occupant.profileEditable = profileEditable;
-    }
+    // The schema skips a write of an unchanged value, so a sync that changes
+    // one agent does not put every other agent's label in the next patch.
+    occupant.name = record.name;
+    occupant.status = record.status;
+    occupant.taskTitle = record.task?.title ?? "";
+    occupant.taskUrl = record.task?.url ?? "";
+    occupant.activity = record.activity ?? "";
+    occupant.assignedTitle = record.assignment?.title ?? "";
+    occupant.assignedUrl = record.assignment?.url ?? "";
+    occupant.canTakeIssues = record.canTakeIssues === true;
+    occupant.title = record.title ?? "";
+    occupant.description = record.description ?? "";
+    occupant.profileEditable = record.profileEditable === true;
     if (body.status !== record.status) {
       body.status = record.status;
       body.restUntil = now;
@@ -774,9 +743,7 @@ export class LiveAgentCrew {
       releaseHold(this.host.interaction, body.key, now);
     }
     if (occupant.interactableId !== "") {
-      if (occupant.animation !== ANIMATION_STATE.typing) {
-        occupant.animation = ANIMATION_STATE.typing;
-      }
+      occupant.animation = ANIMATION_STATE.typing;
       return;
     }
 
@@ -876,9 +843,7 @@ export class LiveAgentCrew {
   }
 
   private faceSpot(body: AgentBody, spot: StandupSpot): void {
-    if (body.occupant.yaw !== spot.yaw) {
-      body.occupant.yaw = spot.yaw;
-    }
+    body.occupant.yaw = spot.yaw;
     this.standStill(body);
   }
 
@@ -1118,9 +1083,7 @@ export class LiveAgentCrew {
       occupant.x = resolved.x;
       occupant.z = resolved.z;
       occupant.yaw = normalizeYaw(Math.atan2(-deltaX, -deltaZ));
-      if (occupant.animation !== ANIMATION_STATE.walking) {
-        occupant.animation = ANIMATION_STATE.walking;
-      }
+      occupant.animation = ANIMATION_STATE.walking;
 
       if (moved < step * STUCK_FRACTION) {
         body.stuckTicks += 1;
@@ -1142,9 +1105,7 @@ export class LiveAgentCrew {
   }
 
   private standStill(body: AgentBody): void {
-    if (body.occupant.animation !== ANIMATION_STATE.idle) {
-      body.occupant.animation = ANIMATION_STATE.idle;
-    }
+    body.occupant.animation = ANIMATION_STATE.idle;
   }
 
   /** Pairs up idle agents that have come close enough to talk; nobody during a standup. */

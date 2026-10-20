@@ -45,7 +45,7 @@ describe("keepAcceptedName", () => {
     const storage = memoryStorage();
     expect(keepAcceptedName(storage, "dana", undefined)).toBe(false);
     expect(keepAcceptedName(storage, "dana", "dana 2")).toBe(false);
-    expect(keepAcceptedName(storage, "", "Employee 3")).toBe(false);
+    expect(keepAcceptedName(storage, "", "Guest 3")).toBe(false);
     expect(storage.getItem(PLAYER_NAME_STORAGE_KEY)).toBeNull();
     expect(keepAcceptedName(storage, " Maya ", "Maya")).toBe(true);
     expect(storage.getItem(PLAYER_NAME_STORAGE_KEY)).toBe("Maya");

@@ -360,9 +360,8 @@ const BEACON_TEXT = "#1a1206";
  * Paints the beacon over a live agent that is stuck until a person acts: a
  * solid pill with an exclamation mark and `label`.
  *
- * Filled rather than outlined like an activity badge, because it is the one
- * thing on the floor that asks for someone, and has to read as that from
- * across the office.
+ * Filled, because it is the one thing on the floor that asks for someone,
+ * and has to read as that from across the office.
  */
 export function paintBeacon(label: string): BillboardPainter {
   return (context, width, height) => {

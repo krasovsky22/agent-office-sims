@@ -59,10 +59,8 @@ export type OccupantKind = (typeof OCCUPANT_KIND)[keyof typeof OCCUPANT_KIND];
  * A string rather than a boolean because sitting, typing and talking all land
  * here once there is anything in the office to do.
  *
- * `sitting` is produced by the server when it seats an occupant at a desk.
- * `typing` is carried but not yet produced: it is listed because the renderer
- * has a clip for it, so the milestone that adds desk work only has to write
- * this field rather than extend the protocol.
+ * `sitting` is produced by the server when it seats an occupant at a desk,
+ * and `typing` while a seated live agent is working.
  */
 export const ANIMATION_STATE = {
   idle: "idle",

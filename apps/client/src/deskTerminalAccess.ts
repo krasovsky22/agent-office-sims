@@ -98,7 +98,7 @@ export function sameDeskPanel(a: DeskPanelView | undefined, b: DeskPanelView | u
 }
 
 /** What the desk's monitor is keyed by while it shows a placeholder, before an agent's terminal is there to show. */
-export function deskPlaceholderKey(seatId: string): string {
+function deskPlaceholderKey(seatId: string): string {
   return `desk:${seatId}`;
 }
 

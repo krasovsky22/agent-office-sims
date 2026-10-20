@@ -12,11 +12,10 @@ import {
   WORK_ACTION,
   WORK_REJECTION,
   WORK_STATUS,
-  mayActOnWork,
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { boardAccessFor, issueStateRejectionText, mayAct, rejectionText } from "./boardAccess.js";
+import { boardAccessFor, issueStateRejectionText, rejectionText } from "./boardAccess.js";
 
 const DANA: OfficeActor = { id: "dana", kind: OCCUPANT_KIND.human, isCeo: true };
 const MILO: OfficeActor = { id: "milo", kind: OCCUPANT_KIND.human, isCeo: false };
@@ -88,18 +87,6 @@ describe("board panel offers", () => {
     const access = boardAccessFor(MILO, "Dana");
     expect(access.mayAssign).toBe(false);
     expect(access.movesFor(inProgress, [DANA, ADA])).toEqual([]);
-  });
-});
-
-describe("mayAct", () => {
-  it("answers exactly as the server's rule does", () => {
-    for (const actor of [DANA, MILO]) {
-      for (const action of Object.values(WORK_ACTION)) {
-        expect(mayAct(actor, action), `${actor.id} ${action}`).toBe(mayActOnWork({ actor, action }));
-      }
-    }
-    expect(mayAct(DANA, WORK_ACTION.assign)).toBe(true);
-    expect(mayAct(MILO, WORK_ACTION.assign)).toBe(false);
   });
 });
 

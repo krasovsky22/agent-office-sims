@@ -274,7 +274,7 @@ export class OfficeRoom extends Room<OfficeState> {
   private simClock!: SimClock;
 
   private spawnCursor = 0;
-  private hireCount = 0;
+  private guestCount = 0;
 
   private projectBoard: ProjectBoardSource | undefined;
   private stopRelayingProjectBoard: (() => void) | undefined;
@@ -612,12 +612,12 @@ export class OfficeRoom extends Room<OfficeState> {
     const spawn = this.nextSpawn();
     const now = this.clock.currentTime;
 
-    this.hireCount += 1;
+    this.guestCount += 1;
     const player = new HumanPlayer();
     player.id = client.sessionId;
     const others = [...this.state.occupants.values()];
     const refused = name === undefined ? undefined : nameRefusal(name, others);
-    player.name = arrivalName(name, `Employee ${this.hireCount}`, others);
+    player.name = arrivalName(name, `Guest ${this.guestCount}`, others);
     player.kind = OCCUPANT_KIND.human;
     player.x = spawn.x;
     player.z = spawn.z;
@@ -876,23 +876,13 @@ export class OfficeRoom extends Room<OfficeState> {
    */
   private showRunnerSpend(total: RunnerSpendTotal): void {
     const { state } = this;
-    if (state.spendRunners !== total.runners) {
-      state.spendRunners = total.runners;
-    }
-    if (state.spentUsd !== total.spentUsd) {
-      state.spentUsd = total.spentUsd;
-    }
+    state.spendRunners = total.runners;
+    state.spentUsd = total.spentUsd;
     const budgeted = total.budgetUsd !== undefined;
-    if (state.budgeted !== budgeted) {
-      state.budgeted = budgeted;
-    }
+    state.budgeted = budgeted;
     const budgetUsd = total.budgetUsd ?? 0;
-    if (state.budgetUsd !== budgetUsd) {
-      state.budgetUsd = budgetUsd;
-    }
-    if (state.budgetSpent !== total.budgetSpent) {
-      state.budgetSpent = total.budgetSpent;
-    }
+    state.budgetUsd = budgetUsd;
+    state.budgetSpent = total.budgetSpent;
   }
 
   /**

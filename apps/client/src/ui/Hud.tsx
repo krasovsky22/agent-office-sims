@@ -664,7 +664,7 @@ function ManagerRow({ entry, unread }: { entry: RosterEntry; unread: number }) {
 /**
  * The runners' books, under the live agents: today's spend against the
  * budget, and once that is spent, that no new work will start. Real money,
- * so it is shown plainly in every tab and nowhere in the game's own economy.
+ * so it is shown plainly in every tab.
  */
 export function spendLine(spend: RunnerSpendTotal): { readonly text: string; readonly spent: boolean } {
   return {

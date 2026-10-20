@@ -129,7 +129,7 @@ press `Enter`. It is prefilled from `?name=` in the URL, or else from the
 name this browser used last time. A name someone in the office already has,
 ignoring case, is refused, and so is the AI Manager's, the concierge's or an
 agent's: arriving under one, you get a numbered variant (`Dana 2`) of a
-player's name or a generated `Employee 3` for a staff name, and a notice
+player's name or a generated `Guest 3` for a staff name, and a notice
 says so. `Rename` on your own line in the roster changes it later, under the
 same rule (`packages/shared/src/playerName.ts`).
 
@@ -1638,7 +1638,7 @@ Then confirm all twenty-seven:
 26. **Nobody can borrow a name.** Open a third tab at
     <http://localhost:5173/?name=dana>: it arrives as `dana 2`, with the
     notice `Someone here is already called dana. You are dana 2; rename yourself from the roster.`; one at `?name=AI%20Manager`
-    arrives as `Employee N`. In Milo's tab, `Rename` on his own roster line to
+    arrives as `Guest N`. In Milo's tab, `Rename` on his own roster line to
     `Concierge` is refused with a notice and he stays Milo; renaming him to
     `Maya` changes his roster line and nameplate in every tab, and reloading
     his tab without `?name=` offers `Maya` on the card. Dana renaming a coding

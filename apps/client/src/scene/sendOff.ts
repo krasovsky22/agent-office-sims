@@ -68,7 +68,7 @@ const PHOTO_MATERIALS = [
 const TEAR_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x7cc8ff, transparent: true, opacity: 0.9 });
 
 /** How far down its run a tear is, from `0` at the eye to `1` gone, `nowMs` in. */
-export function tearFall(nowMs: number, phase: number): number {
+function tearFall(nowMs: number, phase: number): number {
   return (((nowMs / TEAR_PERIOD_MS + phase) % 1) + 1) % 1;
 }
 
