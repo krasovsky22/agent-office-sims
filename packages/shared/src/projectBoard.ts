@@ -9,7 +9,7 @@
  * write to GitHub.
  *
  * It travels as a server broadcast rather than as schema. A snapshot is
- * replaced wholesale on every poll, so there is nothing for per-field change
+ * replaced wholesale by any poll that changes it, so there is nothing for per-field change
  * tracking to save, and a plain object keeps the GitHub vocabulary out of the
  * schema the simulation depends on. The server sends the current snapshot to a
  * client as it joins and broadcasts every replacement, so every client in the
