@@ -47,7 +47,8 @@ import { type GitFixture, gitFixture } from "./gitFixture.js";
 import type { HandInTask, TaskGithub } from "./github.js";
 import type { AgentProfiles } from "./profiles.js";
 import { createRedactor } from "./redact.js";
-import { NO_PULL_REQUEST, type SlotWorkspaces, SlotPool, TURN_DONE, fitBytes } from "./slots.js";
+import { TURN_DONE } from "./slotRuns.js";
+import { NO_PULL_REQUEST, type SlotWorkspaces, SlotPool, fitBytes } from "./slots.js";
 import { SCREEN_COLS, SCREEN_ROWS } from "./terminal.js";
 
 const REPO = "krasovsky22/agent-office-sims";

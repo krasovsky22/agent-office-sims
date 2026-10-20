@@ -120,17 +120,15 @@ import {
 } from "@sim/shared";
 
 import { systemPrompt } from "./agents/prompt.js";
-import type { Agent, AgentReporter, AgentRun, AgentSession } from "./agents/types.js";
+import type { Agent, AgentRun, AgentSession } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { EventOutbox } from "./eventOutbox.js";
 import { NO_GITHUB, type TaskGithub } from "./github.js";
 import type { SlotIds } from "./slotIds.js";
 import type { AgentProfiles } from "./profiles.js";
 import { type Redactor, createRedactor } from "./redact.js";
+import { TURN_DONE, bookSpend, promptOutcome, runReporter } from "./slotRuns.js";
 import { SCREEN_COLS, SCREEN_ROWS, ScreenMirror } from "./terminal.js";
-
-/** A slot's activity once its agent's turn has ended: `idle`, still holding the task. */
-export const TURN_DONE = "Turn done";
 
 /** Why a slot whose agent's turn ended with nothing handed in needs a person. */
 export const NO_PULL_REQUEST = "Finished without a pull request";
@@ -437,9 +435,8 @@ export class SlotPool {
       },
       // Booked whether or not the slot was taken back: a cut-short run's spend is still spent.
       spent: (totalUsd) => {
-        if (Number.isFinite(totalUsd) && totalUsd > held.spentUsd) {
-          this.ledger.add(totalUsd - held.spentUsd);
-          held.spentUsd = totalUsd;
+        if (totalUsd > held.spentUsd) {
+          bookSpend(this.ledger, held, totalUsd);
         }
       },
       release: () => {
@@ -954,29 +951,11 @@ export class SlotPool {
     return run.agentRun.key === undefined ? RUNNER_PROMPT_OUTCOME.unavailable : RUNNER_PROMPT_OUTCOME.delivered;
   }
 
-  /**
-   * Whether the slot's agent waits at its prompt, and if not, why. Its turn
-   * is done when the slot is idle with a task, or needs a person only because
-   * a turn ended with nothing handed in; a slot still looking for its pull
-   * request after a turn is busy until it has. An agent whose wait on a person
-   * a prompt answers takes the prompt as that answer.
-   */
+  /** Whether the slot's agent waits at its prompt with a task in hand, and if not, why. */
   private promptable(slot: Slot): RunnerPromptOutcomeKind {
     const run = slot.run;
-    if (run === undefined || !run.live || run.workdir === undefined || run.agentRun.prompt === undefined) {
-      return slot.status === RUNNER_SLOT_STATUS.starting ? RUNNER_PROMPT_OUTCOME.busy : RUNNER_PROMPT_OUTCOME.unavailable;
-    }
-    switch (slot.status) {
-      case RUNNER_SLOT_STATUS.idle:
-        return run.checking ? RUNNER_PROMPT_OUTCOME.busy : RUNNER_PROMPT_OUTCOME.delivered;
-      case RUNNER_SLOT_STATUS.needsInput:
-        return run.missing || run.agentRun.promptAnswersWait === true ? RUNNER_PROMPT_OUTCOME.delivered : RUNNER_PROMPT_OUTCOME.needsInput;
-      case RUNNER_SLOT_STATUS.starting:
-      case RUNNER_SLOT_STATUS.working:
-        return RUNNER_PROMPT_OUTCOME.busy;
-      case RUNNER_SLOT_STATUS.exited:
-        return RUNNER_PROMPT_OUTCOME.unavailable;
-    }
+    const ready = run !== undefined && run.live && run.workdir !== undefined;
+    return promptOutcome(slot.status, ready ? run.agentRun : undefined, run);
   }
 
   /**
@@ -1088,7 +1067,8 @@ export class SlotPool {
     const report = (status: RunnerSlotStatus, activity: string): void => {
       this.setStatus(slot, run, status, activity);
     };
-    const reporter: AgentReporter = {
+    const books = { ledger: this.ledger, debug: this.debug, on: `${slot.id} on #${run.issueNumber}` };
+    const reporter = runReporter(slot.screen, run, books, {
       started: () => report(RUNNER_SLOT_STATUS.idle, ""),
       progress: (activity) => {
         run.missing = false;
@@ -1108,11 +1088,6 @@ export class SlotPool {
         // Once the slot has looked for its pull request, the agent is at its prompt.
         void this.afterTurn(slot, run).then(() => this.deliverKept(slot));
       },
-      output: (data) => {
-        if (run.live) {
-          slot.screen.write(data);
-        }
-      },
       prOpened: (pr) => {
         this.handIn(slot, run, pr);
       },
@@ -1127,15 +1102,7 @@ export class SlotPool {
           void this.end(slot, kind, message, undefined, RUNNER_SLOT_STATUS.exited);
         }
       },
-      // Booked whether or not the work is still live: a stopped agent's last turn is paid for too.
-      spent: (totalUsd) => {
-        if (Number.isFinite(totalUsd)) {
-          this.ledger.add(totalUsd - run.spentUsd);
-          run.spentUsd = totalUsd;
-          this.debug(`${slot.id} on #${run.issueNumber} has spent ${formatUsd(totalUsd)}`);
-        }
-      },
-    };
+    });
     let agentRun: AgentRun;
     try {
       agentRun = this.options.agent.start(
@@ -1257,7 +1224,8 @@ export class SlotPool {
         slot.activity = fitBytes(this.redactor.redactText(activity), MAX_TITLE_LENGTH);
       }
     };
-    const reporter: AgentReporter = {
+    const books = { ledger: this.ledger, debug: this.debug, on: `${slot.id} at ${desk.requestedBy}'s desk` };
+    const reporter = runReporter(slot.screen, desk, books, {
       started: () => report(RUNNER_SLOT_STATUS.idle, ""),
       progress: (activity) => report(RUNNER_SLOT_STATUS.working, activity),
       needsInput: (reason) => {
@@ -1267,11 +1235,6 @@ export class SlotPool {
         }
       },
       turnDone: () => report(RUNNER_SLOT_STATUS.idle, TURN_DONE),
-      output: (data) => {
-        if (desk.live) {
-          slot.screen.write(data);
-        }
-      },
       // Nothing to hand in: a pull request it opens at the CEO's word is on GitHub for the CEO to see.
       prOpened: (pr) => {
         if (desk.live) {
@@ -1288,15 +1251,7 @@ export class SlotPool {
           void this.endDesk(slot, message);
         }
       },
-      // Booked whether or not it is still live, as a task's is.
-      spent: (totalUsd) => {
-        if (Number.isFinite(totalUsd)) {
-          this.ledger.add(totalUsd - desk.spentUsd);
-          desk.spentUsd = totalUsd;
-          this.debug(`${slot.id} at ${desk.requestedBy}'s desk has spent ${formatUsd(totalUsd)}`);
-        }
-      },
-    };
+    });
     const session: AgentSession = { requestedBy: desk.requestedBy, workdir, systemPrompt: systemPrompt(slot.profile) };
     let agentRun: AgentRun;
     try {
@@ -1355,20 +1310,7 @@ export class SlotPool {
 
   /** Whether the desk session's agent waits at its prompt, and if not, why; as {@link promptable} for a task. */
   private deskPromptable(slot: Slot, desk: DeskOnSlot): RunnerPromptOutcomeKind {
-    if (!desk.live || desk.agentRun.prompt === undefined) {
-      return slot.status === RUNNER_SLOT_STATUS.starting ? RUNNER_PROMPT_OUTCOME.busy : RUNNER_PROMPT_OUTCOME.unavailable;
-    }
-    switch (slot.status) {
-      case RUNNER_SLOT_STATUS.idle:
-        return RUNNER_PROMPT_OUTCOME.delivered;
-      case RUNNER_SLOT_STATUS.needsInput:
-        return desk.agentRun.promptAnswersWait === true ? RUNNER_PROMPT_OUTCOME.delivered : RUNNER_PROMPT_OUTCOME.needsInput;
-      case RUNNER_SLOT_STATUS.starting:
-      case RUNNER_SLOT_STATUS.working:
-        return RUNNER_PROMPT_OUTCOME.busy;
-      case RUNNER_SLOT_STATUS.exited:
-        return RUNNER_PROMPT_OUTCOME.unavailable;
-    }
+    return promptOutcome(slot.status, desk.live ? desk.agentRun : undefined);
   }
 
   /** A key the CEO pressed at the desk: pressed only while its agent waits on a person, and reported either way. */
