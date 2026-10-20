@@ -28,6 +28,24 @@ export default defineConfig(({ command, mode }) => {
       // browser cannot cache it separately and a failed fetch cannot be told from a
       // parse error.
       assetsInlineLimit: (filePath) => (filePath.endsWith(".glb") ? false : undefined),
+      // three.js alone is ~650 kB minified and cannot be split further; the limit
+      // sits just above it so the warning still catches the app chunk growing.
+      chunkSizeWarningLimit: 700,
+      rollupOptions: {
+        output: {
+          // The libraries rarely change but our code changes on nearly every
+          // commit. Separate chunks keep their hashes stable across app-only
+          // deploys, so returning players re-download only the app chunk.
+          // Matched by path because the app imports subpaths such as
+          // `react-dom/client`, which a package-name list would miss.
+          manualChunks: (id) => {
+            if (/[\\/]node_modules[\\/]three[\\/]/.test(id)) return "three";
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return "react";
+            if (/[\\/]node_modules[\\/]/.test(id)) return "vendor"; // Colyseus and msgpackr today
+            return undefined;
+          },
+        },
+      },
     },
     server: {
       port: 5173,
