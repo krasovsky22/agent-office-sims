@@ -130,6 +130,10 @@ function readStandingDraft(raw: Record<string, unknown>): RunnerCommandDraft | u
   if (isStandingTaskCommandKind(kind) && typeof raw["taskId"] === "string") {
     return { kind, taskId: raw["taskId"], requestedBy };
   }
+  // Its schedule is proved by `toRunnerCommand`.
+  if (kind === RUNNER_COMMAND_KIND.standingReschedule && typeof raw["taskId"] === "string") {
+    return { kind, taskId: raw["taskId"], schedule: raw["schedule"] as never, requestedBy };
+  }
   // Its number and state are proved by `toRunnerCommand`.
   if (kind === RUNNER_COMMAND_KIND.issueState) {
     return { kind, issueNumber: raw["issueNumber"] as number, state: raw["state"] as never, requestedBy };

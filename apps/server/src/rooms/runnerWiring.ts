@@ -121,15 +121,27 @@ export function wireRunners(
   let standingAnnouncer: StandingAnnouncer | undefined;
   if (standing !== undefined && runnerCommands !== undefined) {
     standingControl = new StandingControl({ directory: standing, commands: runnerCommands });
+    // GitHub answers an issue's link for a pull request's number by going to the pull request.
+    const pullUrl = (number: number): string => runnerCommands.issueUrl(number).replace(/\/issues\/(\d+)$/, "/pull/$1");
     standingAnnouncer = new StandingAnnouncer({
-      // GitHub answers an issue's link for a pull request's number by going to the pull request.
-      pullUrl: (number) => runnerCommands.issueUrl(number).replace(/\/issues\/(\d+)$/, "/pull/$1"),
+      pullUrl,
       taskName: (taskId) => standing.standingTasks().find((record) => record.report.id === taskId)?.report.name,
+      taskKind: (taskId) => standing.standingTasks().find((record) => record.report.id === taskId)?.report.kind,
       occupantName: (occupantId) => state.occupants.get(occupantId)?.name,
       announce: host.announce,
       refused: (taskId) => standing.refused(taskId),
     });
-    registerStandingHandlers(room, { state, control: standingControl, allow: host.allow });
+    registerStandingHandlers(room, {
+      state,
+      control: standingControl,
+      allow: host.allow,
+      // Links built here, on the board's repository, never taken from a runner.
+      history: (taskId) =>
+        standing.standingRuns(taskId).map((run) => ({
+          ...run,
+          url: run.pr === undefined ? "" : `${pullUrl(run.pr.number)}${run.commentId === undefined ? "" : `#issuecomment-${run.commentId}`}`,
+        })),
+    });
   }
 
   const agentPrompts = new AgentPrompts({

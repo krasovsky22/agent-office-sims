@@ -28,6 +28,7 @@ import {
   type InteractableSpec,
   type InteractionKind,
   type OfficeLayout,
+  RECURRING_TASKS_BOARD_ID,
   type Vec2,
   interactables,
 } from "./layout.js";
@@ -98,7 +99,8 @@ export function heldAnimationFor(spec: InteractableSpec): AnimationState {
 }
 
 export function promptFor(spec: InteractableSpec): string {
-  return PROMPT[spec.kind];
+  // One board is not the project's: it lists the recurring tasks.
+  return spec.id === RECURRING_TASKS_BOARD_ID ? "Read the recurring tasks board" : PROMPT[spec.kind];
 }
 
 const byIdCache = new WeakMap<OfficeLayout, ReadonlyMap<string, InteractableSpec>>();

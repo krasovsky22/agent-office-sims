@@ -27,6 +27,7 @@ import {
   type RunnerSpendTotal,
   SERVER_MESSAGE,
   type ServerMessageType,
+  type StandingHistoryEvent,
   type StandingRejectedEvent,
   type StandupData,
   type StandupRejectedEvent,
@@ -89,6 +90,8 @@ export interface RoomConnectionEvents {
   onStandingChanged?: (tasks: readonly StandingTaskData[]) => void;
   /** The office did nothing about one of the local client's standing task buttons. */
   onStandingRejected?: (event: StandingRejectedEvent) => void;
+  /** A standing task's last runs, which the local client asked for from the wall board. */
+  onStandingHistory?: (event: StandingHistoryEvent) => void;
   /** The standup, after any of it changed: called, an update given, a direction's fate, ended. */
   onStandupChanged?: (standup: StandupData) => void;
   /** The office refused one of the local client's own standup commands. */
@@ -113,6 +116,7 @@ const FORWARDED = {
   [SERVER_MESSAGE.nameRejected]: "onNameRejected",
   [SERVER_MESSAGE.agentActionRejected]: "onAgentActionRejected",
   [SERVER_MESSAGE.standingRejected]: "onStandingRejected",
+  [SERVER_MESSAGE.standingHistory]: "onStandingHistory",
   [SERVER_MESSAGE.standupRejected]: "onStandupRejected",
 } as const satisfies Partial<Record<ServerMessageType, keyof RoomConnectionEvents>>;
 

@@ -57,6 +57,7 @@ import { createRunnerEndpoint } from "./agents/runnerEndpoint.js";
 import { RunnerLink } from "./agents/runnerLink.js";
 import { RunnerProfileFile } from "./agents/runnerProfiles.js";
 import { ScreenStore } from "./agents/screens.js";
+import { StandingHistory } from "./agents/standingHistory.js";
 import { StandingMirror } from "./agents/standingMirror.js";
 import { createScreensEndpoint } from "./agents/screensEndpoint.js";
 import { readConfig } from "./config.js";
@@ -104,7 +105,14 @@ if (liveAgentRegistry !== undefined && liveAssignments !== undefined && liveAgen
 
 // Slots leave after the same silence as a reported agent: both are live agents
 // on the floor, and the operator sets one timeout for them.
-const standingMirror = runner.secret === undefined ? undefined : new StandingMirror();
+const standingMirror =
+  runner.secret === undefined
+    ? undefined
+    : new StandingMirror({
+        // The recurring tasks' runs, for the wall board, kept across a restart.
+        // eslint-disable-next-line no-console -- a file the server cannot read or write is the operator's to fix
+        history: new StandingHistory({ file: join(dataDir, "standing-runs.json"), log: (line) => console.warn(`standing runs: ${line}`) }),
+      });
 const runnerLink =
   runner.secret === undefined
     ? undefined
@@ -181,7 +189,7 @@ server.define(OFFICE_ROOM_NAME, officeRoom({
         agentHiring: {
           cap: runner.maxAgents,
           count: () => runnerLink.agentCount(),
-          hire: (profile, requestedBy) => runnerLink.hire(profile, requestedBy),
+          hire: (profile, requestedBy, onRunner) => runnerLink.hire(profile, requestedBy, onRunner),
           withdraw: (hire) => runnerLink.withdrawHire(hire),
         },
       }),
@@ -225,7 +233,7 @@ console.log(
         `up to ${MAX_RUNNER_SLOTS} slots, leaving after ${liveAgents.timeoutMs / 1000}s of silence; ` +
         `the AI Manager hires up to ${runner.maxAgents} coding agents in all; ` +
         `screens on POST ${RUNNER_SCREENS_PATH}; issues with the "${runner.restrictLabel}" label are kept from agents; ` +
-        `the CEO's profile edits kept in ${join(dataDir, "agent-profiles.json")}`,
+        `the CEO's profile edits kept in ${join(dataDir, "agent-profiles.json")}, the recurring tasks' runs in ${join(dataDir, "standing-runs.json")}`,
 );
 const retiredLabel = retiredAgentIssueLabelNotice(process.env);
 if (retiredLabel !== undefined) {

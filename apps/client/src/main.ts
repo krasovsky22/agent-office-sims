@@ -20,6 +20,7 @@ import {
   type OfficeLayout,
   PROJECT_BOARD_ID,
   type ProjectBoardSnapshot,
+  RECURRING_TASKS_BOARD_ID,
   STARTING_MINUTE_OF_DAY,
   type WorkData,
   authorizeInteract,
@@ -58,7 +59,7 @@ import { managerAccessFor } from "./managerAccess.js";
 import { PendingIssueMoves } from "./pendingIssueMoves.js";
 import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
 import { keepAcceptedName, readPlayerName } from "./playerName.js";
-import { standingAccessFor } from "./standingAccess.js";
+import { recurringRow, standingAccessFor } from "./standingAccess.js";
 import { timedNotice } from "./timedNotice.js";
 import type { RemotePose } from "./net/poseBuffer.js";
 import { type OccupantView, RoomConnection } from "./net/room.js";
@@ -68,6 +69,7 @@ import { AgentScreens } from "./scene/agentScreen.js";
 import { Avatar } from "./scene/avatar.js";
 import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
 import { Doors } from "./scene/doors.js";
+import { buildRecurringBoard } from "./scene/recurringBoard.js";
 import { buildWallBoard } from "./scene/wallBoard.js";
 import { buildWallDecor } from "./scene/wallDecor.js";
 import { buildLighting } from "./scene/lighting.js";
@@ -203,6 +205,12 @@ function start(): void {
       ? undefined
       : buildWallBoard(scene, boardSpec, renderer.capabilities.getMaxAnisotropy());
   const stickerBoards = new StickerBoards(scene, OFFICE_LAYOUT, renderer.capabilities.getMaxAnisotropy());
+  const recurringSpec = OFFICE_LAYOUT.boards.find((spec) => spec.id === RECURRING_TASKS_BOARD_ID);
+  const recurringBoard =
+    recurringSpec === undefined ? undefined : buildRecurringBoard(scene, recurringSpec, renderer.capabilities.getMaxAnisotropy());
+  // What the recurring tasks board last painted, so it repaints only when a line on it changes.
+  let recurringPainted = "";
+  let recurringCheckedAt = 0;
   // What the sticker boards' notes are worked out from, besides who carries what.
   let boardSnapshot: ProjectBoardSnapshot | undefined;
   let officeWork: readonly WorkData[] = [];
@@ -818,10 +826,15 @@ function start(): void {
         room.sendInteract(target.id);
       }
     }
-    // The sticker boards are the project board's too, and open the same close-up.
-    const closeUp = interactableById(OFFICE_LAYOUT, readingBoard)?.kind === INTERACTION_KIND.board;
+    // The sticker boards are the project board's too, and open the same close-up;
+    // the recurring tasks board opens its own.
+    const recurringOpen = readingBoard === RECURRING_TASKS_BOARD_ID;
+    const closeUp = interactableById(OFFICE_LAYOUT, readingBoard)?.kind === INTERACTION_KIND.board && !recurringOpen;
     if (closeUp !== hud.boardCloseUp) {
       publishHud({ boardCloseUp: closeUp });
+    }
+    if (recurringOpen !== hud.recurringOpen) {
+      publishHud({ recurringOpen });
     }
     const managerOpen = readingBoard === MANAGER_INTERACTABLE_ID;
     if (managerOpen !== hud.managerOpen) {
@@ -916,6 +929,20 @@ function start(): void {
 
     // Carried sticky notes follow their agents, after the agents have moved.
     stickerBoards.update(nowMs, (id) => avatars.get(id));
+
+    // The recurring tasks board, looked at once a second: its "last run" lines age by the minute.
+    if (recurringBoard !== undefined && nowMs - recurringCheckedAt >= 1000) {
+      recurringCheckedAt = nowMs;
+      const now = Date.now();
+      const rows = [...hud.standingTasks]
+        .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+        .map((task) => recurringRow(task, now, task.agentId === "" ? undefined : hud.roster.find((entry) => entry.id === task.agentId)?.name));
+      const painted = JSON.stringify(rows);
+      if (painted !== recurringPainted) {
+        recurringPainted = painted;
+        recurringBoard.show(rows);
+      }
+    }
 
     // Every seated live agent's terminal on its own desk's monitor, and none
     // for an agent that has stood up or gone.

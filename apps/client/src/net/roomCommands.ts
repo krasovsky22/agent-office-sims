@@ -32,6 +32,9 @@ import {
   type ReportedAnimation,
   STANDING_ACTION,
   type StandingClientMessage,
+  type StandingCreateMessage,
+  type StandingRescheduleMessage,
+  type StandingSchedule,
   type StandingTaskAction,
   type StandingTaskMessage,
   type StandupDirectMessage,
@@ -209,6 +212,21 @@ export abstract class RoomCommands {
   /** Pauses, resumes, removes or checks a standing task. The state patch is the reply, or a rejection to this client alone. */
   public sendStanding(action: StandingTaskAction, taskId: string): void {
     this.room?.send(STANDING_MESSAGES[action], { taskId } satisfies StandingTaskMessage);
+  }
+
+  /** Changes how often a standing task runs, from the wall board. The state patch is the reply, or a rejection to this client alone. */
+  public sendStandingReschedule(taskId: string, schedule: StandingSchedule): void {
+    this.room?.send(CLIENT_MESSAGE.standingReschedule, { taskId, schedule } satisfies StandingRescheduleMessage);
+  }
+
+  /** Sets a new standing task up, from the wall board's form. The state patch is the reply, or a rejection to this client alone. */
+  public sendStandingCreate(task: StandingCreateMessage): void {
+    this.room?.send(CLIENT_MESSAGE.standingCreate, task);
+  }
+
+  /** Asks for a standing task's last runs, for the wall board; they come back to this client alone. */
+  public requestStandingHistory(taskId: string): void {
+    this.room?.send(CLIENT_MESSAGE.standingHistory, { taskId } satisfies StandingTaskMessage);
   }
 
   /** Calls a standup. The standup in the next patch is the reply, or a rejection to this client alone. */

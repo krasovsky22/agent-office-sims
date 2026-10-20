@@ -1,12 +1,23 @@
 /**
- * The roster's standing tasks: each row reads as the office's state says, and
- * the buttons are the CEO's alone, disabled with the reason for anyone else.
+ * The roster's standing tasks and the recurring tasks' wall board: each row
+ * reads as the office's state says, the board's schedule choices read a
+ * task's cron and give one back, and the buttons are the CEO's alone,
+ * disabled with the reason for anyone else.
  */
 
 import { OCCUPANT_KIND } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { type StandingTaskData, agoText, standingAccessFor, standingRejectionText, standingRow } from "./standingAccess.js";
+import {
+  type StandingTaskData,
+  agoText,
+  cronOfChoice,
+  recurringRow,
+  scheduleChoice,
+  standingAccessFor,
+  standingRejectionText,
+  standingRow,
+} from "./standingAccess.js";
 
 const NOW = 1_792_320_000_000;
 
@@ -17,6 +28,9 @@ const WATCH: StandingTaskData = {
   name: "Watch for new pull requests",
   status: "active",
   trigger: "every 2 min",
+  cron: "",
+  intervalSeconds: 120,
+  agentId: "",
   lastCheckAt: NOW - 3 * 60_000,
   nextCheckAt: NOW + 60_000,
   queued: 0,
@@ -61,9 +75,9 @@ describe("standingAccessFor", () => {
     expect(standingAccessFor({ id: "a", kind: OCCUPANT_KIND.human, isCeo: true }, "Dana")).toEqual({ mayManage: true, reason: "" });
     expect(standingAccessFor({ id: "b", kind: OCCUPANT_KIND.human, isCeo: false }, "Dana")).toEqual({
       mayManage: false,
-      reason: "Only the CEO, Dana, can pause, resume, remove or check a standing task.",
+      reason: "Only the CEO, Dana, can pause, resume, remove, check or reschedule a standing task.",
     });
-    expect(standingRejectionText("forbidden")).toBe("Only the CEO can pause, resume, remove or check a standing task.");
+    expect(standingRejectionText("forbidden")).toBe("Only the CEO can pause, resume, remove, check or reschedule a standing task.");
   });
 });
 
@@ -72,5 +86,31 @@ describe("agoText", () => {
     expect(agoText(NOW - 10_000, NOW)).toBe("just now");
     expect(agoText(NOW - 5 * 60_000, NOW)).toBe("5 min ago");
     expect(agoText(NOW - 3 * 60 * 60_000, NOW)).toBe("3 h ago");
+  });
+});
+
+describe("recurringRow", () => {
+  it("reads a task on the wall board: what it does, how often, its last run and how it stands", () => {
+    expect(recurringRow({ ...WATCH, kind: "pr-steward", name: "Review, fix and merge pull requests", lastOutcome: "merged" }, NOW, "Leo")).toEqual({
+      name: "Review, fix and merge pull requests",
+      schedule: "Reviews, resolves and merges new pull requests · every 2 min · Leo's",
+      lastRun: "Last run 1 min ago: merged PR #112",
+      status: "active",
+      tone: "good",
+    });
+    expect(recurringRow({ ...WATCH, lastRunAt: 0, status: "error" }, NOW, undefined)).toMatchObject({ lastRun: "Not run yet", tone: "bad" });
+  });
+});
+
+describe("the wall board's schedules", () => {
+  it("read a task's cron into the board's choices, and give a cron back", () => {
+    expect(scheduleChoice("0 * * * *")).toEqual({ kind: "hourly" });
+    expect(scheduleChoice("30 9 * * *")).toEqual({ kind: "daily", time: "09:30" });
+    expect(scheduleChoice("0 17 * * 1-5")).toEqual({ kind: "weekdays", time: "17:00" });
+    expect(scheduleChoice("*/15 * * * *")).toEqual({ kind: "custom", cron: "*/15 * * * *" });
+    expect(cronOfChoice({ kind: "daily", time: "08:05" })).toBe("5 8 * * *");
+    expect(cronOfChoice({ kind: "weekdays", time: "17:00" })).toBe("0 17 * * 1-5");
+    expect(cronOfChoice({ kind: "custom", cron: " 0  9 * * 1 " })).toBe("0 9 * * 1");
+    expect(cronOfChoice({ kind: "daily", time: "25:00" })).toBeUndefined();
   });
 });

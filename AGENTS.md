@@ -40,7 +40,7 @@ Run from the repo root; all verified.
 - Shared code is the single source of truth: the floor plan (`shared/src/layout.ts`), props, and collision run unchanged on client and server; never add a client-only or server-only branch.
 - Movement: client predicts locally; the server clamps speed and re-runs the shared collision before publishing (`apps/server/src/sim/movement.ts`).
 - Replicated state is the schema in `shared/src/state.ts`; emotes and chat are server broadcasts, not state, and rate limits live server-side in `apps/server/src/sim/expression.ts`.
-- Agent work on GitHub issues is server-authoritative: rules, transitions and the single `mayActOnWork` gate live in `shared/src/work.ts`; handlers only parse, resolve the actor, and call `applyWorkCommand`. The game server never writes to GitHub; only the runner pushes and opens pull requests, and nothing merges them.
+- Agent work on GitHub issues is server-authoritative: rules, transitions and the single `mayActOnWork` gate live in `shared/src/work.ts`; handlers only parse, resolve the actor, and call `applyWorkCommand`. The game server never writes to GitHub; only the runner pushes and opens pull requests, and nothing merges them except the runner for a pull-request-steward standing task the CEO set up, only once every required check is green (`mergeGate` in `shared/src/standing.ts`).
 - Untrusted client payloads go through the parsers in `shared/src/messages.ts` before use.
 
 ## Conventions

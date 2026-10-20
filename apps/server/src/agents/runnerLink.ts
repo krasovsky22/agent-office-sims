@@ -38,7 +38,8 @@
  * sync.
  *
  * Each sync carries the runner's standing tasks too (`@sim/shared`'s
- * `standing.ts`), which go to the process-wide {@link StandingMirror}; a slot
+ * `standing.ts`), which go to the process-wide {@link StandingMirror} with
+ * the records of their runs since the last sync; a slot
  * on a standing run is on the floor with the pull request it reviews, or the
  * schedule it runs, as its task. Commands for standing tasks address the
  * runner rather than a slot, and ride the same outbox.
@@ -87,6 +88,7 @@ import {
   RUNNER_COMMAND_KIND,
   RUNNER_ISSUE_STATE_OUTCOME,
   RUNNER_SLOT_STATUS,
+  STANDING_KIND,
   type RunnerCommand,
   type RunnerCommandDraft,
   type RunnerEvent,
@@ -273,6 +275,8 @@ interface Runner {
   spend: RunnerSpendReport | undefined;
   /** Its standing tasks' names, by id, for a slot running one. */
   standingNames: ReadonlyMap<string, string>;
+  /** Its pull request stewards' ids, whose runs resolve and merge as well as review. */
+  stewards: ReadonlySet<string>;
   /** Whether its last sync said it closes and reopens issues. */
   changesIssues: boolean;
   /** When each slot's kept profile last went out again, by slot id. */
@@ -409,6 +413,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
         seenEvents: new Set(),
         spend: undefined,
         standingNames: new Map(),
+        stewards: new Set(),
         changesIssues: false,
         profileResentAt: new Map(),
         arriving: new Set(),
@@ -433,6 +438,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
     }
     const standing = sync.standing ?? [];
     runner.standingNames = new Map(standing.map((task) => [task.id, task.name]));
+    runner.stewards = new Set(standing.flatMap((task) => (task.kind === STANDING_KIND.prSteward ? [task.id] : [])));
     if (this.options.standing !== undefined) {
       const running = new Map<string, string>();
       for (const slot of sync.slots) {
@@ -441,6 +447,9 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
         }
       }
       this.options.standing.update(sync.runnerId, standing, sync.standingOff, running);
+      // Only its own tasks' runs, and none of a task since removed, whose history went with it.
+      const held = new Set(standing.map((task) => task.id));
+      this.options.standing.keepRuns((sync.standingRuns ?? []).filter((record) => held.has(record.taskId)));
     }
 
     const records = sync.slots.map((slot) => this.record(sync.runnerId, runner, slot));
@@ -515,17 +524,18 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
 
   /**
    * Hires an agent with this profile, for `requestedBy`: a `hire` command for
-   * a new slot, on the first runner with room for one.
+   * a new slot, on the first runner with room for one, or on `onRunner`
+   * alone, the runner a standing task it is hired for goes to.
    *
    * @returns where the agent will be, or `undefined` when no runner is
    * connected, the floor holds {@link MAX_RUNNER_SLOTS} already, or the
    * profile is not one a runner takes.
    */
-  public hire(profile: AgentProfile, requestedBy: string): RunnerHire | undefined {
+  public hire(profile: AgentProfile, requestedBy: string, onRunner?: string): RunnerHire | undefined {
     if (this.agentCount() >= MAX_RUNNER_SLOTS) {
       return undefined;
     }
-    for (const runnerId of this.runners.keys()) {
+    for (const runnerId of onRunner === undefined ? this.runners.keys() : [onRunner]) {
       const slotId = this.options.hiredSlotId?.() ?? `hired-${randomUUID().slice(0, 8)}`;
       const command = this.enqueue(runnerId, { kind: RUNNER_COMMAND_KIND.hire, slotId, ...profile, requestedBy });
       if (command !== undefined) {
@@ -881,8 +891,10 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
       return { title: sanitizeTitle(`Scheduled: ${runner.standingNames.get(taskId) ?? "a standing task"}`), url: "" };
     }
     const title = this.options.pullTitle?.(pr);
+    // The steward's run may be a review, a resolve or a merge; its activity line says which.
+    const verb = runner.stewards.has(taskId) ? "Look after" : "Review";
     return {
-      title: sanitizeTitle(title === undefined || title === "" ? `Review PR #${pr}` : `Review PR #${pr}: ${title}`),
+      title: sanitizeTitle(title === undefined || title === "" ? `${verb} PR #${pr}` : `${verb} PR #${pr}: ${title}`),
       url: this.pullUrl(pr),
     };
   }

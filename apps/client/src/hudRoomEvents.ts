@@ -1,8 +1,8 @@
 /**
  * The room's events that only the HUD hears of: the connection's status, the
  * conversations with the manager and the agents, the runners' spend and
- * standing tasks, the standup, and every refusal of this player's own
- * commands, each said where the command came from.
+ * standing tasks with their last runs, the standup, and every refusal of this
+ * player's own commands, each said where the command came from.
  *
  * Kept apart from `main.ts`, whose own handlers move the scene, so a new
  * refusal or a new log is added here.
@@ -101,7 +101,11 @@ export function hudRoomEvents(host: HudRoomEventsHost): RoomConnectionEvents {
     },
 
     onStandingRejected: (event) => {
-      host.notice(standingRejectionText(event.rejection));
+      host.notice(event.reason ?? standingRejectionText(event.rejection));
+    },
+
+    onStandingHistory: (event) => {
+      host.publish({ standingHistory: { ...host.hud().standingHistory, [event.taskId]: event.runs } });
     },
 
     // Handed over whole on every join, a reconnection included, so it replaces

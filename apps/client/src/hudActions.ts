@@ -79,6 +79,9 @@ export function hudActions(host: HudActionsHost): HudActions {
     },
     standing: {
       act: (action, taskId) => room.sendStanding(action, taskId),
+      reschedule: (taskId, schedule) => room.sendStandingReschedule(taskId, schedule),
+      history: (taskId) => room.requestStandingHistory(taskId),
+      create: (task) => room.sendStandingCreate(task),
     },
     terminal: {
       screenOf: (agentId) => room.screenOf(agentId),

@@ -1350,3 +1350,250 @@
   gap: 6px;
   align-items: center;
 }
+
+/* The recurring tasks board's close-up: one column of tasks, narrower than the
+   project board, each opening in place to its controls and its last runs. The
+   list scrolls by itself, and a run's log by itself again, so a long log never
+   pushes the other tasks out of reach. */
+.recurring {
+  width: min(900px, calc(100vw - 32px));
+}
+
+.recurring__list,
+.recurring__runs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.recurring__list {
+  /* Shrinks and scrolls, never grows, so the form sits right under the tasks. */
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.recurring__task {
+  min-width: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.recurring__task--open {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.recurring__summary,
+.recurring__run-summary {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recurring__summary {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+}
+
+.recurring__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.recurring__status {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.recurring__status--good {
+  color: #7fd18b;
+}
+
+.recurring__status--pending {
+  color: #f0c650;
+}
+
+.recurring__status--bad {
+  color: #f08a7a;
+}
+
+.recurring__status--plain {
+  color: #9aa0aa;
+}
+
+.recurring__line {
+  grid-column: 1 / -1;
+  color: #9aa0aa;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.recurring__line--error {
+  color: #ffb39c;
+}
+
+.recurring__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 10px 10px;
+}
+
+.recurring__controls,
+.recurring__control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.recurring__controls {
+  justify-content: space-between;
+}
+
+.recurring__control select,
+.recurring__control input {
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(30, 30, 36, 0.9);
+  color: #eef0f4;
+  font: inherit;
+  font-size: 12px;
+}
+
+.recurring__cron {
+  width: 12em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.recurring__delete--confirm {
+  border-color: rgba(240, 120, 90, 0.6);
+  background: rgba(240, 120, 90, 0.2);
+}
+
+.recurring__label {
+  margin: 4px 0 0;
+  color: #9aa0aa;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.recurring__meta {
+  margin: 0;
+  color: #9aa0aa;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.recurring__meta a {
+  color: #78b4ff;
+}
+
+.recurring__run {
+  min-width: 0;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.recurring__run-summary {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.recurring__run-time {
+  color: #9aa0aa;
+  white-space: nowrap;
+}
+
+.recurring__outcome {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.recurring__outcome--merged,
+.recurring__outcome--reviewed,
+.recurring__outcome--resolved,
+.recurring__outcome--completed {
+  color: #7fd18b;
+}
+
+.recurring__outcome--failed,
+.recurring__outcome--refused-budget {
+  color: #f08a7a;
+}
+
+.recurring__run-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.recurring__run-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 8px 8px;
+}
+
+.recurring__text {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.recurring__log {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The CEO's form for a new task, at the foot of the board's close-up. */
+.recurring__new {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.recurring__new select,
+.recurring__instruction {
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(30, 30, 36, 0.9);
+  color: #eef0f4;
+  font: inherit;
+  font-size: 12px;
+}
+
+.recurring__instruction {
+  min-width: 0;
+}

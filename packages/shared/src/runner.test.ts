@@ -88,6 +88,7 @@ describe("parseRunnerSync", () => {
       spend: undefined,
       prompts: [{ commandId: "command-7", slotId: "slot-1", outcome: "busy" }],
       standing: [],
+      standingRuns: [],
       changesIssues: false,
       issueStates: [],
     });
@@ -116,6 +117,7 @@ describe("parseRunnerSync", () => {
       spend: undefined,
       prompts: [],
       standing: [],
+      standingRuns: [],
       changesIssues: false,
       issueStates: [],
     });

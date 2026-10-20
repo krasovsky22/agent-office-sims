@@ -25,7 +25,7 @@
  * chat by `./Chat.tsx`.
  */
 
-import { MANAGER_STATUS, OFFICE_CAPACITY } from "@sim/shared";
+import { MANAGER_STATUS, OFFICE_CAPACITY, STANDING_ACTION } from "@sim/shared";
 import { useSyncExternalStore } from "react";
 
 import { NO_LINKS, terminalLinks } from "../agentTerminal.js";
@@ -38,6 +38,7 @@ import { ManagerPanel } from "./ManagerPanel.js";
 import { HelpOverlay } from "./HelpOverlay.js";
 import { NameCard } from "./NameCard.js";
 import { ProjectBoardPanel } from "./ProjectBoardPanel.js";
+import { RecurringTasksPanel } from "./RecurringTasksPanel.js";
 import { StandupPanel } from "./StandupPanel.js";
 import { ChatComposer, ChatLog, EmoteBar } from "./Chat.js";
 import { type AssetState, type HudActions, type HudStore, assignableAgents, groupRoster } from "./hudStore.js";
@@ -86,6 +87,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     debug,
     projectBoard,
     boardCloseUp,
+    recurringOpen,
+    standingHistory,
     boardAccess,
     work,
     issueMoves,
@@ -115,7 +118,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
   // The CEO runs a standup from its panel and from the manager's desk at once, so
   // the standup docks to one side rather than covering another close-up.
-  const standupDocked = standup.active && (boardCloseUp || managerOpen || terminalAgentId !== undefined || desk !== undefined);
+  const standupDocked = standup.active && (boardCloseUp || recurringOpen || managerOpen || terminalAgentId !== undefined || desk !== undefined);
   const deskAgent = desk === undefined || desk.agentId === "" ? undefined : roster.find((entry) => entry.id === desk.agentId);
 
   return (
@@ -209,6 +212,22 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           moves={issueMoves}
           notice={boardNotice}
           actions={actions.projectBoard}
+        />
+      ) : null}
+
+      {recurringOpen ? (
+        <RecurringTasksPanel
+          tasks={standingTasks}
+          history={standingHistory}
+          access={standingAccess}
+          agentName={(agentId) => roster.find((entry) => entry.id === agentId)?.name}
+          agents={assignableAgents(roster)}
+          actions={{
+            history: actions.standing.history,
+            reschedule: actions.standing.reschedule,
+            remove: (taskId) => actions.standing.act(STANDING_ACTION.remove, taskId),
+            create: actions.standing.create,
+          }}
         />
       ) : null}
 

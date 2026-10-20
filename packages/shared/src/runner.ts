@@ -40,22 +40,29 @@ import {
 import { isTerminalSize } from "./screens.js";
 import { MAX_RUNNER_USD } from "./spend.js";
 import {
+  MAX_STANDING_CRON_BYTES,
   MAX_STANDING_ERROR_BYTES,
+  MAX_STANDING_LOG_BYTES,
   MAX_STANDING_MESSAGE_BYTES,
   MAX_STANDING_NAME_BYTES,
   MAX_STANDING_RECENT,
+  MAX_STANDING_RESULT_BYTES,
+  MAX_STANDING_SUMMARY_BYTES,
   MAX_STANDING_TASKS,
   MAX_STANDING_TRIGGER_BYTES,
   STANDING_OFF,
   type StandingOff,
   type StandingOutcome,
+  type StandingRunRecord,
   type StandingRunSummary,
+  type StandingSchedule,
   type StandingTaskReport,
   type StandingTaskSpec,
   isStandingKind,
   isStandingOutcome,
   isStandingStatus,
   isStandingTaskId,
+  parseStandingSchedule,
   parseStandingTaskSpec,
   sanitizeStandingName,
 } from "./standing.js";
@@ -70,7 +77,7 @@ export const RUNNER_SYNC_PATH = "/agents/runner/sync";
  * writes it, so a sync it would take, every list full and every string at its
  * budget, fits inside this whatever characters it holds; a test holds it to that.
  */
-export const MAX_RUNNER_SYNC_BYTES = 20 * 1024;
+export const MAX_RUNNER_SYNC_BYTES = 32 * 1024;
 
 /**
  * The label a maintainer puts on an issue to keep the real coding agents off
@@ -171,6 +178,8 @@ export const RUNNER_COMMAND_KIND = {
   standingRemove: "standing-remove",
   /** Check a standing task's trigger now: poll GitHub, or run a schedule once. */
   standingCheckNow: "standing-check-now",
+  /** Change how often a standing task runs; see {@link RunnerStandingRescheduleCommand}. */
+  standingReschedule: "standing-reschedule",
   /** Take the CEO's edit of a slot's agent's profile, for its next session. */
   profile: "profile",
   /** Close or reopen an issue on GitHub, for the CEO who dragged its card across the board. */
@@ -450,6 +459,12 @@ export interface RunnerSync {
   readonly prompts?: readonly RunnerPromptOutcome[];
   /** Every standing task the runner holds; none when left out. */
   readonly standing?: readonly StandingTaskReport[];
+  /**
+   * Standing runs that ended since the last answered sync, each kept whole
+   * with its log for the wall board; reported until a sync carrying one is
+   * answered, as an event is. None when left out.
+   */
+  readonly standingRuns?: readonly StandingRunRecord[];
   /** Why the runner takes no standing tasks at all; left out by one that takes them. */
   readonly standingOff?: StandingOff | undefined;
   /**
@@ -631,6 +646,19 @@ export interface RunnerStandingTaskCommand {
 }
 
 /**
+ * Change how often one of the runner's standing tasks runs. The runner holds
+ * the definition, so it makes the change itself, as a new version, and
+ * refuses a schedule the task's kind does not take.
+ */
+export interface RunnerStandingRescheduleCommand {
+  readonly id: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.standingReschedule;
+  readonly taskId: string;
+  readonly schedule: StandingSchedule;
+  readonly requestedBy: string;
+}
+
+/**
  * Close or reopen an issue on GitHub with the runner's own GitHub identity,
  * for the CEO; the game server never writes to GitHub itself. The runner
  * reports what came of it as a {@link RunnerIssueStateOutcome}.
@@ -657,7 +685,7 @@ export type RunnerSlotCommand =
   | RunnerHireCommand;
 
 /** The commands for the runner's standing tasks, which address no slot. */
-export type RunnerStandingCommand = RunnerStandingSetCommand | RunnerStandingTaskCommand;
+export type RunnerStandingCommand = RunnerStandingSetCommand | RunnerStandingTaskCommand | RunnerStandingRescheduleCommand;
 
 export type RunnerCommand = RunnerSlotCommand | RunnerStandingCommand | RunnerIssueStateCommand;
 
@@ -697,6 +725,7 @@ export type RunnerCommandDraft =
   | RunnerSlotCommandDraft
   | Omit<RunnerStandingSetCommand, "id">
   | Omit<RunnerStandingTaskCommand, "id">
+  | Omit<RunnerStandingRescheduleCommand, "id">
   | Omit<RunnerIssueStateCommand, "id">;
 
 /**
@@ -736,6 +765,9 @@ export const MAX_RUNNER_PROMPT_OUTCOMES = 8;
 
 /** Most issue state outcomes one sync may carry. */
 export const MAX_RUNNER_ISSUE_STATE_OUTCOMES = 8;
+
+/** Most standing run records one sync may carry: one, since each holds a log. */
+export const MAX_RUNNER_STANDING_RUNS = 1;
 
 /** A runner's or a slot's id: narrow, since it becomes part of a live agent's id. */
 const RUNNER_NAME = /^[A-Za-z0-9._-]{1,32}$/;
@@ -1051,6 +1083,58 @@ function parseRunSummary(raw: unknown): StandingRunSummary | undefined {
   return { at: candidate["at"], outcome: candidate["outcome"], pr: isIssueNumber(pr) ? pr : undefined };
 }
 
+/** One standing run's record, every string held to its budget in bytes. */
+export function parseStandingRunRecord(raw: unknown): StandingRunRecord | undefined {
+  const candidate = asRecord(raw);
+  if (candidate === undefined) {
+    return undefined;
+  }
+  const { id, taskId, startedAt, endedAt, outcome, costUsd } = candidate;
+  const commentId = candidate["commentId"] ?? undefined;
+  if (
+    !isItemId(id) ||
+    !isStandingTaskId(taskId) ||
+    !isTimestamp(startedAt) ||
+    !isTimestamp(endedAt) ||
+    !isStandingOutcome(outcome) ||
+    !isUsd(costUsd) ||
+    (commentId !== undefined && !isCommentId(commentId))
+  ) {
+    return undefined;
+  }
+  let pr: StandingRunRecord["pr"];
+  const rawPr = candidate["pr"] ?? undefined;
+  if (rawPr !== undefined) {
+    const record = asRecord(rawPr);
+    const title = record === undefined ? undefined : parseText(record["title"], MAX_TITLE_LENGTH, sanitizeTitle);
+    if (record === undefined || !isIssueNumber(record["number"]) || title === undefined) {
+      return undefined;
+    }
+    pr = { number: record["number"], title };
+  }
+  const agent = parseText(candidate["agent"], MAX_STANDING_NAME_BYTES, sanitizeName);
+  const summary = parseText(candidate["summary"], MAX_STANDING_SUMMARY_BYTES, sanitizeTitle);
+  const result = parseText(candidate["result"], MAX_STANDING_RESULT_BYTES, sanitizeStandingMessage);
+  const log = parseText(candidate["log"], MAX_STANDING_LOG_BYTES, sanitizeStandingMessage);
+  if (agent === undefined || summary === undefined || result === undefined || log === undefined) {
+    return undefined;
+  }
+  return {
+    id,
+    taskId,
+    startedAt,
+    endedAt,
+    outcome,
+    pr,
+    agent,
+    costUsd,
+    summary,
+    result,
+    log,
+    commentId: isCommentId(commentId) ? commentId : undefined,
+  };
+}
+
 function parseStandingReport(raw: unknown): StandingTaskReport | undefined {
   const candidate = asRecord(raw);
   if (candidate === undefined) {
@@ -1076,7 +1160,20 @@ function parseStandingReport(raw: unknown): StandingTaskReport | undefined {
   const trigger = parseText(candidate["trigger"], MAX_STANDING_TRIGGER_BYTES, sanitizeTitle);
   const lastError = parseText(candidate["lastError"], MAX_STANDING_ERROR_BYTES, sanitizeTitle);
   const recent = parseList(candidate["recent"], MAX_STANDING_RECENT, parseRunSummary);
-  if (name === undefined || name === "" || trigger === undefined || lastError === undefined || recent === undefined) {
+  const rawSchedule = asRecord(candidate["schedule"]);
+  const cron = rawSchedule?.["cron"];
+  const schedule =
+    rawSchedule === undefined || (typeof cron === "string" && jsonTextBytes(cron) > MAX_STANDING_CRON_BYTES) ? undefined : parseStandingSchedule(rawSchedule);
+  const agent = candidate["agent"] ?? undefined;
+  if (
+    name === undefined ||
+    name === "" ||
+    trigger === undefined ||
+    lastError === undefined ||
+    recent === undefined ||
+    schedule === undefined ||
+    (agent !== undefined && !isRunnerName(agent))
+  ) {
     return undefined;
   }
   return {
@@ -1085,6 +1182,8 @@ function parseStandingReport(raw: unknown): StandingTaskReport | undefined {
     name,
     status,
     trigger,
+    schedule,
+    agent: isRunnerName(agent) ? agent : undefined,
     lastCheckAt: isTimestamp(lastCheckAt) ? lastCheckAt : undefined,
     nextCheckAt: isTimestamp(nextCheckAt) ? nextCheckAt : undefined,
     queued,
@@ -1155,6 +1254,7 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
   const spend = parseSpend(candidate["spend"]);
   const prompts = parseList(candidate["prompts"], MAX_RUNNER_PROMPT_OUTCOMES, parsePromptOutcome);
   const standing = parseList(candidate["standing"], MAX_STANDING_TASKS, parseStandingReport);
+  const standingRuns = parseList(candidate["standingRuns"], MAX_RUNNER_STANDING_RUNS, parseStandingRunRecord);
   const standingOff = candidate["standingOff"] ?? undefined;
   const issueStates = parseList(candidate["issueStates"], MAX_RUNNER_ISSUE_STATE_OUTCOMES, parseIssueStateOutcome);
   const changesIssues = candidate["changesIssues"] ?? false;
@@ -1165,6 +1265,7 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
     spend === null ||
     prompts === undefined ||
     standing === undefined ||
+    standingRuns === undefined ||
     issueStates === undefined ||
     typeof changesIssues !== "boolean" ||
     (standingOff !== undefined && (typeof standingOff !== "string" || !STANDING_OFFS.has(standingOff)))
@@ -1183,6 +1284,7 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
     spend,
     prompts,
     standing,
+    standingRuns,
     standingOff: standingOff === undefined ? undefined : (standingOff as StandingOff),
     changesIssues,
     issueStates,
@@ -1207,6 +1309,12 @@ export function toRunnerCommand(id: string, draft: RunnerCommandDraft): RunnerCo
   if (draft.kind === RUNNER_COMMAND_KIND.issueState) {
     return isIssueNumber(draft.issueNumber) && isIssueState(draft.state)
       ? { id, kind: draft.kind, issueNumber: draft.issueNumber, state: draft.state, requestedBy: sanitizeName(draft.requestedBy) }
+      : undefined;
+  }
+  if (draft.kind === RUNNER_COMMAND_KIND.standingReschedule) {
+    const schedule = parseStandingSchedule(draft.schedule);
+    return isStandingTaskId(draft.taskId) && schedule !== undefined
+      ? { id, kind: draft.kind, taskId: draft.taskId, schedule, requestedBy: sanitizeName(draft.requestedBy) }
       : undefined;
   }
   if (isStandingTaskCommandKind(draft.kind)) {
