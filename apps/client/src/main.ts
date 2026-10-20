@@ -10,7 +10,6 @@
 import {
   type AgentPromptEntry,
   ANIMATION_STATE,
-  CLIENT_MESSAGE,
   INTERACT_RANGE,
   INTERACTION_KIND,
   type InteractableSpec,
@@ -62,6 +61,7 @@ import { PendingIssueMoves } from "./pendingIssueMoves.js";
 import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
 import { keepAcceptedName, nameRejectionText, readPlayerName } from "./playerName.js";
 import { standingAccessFor, standingRejectionText } from "./standingAccess.js";
+import { THROTTLED_PLACE, throttledNotice } from "./throttledNotice.js";
 import { timedNotice } from "./timedNotice.js";
 import type { RemotePose } from "./net/poseBuffer.js";
 import { type OccupantView, RoomConnection } from "./net/room.js";
@@ -479,58 +479,26 @@ function start(): void {
     },
 
     onThrottled: (event) => {
-      if (event.command === CLIENT_MESSAGE.agentPrompt) {
-        // Said in the terminal panel the prompt was sent from, which is waiting on an answer.
-        publishHud({
-          agentPromptRefusal: {
-            id: nextRefusalId++,
-            agentId: openTerminalAgentId() ?? "",
-            text: "Too many prompts — that one was dropped. Wait a few seconds and send it again.",
-          },
-        });
-        return;
+      const { place, text } = throttledNotice(event.command);
+      switch (place) {
+        case THROTTLED_PLACE.prompt:
+          publishHud({ agentPromptRefusal: { id: nextRefusalId++, agentId: openTerminalAgentId() ?? "", text } });
+          return;
+        case THROTTLED_PLACE.key:
+          publishHud({
+            agentPromptRefusal: { id: nextRefusalId++, agentId: openTerminalAgentId() ?? lastKeyAgentId, text, forKey: true },
+          });
+          return;
+        case THROTTLED_PLACE.profile:
+          publishHud({ agentProfileNotice: { id: nextRefusalId++, agentId: lastProfileAgentId, text } });
+          return;
+        case THROTTLED_PLACE.standup:
+          showStandupNotice(text);
+          return;
+        case THROTTLED_PLACE.notice:
+          showNotice(text);
+          return;
       }
-      if (event.command === CLIENT_MESSAGE.agentKey) {
-        publishHud({
-          agentPromptRefusal: {
-            id: nextRefusalId++,
-            agentId: openTerminalAgentId() ?? lastKeyAgentId,
-            text: "Too many keys — that one was not pressed. Check the terminal, then go on.",
-            forKey: true,
-          },
-        });
-        return;
-      }
-      if (event.command === CLIENT_MESSAGE.agentProfile) {
-        // Said on the profile card the edit was saved from, which is waiting on an answer.
-        publishHud({
-          agentProfileNotice: {
-            id: nextRefusalId++,
-            agentId: lastProfileAgentId,
-            text: "Too many profile edits — that one was dropped. Wait a few seconds and save it again.",
-          },
-        });
-        return;
-      }
-      if (event.command === CLIENT_MESSAGE.standupDirect || event.command === CLIENT_MESSAGE.standupStart) {
-        showStandupNotice(
-          event.command === CLIENT_MESSAGE.standupDirect
-            ? "Too many directions — that one was dropped. Wait a few seconds and send it again."
-            : "Too many standups called or ended — that one was dropped. Wait a few seconds.",
-        );
-        return;
-      }
-      showNotice(
-        event.command === CLIENT_MESSAGE.chat
-          ? "Too many messages — that one was dropped."
-          : event.command === CLIENT_MESSAGE.managerSay
-            ? "Too many messages to the manager — that one was dropped."
-            : event.command === CLIENT_MESSAGE.emote
-              ? "Too many emotes — that one was dropped."
-              : event.command === CLIENT_MESSAGE.rename
-                ? "Too many renames — that one was dropped. Wait a few seconds."
-                : "Too many standing task buttons — that one was dropped. Wait a few seconds.",
-      );
     },
 
     onWorkRejected: (event) => {
