@@ -56,15 +56,15 @@ export function chime(): void {
 }
 
 /**
- * A desktop notification that `name` needs the CEO, when the CEO has allowed
+ * A desktop notification that agent `agentId`, called `name`, needs the CEO, when the CEO has allowed
  * them; clicking it brings the tab forward and runs `open`.
  */
-export function notifyNeedsYou(name: string, caption: string, open: () => void): void {
+export function notifyNeedsYou(agentId: string, name: string, caption: string, open: () => void): void {
   if (!notificationsSupported() || Notification.permission !== "granted") {
     return;
   }
   // One per agent: a second wait replaces the first rather than stacking up.
-  const notification = new Notification(`${name} needs you`, { body: caption, tag: `needs-you:${name}` });
+  const notification = new Notification(`${name} needs you`, { body: caption, tag: `needs-you:${agentId}` });
   notification.onclick = () => {
     window.focus();
     open();

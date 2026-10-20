@@ -570,7 +570,7 @@ function start(): void {
         // A visible tab already shows the beacon and the roster's Answer button.
         if (document.hidden) {
           for (const view of waiting.filter((candidate) => fresh.includes(candidate.id))) {
-            notifyNeedsYou(view.name, captionOf(view), () => answer(view.id));
+            notifyNeedsYou(view.id, view.name, captionOf(view), () => answer(view.id));
           }
         }
       }
@@ -1149,8 +1149,12 @@ function start(): void {
     }
     // The agent at the screen's seat: it stays the same while the panel is
     // open, since the screen is only offered while that agent sits there.
-    // A panel opened with `E`, or the agent leaving, closes the one opened from the roster.
-    if (readingBoard !== "" || (answeringAgentId !== undefined && room.viewOf(answeringAgentId) === undefined)) {
+    // A panel opened with `E`, sitting at the desk, or the agent leaving, closes the one opened from the roster.
+    if (
+      readingBoard !== "" ||
+      hud.desk !== undefined ||
+      (answeringAgentId !== undefined && room.viewOf(answeringAgentId) === undefined)
+    ) {
       answeringAgentId = undefined;
     }
     const watchedSeat = interactableById(OFFICE_LAYOUT, readingBoard)?.seatId;
