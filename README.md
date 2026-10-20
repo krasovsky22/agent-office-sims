@@ -317,6 +317,18 @@ question or a sign-in) keeps its chair and is made hard to miss: an orange
 `Maya needs you on #39: <what it waits on>` once each time an agent starts
 waiting; the beacon and badge clear when it carries on.
 
+The CEO is told even when looking elsewhere, or at another tab. The CEO's tab
+counts the waiting agents in its title, `(1) Needs you · Agent Office Sims`,
+and plays a short chime each time one starts waiting. Under **Live agents**,
+`Notify me when an agent needs me` asks the browser once for desktop
+notifications; once allowed, an agent that starts waiting while the tab is
+in the background puts one up, and clicking it brings the tab forward with
+that agent's terminal open. A waiting agent's roster line has an `Answer`
+button that opens its terminal panel with the key pad from wherever the CEO
+stands; `Close` or `Esc` shuts it. Nobody else's tab counts, chimes or
+offers the button, since only the CEO can answer. A browser plays no sound
+until the page has been clicked or typed in once.
+
 When the CEO tells the manager to put one of these agents on an issue or pull
 request, the manager queues an assignment for the orchestrator, which collects it with
 the same secret:
@@ -1855,6 +1867,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/managerAccess.ts    what the local player may say to the manager, and why
   src/standingAccess.ts   how a standing task reads in the roster, and whether its buttons are the local player's
   src/agentPromptAccess.ts  whether the local player may prompt a coding agent, which keyboard keys its key pad takes, and why a prompt or key was refused
+  src/needsYou.ts         telling the CEO an agent waits on them: the title count, the chime and the desktop notification
   src/agentProfileAccess.ts  whether the local player may edit an agent's profile, why an edit was refused, and when it applies
   src/ui/AgentProfileCard.tsx  an agent's profile under its roster line: read by everyone, edited by the CEO
   src/agentMenu.ts        the agent the local player faces, and what its long-press `E` menu offers, and why not

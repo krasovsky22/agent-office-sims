@@ -55,6 +55,7 @@ import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
 import type { ManagerAccess } from "../managerAccess.js";
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
+import { notificationsSupported } from "../needsYou.js";
 import type { IssueMove } from "../projectBoard.js";
 import { type StandingAccess, type StandingTaskData, standingRow } from "../standingAccess.js";
 import type { ConnectionStatus } from "../net/room.js";
@@ -199,7 +200,7 @@ export interface HudSnapshot {
   readonly managerUnread: number;
   /** What the local player may say to the manager; absent until they are in the office. */
   readonly managerAccess?: ManagerAccess | undefined;
-  /** The live agent whose terminal the local player opened with `E` behind its chair, or `undefined`. */
+  /** The live agent whose terminal the local player opened with `E` behind its chair or from the roster, or `undefined`. */
   readonly terminalAgentId?: string | undefined;
   /** The CEO's own desk's computer while the local player is the CEO sitting at one, or `undefined`. */
   readonly desk?: DeskPanelView | undefined;
@@ -244,6 +245,8 @@ export interface HudActions {
   readonly toggleCamera: () => void;
   /** Joins the office afresh, from a connection that has given up. */
   readonly rejoin: () => void;
+  /** Opens an agent's terminal panel, wherever the local player stands. */
+  readonly answer: (agentId: string) => void;
   readonly projectBoard: ProjectBoardActions;
   readonly manager: ManagerPanelActions;
   readonly terminal: AgentTerminalActions;
@@ -546,13 +549,26 @@ export interface ProfileControls {
  * and its task linked to the issue or pull request. A runner's agent also has
  * a button that opens its profile under the line.
  */
-function LiveAgentRow({ entry, profile }: { entry: RosterEntry; profile: ProfileControls }) {
+function LiveAgentRow({ entry, profile, answer }: { entry: RosterEntry; profile: ProfileControls; answer: Answer }) {
   const [open, setOpen] = useState(false);
   return (
     <li className="hud__occupant">
       <span className="hud__name">{entry.name}</span>
       <span className="hud__badge hud__badge--agent">{entry.title === "" ? "Agent" : entry.title}</span>
       {entry.needsInput ? <span className="hud__badge hud__badge--needs-you">Needs you</span> : null}
+      {entry.needsInput && answer !== undefined ? (
+        <button
+          className="hud__standing-button hud__answer"
+          type="button"
+          title={`Open ${entry.name}'s terminal and key pad from here`}
+          onClick={(event) => {
+            event.currentTarget.blur();
+            answer(entry.id);
+          }}
+        >
+          Answer
+        </button>
+      ) : null}
       {entry.profileEditable ? (
         <button
           className="hud__standing-button hud__profile-toggle"
@@ -571,6 +587,33 @@ function LiveAgentRow({ entry, profile }: { entry: RosterEntry; profile: Profile
         <AgentProfileCard entry={entry} access={profile.access} notice={profile.notice} actions={profile.actions} />
       ) : null}
     </li>
+  );
+}
+
+/** Opens an agent's terminal from the roster; `undefined` for anyone but the CEO, who alone can answer it. */
+type Answer = ((agentId: string) => void) | undefined;
+
+/**
+ * The CEO's switch for desktop notifications when an agent needs them: it asks
+ * the browser once, and the browser keeps the answer. Hidden where the browser
+ * has none, and once it has been answered either way.
+ */
+function NotifyButton() {
+  const [permission, setPermission] = useState(() => (notificationsSupported() ? Notification.permission : "denied"));
+  if (permission !== "default") {
+    return null;
+  }
+  return (
+    <button
+      className="hud__standing-button hud__notify"
+      type="button"
+      onClick={(event) => {
+        event.currentTarget.blur();
+        void Notification.requestPermission().then(setPermission);
+      }}
+    >
+      Notify me when an agent needs me
+    </button>
   );
 }
 
@@ -724,6 +767,7 @@ function Roster({
   standingActions,
   standupCall,
   profile,
+  answer,
 }: {
   roster: readonly RosterEntry[];
   boardAccess: BoardAccess | undefined;
@@ -735,6 +779,7 @@ function Roster({
   /** The standup button, or `undefined` before the local player is in the office. */
   standupCall: { readonly access: StandupAccess; readonly active: boolean; readonly start: () => void } | undefined;
   profile: ProfileControls;
+  answer: Answer;
 }) {
   const { people, liveAgents, managers } = groupRoster(roster);
   return (
@@ -765,9 +810,10 @@ function Roster({
           <h2 className="hud__title hud__title--group">Live agents ({liveAgents.length})</h2>
           <ul className="hud__roster">
             {liveAgents.map((entry) => (
-              <LiveAgentRow entry={entry} profile={profile} key={entry.id} />
+              <LiveAgentRow entry={entry} profile={profile} answer={answer} key={entry.id} />
             ))}
           </ul>
+          {answer === undefined ? null : <NotifyButton />}
         </>
       )}
       {runnerSpend === undefined || runnerSpend.runners === 0 ? null : <SpendLine spend={runnerSpend} />}
@@ -847,6 +893,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
             standupAccess === undefined ? undefined : { access: standupAccess, active: standup.active, start: actions.standup.start }
           }
           profile={{ access: agentProfileAccess, notice: agentProfileNotice, actions: actions.profile }}
+          answer={agentPromptAccess?.mayPrompt === true ? actions.answer : undefined}
         />
 
         <div className="hud__panel">
