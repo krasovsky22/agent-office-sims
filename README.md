@@ -274,7 +274,8 @@ panel says who can, and the server refuses theirs with that reason.
 At the project board, `E` opens its close-up, which releases the mouse so its
 links and controls can be clicked; `E` again, or stepping away, closes it. A
 card cuts a title longer than 90 characters between words and ends it in `…`;
-the detail and the AI Manager have it whole. An
+the detail has it whole, and so does the AI Manager when asked about one
+issue or agent (its lists cut it the same way as a card). An
 issue an agent has says who and how far they have got; its `Work` button opens
 the detail beside the columns, with the issue's description, the agent's note
 and its deliverable. For the CEO the detail also offers the moves the server
