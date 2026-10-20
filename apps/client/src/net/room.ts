@@ -99,7 +99,11 @@ import {
   SERVER_MESSAGE,
   STANDING_ACTION,
   type StandingClientMessage,
+  type StandingCreateMessage,
+  type StandingHistoryEvent,
   type StandingRejectedEvent,
+  type StandingRescheduleMessage,
+  type StandingSchedule,
   type StandingTaskAction,
   type StandingTaskMessage,
   type ScreenFramesEvent,
@@ -257,6 +261,8 @@ export interface RoomConnectionEvents {
   onStandingChanged?: (tasks: readonly StandingTaskData[]) => void;
   /** The office did nothing about one of the local client's standing task buttons. */
   onStandingRejected?: (event: StandingRejectedEvent) => void;
+  /** A standing task's last runs, which the local client asked for from the wall board. */
+  onStandingHistory?: (event: StandingHistoryEvent) => void;
   /** The standup, after any of it changed: called, an update given, a direction's fate, ended. */
   onStandupChanged?: (standup: StandupData) => void;
   /** The office refused one of the local client's own standup commands. */
@@ -567,6 +573,21 @@ export class RoomConnection {
     this.room?.send(STANDING_MESSAGES[action], { taskId } satisfies StandingTaskMessage);
   }
 
+  /** Changes how often a standing task runs, from the wall board. The state patch is the reply, or a rejection to this client alone. */
+  public sendStandingReschedule(taskId: string, schedule: StandingSchedule): void {
+    this.room?.send(CLIENT_MESSAGE.standingReschedule, { taskId, schedule } satisfies StandingRescheduleMessage);
+  }
+
+  /** Sets a new standing task up, from the wall board's form. The state patch is the reply, or a rejection to this client alone. */
+  public sendStandingCreate(task: StandingCreateMessage): void {
+    this.room?.send(CLIENT_MESSAGE.standingCreate, task);
+  }
+
+  /** Asks for a standing task's last runs, for the wall board; they come back to this client alone. */
+  public requestStandingHistory(taskId: string): void {
+    this.room?.send(CLIENT_MESSAGE.standingHistory, { taskId } satisfies StandingTaskMessage);
+  }
+
   /** Calls a standup. The standup in the next patch is the reply, or a rejection to this client alone. */
   public sendStandupStart(): void {
     this.room?.send(CLIENT_MESSAGE.standupStart, {});
@@ -870,6 +891,10 @@ export class RoomConnection {
 
     room.onMessage<StandingRejectedEvent>(SERVER_MESSAGE.standingRejected, (event) => {
       this.events.onStandingRejected?.(event);
+    });
+
+    room.onMessage<StandingHistoryEvent>(SERVER_MESSAGE.standingHistory, (event) => {
+      this.events.onStandingHistory?.(event);
     });
 
     room.onMessage<StandupRejectedEvent>(SERVER_MESSAGE.standupRejected, (event) => {

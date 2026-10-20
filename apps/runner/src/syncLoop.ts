@@ -14,8 +14,9 @@
  *
  * The runner's standing tasks (`./standing/`) ride the same sync: their
  * reports with the slots', their events beside the slots' (a couple of places
- * kept for them, so a busy pool never holds them back), and the commands for
- * them handed to the scheduler rather than a slot.
+ * kept for them, so a busy pool never holds them back), one run's record a
+ * sync for the wall board, settled as an event is, and the commands for them
+ * handed to the scheduler rather than a slot.
  *
  * So does closing and reopening issues for the CEO (`./issueStates.ts`): the
  * sync says whether this runner can, its commands go to the issue desk, and
@@ -33,11 +34,13 @@ import {
   MAX_RUNNER_EVENTS,
   MAX_RUNNER_ISSUE_STATE_OUTCOMES,
   MAX_RUNNER_PROMPT_OUTCOMES,
+  MAX_RUNNER_STANDING_RUNS,
   RUNNER_COMMAND_KIND,
   type RunnerEvent,
   type RunnerStandingCommand,
   type RunnerSync,
   type StandingOff,
+  type StandingRunRecord,
   type StandingTaskReport,
   isRunnerSlotCommand,
 } from "@sim/shared";
@@ -52,6 +55,8 @@ export interface StandingSyncSource {
   /** Why the runner takes no standing tasks, or `undefined` when it does. */
   off(): StandingOff | undefined;
   pendingEvents(): readonly RunnerEvent[];
+  /** Runs' records not yet delivered, oldest first; settled by {@link delivered} with the events. */
+  pendingRuns(): readonly StandingRunRecord[];
   delivered(ids: ReadonlySet<string>): void;
   handle(command: RunnerStandingCommand): void;
 }
@@ -123,6 +128,7 @@ export class SyncLoop {
     const events = [...slotEvents, ...standingEvents.slice(0, MAX_RUNNER_EVENTS - slotEvents.length)];
     const prompts = pool.pendingPromptOutcomes().slice(0, MAX_RUNNER_PROMPT_OUTCOMES);
     const issueStates = issues?.pending().slice(0, MAX_RUNNER_ISSUE_STATE_OUTCOMES) ?? [];
+    const standingRuns = standing?.pendingRuns().slice(0, MAX_RUNNER_STANDING_RUNS) ?? [];
     const sync: RunnerSync = {
       runnerId: this.options.runnerId,
       repo: this.options.repo,
@@ -131,7 +137,7 @@ export class SyncLoop {
       events,
       spend: pool.spend(),
       prompts,
-      ...(standing === undefined ? {} : { standing: standing.report(), standingOff: standing.off() }),
+      ...(standing === undefined ? {} : { standing: standing.report(), standingOff: standing.off(), standingRuns }),
       changesIssues: issues !== undefined,
       issueStates,
     };
@@ -147,7 +153,11 @@ export class SyncLoop {
 
     const settled = new Set(acked);
     this.acks = this.acks.filter((id) => !settled.has(id));
-    const delivered = new Set([...events.map((event) => event.id), ...prompts.map((prompt) => prompt.commandId)]);
+    const delivered = new Set([
+      ...events.map((event) => event.id),
+      ...prompts.map((prompt) => prompt.commandId),
+      ...standingRuns.map((record) => record.id),
+    ]);
     // The outcomes themselves as well as their ids: a standup's direction is
     // reported twice by one id, kept and then typed, and only what this sync
     // carried is settled.

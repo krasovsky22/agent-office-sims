@@ -207,7 +207,9 @@ hires nobody for a closed issue, a pull request, an issue carrying the
 restriction label or one an agent already has, or with no runner connected,
 and says why; a new agent not on the floor within a minute, its runner
 having refused it, is given up on and the AI Manager says that too. Only the
-CEO's instructions reach the AI Manager, so only the CEO hires.
+CEO's instructions reach the AI Manager, so only the CEO hires. An agent can
+also be hired for a recurring task instead of an issue, such as the pull
+request steward; see [Standing tasks](#standing-tasks).
 
 A hire on its way in is held in the server's memory only, since the issue is
 handed over as the CEO who asked, whose session a restart ends. A server that
@@ -544,10 +546,12 @@ UTF-8 of the string as `JSON.stringify` writes it, escapes included and quotes
 not. A `name` is at most 18 bytes, a `title` 40, an `activity` or a `pr` title
 90, a `message` 280, a `pr` link 300 and a `description` 400; a sync with a
 longer one is refused rather than cut,
-which keeps every sync the server takes under 20 KB whatever its characters,
+which keeps every sync the server takes under 32 KB whatever its characters,
 sent as `JSON.stringify` writes it. A runner re-sends an event, or a prompt's
 outcome, until a sync carrying it is answered, and the server passes each event
-id on once and takes each prompt's first outcome. The shape is `RunnerSync` in
+id on once and takes each prompt's first outcome. A runner holding standing
+tasks adds their reports, and the record of one run that ended a sync, for
+the recurring tasks board; see [Standing tasks](#standing-tasks). The shape is `RunnerSync` in
 `packages/shared/src/runner.ts`.
 
 Slots are live agents on the floor, beside the orchestrator's: a `starting`,
@@ -606,7 +610,9 @@ the pull request, the issue closes, and the board's next poll moves the work
 from `review` to `done`, the agent says `Shipped #39: <title>` in the chat, and
 its slot is stopped. The game server
 writes nothing to GitHub at any point; the runner pushes and opens the pull
-request, and nothing in the office merges.
+request, and nothing in the office merges it but a [pull request
+steward](#the-pull-request-steward) the CEO set up, once every required
+check is green.
 
 The reply carries every command queued for that runner that it has not acked
 yet: `start` (`issueNumber`, `title`, `url`, `note`, `requestedBy`), `stop`
@@ -644,7 +650,7 @@ reply also carries `"standup": true`, and the runner pauses its agents for it
 until a reply leaves it out; see [The standup](#the-standup).
 
 The route is refused as the report route is: `405` for anything but `POST`,
-`401` without the secret, `413` over 20 KB, `429` past about ten syncs a
+`401` without the secret, `413` over 32 KB, `429` past about ten syncs a
 second, `400` for a body that is not a sync or lists too many slots, `403` for
 a runner whose `repo` is not `PROJECT_BOARD_REPO`, and `409` when the floor has
 no room for its slots.
@@ -1103,7 +1109,9 @@ To set one up, as the repository's owner:
    `main` that requires a pull request before merging with at least one
    approving review, blocks force pushes and deletions, and gives the App no
    bypass. An agent can then push only its own branch, and its pull request
-   waits for a person's review and merge.
+   waits for a person's review and merge. A [pull request
+   steward](#the-pull-request-steward)'s merges are held by this rule too,
+   until a person approves.
 7. **Label the issues agents must not work** with `agent-restricted` (or the
    `REAL_AGENT_RESTRICT_LABEL` you chose on both the server and the runner);
    every other open issue is theirs to take. Only people with triage access
@@ -1161,33 +1169,61 @@ is masked out of the slots' screens and never logged.
 
 #### Standing tasks
 
-A standing task is work an office agent does again and again, rather than
-once to a pull request. There are two kinds:
+A standing task, or recurring task, is work an office agent does again and
+again, rather than once to a pull request. There are three kinds:
 
 - **Watch for new pull requests.** The runner polls the repository's open
   pull requests every two minutes, and each new one, not a draft, from the
   repository's owner, members and collaborators or from the runner's own
   agents, gets one read-only review, which the runner posts as a comment.
+- **Review, fix and merge pull requests**, the pull request steward. The
+  watch's review, and then, for the same pull requests, the base branch
+  merged in and its conflicts resolved when it has them, and a merge once
+  **every required check is green**. It never merges a pull request with a
+  check failing, still running or missing: see [The pull request
+  steward](#the-pull-request-steward).
 - **A scheduled job.** On a cron schedule, on the runner's machine's clock,
   the runner starts a run with the CEO's instruction ("summarise what changed
   on `main` yesterday"), and the AI Manager posts what it found.
 
-Only the CEO sets them up and manages them, in the AI Manager's conversation
-or from the roster. To the AI Manager, say `watch for new pull requests` (or
-`review new pull requests`), or a schedule and what to do: `every weekday at
-9, summarise what changed yesterday`, `every 30 minutes check the open issues
+The office holds one pull request watcher, the watch or the steward; to swap
+one for the other, remove it first. Only the CEO sets them up and manages
+them, in the AI Manager's conversation, from the roster or from the
+[recurring tasks board](#the-recurring-tasks-board), whose form also sets a
+new one up on an agent the CEO picks. To the AI Manager, say
+`watch for new pull requests` (or `review new pull requests`), `review,
+resolve conflicts and merge new pull requests` (or `merge pull requests once
+their checks pass`), or a schedule and what to do: `every weekday at 9,
+summarise what changed yesterday`, `every 30 minutes check the open issues
 for anything urgent`, `summarise open PRs every day at 17:30`, or
 `on cron 0 9 * * 1-5 …` for any five-field schedule; `pause the pull request watch`,
 `resume the PR watch`, `stop watching pull requests`, `remove the morning
-summary`, `run the morning summary now`, and `what are you watching?`. A
-schedule firing more often than every five minutes is refused. Every tab's
-roster lists the tasks under **Standing tasks**, below the agents' spend, as
-`Watch for new pull requests · active`, with the trigger, the last check, the
-last outcome, today's spend against its cap and anything waiting for a slot,
-and `Pause` (or `Resume`), `Check now` and `Remove` buttons that only the
-CEO's tab can use; everyone else's are disabled and say why. One gate decides
-all of it, `mayManageStandingTasks` in `packages/shared/src/standing.ts`, and
-a refusal is sent back to the sender.
+summary`, `run the morning summary now`, `run the morning summary every day
+at 8`, `check pull requests every 10 minutes`, and `what are you watching?`.
+A new schedule, like a new job's, is read from the CEO's own words, never a
+model's plan. A schedule firing more often than every five minutes is
+refused. Every tab's roster lists the tasks under **Standing tasks**, below
+the agents' spend, as `Watch for new pull requests · active`, with the
+trigger, the last check, the last outcome, today's spend against its cap and
+anything waiting for a slot, and `Pause` (or `Resume`), `Check now` and
+`Remove` buttons that only the CEO's tab can use; everyone else's are
+disabled and say why. One gate decides all of it, `mayManageStandingTasks` in
+`packages/shared/src/standing.ts`, and a refusal is sent back to the sender.
+
+**Standing hires.** The CEO can also have the AI Manager hire an agent for a
+recurring task rather than an issue: `hire someone to review, resolve
+conflicts and merge pull requests`, `we need to hire someone that will sit
+and wait for prs, review them, resolve conflicts and merge`, `hire a
+reviewer for new pull requests`, or `hire someone to summarise what changed
+every weekday at 9`, whose schedule and job are read from those words alone.
+The manager finds a runner that takes the task, hires the agent onto it
+(`Pull Request Steward`, `Pull Request Reviewer` or `Scheduled Job Runner`
+unless the CEO named a role), counted against `MAX_CODING_AGENTS` like any
+hire, and sets the task up there to run on that agent's slot alone: it walks
+in, sits at its own desk between runs, and no other task, nor the AI
+Manager's "whoever is free", takes it; the CEO can still hand it an issue by
+name, which comes first as always. Firing the agent removes its task with
+it. A task set up without a hire runs on any free slot that is no task's own.
 
 **What runs.** The runner owns each task once it has it, and every run is a
 fresh, short, headless agent run (`claude -p --output-format stream-json`)
@@ -1216,6 +1252,9 @@ terminal panel name and link the pull request it reviews.
   a review never approves or requests changes and never counts towards a
   required approval. The App's **Pull requests: Read and write** covers the
   comment.
+- The **steward's** runs: its review is the watch's, read-only. Resolving a
+  pull request's conflicts and merging it are described under [The pull
+  request steward](#the-pull-request-steward).
 - A **scheduled job** follows `RUNNER_AGENT_PERMISSIONS`, as issue work
   does, since its instruction is the CEO's own. With `allowlist`, the
   default, it gets the review's read-only tools and a shell held to commands
@@ -1258,7 +1297,10 @@ once: the run is stopped and reported `preempted`, its pull request is queued
 again without counting an attempt, and it runs later on a free slot.
 
 **What the office says.** The AI Manager posts each run: `Leo reviewed
-PR #112 “…”: <the comment's link>`, a scheduled run's result, a simulated
+PR #112 “…”: <the comment's link>`, `Leo merged PR #112 “…” for “Review,
+fix and merge pull requests”, every required check green: <its link>`, a
+pull request brought up to date with its conflicts resolved, why one is not
+merged yet (once a head commit), a scheduled run's result, a simulated
 review or run that says nothing was posted or done, a pull request skipped as
 an outside contributor's, a run preempted by issue work, a task that has
 spent its budget, and a failure once, after its last attempt. A pull request
@@ -1275,26 +1317,131 @@ and a runner that goes silent takes its tasks off the roster with its slots.
 opt-in: a run is a script of steps on the slot's screen, five pretend cents
 a step, that posts nothing and is announced as simulated. Its pull request
 watch reads the repository's real open pull requests anonymously, at most
-every five minutes, which only a public repository answers.
+every five minutes, which only a public repository answers. It reads no
+pull request's checks, so its steward only pretends to review: nothing is
+resolved, pushed or merged under the mock.
 
 **What is kept.** `<RUNNER_DATA_DIR>/standing.json`, private to the runner's
 user and written whole, holds each task's definition, its ledger (each pull
-request or firing it saw: `baseline`, `queued`, `running`, `done`, `failed`
-or `skipped`, with its attempts and its comment) and what it and all standing
-tasks spent today. A restarted runner keeps its tasks and its day: a pull
-request already reviewed is not reviewed again, and a run the restart cut
-short is tried again. To discard them all, stop the runner and delete the
-file; the tasks leave the roster within a sync of its restart. Scratch
-worktrees a crash left under `<RUNNER_DATA_DIR>/standing-runs/` are removed
-at the next boot.
+request or firing it saw, and for the steward each pull request's resolve,
+merge or hold at one head commit: `baseline`, `queued`, `running`, `done`,
+`failed` or `skipped`, with its attempts and its comment), what it and all
+standing tasks spent today, and the records of runs the server has not been
+given yet. A restarted runner keeps its tasks and its day: a pull request
+already reviewed is not reviewed again, and a run the restart cut short is
+tried again. To discard them all, stop the runner and delete the file; the
+tasks leave the roster within a sync of its restart. Scratch worktrees a
+crash left under `<RUNNER_DATA_DIR>/standing-runs/` are removed at the next
+boot. Each run's record (below) is kept by the server, in
+`<SERVER_DATA_DIR>/standing-runs.json`, ten a task, so a restarted server
+still shows a task's past runs; removing a task deletes its runs too.
+
+##### The recurring tasks board
+
+The open floor's west wall, beside the walkway in from the office door,
+carries the **Recurring tasks** board: every standing task, what it does
+and how often (and whose it is, for a standing hire's), its last run and
+how it went, and its status, the same in every tab. Walk up to it until the
+prompt reads `Read the recurring tasks board` and press `E` for its
+close-up. Click a task to open it: its last ten runs, newest first, each with
+when it ended, its outcome and a one-line summary; click a run for who ran it,
+how long it took and what it cost, a link to its pull request or review
+comment, its result (a scheduled job's report, a review's text, what a merge
+or resolve did, or why it failed) and its log, the tail of what it wrote on
+its agent's screen as plain text. A task's runs are fetched when it is
+opened, and again whenever it runs while it is open. Anyone may read them,
+as anyone may read the agents' screens they come off, masked the same way.
+
+Opened, a task also has the CEO's controls, disabled with the reason for
+everyone else: how often it runs (a scheduled job `Every hour`, `Every day
+at`, `Weekdays at` a time, or any five-field `Cron`; a pull request task
+every 1 to 60 minutes) with `Save schedule`, and `Delete`, which asks once
+more before it removes the task and stops a run of it under way. The runner
+holds the definition, so it makes a new schedule itself, as a new version,
+and refuses one its kind does not take; the board shows it within a sync.
+Under the tasks, the CEO's **New recurring task** form sets one up: what it
+does (a scheduled job, the steward or the watch), which agent runs it, any
+free one or one of the runners' coding agents, then its own alone as a
+standing hire's is, and, for a scheduled job, what each run is to do and how
+often, in the CEO's own words. It goes through the same gate as the AI
+Manager's, and a refusal says why.
+
+Each run's record, `StandingRunRecord` in `packages/shared/src/standing.ts`,
+rides the runner's sync once, at most one a sync (`standingRuns`), and is
+kept until a sync carrying it is answered; the server keeps only records
+for tasks the runner still reports, so a removed task's late run never
+brings its history back. A tab asks for a task's runs with
+`standing:history` and is answered alone, with links built by the server on
+the project board's repository.
+
+##### The pull request steward
+
+The steward reviews each new pull request, as the watch does, and leaves the
+ones open when it was set up alone, as the watch does. An outside
+contributor's is never pushed to or merged, whatever else; a draft waits
+until it is ready. The AI Manager sets one up, or hires for one, only when
+the CEO's own message asks for pull requests to be merged, never on a
+model's plan alone. Then, on every check, for each pull request it has
+reviewed that is still open, the runner reads GitHub's merge state and every
+check on its head commit, required or not (one GraphQL call,
+`apps/runner/src/standing/steward.ts`), and `stewardStep` in
+`packages/shared/src/standing.ts` decides:
+
+- **Merge**, only when **every required check is green and no check is
+  failing**: every check on the head counts, required or not; a skipped one
+  is passed over, and at least one must have passed, so a pull request with
+  no checks, any check failing or a check still running is never merged
+  (`mergeGate`). GitHub's own merge state must agree as well (`CLEAN`, never
+  `UNSTABLE`, GitHub's word for a failing check that is not required), so a
+  required check that has not even reported yet holds it too. The merge is
+  the runner's, never an agent's: it looks again just before, asks the gate
+  again on that look, and merges with `gh pr merge --match-head-commit <the
+  head it read>`, squashed where the repository allows it and otherwise as a
+  merge commit or rebased, whichever it allows, so a push after its look is
+  never merged on the strength of the checks it read.
+- **Resolve**, for a pull request in conflict with its base, or behind it
+  where the base branch's rules want it up to date. The runner checks the
+  pull request's branch out in a scratch worktree (`refs/pull/<n>/head`,
+  checked to be the head it read), git's hooks and fsmonitor off, and merges
+  the base in; once the agent has had the checkout, git is told the
+  worktree's repository outright rather than reading the `.git` file the
+  agent could have rewritten.
+  Where that conflicts, an agent resolves the conflicted files with the
+  review's restrictions and `Edit` and `Write` (`--restricted
+  --strict-mcp-config --tools Read,Grep,Glob,Edit,Write --permission-mode
+  dontAsk`, deny rules for `Bash`, `WebFetch` and `WebSearch` in its own
+  `--settings`): no shell, no network, no GitHub identity, and the project's
+  own settings, hooks and MCP servers ignored. The runner then commits only
+  the files that were in conflict, refusing any left with a conflict marker,
+  and pushes to the pull request's branch without force, so a branch someone
+  pushed to since is never overwritten and is looked at again. The push is a
+  new head, whose checks run before any merge. A fork's branch is never
+  pushed to: its conflicts are left to its author, and said so.
+- **Hold**, said once a head commit (`It is not merged yet: the check “ci”
+  failed.`), for a failed check, no checks at all, or GitHub blocking the
+  merge. It keeps looking, and merges once the reason is gone.
+- **Wait**, saying nothing, while a check runs or GitHub works out whether
+  it merges.
+
+Each resolve and merge is a run on its agent's slot, held to the task's caps
+like any run, and tried again up to three attempts in all. The runner's
+GitHub App's **Contents: Read and write** and **Pull requests: Read and
+write** cover the push and the merge. GitHub's branch rules still apply on
+top of the steward's own: with `main` protected as in [The runner's GitHub
+App](#the-runners-github-app), requiring an approving review and giving the
+App no bypass, the steward reviews and resolves but every merge is held
+(`GitHub blocks the merge for now…`) until a person approves the pull
+request; drop that rule's approval, or let the App bypass it, only if the
+steward is to merge on green checks alone.
 
 Not yet: reviewing a pull request again after new pushes, a "reviewed" chip
-on the board's cards, a form to edit a task's filters and caps, nudges from
-the server's own board poll or a GitHub webhook, a digest of runs while the
-office stood empty, other GitHub events, and config as code. Email and other
-private sources wait for a signed-in CEO, a result channel only the CEO
-reads and terminals that are not broadcast, since everyone in the office
-reads the conversation and every agent's screen.
+on the board's cards, a form to edit a task's filters and caps, a choice of
+merge method, nudges from the server's own board poll or a GitHub webhook,
+a digest of runs while the office stood empty, other GitHub events, and
+config as code. Email and other private sources wait for a signed-in CEO, a
+result channel only the CEO reads and terminals that are not broadcast,
+since everyone in the office reads the conversation and every agent's
+screen.
 
 ## The two-tab check
 
@@ -1647,13 +1794,41 @@ Then confirm all twenty-seven:
     `apps/server/src/rooms/OfficeRoom.test.ts` checks the arrival and rename
     refusals against a live room, and
     `apps/server/src/rooms/agentProfileHandlers.test.ts` the agent-profile one.
-27. **`pnpm typecheck` passes** across the whole repository.
+27. **The recurring tasks board lists every standing task, for everyone to
+    read and the CEO to change.** Run the server with `RUNNER_SECRET` and the
+    mock runner as in step 17. Dana tells the AI Manager `we need to hire
+    someone that will sit and wait for prs. review them, resolve conflicts and
+    merge`: it answers that it hired `<name>, Pull Request Steward` and set up
+    “Review, fix and merge pull requests” to run on them alone, and the new
+    agent walks in in both tabs. Then `every weekday at 9, summarise what
+    changed yesterday`, and `Check now` on that row. Milo walks from the office
+    door up the walkway to the west wall: the board there lists both tasks,
+    `Reviews, resolves and merges new pull requests · every 5 min · <name>'s`
+    and `Scheduled job · weekdays 09:00`, each with its last run and status,
+    and the prompt reads `Read the recurring tasks board`. `E` opens the
+    close-up: clicking the summary opens its last runs, and clicking one shows
+    who ran it, its result and its log, `● Reading the instruction` and the
+    rest of the mock's steps; Milo's `Save schedule` and `Delete` are disabled
+    and say only the CEO can. Dana at the board picks `Every day at` `08:30`
+    and saves: both boards read `daily 08:30` within a sync. In the **New
+    recurring task** form she picks `Scheduled job`, an agent, `List the open
+    pull requests` and `Weekdays at` `10:00`, and `Create`: the new task shows
+    on both boards as that agent's. `Delete` asks again, then removes a task
+    from both. Firing the steward's agent removes
+    its task too. Under the mock the steward merges nothing; with a real
+    runner it merges a collaborator's pull request only once every required
+    check is green, as [The pull request steward](#the-pull-request-steward)
+    says. `apps/server/src/manager/standingRoundTrip.test.ts` plays the board's
+    history and new schedule against a live room, and
+    `apps/runner/src/standing/scheduler.test.ts` and `steward.test.ts` the
+    steward's merges, holds, resolves and pushes.
+28. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the agents' profiles: their default names, gate, sanitising, runner store and system prompt, in a live room too, the standup's gate, places, turns, updates, directions and blockers, in a live room too, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue restriction label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, closing and reopening issues from the board: the gate, the drops it takes, the cards shown moved, the runner's command, its gh call and the answer back, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the server's mirror, gate, announcements and the AI Manager's words for them, and their round trip from the AI Manager to the runner and back
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the agents' profiles: their default names, gate, sanitising, runner store and system prompt, in a live room too, the standup's gate, places, turns, updates, directions and blockers, in a live room too, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue restriction label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, closing and reopening issues from the board: the gate, the drops it takes, the cards shown moved, the runner's command, its gh call and the answer back, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the pull request steward's merge gate, its merges, holds and conflict resolves against real git, a hired agent's task on its slot alone, new schedules, the runs' records and the server's history of them, the server's mirror, gate, announcements and the AI Manager's words for them, standing hires, the recurring tasks board's rows and schedule choices, and their round trip from the AI Manager to the runner and back
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -1819,7 +1994,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/runner.ts       the runner link's wire contract: a sync, its slots and events, and the commands
   src/screens.ts      the slots' terminal screens: a frame of styled runs, a runner's batch, and its parser
   src/spend.ts        the runners' real spend in dollars: the budget refusal and how spend is said
-  src/standing.ts     standing tasks: their definitions, caps, reports, and the CEO-only rule
+  src/standing.ts     standing tasks: their definitions, caps, reports, run records, the steward's merge gate, and the CEO-only rule
   src/cron.ts         the five-field cron schedules scheduled tasks fire on, and how one reads
   src/stickerNotes.ts the sticker boards' notes: which issues have one, where each is, and which an agent fetches or pins
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
@@ -1853,12 +2028,13 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/agentActionHandlers.ts  the CEO cancelling an agent's task or firing it, and the refusals sent back
   src/rooms/standingHandlers.ts  the CEO's standing task buttons, and the refusals sent back
   src/agents/standingMirror.ts   every runner's standing tasks, mirrored for the rooms
+  src/agents/standingHistory.ts  the recurring tasks' runs, with their logs, in <SERVER_DATA_DIR>/standing-runs.json
   src/agents/deskTerminal.ts     the CEO's desk terminal: lending a free slot to the desk the CEO sits at, and taking it back
   src/agents/runnerProfiles.ts   the server's copy of the CEO's profile edits, in <SERVER_DATA_DIR>/agent-profiles.json, given to a runner again until it reports them
   src/agents/standingControl.ts  creating and managing standing tasks through the one gate
   src/agents/standingAnnouncer.ts  what the AI Manager says of each standing run
   src/manager/standingPlan.ts    the AI Manager's words for standing tasks, schedules read into cron
-  src/manager/hire.ts            hiring a new coding agent for an issue: the cap, the profile, and the issue once it walks in
+  src/manager/hire.ts            hiring a new coding agent for an issue or a recurring task: the cap, the profile, and its work once it walks in
   src/manager/workMoves.ts       approving, sending back, taking back and starting again work in hand, as the CEO
   src/rooms/standupHandlers.ts  the CEO's standup commands: call, end, direct, and the refusals sent back
   src/sim/standup.ts      the standup: gathering, the turns and each update read off an agent's real state, directions, blockers, the end
@@ -1900,6 +2076,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/standing/claude.ts  Claude Code's standing runs: the read-only review and the scheduled job
   src/standing/review.ts  the review's GitHub side: .sims-review, the marker, the comment
   src/standing/mock.ts    the mock's scripted standing runs, which post nothing
+  src/standing/steward.ts  the pull request steward's GitHub and git side: merge state and checks, the merge, the base merged in and pushed
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do about the project board's work, and why
   src/dayClock.ts         the replicated clock, run on smoothly between patches
@@ -1917,14 +2094,16 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/wallDecor.ts  the wall decor from shared decor.ts, hung as instanced boxes, the clocks kept to the office's time
   src/scene/wallArt.ts    the decor's artwork, painted on canvases: pictures, posters, clock faces, whiteboards, the TV's slide
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
+  src/scene/recurringBoard.ts  the open floor's recurring tasks board, painted on a canvas
   src/scene/stickerBoards.ts  the two sticker boards and their anime sticky notes, pinned, in hand and in flight
   src/stickerBoard.ts     what a sticky note says, its look, its cell on a board, and when it is seen changing hands
   src/scene/agentScreen.ts  a seated live agent's terminal, painted on its desk's monitor
   src/net/screens.ts      the live agents' terminals, built up from the server's frames
   src/projectBoard.ts     the project board's columns, filters, how an issue's work reads, and which column takes a dragged card
   src/ui/ProjectBoardPanel.tsx  the project board's close-up, with the agents' work and the CEO's controls
+  src/ui/RecurringTasksPanel.tsx  the recurring tasks board's close-up: each task's runs and logs, and the CEO's schedule and delete
   src/managerAccess.ts    what the local player may say to the manager, and why
-  src/standingAccess.ts   how a standing task reads in the roster, and whether its buttons are the local player's
+  src/standingAccess.ts   how a standing task reads in the roster and on the recurring tasks board, its schedule choices, and whether its buttons are the local player's
   src/agentPromptAccess.ts  whether the local player may prompt a coding agent, which keyboard keys its key pad takes, and why a prompt or key was refused
   src/needsYou.ts         telling the CEO an agent waits on them: the title count, the chime and the desktop notification
   src/agentProfileAccess.ts  whether the local player may edit an agent's profile, why an edit was refused, and when it applies
@@ -2034,7 +2213,9 @@ Ten things are worth knowing before changing anything:
   land in one inbox per room, drained by its tick into the slot's own moves on
   the work, and every change to the work reaches the slot as a command
   (`server/agents/runnerWork.ts`). The game server never writes to GitHub; the
-  runner pushes and opens pull requests, and nothing merges them but a person.
+  runner pushes and opens pull requests, and nothing merges them but a person,
+  or the runner itself for a pull request steward the CEO set up, once every
+  required check is green.
 - **The manager decides; the rules and the orchestrator act.** A message to
   the manager is taken synchronously — checked against `mayInstructManager`,
   the CEO-only gate in `shared/manager.ts`, recorded and queued — and answered

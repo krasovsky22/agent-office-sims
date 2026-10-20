@@ -1,15 +1,17 @@
 /**
  * Claude Code's standing runs, with Claude Code and GitHub stood in for: a
  * review runs read-only with no GitHub identity whatever the runner's
- * permissions, posts exactly one marked comment and never a review, and a
- * scheduled run follows `RUNNER_AGENT_PERMISSIONS`.
+ * permissions, posts exactly one marked comment and never a review, a
+ * scheduled run follows `RUNNER_AGENT_PERMISSIONS`, and the steward merges
+ * only what the merge gate passes, on a fresh look, and resolves conflicts
+ * with an agent that has no shell and no GitHub identity.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_STANDING_CAPS, type StandingTaskSpec } from "@sim/shared";
+import { DEFAULT_STANDING_CAPS, type PullState, type StandingTaskSpec } from "@sim/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { RunCommand } from "../github.js";
@@ -17,7 +19,8 @@ import type { StandingSlotLease } from "../slots.js";
 import { createClaudeStandingRunners, reviewPrompt } from "./claude.js";
 import type { HeadlessOptions, HeadlessResult } from "./headless.js";
 import { type ReviewGithub, createReviewGithub, headPath, neutraliseReview, reviewBody, reviewMarker } from "./review.js";
-import type { StandingJob } from "./types.js";
+import type { StewardGithub } from "./steward.js";
+import type { StandingJob, StandingStep } from "./types.js";
 
 const REVIEW: StandingTaskSpec = {
   id: "st-prwatch1",
@@ -29,6 +32,31 @@ const REVIEW: StandingTaskSpec = {
   caps: DEFAULT_STANDING_CAPS,
   intervalSeconds: 120,
   authors: "collaborators",
+};
+
+const STEWARD: StandingTaskSpec = {
+  id: "st-steward1",
+  kind: "pr-steward",
+  name: "Review, fix and merge pull requests",
+  paused: false,
+  note: "",
+  version: 1,
+  caps: DEFAULT_STANDING_CAPS,
+  intervalSeconds: 120,
+};
+
+/** PR #112 at the head the task saw, every required check green. */
+const GREEN: PullState = {
+  open: true,
+  draft: false,
+  headSha: "abc1234",
+  headRef: "feature",
+  baseRef: "main",
+  crossRepository: false,
+  mergeable: "MERGEABLE",
+  mergeState: "CLEAN",
+  checks: [{ name: "ci", state: "pass", required: true }],
+  checksTruncated: false,
 };
 
 const SCHEDULE: StandingTaskSpec = {
@@ -72,9 +100,28 @@ function lease(): StandingSlotLease {
   };
 }
 
-function job(spec: StandingTaskSpec): StandingJob {
+function job(spec: StandingTaskSpec, step: StandingStep = "review"): StandingJob {
   const held = lease();
-  return { spec, requestedBy: "Dana", lease: held, signal: held.signal, pr: { number: 112, title: "Add a lift", headSha: "abc" } };
+  return { spec, step, requestedBy: "Dana", lease: held, signal: held.signal, pr: { number: 112, title: "Add a lift", headSha: "abc1234" } };
+}
+
+/** The steward's GitHub, answering with `state` and keeping what it was asked to merge and push. */
+function steward(state: PullState, conflicts: readonly string[] = []) {
+  const merged: Array<readonly [number, string]> = [];
+  const pushed: Array<readonly string[]> = [];
+  const fake: StewardGithub = {
+    inspect: async () => state,
+    merge: async (number, headSha) => {
+      merged.push([number, headSha]);
+      return "squash";
+    },
+    startMerge: async () => ({ conflicts, upToDate: false, gitDir: "/scratch/.git" }),
+    finishMerge: async (_dir, _gitDir, _state, files) => {
+      pushed.push(files);
+      return "def5678";
+    },
+  };
+  return { fake, merged, pushed };
 }
 
 function github(marked: number | undefined): ReviewGithub & { readonly posted: string[] } {
@@ -90,13 +137,14 @@ function github(marked: number | undefined): ReviewGithub & { readonly posted: s
   };
 }
 
-function runners(review: ReviewGithub, permissions: "allowlist" | "all" = "allowlist") {
+function runners(review: ReviewGithub, permissions: "allowlist" | "all" = "allowlist", stewardGithub: StewardGithub = steward(GREEN).fake) {
   return createClaudeStandingRunners({
     command: "/usr/bin/claude",
     dataDir: dir,
     permissions,
     worktrees: { createScratch: async (path) => path, removeScratch: async () => undefined },
     github: review,
+    steward: stewardGithub,
     identity: IDENTITY,
     env: RUNNER_ENV,
     headless: async (options) => {
@@ -125,7 +173,7 @@ describe("a review", () => {
   it("runs read-only, capped, with no GitHub identity, whatever the runner's permissions", async () => {
     const review = github(undefined);
     const result = await runners(review, "all").review(job(REVIEW));
-    expect(result).toEqual({ outcome: "reviewed", costUsd: 0.12, message: "", commentId: 4242 });
+    expect(result).toEqual({ outcome: "reviewed", costUsd: 0.12, message: answer.text, commentId: 4242 });
     const [run] = launched;
     expect(run?.command).toBe("/usr/bin/claude");
     const args = run?.args ?? [];
@@ -195,6 +243,76 @@ describe("a scheduled run", () => {
     const args = launched[0]?.args ?? [];
     expect(flag(args, "--permission-mode")).toBe("bypassPermissions");
     expect(args).not.toContain("--restricted");
+  });
+});
+
+describe("the steward's merge", () => {
+  it("merges the head it read, every required check green, with no agent", async () => {
+    const repo = steward(GREEN);
+    const result = await runners(github(undefined), "allowlist", repo.fake).merge(job(STEWARD, "merge"));
+    expect(result.outcome).toBe("merged");
+    expect(repo.merged).toEqual([[112, "abc1234"]]);
+    expect(launched).toEqual([]);
+  });
+
+  it("merges nothing with a failed, running or missing check, asking the gate again on its own look", async () => {
+    for (const checks of [
+      [{ name: "ci", state: "fail", required: true }],
+      [
+        { name: "ci", state: "pass", required: true },
+        { name: "e2e", state: "fail", required: false },
+      ],
+      [{ name: "ci", state: "pending", required: true }],
+      [],
+    ] as const) {
+      const repo = steward({ ...GREEN, checks });
+      const result = await runners(github(undefined), "allowlist", repo.fake).merge(job(STEWARD, "merge"));
+      expect(result.outcome).toBe("skipped");
+      expect(repo.merged).toEqual([]);
+    }
+  });
+
+  it("merges nothing when the pull request moved since its checks were read", async () => {
+    const repo = steward({ ...GREEN, headSha: "fff9999" });
+    const result = await runners(github(undefined), "allowlist", repo.fake).merge(job(STEWARD, "merge"));
+    expect(result.outcome).toBe("skipped");
+    expect(repo.merged).toEqual([]);
+  });
+});
+
+describe("the steward's conflicts", () => {
+  const conflicting: PullState = { ...GREEN, mergeable: "CONFLICTING", mergeState: "DIRTY" };
+
+  it("are resolved by an agent with no shell, network or GitHub identity, and the runner pushes", async () => {
+    const repo = steward(conflicting, ["src/a.ts"]);
+    answer = { ok: true, text: "Kept both imports in src/a.ts.", costUsd: 0.2, why: "" };
+    const result = await runners(github(undefined), "all", repo.fake).resolve(job(STEWARD, "resolve"));
+    expect(result.outcome).toBe("resolved");
+    expect(result.message).toContain("pushed def5678");
+    expect(result.message).toContain("Kept both imports");
+    expect(repo.pushed).toEqual([["src/a.ts"]]);
+    const args = launched[0]?.args ?? [];
+    expect(flag(args, "--tools")).toBe("Read,Grep,Glob,Edit,Write");
+    expect(args).toContain("--restricted");
+    expect(flag(args, "--permission-mode")).toBe("dontAsk");
+    expect(launched[0]?.env).toEqual({ PATH: "/usr/bin", HOME: "/home/runner", ANTHROPIC_API_KEY: "sk-key" });
+  });
+
+  it("push a clean merge of the base with no agent at all", async () => {
+    const repo = steward({ ...GREEN, mergeState: "BEHIND" });
+    const result = await runners(github(undefined), "allowlist", repo.fake).resolve(job(STEWARD, "resolve"));
+    expect(result.outcome).toBe("resolved");
+    expect(launched).toEqual([]);
+    expect(repo.pushed).toEqual([[]]);
+  });
+
+  it("push nothing when the agent stops short, or the pull request no longer needs it", async () => {
+    const repo = steward(conflicting, ["src/a.ts"]);
+    answer = { ok: false, text: "", costUsd: 0.5, why: "it reached its spending cap" };
+    expect((await runners(github(undefined), "allowlist", repo.fake).resolve(job(STEWARD, "resolve"))).outcome).toBe("failed");
+    const clean = steward(GREEN);
+    expect((await runners(github(undefined), "allowlist", clean.fake).resolve(job(STEWARD, "resolve"))).outcome).toBe("skipped");
+    expect([...repo.pushed, ...clean.pushed]).toEqual([]);
   });
 });
 

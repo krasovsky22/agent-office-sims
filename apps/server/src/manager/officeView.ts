@@ -83,6 +83,8 @@ export interface IssueAgentView {
    * handed an issue; `undefined` while it runs none.
    */
   readonly standing: { readonly taskName: string; readonly task: LinkView } | undefined;
+  /** The recurring task it was hired for, by name, which it runs alone; `undefined` for an agent hired for no standing role. */
+  readonly role: string | undefined;
 }
 
 /**
@@ -92,7 +94,7 @@ export interface IssueAgentView {
 export interface StandingTaskView {
   /** Its id, which a plan may name it by. */
   readonly id: string;
-  /** `pr-review` or `schedule`. */
+  /** `pr-review`, `pr-steward` or `schedule`. */
   readonly kind: string;
   readonly name: string;
   /** `active`, `paused`, `waiting-slot`, `running`, `over-budget` or `error`. */
@@ -110,6 +112,8 @@ export interface StandingTaskView {
   readonly lastError: string | undefined;
   /** The coding agent running it now, by name. */
   readonly runningOn: string | undefined;
+  /** The coding agent hired for it, which runs it alone, by name; `undefined` for any free one. */
+  readonly agent: string | undefined;
 }
 
 /** What an agent is doing about one issue. */
@@ -272,6 +276,7 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
     }
     if (isLiveAgent(occupant) && isIssueAssignee(actorOf(occupant))) {
       const running = [...state.standing.values()].find((task) => task.runningAgentId === occupant.id);
+      const role = [...state.standing.values()].find((task) => task.agentId === occupant.id);
       issueAgents.push({
         id: occupant.id,
         name: occupant.name,
@@ -280,6 +285,7 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
         activity: occupant.activity,
         issue: issueInHand(occupant.id, work),
         standing: running === undefined ? undefined : { taskName: running.name, task: link(occupant.taskTitle, occupant.taskUrl) },
+        role: role?.name,
       });
     }
   }
@@ -297,6 +303,7 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
     dailyUsd: task.dailyUsd,
     lastError: task.lastError === "" ? undefined : task.lastError,
     runningOn: task.runningAgentId === "" ? undefined : state.occupants.get(task.runningAgentId)?.name,
+    agent: task.agentId === "" ? undefined : state.occupants.get(task.agentId)?.name,
   }));
 
   return {

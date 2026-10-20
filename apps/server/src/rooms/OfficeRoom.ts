@@ -424,10 +424,12 @@ export class OfficeRoom extends Room<OfficeState> {
     if (standing !== undefined && runnerCommands !== undefined) {
       this.standing = standing;
       this.standingControl = new StandingControl({ directory: standing, commands: runnerCommands });
+      // GitHub answers an issue's link for a pull request's number by going to the pull request.
+      const pullUrl = (number: number): string => runnerCommands.issueUrl(number).replace(/\/issues\/(\d+)$/, "/pull/$1");
       this.standingAnnouncer = new StandingAnnouncer({
-        // GitHub answers an issue's link for a pull request's number by going to the pull request.
-        pullUrl: (number) => runnerCommands.issueUrl(number).replace(/\/issues\/(\d+)$/, "/pull/$1"),
+        pullUrl,
         taskName: (taskId) => standing.standingTasks().find((record) => record.report.id === taskId)?.report.name,
+        taskKind: (taskId) => standing.standingTasks().find((record) => record.report.id === taskId)?.report.kind,
         occupantName: (occupantId) => this.state.occupants.get(occupantId)?.name,
         announce: (text) => this.manager?.report(text),
         refused: (taskId) => standing.refused(taskId),
@@ -436,6 +438,12 @@ export class OfficeRoom extends Room<OfficeState> {
         state: this.state,
         control: this.standingControl,
         allow: (client, command) => this.spend(client, command),
+        // Links built here, on the board's repository, never taken from a runner.
+        history: (taskId) =>
+          standing.standingRuns(taskId).map((run) => ({
+            ...run,
+            url: run.pr === undefined ? "" : `${pullUrl(run.pr.number)}${run.commentId === undefined ? "" : `#issuecomment-${run.commentId}`}`,
+          })),
       });
     }
     this.agentPrompts = new AgentPrompts({

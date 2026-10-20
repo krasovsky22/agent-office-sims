@@ -238,7 +238,8 @@ function queueForLiveAgent(
 function freeCodingAgent(issue: IssueView, view: OfficeView, load: ReadonlyMap<string, number>): IssueAgentView | undefined {
   return (
     view.issueAgents.find((agent) => agent.id === issue.work?.assigneeId) ??
-    view.issueAgents.find((agent) => agent.issue === undefined && (load.get(agent.id) ?? 0) === 0)
+    // An agent hired for a recurring task is kept for it unless the CEO names it.
+    view.issueAgents.find((agent) => agent.issue === undefined && agent.role === undefined && (load.get(agent.id) ?? 0) === 0)
   );
 }
 

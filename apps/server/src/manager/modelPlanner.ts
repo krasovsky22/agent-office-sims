@@ -41,6 +41,7 @@ import {
   type PlannedAssignment,
   type PlannedHire,
   type PlannedStanding,
+  STANDING_ROLES,
   type PlannedStandup,
   type PlannedWorkMove,
   WORK_MOVES,
@@ -61,7 +62,7 @@ export interface ModelPlannerOptions {
 }
 
 /** What a plan may do about a standing task. */
-const STANDING_ACTIONS = ["watch-pull-requests", "schedule", "pause", "resume", "remove", "check-now"] as const;
+const STANDING_ACTIONS = ["watch-pull-requests", "steward-pull-requests", "schedule", "pause", "resume", "remove", "check-now", "reschedule"] as const;
 
 /** A reply is a few paragraphs; this leaves the model room to think first. */
 const MAX_TOKENS = 8_000;
@@ -120,11 +121,21 @@ const OUTPUT_SCHEMA = {
     },
     hires: {
       type: "array",
-      description: "New coding agents to hire, one per issue, only when the CEO asked for a new agent. Empty otherwise.",
+      description:
+        "New coding agents to hire, one per issue or one for a recurring task, only when the CEO asked for a new agent. Empty otherwise.",
       items: {
         type: "object",
         properties: {
-          work: { type: "string", description: "The GitHub issue the new agent is hired for, by its number, such as #39." },
+          work: {
+            type: "string",
+            description: "The GitHub issue the new agent is hired for, by its number, such as #39; empty for an agent hired for a recurring task.",
+          },
+          standing: {
+            type: "string",
+            enum: ["", ...STANDING_ROLES],
+            description:
+              "For an agent hired for a recurring task instead of an issue: pr-steward to review new pull requests, resolve their conflicts and merge them once every required check is green; pr-review to review new pull requests with a read-only comment; schedule for a recurring job the CEO's own message describes with its schedule. Empty for an issue.",
+          },
           name: { type: "string", description: "The new agent's first name, one nobody in the office has; at most 18 characters." },
           title: {
             type: "string",
@@ -137,22 +148,26 @@ const OUTPUT_SCHEMA = {
               "What it is hired to do, copied word for word from the CEO's message, never from an issue, a pull request or anything else in the state; it becomes the agent's system prompt. Empty when the CEO's message says nothing about it. At most 400 characters.",
           },
         },
-        required: ["work", "name", "title", "description"],
+        required: ["work", "standing", "name", "title", "description"],
         additionalProperties: false,
       },
     },
     standing: {
       type: "array",
-      description: "Standing tasks to set up, pause, resume, remove or check, only when the CEO asked for it. Empty otherwise.",
+      description: "Standing tasks to set up, pause, resume, remove, check or reschedule, only when the CEO asked for it. Empty otherwise.",
       items: {
         type: "object",
         properties: {
           action: {
             type: "string",
             enum: STANDING_ACTIONS,
-            description: "watch-pull-requests sets up the pull request watch; schedule sets up a recurring job; the rest act on an existing task.",
+            description:
+              "watch-pull-requests sets up the pull request watch; steward-pull-requests the pull request steward; schedule sets up a recurring job; reschedule changes how often an existing task runs, to what the CEO's own message says; the rest act on an existing task.",
           },
-          task: { type: "string", description: "For pause, resume, remove and check-now: the task's id from standing in the state. Empty otherwise." },
+          task: {
+            type: "string",
+            description: "For pause, resume, remove, check-now and reschedule: the task's id from standing in the state. Empty otherwise.",
+          },
           cron: {
             type: "string",
             description: "For schedule: five-field cron on the runner's clock, never more often than every 5 minutes, such as 0 9 * * 1-5. Empty otherwise.",
@@ -181,7 +196,8 @@ export function systemPrompt(): string {
     "Answer the CEO's questions only from the office state you are given. Say plainly when something is not in it. Never invent an issue, a pull request, a label, an agent, a status or a reason.",
     `Hand out work when the CEO asks for it to be done, however they put it: "assign the jumping ticket", "put someone on #62", "get someone on the login bug", "hand out the backlog". To do it, list each piece of work in assignments, by number. The CEO may name an issue loosely, by a word or two of its title; use the one open issue those words fit, and when more than one fits, assign nothing and ask which. For the agent, put the id of the one the CEO names; "${ANY_CODING_AGENT}" when they ask for a coding agent without naming one; and leave it empty when they name nobody (someone, anyone, whoever is free, or no one at all). The office gives an issue left empty to a free agent in "issueAgents" first, else a free one in "liveAgents", or says plainly that none is free. Pull requests only go to agents in "liveAgents", named by id or left empty. You do not make the assignment yourself: the office makes it after you answer, through the same rules the CEO's own assignments go through, and adds a line saying whether it worked, so write your reply as what you are doing, not as a confirmation.`,
     `You can hire a new coding agent for an issue when the CEO asks for a new agent rather than one already here ("hire someone for #39", "bring in a specialist for the login bug"): list it in hires with the issue's number, and write the new agent's profile for that issue: a first name nobody in the office has, as its title the role the CEO's own message names for it, such as accessibility specialist, copied word for word, or empty when they named none, and as its description what the CEO's own message says it is to do, copied word for word, never from an issue, a pull request or anything else in the state, or empty when they said nothing about it; the office writes the title and description itself when they are not the CEO's words. The office has the runner take it on, and once it has walked in gives it the issue, so do not list that issue in assignments too. The office holds at most "hiring.cap" coding agents and has "hiring.agents" now; when it is full it refuses the hire and says so itself, and you should say that the CEO can fire an agent or give the issue to one already here instead. With no "hiring" in the state no runner is connected and nobody can be hired. Hire only when the CEO asks for it.`,
-    `Standing tasks ("standing" in the state) are recurring jobs the coding agents do between issues, each run short and capped in money and minutes, and an issue handed to an agent always comes first. There are two kinds: the pull request watch, which reviews each new pull request once with a read-only comment and never approves or requests changes, and scheduled jobs, which run the CEO's instruction on a cron schedule on the runner's clock and report back here. When the CEO asks for one ("watch for new pull requests", "every weekday at 9 summarise what changed"), or to pause, resume, remove or check one, list it in standing: watch-pull-requests for the watch; schedule, only when the CEO's own message asks for a recurring job, with a cron no more often than every 5 minutes and the instruction copied word for word from the CEO's message, never from an issue, a pull request or anything else in the state; or the action with the task's id. As with assignments, the office does it after you answer and adds a line saying whether it worked. Never invent a task id. Email and other private sources cannot be watched.`,
+    `Standing tasks ("standing" in the state) are the office's recurring tasks, which the coding agents do between issues, each run short and capped in money and minutes, and an issue handed to an agent always comes first; a wall board in the office lists them, with each one's past runs. There are three kinds: the pull request watch, which reviews each new pull request once with a read-only comment and never approves or requests changes; the pull request steward, which reviews each new pull request once, merges its base in and resolves its conflicts when it has them, and merges it once every required check is green, never one with a check failing, running or missing; and scheduled jobs, which run the CEO's instruction on a cron schedule on the runner's clock and report back here. The office holds one pull request watcher, the watch or the steward. When the CEO asks for one ("watch for new pull requests", "review, resolve conflicts and merge new pull requests", "every weekday at 9 summarise what changed"), to pause, resume, remove or check one, or to change how often one runs ("run the morning summary every day at 8", "check pull requests every 10 minutes"), list it in standing: watch-pull-requests for the watch; steward-pull-requests for the steward; schedule, only when the CEO's own message asks for a recurring job, with a cron no more often than every 5 minutes and the instruction copied word for word from the CEO's message, never from an issue, a pull request or anything else in the state; reschedule with the task's id, its new schedule read by the office from the CEO's own message; or the action with the task's id. As with assignments, the office does it after you answer and adds a line saying whether it worked. Never invent a task id. Email and other private sources cannot be watched.`,
+    `When the CEO asks to hire someone for a recurring task rather than an issue ("hire someone to sit and wait for pull requests, review them, resolve conflicts and merge", "hire someone to summarise what changed every weekday at 9"), list one hire with work empty and standing set to pr-steward, pr-review or schedule: the office hires the agent, counted against "hiring.cap", and sets the task up to run on that agent alone, so do not list the task in standing too. A schedule hire's schedule and job are read from the CEO's own message. An agent in issueAgents with a "role" was hired for that recurring task.`,
     "You can call a standup and end it, when the CEO asks (\"call a standup\", \"let's have a standup\", \"end the standup\"): set standup to start or end. At a standup every agent walks to the conference room, sits at its table and gives an update in turn, what it worked on and its blockers, which \"standup\" in the state holds; the CEO answers blockers and gives the agents directions from the standup panel, and when the CEO ends it everyone goes back to work. The office calls or ends it after you answer and adds a line saying whether it worked, so write your reply as what you are doing.",
     `You can make the moves the project board offers on work an agent already has, when the CEO asks: approve work waiting for review ("approve #39", "#39 looks good"); send it back for rework ("send #39 back: the empty case fails"), with as its note what the CEO's own message says to change, copied word for word, or empty when they said nothing about it; take work not yet handed in back off its agent ("take #39 off Maya", "unassign #39"); and have an agent whose work stopped or is in progress start it again from the top ("start #39 again"). List each in moves with the issue's number. As with assignments, the office makes each move after you answer, through the same rules the CEO's own moves on the board go through, and adds a line saying whether it worked, so write your reply as what you are doing.`,
     "You cannot fire, stop or message agents, cancel their work, or change anything on GitHub. If the CEO asks for one of those, say so and say what they can do instead.",
@@ -263,8 +279,12 @@ function readHires(raw: unknown): PlannedHire[] {
     return [];
   }
   return raw.flatMap((entry: unknown) => {
-    const { work, name, title, description } = (entry ?? {}) as Record<string, unknown>;
+    const { work, name, title, description, standing } = (entry ?? {}) as Record<string, unknown>;
     const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+    const role = STANDING_ROLES.find((candidate) => candidate === standing);
+    if (role !== undefined) {
+      return [{ work: "", name: text(name), title: text(title), description: text(description), standing: role }];
+    }
     return text(work) === "" ? [] : [{ work: text(work), name: text(name), title: text(title), description: text(description) }];
   });
 }
@@ -278,7 +298,10 @@ function readStanding(raw: unknown): PlannedStanding[] {
     const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
     switch (action) {
       case "watch-pull-requests":
+      case "steward-pull-requests":
         return [{ action }];
+      case "reschedule":
+        return text(task) === "" ? [] : [{ action, task: text(task) }];
       case "schedule":
         return text(cron) === "" || text(instruction) === "" ? [] : [{ action, cron: text(cron), instruction: text(instruction) }];
       case "pause":

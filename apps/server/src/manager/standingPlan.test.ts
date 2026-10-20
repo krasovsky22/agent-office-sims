@@ -1,7 +1,8 @@
 /**
  * What the AI Manager makes of the CEO's words about standing tasks: the
- * pull request watch, schedules read into cron, the CEO's buttons by name,
- * and the list; and how a plan about them is carried out through the gate.
+ * pull request watch and the steward, schedules read into cron, the CEO's
+ * buttons by name, new schedules, standing hires and the list; and how a
+ * plan about them is carried out through the gate.
  */
 
 import { describe, expect, it } from "vitest";
@@ -9,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import type { StandingControl } from "../agents/standingControl.js";
 import { planFromRules } from "./rulePlanner.js";
 import { NO_STANDUP_VIEW, type OfficeView, type StandingTaskView } from "./officeView.js";
-import { carryOutStanding, readSchedule, resolveStandingTask, standingSummary } from "./standingPlan.js";
+import { carryOutStanding, readEveryIn, readHireSchedule, readSchedule, readStandingHire, resolveStandingTask, standingSummary } from "./standingPlan.js";
 
 function task(extra: Partial<StandingTaskView>): StandingTaskView {
   return {
@@ -25,6 +26,7 @@ function task(extra: Partial<StandingTaskView>): StandingTaskView {
     dailyUsd: 2,
     lastError: undefined,
     runningOn: undefined,
+    agent: undefined,
     ...extra,
   };
 }
@@ -100,10 +102,54 @@ describe("planFromRules: standing tasks", () => {
   });
 });
 
+describe("planFromRules: the steward, new schedules and standing hires", () => {
+  it("sets up the pull request steward from words that ask for merging", () => {
+    for (const said of [
+      "review, resolve conflicts and merge new pull requests",
+      "merge pull requests once their checks pass",
+      "please watch and merge new PRs",
+    ]) {
+      expect(ask(said)).toMatchObject({ assignments: [], standing: [{ action: "steward-pull-requests" }] });
+    }
+    // One pull request named is a move on it, not a standing task.
+    expect(ask("merge PR #12").standing).toBeUndefined();
+  });
+
+  it("reschedules a task it can name, the schedule read from the CEO's own words", () => {
+    expect(ask("run the morning summary every day at 8").standing).toEqual([{ action: "reschedule", task: "the morning summary" }]);
+    expect(ask("check pull requests every 10 minutes").standing).toEqual([{ action: "reschedule", task: "pull requests" }]);
+    expect(ask("change the morning summary to every weekday at 10").standing).toEqual([{ action: "reschedule", task: "the morning summary" }]);
+    // Not a task: a new job instead.
+    expect(ask("run the tests every day at 8").standing).toEqual([{ action: "schedule", cron: "0 8 * * *", instruction: "run the tests" }]);
+    expect(readEveryIn("check pull requests every 10 minutes")).toEqual({ cron: "*/10 * * * *", minutes: 10 });
+    expect(readEveryIn("run it every weekday at 9")).toEqual({ cron: "0 9 * * 1-5", minutes: undefined });
+    expect(readEveryIn("run it soon")).toBeUndefined();
+  });
+
+  it("hires an agent for a recurring task from the CEO's words, the captain's own among them", () => {
+    expect(ask("We need to hire someone that will sit and wait for prs. Review them, resolve conflicts and merge")).toMatchObject({
+      assignments: [],
+      hires: [{ work: "", name: "", title: "", description: "", standing: "pr-steward" }],
+    });
+    expect(ask("hire a release manager to merge pull requests").hires).toEqual([
+      { work: "", name: "", title: "Release Manager", description: "", standing: "pr-steward" },
+    ]);
+    expect(ask("hire a reviewer for new pull requests").hires).toEqual([{ work: "", name: "", title: "Reviewer", description: "", standing: "pr-review" }]);
+    expect(ask("hire someone to summarise what changed every weekday at 9").hires).toEqual([
+      { work: "", name: "", title: "", description: "", standing: "schedule" },
+    ]);
+    expect(readHireSchedule("Hire someone to summarise what changed every weekday at 9")).toEqual({ cron: "0 9 * * 1-5", instruction: "summarise what changed" });
+    // A hire for an issue is not a standing one.
+    expect(readStandingHire("hire someone for #39")).toBeUndefined();
+    expect(ask("hire someone for #39").hires?.[0]?.standing).toBeUndefined();
+  });
+});
+
 describe("carrying a standing plan out", () => {
   it("resolves what it names now, through the gate, saying what happened", () => {
     const calls: unknown[] = [];
-    const control: Pick<StandingControl, "create" | "act"> = {
+    const control: Pick<StandingControl, "create" | "act" | "reschedule"> = {
+      reschedule: () => ({ ok: true, taskId: "st-new1", text: "✓ rescheduled" }),
       create: (_actor, _name, request) => {
         calls.push(request);
         return { ok: true, taskId: "st-new1", text: "✓ set up" };
@@ -128,7 +174,8 @@ describe("carrying a standing plan out", () => {
 
   it("sets up a scheduled job only when the CEO's message asks for it, never one taken from an issue title", () => {
     const created: unknown[] = [];
-    const control: Pick<StandingControl, "create" | "act"> = {
+    const control: Pick<StandingControl, "create" | "act" | "reschedule"> = {
+      reschedule: () => ({ ok: true, taskId: "st-new1", text: "✓ rescheduled" }),
       create: (_actor, _name, request) => {
         created.push(request);
         return { ok: true, taskId: "st-new1", text: "✓ scheduled" };
@@ -153,9 +200,44 @@ describe("carrying a standing plan out", () => {
     expect(created).toEqual([{ kind: "schedule", cron: "0 9 * * 1-5", instruction: "summarise what changed yesterday" }]);
   });
 
+  it("sets up the steward, and reschedules only to a schedule the CEO's own message says", () => {
+    const calls: unknown[] = [];
+    const control: Pick<StandingControl, "create" | "act" | "reschedule"> = {
+      create: (_actor, _name, request) => {
+        calls.push(request);
+        return { ok: true, taskId: "st-new1", text: "✓ set up" };
+      },
+      act: () => ({ ok: true, taskId: "st-new1", text: "✓" }),
+      reschedule: (_actor, _name, taskId, schedule) => {
+        calls.push([taskId, schedule]);
+        return { ok: true, taskId, text: "✓ rescheduled" };
+      },
+    };
+    const carry = (message: string, task: string): string[] =>
+      carryOutStanding([{ action: "reschedule", task }], { message, control, actor: { id: "ceo", kind: "human", isCeo: true }, ceoName: "Dana", view: VIEW });
+    expect(carry("run the morning summary every day at 8", "st-morning")).toEqual(["✓ rescheduled"]);
+    expect(carry("check pull requests every 10 minutes", "st-watch01")).toEqual(["✓ rescheduled"]);
+    expect(carry("make the pull requests faster", "st-watch01")[0]).toMatch(/^✗ /);
+    expect(carry("check the morning summary every 10 minutes", "st-morning")).toEqual(["✓ rescheduled"]);
+    expect(carry("run the watch every weekday at 9", "st-watch01")[0]).toMatch(/^✗ A pull request task checks every so many minutes/);
+    const steward = (message: string): string[] =>
+      carryOutStanding([{ action: "steward-pull-requests" }], { message, control, actor: { id: "ceo", kind: "human", isCeo: true }, ceoName: "Dana", view: VIEW });
+    // A model's plan alone, steered by a pull request's title say, never switches merging on.
+    expect(steward("")[0]).toMatch(/^✗ I only set up the pull request steward when you ask yourself/);
+    expect(steward("what's open on the board?")[0]).toMatch(/^✗ /);
+    expect(steward("Please merge pull requests once their checks pass")).toEqual(["✓ set up"]);
+    expect(calls).toEqual([
+      ["st-morning", { cron: "0 8 * * *" }],
+      ["st-watch01", { intervalSeconds: 600 }],
+      ["st-morning", { cron: "*/10 * * * *" }],
+      { kind: "pr-steward" },
+    ]);
+  });
+
   it("sets up one scheduled job for one message, however often a model's plan repeats it", () => {
     const created: unknown[] = [];
-    const control: Pick<StandingControl, "create" | "act"> = {
+    const control: Pick<StandingControl, "create" | "act" | "reschedule"> = {
+      reschedule: () => ({ ok: true, taskId: "st-new1", text: "✓ rescheduled" }),
       create: (_actor, _name, request) => {
         created.push(request);
         return { ok: true, taskId: `st-new${created.length}`, text: "✓ scheduled" };

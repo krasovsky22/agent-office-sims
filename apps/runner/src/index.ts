@@ -65,6 +65,7 @@ import { createClaudeStandingRunners } from "./standing/claude.js";
 import { createMockStandingRunners } from "./standing/mock.js";
 import { githubPullSource } from "./standing/pulls.js";
 import { createReviewGithub } from "./standing/review.js";
+import { createStewardGithub } from "./standing/steward.js";
 import { StandingScheduler } from "./standing/scheduler.js";
 import { StandingStore } from "./standing/store.js";
 import type { StandingRunners } from "./standing/types.js";
@@ -211,6 +212,7 @@ function createStandingRunners(runnerConfig: RunnerConfig): StandingRunners {
       env: () => githubEnv(app),
       run: runCommand,
     }),
+    steward: createStewardGithub({ repo: runnerConfig.repo, env: () => githubEnv(app), run: runCommand }),
     identity: { env: app.env(), scrub: GITHUB_TOKEN_ENV },
     log,
   });

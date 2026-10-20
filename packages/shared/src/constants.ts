@@ -253,8 +253,8 @@ export const AGENT_ACTION_BURST_ALLOWANCE = 4;
 export const AGENT_ACTION_REFILL_PER_SECOND = 0.2;
 
 /**
- * Standing task commands (pause, resume, remove, check now) the CEO may send
- * back to back, all four together, before the server starts dropping them.
+ * Standing task commands (pause, resume, remove, check now, a new schedule)
+ * the CEO may send back to back, all together, before the server starts dropping them.
  * Each one waits in its runner's command queue, which issue work shares, and
  * a check asks GitHub, so a handful.
  */
@@ -262,6 +262,11 @@ export const STANDING_BURST_ALLOWANCE = 4;
 
 /** Rate at which that allowance is restored, in commands/second: one every five seconds. */
 export const STANDING_REFILL_PER_SECOND = 0.2;
+
+/** Asks for a standing task's runs anyone may make: a few at once, opening one task after another on the wall board. */
+export const STANDING_HISTORY_BURST_ALLOWANCE = 6;
+
+export const STANDING_HISTORY_REFILL_PER_SECOND = 1;
 
 /**
  * Standups the CEO may call or end back to back before the server starts

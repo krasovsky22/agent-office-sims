@@ -147,6 +147,30 @@ describe("readReply", () => {
     ]);
   });
 
+  it("reads a standing hire, which names no issue, and the steward and new schedules among the standing tasks", () => {
+    const plan = readReply(
+      reply(
+        JSON.stringify({
+          reply: "Hiring a steward.",
+          assignments: [],
+          hires: [
+            { work: "", standing: "pr-steward", name: "Pat", title: "", description: "" },
+            { work: "", standing: "janitor", name: "Nobody", title: "", description: "" },
+          ],
+          standing: [
+            { action: "steward-pull-requests", task: "", cron: "", instruction: "" },
+            { action: "reschedule", task: " st-morning ", cron: "*/5 * * * *", instruction: "" },
+            { action: "reschedule", task: "", cron: "", instruction: "" },
+          ],
+        }),
+      ),
+    );
+    expect(plan.hires).toEqual([{ work: "", name: "Pat", title: "", description: "", standing: "pr-steward" }]);
+    // A new schedule's cron is never the model's: the office reads it from the CEO's message.
+    expect(plan.standing).toEqual([{ action: "steward-pull-requests" }, { action: "reschedule", task: "st-morning" }]);
+    expect(systemPrompt()).toContain("hire someone for a recurring task rather than an issue");
+  });
+
   it("reads the moves on work in hand, keeping a note only on a send-back and dropping malformed ones", () => {
     const plan = readReply(
       reply(

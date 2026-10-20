@@ -1,8 +1,13 @@
 /**
  * The server's side of standing tasks: the mirror every room reads, the one
- * gate every action goes through, the runner link's commands for them, and
- * what the AI Manager says of each run.
+ * gate every action goes through, the runner link's commands for them, the
+ * run history kept for the wall board, and what the AI Manager says of each
+ * run.
  */
+
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { MapSchema } from "@colyseus/schema";
 import {
@@ -10,6 +15,7 @@ import {
   type RunnerSync,
   STANDING_OFF,
   STANDING_REJECTION,
+  type StandingRunRecord,
   StandingTask,
   type StandingTaskReport,
   liveAgentKey,
@@ -19,6 +25,7 @@ import { describe, expect, it } from "vitest";
 import { RunnerLink, runnerSlotAgentId } from "./runnerLink.js";
 import { StandingAnnouncer } from "./standingAnnouncer.js";
 import { StandingControl } from "./standingControl.js";
+import { MAX_KEPT_TASKS, StandingHistory } from "./standingHistory.js";
 import { StandingMirror, copyStandingTasks } from "./standingMirror.js";
 
 const REPO = "krasovsky22/agent-office-sims";
@@ -32,6 +39,8 @@ function report(id: string, extra: Partial<StandingTaskReport> = {}): StandingTa
     name: "Watch for new pull requests",
     status: "active",
     trigger: "every 2 min",
+    schedule: { intervalSeconds: 120 },
+    agent: undefined,
     lastCheckAt: 1,
     nextCheckAt: 2,
     queued: 0,
@@ -112,6 +121,97 @@ describe("StandingControl", () => {
     expect(control.act(CEO, "Dana", "check-now", "st-task1")).toMatchObject({ ok: true, text: "✓ “Summarise what changed.” runs now." });
     expect(control.act(CEO, "Dana", "pause", "st-nothing")).toMatchObject({ ok: false, rejection: STANDING_REJECTION.unknownTask });
     expect(link.pending("box")).toEqual([{ id: "c2", kind: "standing-check-now", taskId: "st-task1", requestedBy: "Dana" }]);
+  });
+});
+
+describe("StandingControl and the pull request steward", () => {
+  it("sets the steward up, as the office's one pull request watcher", () => {
+    const { control, link } = setup();
+    link.sync(sync("box"));
+    const created = control.create(CEO, "Dana", { kind: "pr-steward" }, "");
+    expect(created).toMatchObject({ ok: true, text: expect.stringContaining("merged once every required check is green") });
+    expect(link.pending("box")).toEqual([
+      { id: "c1", kind: "standing-set", requestedBy: "Dana", spec: expect.objectContaining({ kind: "pr-steward", name: "Review, fix and merge pull requests", intervalSeconds: 120 }) },
+    ]);
+    expect(control.create(CEO, "Dana", { kind: "pr-review" }, "")).toMatchObject({ ok: false, rejection: STANDING_REJECTION.duplicate });
+    expect(control.create(EXEC, "Eve", { kind: "pr-steward" }, "")).toMatchObject({ ok: false, rejection: STANDING_REJECTION.forbidden });
+  });
+
+  it("places a task set up with a standing hire on its agent's runner, to run on its slot alone", () => {
+    const { control, link } = setup();
+    link.sync(sync("box"));
+    link.sync(sync("vm"));
+    expect(control.place(CEO, { kind: "pr-steward" })).toEqual({ ok: true, runnerId: "box" });
+    control.create(CEO, "Dana", { kind: "pr-steward" }, "", { runnerId: "vm", agent: "hired-1a2b3c4d" });
+    expect(link.pending("box")).toEqual([]);
+    expect(link.pending("vm")).toEqual([expect.objectContaining({ kind: "standing-set", spec: expect.objectContaining({ agent: "hired-1a2b3c4d" }) })]);
+  });
+});
+
+describe("StandingControl's new schedules", () => {
+  it("change how often a task runs, for the CEO, in the terms its kind takes", () => {
+    const { control, link } = setup();
+    link.sync(sync("box", { standing: [report("st-watch1"), report("st-sched1", { kind: "schedule", name: "Morning summary", schedule: { cron: "0 9 * * 1-5" } })] }));
+    expect(control.reschedule(CEO, "Dana", "st-sched1", { cron: "30 8 * * *" })).toEqual({ ok: true, taskId: "st-sched1", text: "✓ “Morning summary” now runs daily 08:30." });
+    expect(control.reschedule(CEO, "Dana", "st-watch1", { intervalSeconds: 600 })).toMatchObject({ ok: true, text: "✓ “Watch for new pull requests” now runs every 10 min." });
+    expect(control.reschedule(CEO, "Dana", "st-sched1", { intervalSeconds: 600 })).toMatchObject({ ok: false, rejection: STANDING_REJECTION.invalid });
+    expect(control.reschedule(CEO, "Dana", "st-watch1", { cron: "0 * * * *" })).toMatchObject({ ok: false, rejection: STANDING_REJECTION.invalid });
+    expect(control.reschedule(EXEC, "Eve", "st-watch1", { intervalSeconds: 600 })).toMatchObject({ ok: false, rejection: STANDING_REJECTION.forbidden });
+    expect(link.pending("box")).toEqual([
+      { id: "c1", kind: "standing-reschedule", taskId: "st-sched1", schedule: { cron: "30 8 * * *" }, requestedBy: "Dana" },
+      { id: "c2", kind: "standing-reschedule", taskId: "st-watch1", schedule: { intervalSeconds: 600 }, requestedBy: "Dana" },
+    ]);
+  });
+});
+
+describe("the recurring tasks' runs", () => {
+  const record = (id: string, taskId: string, endedAt: number): StandingRunRecord => ({
+    id,
+    taskId,
+    startedAt: endedAt - 1,
+    endedAt,
+    outcome: "simulated",
+    pr: undefined,
+    agent: "Leo",
+    costUsd: 0.1,
+    summary: "Simulated run",
+    result: "",
+    log: "● step",
+    commentId: undefined,
+  });
+
+  it("are kept from a sync once, newest first, for its runner's own tasks alone, and go when a task is removed", () => {
+    const { mirror, link, control } = setup();
+    const runs = [record("r1", "st-abcd", 10), record("r2", "st-gone", 11)];
+    link.sync(sync("box", { standing: [report("st-abcd")], standingRuns: runs }));
+    link.sync(sync("box", { standing: [report("st-abcd")], standingRuns: [record("r1", "st-abcd", 10), record("r3", "st-abcd", 12)] }));
+    expect(mirror.standingRuns("st-abcd").map((run) => run.id)).toEqual(["r3", "r1"]);
+    expect(mirror.standingRuns("st-gone")).toEqual([]);
+    control.act(CEO, "Dana", "remove", "st-abcd");
+    expect(mirror.standingRuns("st-abcd")).toEqual([]);
+  });
+
+  it("are kept on disk across a restart, ten a task and a bounded number of tasks", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sim-standing-runs-"));
+    try {
+      const file = join(dir, "standing-runs.json");
+      const history = new StandingHistory({ file });
+      history.keep(Array.from({ length: 12 }, (_, index) => record(`r${index}`, "st-abcd", index)));
+      history.keep(Array.from({ length: MAX_KEPT_TASKS + 1 }, (_, index) => record(`t${index}`, `st-task${index}`, 100 + index)));
+      const again = new StandingHistory({ file });
+      expect(again.runs("st-abcd")).toEqual([]);
+      expect(again.runs(`st-task${MAX_KEPT_TASKS}`)).toHaveLength(1);
+      history.forget(`st-task${MAX_KEPT_TASKS}`);
+      const kept = new StandingHistory({ file });
+      expect(kept.runs(`st-task${MAX_KEPT_TASKS}`)).toEqual([]);
+      const few = new StandingHistory({ file: join(dir, "few.json") });
+      few.keep(Array.from({ length: 12 }, (_, index) => record(`r${index}`, "st-abcd", index)));
+      expect(new StandingHistory({ file: join(dir, "few.json") }).runs("st-abcd").map((run) => run.id)).toEqual(
+        ["r11", "r10", "r9", "r8", "r7", "r6", "r5", "r4", "r3", "r2"],
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -198,6 +298,23 @@ describe("StandingAnnouncer", () => {
     );
     expect(announcer.runText("box", run({ taskId: "st-other", pr: undefined, outcome: "completed", message: "3 issues opened." }))).toBe(
       "Claude 2 ran “a standing task” ($0.12):\n3 issues opened.",
+    );
+  });
+
+  it("says what the steward merged or brought up to date, and what it gave up on", () => {
+    const steward = new StandingAnnouncer({
+      pullUrl: (number) => `https://github.com/${REPO}/pull/${number}`,
+      taskName: () => "Review, fix and merge pull requests",
+      taskKind: () => "pr-steward",
+      occupantName: () => "Leo",
+      announce: () => undefined,
+    });
+    expect(steward.runText("box", run({ outcome: "merged", commentId: undefined, costUsd: 0 }))).toBe(
+      `Leo merged PR #112 “Add a lift” for “Review, fix and merge pull requests”, every required check green: https://github.com/${REPO}/pull/112`,
+    );
+    expect(steward.runText("box", run({ outcome: "resolved", commentId: undefined }))).toContain("resolving its conflicts, and pushed it ($0.12)");
+    expect(steward.runText("box", run({ outcome: "failed", final: true, message: "The merge was refused on GitHub." }))).toBe(
+      "“Review, fix and merge pull requests” gave up on PR #112 “Add a lift” after its last try: the merge was refused on GitHub.",
     );
   });
 

@@ -1,7 +1,8 @@
 /**
  * What the AI Manager says about the standing tasks' runs: each review, each
- * scheduled run's result, and each thing a task left alone, as a templated
- * line in its conversation, the way it says a start the runner refused.
+ * scheduled run's result, each pull request the steward brought up to date
+ * or merged, and each thing a task left alone, as a templated line in its
+ * conversation, the way it says a start the runner refused.
  *
  * Templated rather than the manager's own words because these are facts from
  * the runner, and a link to a review comment must be the one the runner
@@ -17,6 +18,7 @@ import {
   RUNNER_EVENT_KIND,
   type RunnerStandingRefusedEvent,
   type RunnerStandingRunEvent,
+  STANDING_KIND,
   STANDING_OUTCOME,
   formatUsd,
   liveAgentKey,
@@ -29,6 +31,8 @@ export interface StandingAnnouncerOptions {
   readonly pullUrl: (number: number) => string;
   /** A task's name by id, as the office last heard it; `undefined` for one it never did. */
   readonly taskName: (taskId: string) => string | undefined;
+  /** A task's kind by id, as the office last heard it. */
+  readonly taskKind?: (taskId: string) => string | undefined;
   /** An occupant's name by key; `undefined` for one who has left. */
   readonly occupantName: (occupantId: string) => string | undefined;
   /** Says it to the office in the AI Manager's voice. */
@@ -83,6 +87,10 @@ export class StandingAnnouncer {
         const url = this.options.pullUrl(event.pr.number);
         return `${who} reviewed ${pr}: ${event.commentId === undefined ? url : `${url}#issuecomment-${event.commentId}`}`;
       }
+      case STANDING_OUTCOME.resolved:
+        return `${who} merged the base into ${pr} for ${task}, resolving its conflicts, and pushed it${cost}: ${event.pr === undefined ? "" : this.options.pullUrl(event.pr.number)}`.trim();
+      case STANDING_OUTCOME.merged:
+        return `${who} merged ${pr} for ${task}, every required check green: ${event.pr === undefined ? "" : this.options.pullUrl(event.pr.number)}`.trim();
       case STANDING_OUTCOME.completed:
         return `${who} ran ${task}${cost}:\n${event.message}`;
       case STANDING_OUTCOME.simulated:
@@ -95,7 +103,9 @@ export class StandingAnnouncer {
         }
         return pr === ""
           ? `${task} failed, and won't be tried again until it next fires: ${lower(event.message)}`
-          : `${task} couldn't review ${pr} after its last try: ${lower(event.message)}`;
+          : this.options.taskKind?.(event.taskId) === STANDING_KIND.prSteward
+            ? `${task} gave up on ${pr} after its last try: ${lower(event.message)}`
+            : `${task} couldn't review ${pr} after its last try: ${lower(event.message)}`;
       case STANDING_OUTCOME.skipped:
         return pr === "" ? undefined : `${task} skipped ${pr}. ${event.message}`.trim();
       case STANDING_OUTCOME.preempted:

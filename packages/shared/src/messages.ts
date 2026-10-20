@@ -35,7 +35,19 @@ import { type IssueStateMessage, isIssueState } from "./issueState.js";
 import type { ManagerRejection } from "./manager.js";
 import type { NameRejection } from "./playerName.js";
 import { isTerminalSize } from "./screens.js";
-import { type StandingRejection, type StandingTaskAction, isStandingTaskId } from "./standing.js";
+import {
+  MAX_STANDING_INSTRUCTION_LENGTH,
+  type STANDING_ACTION,
+  STANDING_KIND,
+  type StandingKind,
+  type StandingRejection,
+  type StandingRunRecord,
+  type StandingSchedule,
+  type StandingTaskAction,
+  isStandingKind,
+  isStandingTaskId,
+  parseStandingSchedule,
+} from "./standing.js";
 import type { StandupRejection } from "./standup.js";
 import { ANIMATION_STATE, type ReportedAnimation, type WorkStatus, isWorkStatus } from "./state.js";
 import { asRecord, clip, isIssueNumber, replaceControls, truncate } from "./text.js";
@@ -88,6 +100,12 @@ export const CLIENT_MESSAGE = {
   standingRemove: "standing:remove",
   /** Have a standing task check its trigger now; only the CEO is listened to. */
   standingCheckNow: "standing:check-now",
+  /** Change how often a standing task runs, from the wall board; only the CEO is listened to. */
+  standingReschedule: "standing:reschedule",
+  /** Ask for a standing task's last runs, with their logs, for the wall board; anyone may. */
+  standingHistory: "standing:history",
+  /** Set a new standing task up from the wall board: what, which agent, and how often; only the CEO is listened to. */
+  standingCreate: "standing:create",
   /** Call a standup: every agent gathers in the conference room. Only the CEO is listened to; see `standup.ts`. */
   standupStart: "standup:start",
   /** End the standup: every agent goes back to work. Only the CEO is listened to. */
@@ -195,6 +213,11 @@ export const SERVER_MESSAGE = {
    */
   standingRejected: "standing:rejected",
   /**
+   * Sent only to the client that asked for a standing task's runs, with them.
+   * Carries a {@link StandingHistoryEvent}.
+   */
+  standingHistory: "standing:history",
+  /**
    * Sent only to the client whose standup command the office refused, with
    * the reason. Carries a {@link StandupRejectedEvent}; the standup itself is
    * replicated state, so a command taken has no reply but the next patch.
@@ -289,16 +312,19 @@ export interface ThrottledEvent {
     | typeof CLIENT_MESSAGE.agentProfile
     | typeof CLIENT_MESSAGE.agentAction
     | StandingClientMessage
+    | typeof CLIENT_MESSAGE.standingHistory
     | typeof CLIENT_MESSAGE.standupStart
     | typeof CLIENT_MESSAGE.standupDirect;
 }
 
-/** The four standing task commands, which share one allowance. */
+/** The standing task commands, which share one allowance. */
 export type StandingClientMessage =
   | typeof CLIENT_MESSAGE.standingPause
   | typeof CLIENT_MESSAGE.standingResume
   | typeof CLIENT_MESSAGE.standingRemove
-  | typeof CLIENT_MESSAGE.standingCheckNow;
+  | typeof CLIENT_MESSAGE.standingCheckNow
+  | typeof CLIENT_MESSAGE.standingReschedule
+  | typeof CLIENT_MESSAGE.standingCreate;
 
 /**
  * The office refused one of this client's work commands and changed nothing.
@@ -413,11 +439,43 @@ export interface StandingTaskMessage {
   readonly taskId: string;
 }
 
-/** The office did nothing about one of this client's standing task commands, and why. */
+/** A standing task's new schedule, from the wall board. */
+export interface StandingRescheduleMessage {
+  readonly taskId: string;
+  readonly schedule: StandingSchedule;
+}
+
+/**
+ * A new standing task, from the wall board's form: its kind, a scheduled
+ * job's instruction and cron in the CEO's own words, and the agent to run it
+ * on alone, by occupant key, or `""` for any free one.
+ */
+export interface StandingCreateMessage {
+  readonly kind: StandingKind;
+  readonly instruction: string;
+  readonly cron: string;
+  readonly agentId: string;
+}
+
+/** The office did nothing about one of this client's standing task commands, and why; a create's `taskId` is `""`. */
 export interface StandingRejectedEvent {
-  readonly action: StandingTaskAction;
+  readonly action: StandingTaskAction | typeof STANDING_ACTION.reschedule | typeof STANDING_ACTION.create;
   readonly taskId: string;
   readonly rejection: StandingRejection;
+  /** Why, in the server's words, where the rejection alone can't say: a refused schedule's. */
+  readonly reason?: string;
+}
+
+/** One kept run, with the links the server built for it on the board's repository: the pull request's, the review comment's. */
+export interface StandingRunView extends StandingRunRecord {
+  /** `""` for a run about no pull request. */
+  readonly url: string;
+}
+
+/** A standing task's last runs, newest first, as the client that asked is sent them. */
+export interface StandingHistoryEvent {
+  readonly taskId: string;
+  readonly runs: readonly StandingRunView[];
 }
 
 /** A key the CEO wants pressed on the choice screen a coding agent waits on. */
@@ -938,6 +996,33 @@ export function parseWorkMoveMessage(raw: unknown): WorkMoveMessage | undefined 
 export function parseStandingTaskMessage(raw: unknown): StandingTaskMessage | undefined {
   const taskId = asRecord(raw)?.taskId;
   return isStandingTaskId(taskId) ? { taskId } : undefined;
+}
+
+/**
+ * Validates a raw `standing:create` payload: a kind there is, an agent's key
+ * or `""`, and for a scheduled job an instruction and a cron a task could
+ * take. A pull request task's instruction and cron are dropped.
+ */
+export function parseStandingCreateMessage(raw: unknown): StandingCreateMessage | undefined {
+  const message = asRecord(raw);
+  const { kind, agentId } = message ?? {};
+  if (!isStandingKind(kind) || typeof agentId !== "string" || agentId.length > MAX_AGENT_KEY_LENGTH) {
+    return undefined;
+  }
+  if (kind !== STANDING_KIND.schedule) {
+    return { kind, instruction: "", cron: "", agentId };
+  }
+  const instruction = typeof message?.["instruction"] === "string" ? sanitizeManagerText(message["instruction"].slice(0, MAX_STANDING_INSTRUCTION_LENGTH)) : "";
+  const schedule = parseStandingSchedule({ cron: message?.["cron"] });
+  return instruction === "" || schedule === undefined || !("cron" in schedule) ? undefined : { kind, instruction, cron: schedule.cron, agentId };
+}
+
+/** Validates a raw `standing:reschedule` payload: its task's id, and a schedule a task could take. */
+export function parseStandingRescheduleMessage(raw: unknown): StandingRescheduleMessage | undefined {
+  const message = asRecord(raw);
+  const taskId = message?.["taskId"];
+  const schedule = parseStandingSchedule(message?.["schedule"]);
+  return isStandingTaskId(taskId) && schedule !== undefined ? { taskId, schedule } : undefined;
 }
 
 /**

@@ -14,13 +14,26 @@
  * new one: whether each runner takes standing tasks at all, and the tasks
  * it has just been asked to take and has not reported yet, so a second
  * "watch for new pull requests" a moment after the first is not taken for
- * the first.
+ * the first. And it holds the tasks' run history (`./standingHistory.ts`),
+ * fed by the runners' syncs and read by the wall board.
  *
  * Like the link, it runs on Node's event loop, never inside a tick.
  */
 
 import type { MapSchema, Schema } from "@colyseus/schema";
-import { MAX_STANDING_TASKS, type StandingKind, type StandingOff, StandingTask, type StandingTaskReport } from "@sim/shared";
+import {
+  MAX_STANDING_TASKS,
+  type StandingKind,
+  type StandingOff,
+  type StandingRunRecord,
+  StandingTask,
+  type StandingTaskReport,
+  liveAgentKey,
+  watchesPullRequests,
+} from "@sim/shared";
+
+import { runnerSlotAgentId } from "./runnerLink.js";
+import { StandingHistory } from "./standingHistory.js";
 
 /** One task, with the runner holding it and the slot running it now. */
 export interface StandingTaskRecord {
@@ -36,6 +49,8 @@ export interface StandingSource {
   standingTasks(): readonly StandingTaskRecord[];
   /** Changes whenever {@link standingTasks} does, and only then. */
   standingVersion(): number;
+  /** A task's last runs, newest first, with their logs. */
+  standingRuns(taskId: string): readonly StandingRunRecord[];
 }
 
 /** A runner as a new standing task's home. */
@@ -58,6 +73,8 @@ const EXPECTED_MS = 30_000;
 
 export interface StandingMirrorOptions {
   readonly now?: () => number;
+  /** Where the runs are kept; in memory alone by default. */
+  readonly history?: StandingHistory;
 }
 
 export class StandingMirror implements StandingSource {
@@ -66,9 +83,27 @@ export class StandingMirror implements StandingSource {
   private snapshot: readonly StandingTaskRecord[] = [];
   private version = 0;
   private readonly now: () => number;
+  private readonly history: StandingHistory;
 
   public constructor(options: StandingMirrorOptions = {}) {
     this.now = options.now ?? Date.now;
+    this.history = options.history ?? new StandingHistory();
+  }
+
+  public standingRuns(taskId: string): readonly StandingRunRecord[] {
+    return this.history.runs(taskId);
+  }
+
+  /** The runs a runner's sync carried. */
+  public keepRuns(records: readonly StandingRunRecord[]): void {
+    if (records.length > 0) {
+      this.history.keep(records);
+    }
+  }
+
+  /** A task the CEO removed: its runs go with it. */
+  public forgetRuns(taskId: string): void {
+    this.history.forget(taskId);
   }
 
   public standingTasks(): readonly StandingTaskRecord[] {
@@ -127,11 +162,12 @@ export class StandingMirror implements StandingSource {
     }));
   }
 
-  /** Whether any runner holds, or has just been asked to take, a task of this kind. */
-  public hasKind(kind: StandingKind): boolean {
+  /** Whether any runner holds, or has just been asked to take, a task that watches the pull requests: the watch or the steward. */
+  public watchesPullRequests(): boolean {
     this.forgetStale();
     return (
-      this.snapshot.some((record) => record.report.kind === kind) || [...this.expected.values()].some((expected) => expected.kind === kind)
+      this.snapshot.some((record) => watchesPullRequests(record.report.kind)) ||
+      [...this.expected.values()].some((expected) => watchesPullRequests(expected.kind))
     );
   }
 
@@ -190,6 +226,9 @@ export function copyStandingTasks(map: MapSchema<StandingTask>, records: readonl
       name: report.name,
       status: report.status,
       trigger: report.trigger,
+      cron: "cron" in report.schedule ? report.schedule.cron : "",
+      intervalSeconds: "intervalSeconds" in report.schedule ? report.schedule.intervalSeconds : 0,
+      agentId: report.agent === undefined ? "" : liveAgentKey(runnerSlotAgentId(runnerId, report.agent)),
       lastCheckAt: report.lastCheckAt ?? 0,
       nextCheckAt: report.nextCheckAt ?? 0,
       queued: report.queued,
