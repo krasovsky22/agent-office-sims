@@ -59,22 +59,6 @@ export interface AgentHiring {
   withdraw(hire: RunnerHire): void;
 }
 
-/**
- * Whether a room option is the hiring desk the server handed over, rather
- * than whatever a client put in its join options under the same name.
- */
-export function isAgentHiring(value: unknown): value is AgentHiring {
-  const candidate = value as Partial<Record<keyof AgentHiring, unknown>> | null;
-  return (
-    typeof value === "object" &&
-    candidate !== null &&
-    typeof candidate.cap === "number" &&
-    typeof candidate.count === "function" &&
-    typeof candidate.hire === "function" &&
-    typeof candidate.withdraw === "function"
-  );
-}
-
 /** What a new agent's title is unless the CEO named one: what it was hired for. */
 export function hireTitle(issueNumber: number): string {
   return `Specialist for #${issueNumber}`;

@@ -64,18 +64,6 @@ export interface DeskRunner {
   deskSlots(): readonly RunnerDeskSlot[];
 }
 
-/** Whether a room option is the runner link, as far as the desk terminal needs it. */
-export function isDeskRunner(value: unknown): value is DeskRunner {
-  const candidate = value as Partial<Record<keyof DeskRunner, unknown>> | null;
-  return (
-    typeof value === "object" &&
-    candidate !== null &&
-    typeof candidate.enqueue === "function" &&
-    typeof candidate.hasRunners === "function" &&
-    typeof candidate.deskSlots === "function"
-  );
-}
-
 /** Why a session ended that the runner says ended without saying why. */
 export const DESK_SESSION_GONE = "The session ended.";
 

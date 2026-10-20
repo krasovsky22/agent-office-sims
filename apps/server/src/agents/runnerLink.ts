@@ -148,52 +148,16 @@ export interface RunnerEventSource {
   openEventInbox(): RunnerEventInbox;
 }
 
-/**
- * Whether a room option is the event source the server handed over, rather
- * than whatever a client put in its join options under the same name.
- */
-export function isRunnerEventSource(value: unknown): value is RunnerEventSource {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as Partial<Record<keyof RunnerEventSource, unknown>>).openEventInbox === "function"
-  );
-}
-
 /** What every runner reports spending today, together. */
 export interface RunnerSpendSource {
   /** Cheap: worked out as syncs arrive, so a room can read it every tick. */
   spend(): RunnerSpendTotal;
 }
 
-/**
- * Whether a room option is the spend source the server handed over, rather
- * than whatever a client put in its join options under the same name.
- */
-export function isRunnerSpendSource(value: unknown): value is RunnerSpendSource {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as Partial<Record<keyof RunnerSpendSource, unknown>>).spend === "function"
-  );
-}
-
 /** Where a room says it holds a standup, so the runners pause their agents for it. */
 export interface RunnerStandupHold {
   /** `on` while the room `origin` holds a standup; the runners hear it on their next sync. */
   holdForStandup(origin: string, on: boolean): void;
-}
-
-/**
- * Whether a room option is the standup hold the server handed over, rather
- * than whatever a client put in its join options under the same name.
- */
-export function isRunnerStandupHold(value: unknown): value is RunnerStandupHold {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as Partial<Record<keyof RunnerStandupHold, unknown>>).holdForStandup === "function"
-  );
 }
 
 export interface RunnerLinkOptions {

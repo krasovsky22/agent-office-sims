@@ -36,7 +36,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createManagerAdvisor } from "../manager/advisor.js";
 import { createRulePlanner } from "../manager/fromConfig.js";
-import { OfficeRoom, type OfficeRoomOptions } from "./OfficeRoom.js";
+import { OfficeRoom, officeRoom } from "./OfficeRoom.js";
 
 /** The project board the manager answers about and hands out from. */
 const BOARD: ProjectBoardSnapshot = {
@@ -57,11 +57,11 @@ const pondering: AbortSignal[] = [];
 
 beforeAll(async () => {
   server = new Server({ transport: new WebSocketTransport(), greet: false });
-  server.define(OFFICE_ROOM_NAME, OfficeRoom, {
+  server.define(OFFICE_ROOM_NAME, officeRoom({
     manager: createManagerAdvisor({ planner: createRulePlanner(0), mode: "rules" }),
     projectBoard: { current: () => BOARD, subscribe: () => () => undefined },
-  } satisfies Partial<OfficeRoomOptions>);
-  server.define(PONDERING_ROOM, OfficeRoom, {
+  }));
+  server.define(PONDERING_ROOM, officeRoom({
     manager: createManagerAdvisor({
       mode: "model",
       planner: (_request, signal) => {
@@ -69,7 +69,7 @@ beforeAll(async () => {
         return new Promise(() => undefined);
       },
     }),
-  } satisfies Partial<OfficeRoomOptions>);
+  }));
   await server.listen(0);
   const address = server.transport.server?.address();
   if (address === null || address === undefined || typeof address === "string") {

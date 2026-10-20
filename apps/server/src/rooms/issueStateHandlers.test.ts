@@ -19,7 +19,7 @@ import {
 } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { type IssueStateClient, type IssueStates, changeIssueState, isIssueStates } from "./issueStateHandlers.js";
+import { type IssueStateClient, type IssueStates, changeIssueState } from "./issueStateHandlers.js";
 
 function issue(number: number, closedAt: number | null = null): BoardIssue {
   return { number, title: `Issue ${number}`, body: "", labels: [], assignees: [], pullRequests: [], closedAt };
@@ -182,13 +182,5 @@ describe("changeIssueState", () => {
     await expect(changeIssueState(host, new Set(), tab("ceo"), { issueNumber: 1, state: "merged" })).resolves.toBeUndefined();
     await expect(changeIssueState(host, new Set(), stranger, { issueNumber: 1, state: "closed" })).resolves.toBeUndefined();
     expect(issues.calls).toEqual([]);
-  });
-});
-
-describe("isIssueStates", () => {
-  it("takes only an object with both functions, never a join option", () => {
-    expect(isIssueStates(runner())).toBe(true);
-    expect(isIssueStates({ canChangeIssues: "yes", changeIssueState: "close everything" })).toBe(false);
-    expect(isIssueStates(undefined)).toBe(false);
   });
 });

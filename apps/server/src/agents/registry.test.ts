@@ -9,7 +9,7 @@
 import { LIVE_AGENT_REPORT_STATUS, type LiveAgentReport } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { LiveAgentRegistry, isLiveAgentSource } from "./registry.js";
+import { LiveAgentRegistry } from "./registry.js";
 
 const TIMEOUT_MS = 30_000;
 
@@ -122,12 +122,5 @@ describe("LiveAgentRegistry", () => {
     });
     registry.report(report("a", LIVE_AGENT_REPORT_STATUS.idle));
     expect(heard).toBe(true);
-  });
-
-  it("is something a room accepts as a source, and a client's join options are not", () => {
-    const { registry } = setup();
-    expect(isLiveAgentSource(registry)).toBe(true);
-    expect(isLiveAgentSource({ current: [], subscribe: "no" })).toBe(false);
-    expect(isLiveAgentSource(undefined)).toBe(false);
   });
 });

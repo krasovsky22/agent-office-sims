@@ -33,7 +33,7 @@ import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { HEALTH_PATH, createHealthServer } from "../http.js";
-import { OfficeRoom, type OfficeRoomOptions } from "../rooms/OfficeRoom.js";
+import { OfficeRoom, officeRoom } from "../rooms/OfficeRoom.js";
 import { CombinedLiveAgentSource } from "./combined.js";
 import { LIVE_AGENT_REPORT_PATH, createLiveAgentEndpoint } from "./endpoint.js";
 import { LiveAgentRegistry } from "./registry.js";
@@ -73,10 +73,10 @@ beforeAll(async () => {
     [LIVE_AGENT_REPORT_PATH, createLiveAgentEndpoint({ secret: SECRET, registry: floorRegistry })],
   ]);
   server = new Server({ transport: new WebSocketTransport({ server: createHealthServer(routes) }), greet: false });
-  server.define(FLOOR_ROOM, OfficeRoom, {
+  server.define(FLOOR_ROOM, officeRoom({
     liveAgents: floor,
     runnerEvents: floorLink,
-  } satisfies Partial<OfficeRoomOptions>);
+  }));
   await server.listen(0);
   const { port } = server.transport.server?.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${port}`;

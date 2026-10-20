@@ -11,7 +11,7 @@ import { EMPTY_BOARD_LISTS, type ProjectBoardSnapshot, SERVER_MESSAGE } from "@s
 
 import type { BoardLoader } from "../github/client.js";
 import { ProjectFeed } from "../github/feed.js";
-import { isProjectBoardSource, relayProjectBoard, sendProjectBoard } from "./projectBoardDelivery.js";
+import { relayProjectBoard, sendProjectBoard } from "./projectBoardDelivery.js";
 
 const REPO = "krasovsky22/agent-office-sims";
 
@@ -103,12 +103,5 @@ describe("project board delivery", () => {
     stop();
     await feed.poll();
     expect(client.received).toEqual([]);
-  });
-
-  it("accepts the server's feed as a room option and nothing a client could send", () => {
-    expect(isProjectBoardSource(feedOf(1))).toBe(true);
-    expect(isProjectBoardSource(null)).toBe(false);
-    expect(isProjectBoardSource({ current: "x", subscribe: "y" })).toBe(false);
-    expect(isProjectBoardSource(JSON.parse('{"current":{},"subscribe":{}}'))).toBe(false);
   });
 });

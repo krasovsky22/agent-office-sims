@@ -80,23 +80,6 @@ export interface RunnerCommands {
   issueUrl(issueNumber: number): string;
 }
 
-/**
- * Whether a room option is the command channel the server handed over, rather
- * than whatever a client put in its join options under the same name.
- */
-export function isRunnerCommands(value: unknown): value is RunnerCommands {
-  const candidate = value as Partial<Record<keyof RunnerCommands, unknown>> | null;
-  return (
-    typeof value === "object" &&
-    candidate !== null &&
-    typeof candidate.enqueue === "function" &&
-    typeof candidate.withdraw === "function" &&
-    typeof candidate.slotIssue === "function" &&
-    typeof candidate.heldIssues === "function" &&
-    typeof candidate.issueUrl === "function"
-  );
-}
-
 /** The words a slot is sent back to work with, and the CEO's own note on what to change when they gave one. */
 export function reworkPrompt(issueNumber: number, note = ""): string {
   const said = sanitizeWorkNote(note);

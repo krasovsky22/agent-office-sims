@@ -24,6 +24,7 @@ import {
   type CeoChangedEvent,
   type ChatEvent,
   CLIENT_MESSAGE,
+  DEFAULT_AGENT_RESTRICT_LABEL,
   DESK_TERMINAL_PHASE,
   EMPTY_BOARD_LISTS,
   IssueWork,
@@ -49,7 +50,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { ProjectBoardSource } from "../github/feed.js";
 import { describeRoleProblems } from "../sim/roles.js";
-import { OfficeRoom, type OfficeRoomOptions } from "./OfficeRoom.js";
+import { OfficeRoom, officeRoom } from "./OfficeRoom.js";
 
 /** Short, so the test can watch a grace period run out. */
 const GRACE_SECONDS = 1;
@@ -105,15 +106,15 @@ let endpoint: string;
 
 beforeAll(async () => {
   server = new Server({ transport: new WebSocketTransport(), greet: false });
-  server.define(OFFICE_ROOM_NAME, OfficeRoom, {
+  server.define(OFFICE_ROOM_NAME, officeRoom({
     reconnectGraceSeconds: GRACE_SECONDS,
     projectBoard: officeBoard,
-  } satisfies Partial<OfficeRoomOptions>);
-  server.define(BOOKS_ROOM_NAME, OfficeRoom, {
+  }));
+  server.define(BOOKS_ROOM_NAME, officeRoom({
     reconnectGraceSeconds: GRACE_SECONDS,
     projectBoard: officeBoard,
     runnerSpend: { spend: () => runnerSpend },
-  } satisfies Partial<OfficeRoomOptions>);
+  }));
   await server.listen(0);
   const address = server.transport.server?.address();
   if (address === null || address === undefined || typeof address === "string") {
@@ -624,5 +625,17 @@ describe("players' names", () => {
 
     await milo.room.leave();
     await dana.room.leave();
+  });
+});
+
+describe("the server's services", () => {
+  it("are never filled in from the creating player's join options", async () => {
+    const client = new Client(endpoint);
+    const room = await client.create<OfficeState>(OFFICE_ROOM_NAME, { name: "Dana", agentRestrictLabel: "anything" });
+    const dana: Tab = { client, room, rejections: [], announcements: [], nameRejections: [] };
+    listen(dana, room);
+    await settled(() => serverRoom(dana).state.occupants.has(room.sessionId));
+    expect(serverRoom(dana).state.agentRestrictLabel).toBe(DEFAULT_AGENT_RESTRICT_LABEL);
+    await room.leave();
   });
 });

@@ -30,7 +30,7 @@ import { describe, expect, it } from "vitest";
 
 import { type WorkHost, applyAs } from "../rooms/workHandlers.js";
 import { RunnerLink, runnerSlotAgentId, runnerSlotOf } from "./runnerLink.js";
-import { RunnerWork, isRunnerCommands, pullRequestArtifact, reworkPrompt } from "./runnerWork.js";
+import { RunnerWork, pullRequestArtifact, reworkPrompt } from "./runnerWork.js";
 
 const REPO = "krasovsky22/agent-office-sims";
 const CEO = "session-ceo";
@@ -511,10 +511,5 @@ describe("runnerSlotOf", () => {
     expect(runnerSlotOf("crewmate-7")).toBeUndefined();
     expect(runnerSlotOf("runner:box")).toBeUndefined();
     expect(runnerSlotOf("runner::slot-1")).toBeUndefined();
-  });
-
-  it("takes the link as the room's command channel, and not a client's lookalike", () => {
-    expect(isRunnerCommands(new RunnerLink({ repository: REPO, timeoutMs: 1000 }))).toBe(true);
-    expect(isRunnerCommands({ enqueue: "nope" })).toBe(false);
   });
 });

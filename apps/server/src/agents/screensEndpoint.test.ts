@@ -27,7 +27,7 @@ import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createHealthServer } from "../http.js";
-import { OfficeRoom, type OfficeRoomOptions } from "../rooms/OfficeRoom.js";
+import { OfficeRoom, officeRoom } from "../rooms/OfficeRoom.js";
 import { createRunnerEndpoint } from "./runnerEndpoint.js";
 import { RunnerLink } from "./runnerLink.js";
 import { ScreenStore } from "./screens.js";
@@ -105,10 +105,10 @@ beforeAll(async () => {
     [FLOOR_SCREENS, createScreensEndpoint({ secret: SECRET, store: floorStore })],
   ]);
   server = new Server({ transport: new WebSocketTransport({ server: createHealthServer(routes) }), greet: false });
-  server.define(SCREENS_ROOM, OfficeRoom, {
+  server.define(SCREENS_ROOM, officeRoom({
     liveAgents: floorLink,
     screens: floorStore,
-  } satisfies Partial<OfficeRoomOptions>);
+  }));
   await server.listen(0);
   const { port } = server.transport.server?.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${port}`;

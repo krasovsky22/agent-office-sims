@@ -32,7 +32,7 @@
  * stays open once the last player is gone: the agents' work lives in it.
  *
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
- * one feed polls GitHub on its own timer and is handed to every room as a room option;
+ * one feed polls GitHub on its own timer and is handed to every room through {@link officeRoom};
  * `projectBoardDelivery.ts` relays what it publishes, and each snapshot it
  * publishes releases the work on any issue GitHub has closed. The board is
  * read-only: nothing in the room writes to GitHub, and the tick never reads
@@ -94,7 +94,6 @@ import {
   type IssueWork,
   type RunnerSpendTotal,
   MAX_CHAT_LENGTH,
-  MAX_LABEL_LENGTH,
   MAX_TITLE_LENGTH,
   type ManagerEntry,
   type ManagerHistoryEvent,
@@ -129,27 +128,24 @@ import {
 } from "@sim/shared";
 
 import { AgentPrompts } from "../agents/agentPrompts.js";
-import { DeskTerminal, isDeskRunner } from "../agents/deskTerminal.js";
-import { type LiveAgentSource, isLiveAgentSource } from "../agents/registry.js";
-import {
-  type RunnerEventInbox,
-  type RunnerEventSource,
-  type RunnerSpendSource,
-  type RunnerStandupHold,
-  isRunnerEventSource,
-  isRunnerSpendSource,
-  isRunnerStandupHold,
+import { type DeskRunner, DeskTerminal } from "../agents/deskTerminal.js";
+import type { LiveAgentSource } from "../agents/registry.js";
+import type {
+  RunnerEventInbox,
+  RunnerEventSource,
+  RunnerSpendSource,
+  RunnerStandupHold,
 } from "../agents/runnerLink.js";
-import { type RunnerCommands, RunnerWork, isRunnerCommands } from "../agents/runnerWork.js";
-import { type ScreenSource, isScreenSource } from "../agents/screens.js";
+import { type RunnerCommands, RunnerWork } from "../agents/runnerWork.js";
+import type { ScreenSource } from "../agents/screens.js";
 import { StandingAnnouncer } from "../agents/standingAnnouncer.js";
 import { StandingControl } from "../agents/standingControl.js";
-import { type StandingMirror, copyStandingTasks, isStandingSource } from "../agents/standingMirror.js";
+import { type StandingMirror, copyStandingTasks } from "../agents/standingMirror.js";
 import type { ProjectBoardSource } from "../github/feed.js";
 import { type SimClock, createSimClock, stepClock } from "../sim/clock.js";
-import { type ManagerAdvisor, isManagerAdvisor } from "../manager/advisor.js";
-import { type AgentHiring, isAgentHiring } from "../manager/hire.js";
-import { type LiveAssignmentQueue, isLiveAssignmentQueue } from "../manager/liveAssignments.js";
+import type { ManagerAdvisor } from "../manager/advisor.js";
+import type { AgentHiring } from "../manager/hire.js";
+import type { LiveAssignmentQueue } from "../manager/liveAssignments.js";
 import { OfficeManager } from "../manager/officeManager.js";
 import { CoffeeCups } from "../sim/coffee.js";
 import { ConciergeDesk } from "../sim/concierge.js";
@@ -171,13 +167,9 @@ import { registerAgentProfileHandlers } from "./agentProfileHandlers.js";
 import { registerAgentPromptHandlers } from "./agentPromptHandlers.js";
 import { registerManagerHandlers } from "./managerHandlers.js";
 import { registerStandingHandlers } from "./standingHandlers.js";
-import {
-  isProjectBoardSource,
-  relayProjectBoard,
-  sendProjectBoard,
-} from "./projectBoardDelivery.js";
+import { relayProjectBoard, sendProjectBoard } from "./projectBoardDelivery.js";
 import { registerStandupHandlers } from "./standupHandlers.js";
-import { type IssueStates, isIssueStates, registerIssueStateHandler } from "./issueStateHandlers.js";
+import { type IssueStates, registerIssueStateHandler } from "./issueStateHandlers.js";
 import { type WorkHost, registerWorkHandlers } from "./workHandlers.js";
 
 /**
@@ -202,8 +194,8 @@ export interface OfficeRoomOptions {
   readonly projectBoard: ProjectBoardSource;
   /**
    * How long a dropped player's place is held, in seconds. Defaults to
-   * {@link RECONNECT_GRACE_SECONDS}, and can only be shortened: a test sets it
-   * low to watch a grace period run out without waiting for the real one.
+   * {@link RECONNECT_GRACE_SECONDS}; a test sets it low to watch a grace
+   * period run out without waiting for the real one.
    */
   readonly reconnectGraceSeconds?: number;
   /** Absent when neither an orchestrator nor a runner is configured, which leaves the floor to the players. */
@@ -220,15 +212,11 @@ export interface OfficeRoomOptions {
   readonly liveAssignments?: LiveAssignmentQueue;
   /** What the agent runners report happening; absent when no runner is configured. */
   readonly runnerEvents?: RunnerEventSource;
-  /** Where commands for the runners' slots are queued; absent when no runner is configured. */
-  readonly runnerCommands?: RunnerCommands;
+  /** Where commands for the runners' slots are queued, the desk terminal's too; absent when no runner is configured. */
+  readonly runnerCommands?: RunnerCommands & DeskRunner;
   /** What the runners' agents have spent today; absent when no runner is configured. */
   readonly runnerSpend?: RunnerSpendSource;
-  /**
-   * The label that keeps an issue from the live coding agents.
-   * Defaults to {@link DEFAULT_AGENT_RESTRICT_LABEL}; never none, since Colyseus
-   * merges a client's join options into these.
-   */
+  /** The label that keeps an issue from the live coding agents; defaults to {@link DEFAULT_AGENT_RESTRICT_LABEL}. */
   readonly agentRestrictLabel?: string;
   /** Where the CEO's drops on Closed and Open go: the runner link; absent when no runner is configured. */
   readonly issueStates?: IssueStates;
@@ -242,27 +230,17 @@ export interface OfficeRoomOptions {
   readonly agentHiring?: AgentHiring;
 }
 
-/** Reads the restriction label off the room's options, bounded for the same reason as the grace period. */
-function restrictLabelOf(options: Partial<OfficeRoomOptions> | undefined): string {
-  const label = options?.agentRestrictLabel;
-  return typeof label === "string" && label.trim() !== "" && label.length <= MAX_LABEL_LENGTH
-    ? label
-    : DEFAULT_AGENT_RESTRICT_LABEL;
-}
-
 /**
- * Reads the grace period off the room's options.
+ * The office room type for these services.
  *
- * Bounded rather than trusted because Colyseus merges the creating client's
- * join options into these. `index.ts` always sets the value, which wins that
- * merge, but a room defined without it must not let a client hold its place
- * open for an hour.
+ * Handed over through a subclass rather than as Colyseus room options, because
+ * Colyseus merges the creating client's join options into those: a service the
+ * server leaves out would be a key the first player could fill.
  */
-function graceSecondsOf(options: Partial<OfficeRoomOptions> | undefined): number {
-  const requested = options?.reconnectGraceSeconds;
-  return typeof requested === "number" && requested >= 0 && requested <= RECONNECT_GRACE_SECONDS
-    ? requested
-    : RECONNECT_GRACE_SECONDS;
+export function officeRoom(services: Partial<OfficeRoomOptions>): typeof OfficeRoom {
+  return class extends OfficeRoom {
+    protected override readonly services = services;
+  };
 }
 
 /**
@@ -276,6 +254,9 @@ let mainOfficeId: string | undefined;
 
 export class OfficeRoom extends Room<OfficeState> {
   public override maxClients = OFFICE_CAPACITY;
+
+  /** What the server hands this room type; see {@link officeRoom}. None for a bare `OfficeRoom`. */
+  protected readonly services: Partial<OfficeRoomOptions> = {};
 
   /** Server-only per-occupant bookkeeping, keyed by session id. */
   private readonly motions = new Map<string, OccupantMotion>();
@@ -340,7 +321,7 @@ export class OfficeRoom extends Room<OfficeState> {
   private deskTerminal!: DeskTerminal;
   private runnerStandup: RunnerStandupHold | undefined;
 
-  public override onCreate(options?: unknown): void {
+  public override onCreate(): void {
     if (mainOfficeId === undefined) {
       mainOfficeId = this.roomId;
       this.autoDispose = false;
@@ -357,12 +338,12 @@ export class OfficeRoom extends Room<OfficeState> {
     };
     this.simClock = createSimClock(this.state, this.clock.currentTime);
 
-    const roomOptions = options as Partial<OfficeRoomOptions> | undefined;
-    this.reconnectGraceSeconds = graceSecondsOf(roomOptions);
-    this.state.agentRestrictLabel = restrictLabelOf(roomOptions);
+    const services = this.services;
+    this.reconnectGraceSeconds = services.reconnectGraceSeconds ?? RECONNECT_GRACE_SECONDS;
+    this.state.agentRestrictLabel = services.agentRestrictLabel ?? DEFAULT_AGENT_RESTRICT_LABEL;
 
-    const source = roomOptions?.projectBoard;
-    if (isProjectBoardSource(source)) {
+    const source = services.projectBoard;
+    if (source !== undefined) {
       this.projectBoard = source;
       this.stopRelayingProjectBoard = relayProjectBoard(this, source);
       // On the feed's own timer, between ticks: an issue GitHub closed is no
@@ -395,23 +376,17 @@ export class OfficeRoom extends Room<OfficeState> {
       announce: (text) => this.manager?.report(text),
       random: Math.random,
     });
-    const liveAgents = roomOptions?.liveAgents;
-    if (isLiveAgentSource(liveAgents)) {
+    const liveAgents = services.liveAgents;
+    if (liveAgents !== undefined) {
       this.liveAgents = liveAgents;
       this.stopWatchingLiveAgents = liveAgents.subscribe(() => {
         this.liveAgentsChanged = true;
       });
     }
-    const runnerEvents = roomOptions?.runnerEvents;
-    if (isRunnerEventSource(runnerEvents)) {
-      this.runnerEvents = runnerEvents.openEventInbox();
-    }
-    const runnerSpend = roomOptions?.runnerSpend;
-    if (isRunnerSpendSource(runnerSpend)) {
-      this.runnerSpend = runnerSpend;
-    }
-    const screens = roomOptions?.screens;
-    if (isScreenSource(screens)) {
+    this.runnerEvents = services.runnerEvents?.openEventInbox();
+    this.runnerSpend = services.runnerSpend;
+    const screens = services.screens;
+    if (screens !== undefined) {
       this.screens = screens;
       // Called from the screens route as each batch is accepted, between ticks.
       this.stopRelayingScreens = screens.onScreens((event) => {
@@ -429,7 +404,7 @@ export class OfficeRoom extends Room<OfficeState> {
         this.runnerWork?.changed(change);
       },
     };
-    const runnerCommands = isRunnerCommands(roomOptions?.runnerCommands) ? roomOptions.runnerCommands : undefined;
+    const runnerCommands = services.runnerCommands;
     if (runnerCommands !== undefined) {
       this.runnerWork = new RunnerWork({
         host: workHost,
@@ -439,14 +414,14 @@ export class OfficeRoom extends Room<OfficeState> {
       });
     }
     registerWorkHandlers(this, workHost);
-    this.issueStates = isIssueStates(roomOptions?.issueStates) ? roomOptions.issueStates : undefined;
+    this.issueStates = services.issueStates;
     registerIssueStateHandler(this, {
       state: this.state,
       board: () => this.projectBoard?.current(),
       issues: this.issueStates,
     });
-    const standing = roomOptions?.standing;
-    if (isStandingSource(standing) && runnerCommands !== undefined) {
+    const standing = services.standing;
+    if (standing !== undefined && runnerCommands !== undefined) {
       this.standing = standing;
       this.standingControl = new StandingControl({ directory: standing, commands: runnerCommands });
       this.standingAnnouncer = new StandingAnnouncer({
@@ -500,10 +475,7 @@ export class OfficeRoom extends Room<OfficeState> {
       allow: (client) => this.spend(client, CLIENT_MESSAGE.agentAction),
       log: recordOfficeEvent,
     });
-    const runnerStandup = roomOptions?.runnerStandup;
-    if (isRunnerStandupHold(runnerStandup)) {
-      this.runnerStandup = runnerStandup;
-    }
+    this.runnerStandup = services.runnerStandup;
     this.standup = new StandupMeeting({
       state: this.state,
       layout: OFFICE_LAYOUT,
@@ -527,10 +499,10 @@ export class OfficeRoom extends Room<OfficeState> {
     this.deskTerminal = new DeskTerminal({
       state: this.state,
       layout: OFFICE_LAYOUT,
-      runner: isDeskRunner(roomOptions?.runnerCommands) ? roomOptions.runnerCommands : undefined,
+      runner: runnerCommands,
       log: recordOfficeEvent,
     });
-    this.openManagersDesk(workHost, roomOptions);
+    this.openManagersDesk(workHost, services);
     this.openReception();
 
     this.onMessage(CLIENT_MESSAGE.pose, (client, raw: unknown) => {
@@ -862,17 +834,17 @@ export class OfficeRoom extends Room<OfficeState> {
    * The chair is held from the start, through the same registry players use,
    * so nobody can sit in it and every client sees it taken.
    */
-  private openManagersDesk(work: WorkHost, options: Partial<OfficeRoomOptions> | undefined): void {
-    const advisor = options?.manager;
+  private openManagersDesk(work: WorkHost, services: Partial<OfficeRoomOptions>): void {
+    const advisor = services.manager;
     const manager = employManager(OFFICE_LAYOUT);
     const seat = managerSeat(OFFICE_LAYOUT);
-    if (!isManagerAdvisor(advisor) || manager === undefined || seat === undefined) {
+    if (advisor === undefined || manager === undefined || seat === undefined) {
       return;
     }
     this.state.occupants.set(manager.id, manager);
     this.holds.take(manager.id, seat, this.clock.currentTime);
 
-    const assignments = isLiveAssignmentQueue(options?.liveAssignments) ? options.liveAssignments : undefined;
+    const assignments = services.liveAssignments;
     this.manager = new OfficeManager({
       work,
       advisor,
@@ -883,7 +855,7 @@ export class OfficeRoom extends Room<OfficeState> {
       floor: this.liveAgents,
       assignments,
       ...(this.standingControl === undefined ? {} : { standing: this.standingControl }),
-      ...(isAgentHiring(options?.agentHiring) ? { hiring: options.agentHiring } : {}),
+      ...(services.agentHiring === undefined ? {} : { hiring: services.agentHiring }),
       origin: this.roomId,
       publish: (entry) => {
         this.broadcast(SERVER_MESSAGE.managerEntry, entry satisfies ManagerEntry);
