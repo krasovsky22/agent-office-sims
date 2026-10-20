@@ -10,7 +10,7 @@
  * rate-limited by the server.
  */
 
-import { Server } from "@colyseus/core";
+import { Server, matchMaker } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
   AGENT_KEY_BURST_ALLOWANCE,
@@ -81,7 +81,11 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
-  await Promise.all(tabs.splice(0).map((tab) => tab.room.leave()));
+  const left = tabs.splice(0);
+  const roomIds = new Set(left.map((tab) => tab.room.roomId));
+  await Promise.all(left.map((tab) => tab.room.leave()));
+  // An emptied office stays open; closed here so the next test's room is the only one on the link.
+  await Promise.all([...roomIds].map((roomId) => matchMaker.getLocalRoomById(roomId)?.disconnect()));
   takeCommands();
 });
 

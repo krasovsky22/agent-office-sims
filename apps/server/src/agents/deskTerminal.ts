@@ -19,7 +19,7 @@
  * It is declarative, as the work's reconciliation is (`./runnerWork.ts`): each
  * step compares where the CEO sits with what the runners report, and sends
  * only what closes the gap. A slot reporting a desk no room has lent it to,
- * as after the room was closed and opened again, is closed too. Every room's
+ * as after the server restarted, is closed too. Every room's
  * terminal shares the one runner link, so which slot is lent to which desk is
  * kept per link, not per room: no room lends, or closes, another's slot.
  *

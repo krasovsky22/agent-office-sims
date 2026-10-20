@@ -214,6 +214,7 @@ describe("the AI manager in a live room", () => {
 
     await milo.room.leave();
     await dana.room.leave();
+    await room.disconnect();
     await settled(() => pondering[0]?.aborted === true);
   });
 });
