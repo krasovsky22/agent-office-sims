@@ -59,6 +59,7 @@ import {
   parseStandingTaskSpec,
   sanitizeStandingName,
 } from "./standing.js";
+import { MAX_ISSUE_NUMBER, asRecord, hasControls, isIssueNumber } from "./text.js";
 
 /** The route a runner syncs through, on the game server. */
 export const RUNNER_SYNC_PATH = "/agents/runner/sync";
@@ -92,8 +93,7 @@ export function readAgentRestrictLabel(raw: string | undefined): string {
   if (label === "") {
     return DEFAULT_AGENT_RESTRICT_LABEL;
   }
-  // eslint-disable-next-line no-control-regex -- control characters are exactly what is refused
-  if (label.length > MAX_LABEL_LENGTH || /[\u0000-\u001f\u007f]/.test(label)) {
+  if (label.length > MAX_LABEL_LENGTH || hasControls(label)) {
     throw new Error(`REAL_AGENT_RESTRICT_LABEL must be a GitHub label name of at most ${MAX_LABEL_LENGTH} characters, got "${label}"`);
   }
   return label;
@@ -749,9 +749,6 @@ const SEAT_ID = /^[A-Za-z0-9._-]{1,64}$/;
 /** `owner/name`, in the characters GitHub allows in each. */
 const REPOSITORY = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 
-/** Larger than any issue number GitHub will hand out, and what `uint32` holds. */
-const MAX_ISSUE_NUMBER = 0xffffffff;
-
 const SLOT_STATUSES: ReadonlySet<string> = new Set(Object.values(RUNNER_SLOT_STATUS));
 const EVENT_KINDS: ReadonlySet<string> = new Set([
   RUNNER_EVENT_KIND.started,
@@ -763,10 +760,6 @@ const STANDING_OFFS: ReadonlySet<string> = new Set(Object.values(STANDING_OFF));
 const REFUSALS: ReadonlySet<string> = new Set(Object.values(RUNNER_REFUSAL));
 const PROMPT_OUTCOMES: ReadonlySet<string> = new Set(Object.values(RUNNER_PROMPT_OUTCOME));
 const ISSUE_STATE_OUTCOMES: ReadonlySet<string> = new Set(Object.values(RUNNER_ISSUE_STATE_OUTCOME));
-
-function asRecord(raw: unknown): Record<string, unknown> | undefined {
-  return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
-}
 
 /** Whether a value is a runner's or a slot's id. */
 export function isRunnerName(value: unknown): value is string {
@@ -780,10 +773,6 @@ function isItemId(value: unknown): value is string {
 /** Whether a value can be a seat's id in a desk session's command, report or event. */
 export function isDeskSeatId(value: unknown): value is string {
   return typeof value === "string" && SEAT_ID.test(value);
-}
-
-function isIssueNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= MAX_ISSUE_NUMBER;
 }
 
 function isSlotStatus(value: unknown): value is RunnerSlotStatus {

@@ -22,6 +22,7 @@ import {
   MAX_STANDING_TASKS,
   type StandingRunSummary,
   type StandingTaskSpec,
+  asRecord,
   isStandingOutcome,
   parseStandingTaskSpec,
 } from "@sim/shared";
@@ -103,10 +104,6 @@ const LEDGER_STATES: ReadonlySet<string> = new Set(Object.values(LEDGER_STATE));
 const SKIP_REASONS: ReadonlySet<string> = new Set(["draft", "outside", "closed", "missed", "superseded"]);
 const LEDGER_KEY = /^(?:pr:\d{1,10}|at:\d{1,16})$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
-
-function asRecord(raw: unknown): Record<string, unknown> | undefined {
-  return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
-}
 
 function number(raw: unknown): number | undefined {
   return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : undefined;

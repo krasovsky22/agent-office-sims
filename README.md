@@ -1742,6 +1742,7 @@ thing the page talks to is the WebSocket.
 packages/shared/   @sim/shared   the contract both sides import
   src/state.ts        replicated Colyseus schema
   src/messages.ts     commands and events, with the parsers for the untrusted ones
+  src/text.ts         the one text-cleaning policy: control and bidi characters, code-point truncation, shared parse helpers
   src/work.ts         the rules of the agents' work on GitHub issues: transitions, authority, commands
   src/issueState.ts   closing and reopening issues from the board: the one gate, which drops it takes, why one was refused
   src/clock.ts        the in-game clock's start and speed, which the lighting reads

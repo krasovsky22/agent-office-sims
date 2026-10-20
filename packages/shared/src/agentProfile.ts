@@ -21,6 +21,7 @@
  */
 
 import { MAX_NAME_LENGTH, sanitizeName } from "./messages.js";
+import { replaceControls } from "./text.js";
 import type { OfficeActor } from "./work.js";
 
 /** What every agent's title is until the CEO gives it another. */
@@ -129,13 +130,6 @@ export function fitJsonBytes(value: string, maxBytes: number): string {
   return value.slice(0, end);
 }
 
-// eslint-disable-next-line no-control-regex -- matching control characters is the point
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g;
-
-/** Every control character but newline, and the invisible marks that reorder text. */
-// eslint-disable-next-line no-control-regex -- matching control characters is the point
-const DESCRIPTION_CONTROL_CHARACTERS = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
-
 /** A name for a nameplate: a display name's treatment, within its budget in bytes too. */
 export function sanitizeAgentName(raw: unknown): string {
   return fitJsonBytes(sanitizeName(raw), MAX_NAME_LENGTH).trim();
@@ -146,7 +140,7 @@ export function sanitizeAgentTitle(raw: unknown): string {
   if (typeof raw !== "string") {
     return "";
   }
-  return fitJsonBytes(raw.replace(CONTROL_CHARACTERS, " ").replace(/\s+/g, " ").trim(), MAX_AGENT_TITLE_BYTES).trim();
+  return fitJsonBytes(replaceControls(raw, " ").replace(/\s+/g, " ").trim(), MAX_AGENT_TITLE_BYTES).trim();
 }
 
 /**
@@ -158,10 +152,7 @@ export function sanitizeAgentDescription(raw: unknown): string {
   if (typeof raw !== "string") {
     return "";
   }
-  const text = raw
-    .replace(/\r\n?/g, "\n")
-    .replace(/\t/g, " ")
-    .replace(DESCRIPTION_CONTROL_CHARACTERS, "")
+  const text = replaceControls(raw.replace(/\r\n?/g, "\n").replace(/\t/g, " "), "", true)
     .replace(/[ ]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

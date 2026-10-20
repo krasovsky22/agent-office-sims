@@ -16,7 +16,7 @@
  * GitHub API host, and never into an error message or a URL.
  */
 
-import { CHECK_STATUS, type CheckStatus, type ProjectBoardLists } from "@sim/shared";
+import { CHECK_STATUS, type CheckStatus, type ProjectBoardLists, asRecord } from "@sim/shared";
 
 import {
   type GithubIssueItem,
@@ -156,10 +156,6 @@ function checksOf(state: unknown): CheckStatus {
     default:
       return CHECK_STATUS.unknown;
   }
-}
-
-function asRecord(raw: unknown): Record<string, unknown> | undefined {
-  return typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : undefined;
 }
 
 function nodesOf(raw: unknown): unknown[] {

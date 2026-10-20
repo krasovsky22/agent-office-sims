@@ -37,6 +37,7 @@ import { isTerminalSize } from "./screens.js";
 import { type StandingRejection, type StandingTaskAction, isStandingTaskId } from "./standing.js";
 import type { StandupRejection } from "./standup.js";
 import { ANIMATION_STATE, type ReportedAnimation, type WorkStatus, isWorkStatus } from "./state.js";
+import { asRecord, isIssueNumber, replaceControls, truncate } from "./text.js";
 import type { WorkAction, WorkRejection } from "./work.js";
 
 /** Matchmaking name of the only room type this milestone defines. */
@@ -503,10 +504,6 @@ export const MAX_TITLE_LENGTH = 90;
 /** Rejects an id longer than anything the server itself mints. */
 const MAX_ID_LENGTH = 64;
 
-/** C0 controls plus DEL, which have no business in a rendered nameplate. */
-// eslint-disable-next-line no-control-regex -- matching control characters is the point
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g;
-
 const WHITESPACE_RUN = /\s+/g;
 
 function isEmote(value: unknown): value is Emote {
@@ -622,12 +619,7 @@ function sanitizeLine(raw: unknown, maxLength: number): string {
   if (typeof raw !== "string") {
     return "";
   }
-  return Array.from(
-    raw.replace(CONTROL_CHARACTERS, " ").replace(WHITESPACE_RUN, " ").trim()
-  )
-    .slice(0, maxLength)
-    .join("")
-    .trim();
+  return truncate(replaceControls(raw, " ").replace(WHITESPACE_RUN, " ").trim(), maxLength).trim();
 }
 
 /**
@@ -670,11 +662,7 @@ export function sanitizeName(raw: unknown): string {
   if (typeof raw !== "string") {
     return "";
   }
-  return Array.from(
-    raw.replace(CONTROL_CHARACTERS, " ").replace(WHITESPACE_RUN, " ").trim()
-  )
-    .slice(0, MAX_NAME_LENGTH)
-    .join("");
+  return truncate(replaceControls(raw, " ").replace(WHITESPACE_RUN, " ").trim(), MAX_NAME_LENGTH);
 }
 
 /** Reads join options off an untrusted payload. */
@@ -697,16 +685,8 @@ export function sanitizeTitle(raw: unknown): string {
   if (typeof raw !== "string") {
     return "";
   }
-  return raw
-    .replace(CONTROL_CHARACTERS, " ")
-    .replace(WHITESPACE_RUN, " ")
-    .trim()
-    .slice(0, MAX_TITLE_LENGTH);
+  return truncate(replaceControls(raw, " ").replace(WHITESPACE_RUN, " ").trim(), MAX_TITLE_LENGTH);
 }
-
-/** C0 controls and DEL except newline, which a description may legitimately use. */
-// eslint-disable-next-line no-control-regex -- matching control characters is the point
-const BODY_CONTROL_CHARACTERS = /[\u0000-\u0009\u000b-\u001f\u007f]/g;
 
 /** Any of the three line endings a browser might send, normalised to one. */
 const LINE_BREAK = /\r\n?/g;
@@ -716,7 +696,7 @@ const BLANK_LINE_RUN = /\n{3,}/g;
 
 /**
  * Reduces an untrusted description — an issue's body — to something safe to
- * render, at most `maxLength` characters.
+ * render, at most `maxLength` code points.
  *
  * Unlike a title this keeps newlines — a description is the place a human
  * writes a list — but collapses a run of them, so a body cannot be padded out
@@ -739,12 +719,7 @@ function sanitizeParagraphs(raw: unknown, maxLength: number): string {
   if (typeof raw !== "string") {
     return "";
   }
-  return raw
-    .replace(LINE_BREAK, "\n")
-    .replace(BODY_CONTROL_CHARACTERS, " ")
-    .replace(BLANK_LINE_RUN, "\n\n")
-    .trim()
-    .slice(0, maxLength);
+  return truncate(replaceControls(raw.replace(LINE_BREAK, "\n"), " ", true).replace(BLANK_LINE_RUN, "\n\n").trim(), maxLength);
 }
 
 /** Whether a value is usable as an occupant or interactable id. */
@@ -752,32 +727,11 @@ function isId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= MAX_ID_LENGTH;
 }
 
-function asRecord(raw: unknown): Record<string, unknown> | undefined {
-  return typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : undefined;
-}
-
-/** Larger than any issue number GitHub will hand out, and what `uint32` holds. */
-const MAX_ISSUE_NUMBER = 0xffffffff;
-
-/** Whether a value is usable as a GitHub issue number: a positive whole number. */
-function isIssueNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= MAX_ISSUE_NUMBER;
-}
-
 /**
  * Longest occupant key a prompt may name: a runner slot's live agent key,
  * `agent:runner:<runner>:<slot>`, with both names at their longest.
  */
 const MAX_AGENT_KEY_LENGTH = 96;
-
-/**
- * Everything that is not printable text or a newline: the C0 controls but
- * newline, DEL, the C1 controls, and the invisible marks that reorder text
- * for whoever reads it (`U+200E`, `U+200F`, `U+202A`–`U+202E`,
- * `U+2066`–`U+2069`).
- */
-// eslint-disable-next-line no-control-regex -- matching control characters is the point
-const PROMPT_CONTROL_CHARACTERS = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
 /**
  * Reduces a prompt for a coding agent to printable text and newlines.
@@ -793,7 +747,7 @@ export function sanitizePromptText(raw: unknown): string {
   if (typeof raw !== "string") {
     return "";
   }
-  return raw.replace(LINE_BREAK, "\n").replace(/\t/g, " ").replace(PROMPT_CONTROL_CHARACTERS, "").trim();
+  return replaceControls(raw.replace(LINE_BREAK, "\n").replace(/\t/g, " "), "", true).trim();
 }
 
 /**

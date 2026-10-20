@@ -13,6 +13,8 @@
  * look every five minutes by its scheduler, inside GitHub's anonymous limit.
  */
 
+import { asRecord } from "@sim/shared";
+
 import { BRANCH_PREFIX } from "../worktrees.js";
 
 /** One open pull request, as much of it as a task's filters and its review need. */
@@ -51,10 +53,6 @@ const API_URL = "https://api.github.com";
 const PER_PAGE = 100;
 
 const REQUEST_TIMEOUT_MS = 30_000;
-
-function asRecord(raw: unknown): Record<string, unknown> | undefined {
-  return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
-}
 
 function str(raw: unknown): string {
   return typeof raw === "string" ? raw : "";
