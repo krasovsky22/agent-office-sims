@@ -118,6 +118,15 @@ on), so nothing in development calls a model or spends anything.
 `MOCK_MANAGER=off` with `ANTHROPIC_API_KEY` set gives it a real model, on a call
 budget.
 
+The office opens on a name card: type what everyone should call you and
+press `Enter`. It is prefilled from `?name=` in the URL, or else from the
+name this browser used last time. A name someone in the office already has,
+ignoring case, is refused, and so is the AI Manager's, the concierge's or an
+agent's: arriving under one, you get a numbered variant (`Dana 2`) of a
+player's name or a generated `Employee 3` for a staff name, and a notice
+says so. `Rename` on your own line in the roster changes it later, under the
+same rule (`packages/shared/src/playerName.ts`).
+
 Walk with `W A S D` or the arrow keys, and jump with `Space`, standing or on
 the move; everyone in the office sees the jump, and walls and furniture still
 stop you in the air. Click the canvas to capture the mouse,
@@ -1270,13 +1279,13 @@ reads the conversation and every agent's screen.
 ## The two-tab check
 
 This is what "it works" means for this milestone. With `pnpm dev` running, open
-two browser tabs. Appending `?name=` to the URL gives each one a name, which
-makes the check easier to read:
+two browser tabs. Appending `?name=` to the URL prefills each one's name card,
+so `Enter` is all it takes to arrive as these two:
 
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twenty-five:
+Then confirm all twenty-seven:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -1606,7 +1615,15 @@ Then confirm all twenty-five:
     says `No agent runner is connected`. `apps/server/src/agents/deskTerminal.test.ts`
     checks the lending, the hand-back and the gate against a real runner link,
     and `apps/runner/src/slots.test.ts` the session on the runner's side.
-26. **`pnpm typecheck` passes** across the whole repository.
+26. **Nobody can borrow a name.** Open a third tab at
+    <http://localhost:5173/?name=dana>: it arrives as `dana 2`, with the
+    notice `Someone here is already called dana.`; one at `?name=AI%20Manager`
+    arrives as `Employee N`. In Milo's tab, `Rename` on his own roster line to
+    `Concierge` is refused with a notice and he stays Milo; renaming him to
+    `Maya` changes his roster line and nameplate in every tab, and reloading
+    his tab without `?name=` offers `Maya` on the card.
+    `apps/server/src/rooms/OfficeRoom.test.ts` checks both against a live room.
+27. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
@@ -1783,6 +1800,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/stickerNotes.ts the sticker boards' notes: which issues have one, where each is, and which an agent fetches or pins
   src/manager.ts      the AI manager: who it is, where it sits, and the CEO-only rule
   src/concierge.ts    the concierge at reception: who it is, where it stands, what counts as the lobby, its welcome
+  src/playerName.ts   which name a player may have: refused when someone in the office has it, and what an arrival gets instead
   src/agentPrompt.ts  the CEO's prompts and choice-screen keys to the coding agents: the one gate, the keys, and why one was refused
   src/agentProfile.ts an agent's name, title and description: default names, the CEO-only gate, caps in sync bytes, the edit message
   src/agentActions.ts cancelling an agent's task or firing it: the CEO-only gate, and why one was refused
@@ -1885,6 +1903,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/needsYou.ts         telling the CEO an agent waits on them: the title count, the chime and the desktop notification
   src/agentProfileAccess.ts  whether the local player may edit an agent's profile, why an edit was refused, and when it applies
   src/ui/AgentProfileCard.tsx  an agent's profile under its roster line: read by everyone, edited by the CEO
+  src/playerName.ts       the name card's prefill from `?name=` or the browser's storage, and why a name was refused
+  src/ui/NameCard.tsx     the arrival card where a player chooses their name, and renaming from their roster line
   src/agentMenu.ts        the agent the local player faces, and what its long-press `E` menu offers, and why not
   src/ui/AgentMenu.tsx    the long-press `E` menu: cancel the agent's task, or fire it
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk

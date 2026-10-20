@@ -65,6 +65,7 @@ import { AgentMenu, type AgentMenuActions } from "./AgentMenu.js";
 import { type AgentProfileActions, AgentProfileCard, type AgentProfileNotice } from "./AgentProfileCard.js";
 import { type AgentPromptRefusal, type AgentTerminalActions, AgentTerminalPanel } from "./AgentTerminalPanel.js";
 import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
+import { NameCard, RenameField } from "./NameCard.js";
 import { type ProjectBoardActions, ProjectBoardPanel } from "./ProjectBoardPanel.js";
 import { type StandupActions, StandupPanel } from "./StandupPanel.js";
 
@@ -230,6 +231,8 @@ export interface HudSnapshot {
   readonly cameraMode: CameraMode;
   /** The menu a long press of `E` opened on the agent the local player faces, or `undefined`. */
   readonly agentMenu?: AgentMenuView | undefined;
+  /** The name the arrival card is prefilled with while it is up, before joining; `undefined` once the player entered. */
+  readonly nameCard?: string | undefined;
 }
 
 /** What the standing tasks' buttons do; the server decides whether it happens. */
@@ -245,6 +248,10 @@ export interface HudActions {
   readonly toggleCamera: () => void;
   /** Joins the office afresh, from a connection that has given up. */
   readonly rejoin: () => void;
+  /** Enters the office under the name typed on the arrival card; the server sanitizes it and decides. */
+  readonly join: (name: string) => void;
+  /** Asks for a new name for the local player; the server sanitizes it and decides. */
+  readonly rename: (name: string) => void;
   /** Opens an agent's terminal panel, wherever the local player stands. */
   readonly answer: (agentId: string) => void;
   readonly projectBoard: ProjectBoardActions;
@@ -526,13 +533,28 @@ const ASSET_TEXT: Partial<Record<AssetState, string>> = {
   failed: "Asset kit did not load; showing grey boxes.",
 };
 
-/** One player's line in the roster. */
-function PersonRow({ entry }: { entry: RosterEntry }) {
+/** One player's line in the roster; the local player's own has a button to change their name. */
+function PersonRow({ entry, rename }: { entry: RosterEntry; rename: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
   return (
     <li className="hud__occupant">
       <span className="hud__name">{entry.name}</span>
       {entry.isCeo ? <span className="hud__badge">CEO</span> : null}
       {entry.isLocal ? <span className="hud__you">you</span> : null}
+      {entry.isLocal ? (
+        <button
+          className="hud__standing-button hud__profile-toggle"
+          type="button"
+          aria-expanded={open}
+          onClick={(event) => {
+            event.currentTarget.blur();
+            setOpen(!open);
+          }}
+        >
+          {open ? "Cancel" : "Rename"}
+        </button>
+      ) : null}
+      {open && entry.isLocal ? <RenameField current={entry.name} rename={rename} close={() => setOpen(false)} /> : null}
     </li>
   );
 }
@@ -768,6 +790,7 @@ function Roster({
   standupCall,
   profile,
   answer,
+  rename,
 }: {
   roster: readonly RosterEntry[];
   boardAccess: BoardAccess | undefined;
@@ -780,6 +803,7 @@ function Roster({
   standupCall: { readonly access: StandupAccess; readonly active: boolean; readonly start: () => void } | undefined;
   profile: ProfileControls;
   answer: Answer;
+  rename: (name: string) => void;
 }) {
   const { people, liveAgents, managers } = groupRoster(roster);
   return (
@@ -790,7 +814,7 @@ function Roster({
       ) : (
         <ul className="hud__roster">
           {people.map((entry) => (
-            <PersonRow entry={entry} key={entry.id} />
+            <PersonRow entry={entry} rename={rename} key={entry.id} />
           ))}
         </ul>
       )}
@@ -865,6 +889,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     agentProfileAccess,
     agentProfileNotice,
     cameraMode,
+    nameCard,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
@@ -880,6 +905,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
         <p className="hud__loading-text">Furnishing the office…</p>
       </div>
 
+      {nameCard === undefined ? null : <NameCard initial={nameCard} join={actions.join} />}
+
       <div className="hud__column">
         <Roster
           roster={roster}
@@ -894,6 +921,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           }
           profile={{ access: agentProfileAccess, notice: agentProfileNotice, actions: actions.profile }}
           answer={agentPromptAccess?.mayPrompt === true ? actions.answer : undefined}
+          rename={actions.rename}
         />
 
         <div className="hud__panel">

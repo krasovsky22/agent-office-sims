@@ -33,6 +33,7 @@ import {
 } from "./constants.js";
 import { type IssueStateMessage, isIssueState } from "./issueState.js";
 import type { ManagerRejection } from "./manager.js";
+import type { NameRejection } from "./playerName.js";
 import { isTerminalSize } from "./screens.js";
 import { type StandingRejection, type StandingTaskAction, isStandingTaskId } from "./standing.js";
 import type { StandupRejection } from "./standup.js";
@@ -53,6 +54,8 @@ export const CLIENT_MESSAGE = {
   emote: "emote",
   /** A line of text chat. */
   chat: "chat",
+  /** Change the sender's own display name; refused when someone in the office has it. See `playerName.ts`. */
+  rename: "player:rename",
   /** The sender's avatar jumped; no payload. See `jump.ts`. */
   jump: "jump",
   /** A request to use a named interactable the sender believes it is next to. */
@@ -175,6 +178,12 @@ export const SERVER_MESSAGE = {
    */
   agentProfileRejected: "agent:profile-rejected",
   /**
+   * Sent only to the client whose name was refused, on joining or renaming,
+   * with the reason. Carries a {@link NameRejectedEvent}; a rename taken has
+   * no reply but the next patch.
+   */
+  nameRejected: "player:name-rejected",
+  /**
    * Sent only to the client whose cancel or firing the office did not carry
    * out, with the reason. Carries an {@link AgentActionRejectedEvent}; one
    * carried out has no reply but the next patch.
@@ -273,6 +282,7 @@ export interface ThrottledEvent {
   readonly command:
     | typeof CLIENT_MESSAGE.emote
     | typeof CLIENT_MESSAGE.chat
+    | typeof CLIENT_MESSAGE.rename
     | typeof CLIENT_MESSAGE.managerSay
     | typeof CLIENT_MESSAGE.agentPrompt
     | typeof CLIENT_MESSAGE.agentKey
@@ -427,6 +437,17 @@ export interface DeskTerminalSizeMessage {
 export interface AgentProfileMessage extends AgentProfile {
   /** The agent's occupant key. */
   readonly agentId: string;
+}
+
+/** A player asking for a new display name. */
+export interface RenameMessage {
+  readonly name: string;
+}
+
+/** The office refused this client the name it asked for, and why; on joining it gave another instead. */
+export interface NameRejectedEvent {
+  readonly name: string;
+  readonly rejection: NameRejection;
 }
 
 /** The office did not pass this client's profile edit on, and why. */
@@ -663,6 +684,15 @@ export function sanitizeName(raw: unknown): string {
     return "";
   }
   return truncate(replaceControls(raw, " ").replace(WHITESPACE_RUN, " ").trim(), MAX_NAME_LENGTH);
+}
+
+/** Validates a raw `player:rename` payload; `undefined` when no legible name survived. */
+export function parseRenameMessage(raw: unknown): RenameMessage | undefined {
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
+  const name = sanitizeName((raw as { name?: unknown }).name);
+  return name === "" ? undefined : { name };
 }
 
 /** Reads join options off an untrusted payload. */

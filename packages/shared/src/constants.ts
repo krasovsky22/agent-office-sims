@@ -233,6 +233,16 @@ export const AGENT_PROFILE_BURST_ALLOWANCE = 4;
 export const AGENT_PROFILE_REFILL_PER_SECOND = 0.2;
 
 /**
+ * Renames a player may send back to back before the server starts dropping
+ * them. Each is replicated to every tab, and a person picks a name a few times
+ * at most, so a small one.
+ */
+export const RENAME_BURST_ALLOWANCE = 4;
+
+/** Rate at which that allowance is restored, in renames/second. */
+export const RENAME_REFILL_PER_SECOND = 0.2;
+
+/**
  * Cancels and firings the CEO may send back to back before the server starts
  * dropping them. Each stops a real agent and throws its work away, and there
  * are only a handful of agents to do it to.

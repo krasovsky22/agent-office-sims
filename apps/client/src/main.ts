@@ -33,7 +33,6 @@ import {
   interactableById,
   nearestInteractable,
   promptFor,
-  sanitizeName,
   stickerNotes,
   taskReference,
 } from "@sim/shared";
@@ -59,6 +58,7 @@ import { DayClock } from "./dayClock.js";
 import { hasIssueMoveLanded, withOfficeWork } from "./projectBoard.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
 import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
+import { nameRejectionText, readPlayerName, writePlayerName } from "./playerName.js";
 import { standingAccessFor, standingRejectionText } from "./standingAccess.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
@@ -174,11 +174,6 @@ function requireHudMount(): HTMLElement {
  */
 function readServerUrl(): string {
   return resolveServerUrl(import.meta.env.VITE_SERVER_URL);
-}
-
-/** An optional `?name=` lets two tabs be told apart at a glance. */
-function readRequestedName(): string {
-  return sanitizeName(new URLSearchParams(window.location.search).get("name"));
 }
 
 /**
@@ -664,7 +659,9 @@ function start(): void {
             ? "Too many messages to the manager — that one was dropped."
             : event.command === CLIENT_MESSAGE.emote
               ? "Too many emotes — that one was dropped."
-              : "Too many standing task buttons — that one was dropped. Wait a few seconds.",
+              : event.command === CLIENT_MESSAGE.rename
+                ? "Too many renames — that one was dropped. Wait a few seconds."
+                : "Too many standing task buttons — that one was dropped. Wait a few seconds.",
       );
     },
 
@@ -805,6 +802,10 @@ function start(): void {
       publishHud({ agentProfileNotice: { id: nextRefusalId++, agentId: event.agentId, text } });
     },
 
+    onNameRejected: (event) => {
+      showNotice(nameRejectionText(event, room.occupantName(room.sessionId)));
+    },
+
     onStandupChanged: (standup) => {
       publishHud({ standup });
     },
@@ -857,6 +858,18 @@ function start(): void {
         rejoin: () => {
           // A refusal is already on the HUD, with the button still by it.
           void room.rejoin().catch(() => {});
+        },
+        join: (name) => {
+          writePlayerName(browserStorage(), name);
+          publishHud({ nameCard: undefined });
+          void room.connect(readServerUrl(), name).catch(() => {
+            // The status is already on the HUD; the empty office keeps rendering so the
+            // failure is visible rather than a blank page.
+          });
+        },
+        rename: (name) => {
+          writePlayerName(browserStorage(), name);
+          room.sendRename(name);
         },
         projectBoard: {
           assign: (issueNumber, agentId) => room.sendWorkAssign(issueNumber, agentId),
@@ -1308,10 +1321,8 @@ function start(): void {
     void room.leave();
   });
 
-  void room.connect(readServerUrl(), readRequestedName()).catch(() => {
-    // The status is already on the HUD; the empty office keeps rendering so the
-    // failure is visible rather than a blank page.
-  });
+  // Joined from the arrival card, once the player has said who they are.
+  publishHud({ nameCard: readPlayerName(window.location.search, browserStorage()) });
 }
 
 start();

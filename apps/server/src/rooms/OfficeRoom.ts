@@ -97,6 +97,7 @@ import {
   MAX_LABEL_LENGTH,
   type ManagerEntry,
   type ManagerHistoryEvent,
+  type NameRejectedEvent,
   OCCUPANT_KIND,
   OFFICE_CAPACITY,
   OFFICE_LAYOUT,
@@ -107,11 +108,13 @@ import {
   TICK_INTERVAL_MS,
   TICK_RATE_HZ,
   type ThrottledEvent,
+  arrivalName,
   conciergePost,
   employConcierge,
   employManager,
   isCeo,
   managerSeat,
+  nameRefusal,
   normalizeYaw,
   parseChatMessage,
   parseDeskTerminalSizeMessage,
@@ -119,6 +122,7 @@ import {
   parseInteractMessage,
   parseJoinOptions,
   parsePoseMessage,
+  parseRenameMessage,
   releaseGoneWork,
 } from "@sim/shared";
 
@@ -609,6 +613,21 @@ export class OfficeRoom extends Room<OfficeState> {
       } satisfies ChatEvent);
     });
 
+    this.onMessage(CLIENT_MESSAGE.rename, (client, raw: unknown) => {
+      const message = parseRenameMessage(raw);
+      const player = this.state.occupants.get(client.sessionId);
+      if (message === undefined || player === undefined || !this.spend(client, CLIENT_MESSAGE.rename)) {
+        return;
+      }
+      const others = [...this.state.occupants.values()].filter((occupant) => occupant !== player);
+      const rejection = nameRefusal(message.name, others);
+      if (rejection !== undefined) {
+        client.send(SERVER_MESSAGE.nameRejected, { name: message.name, rejection } satisfies NameRejectedEvent);
+        return;
+      }
+      player.name = message.name;
+    });
+
     this.setSimulationInterval((deltaMs) => {
       this.simulate(deltaMs);
     }, TICK_INTERVAL_MS);
@@ -622,7 +641,9 @@ export class OfficeRoom extends Room<OfficeState> {
     this.hireCount += 1;
     const player = new HumanPlayer();
     player.id = client.sessionId;
-    player.name = name ?? `Employee ${this.hireCount}`;
+    const others = [...this.state.occupants.values()];
+    const refused = name === undefined ? undefined : nameRefusal(name, others);
+    player.name = arrivalName(name, `Employee ${this.hireCount}`, others);
     player.kind = OCCUPANT_KIND.human;
     player.x = spawn.x;
     player.z = spawn.z;
@@ -634,6 +655,9 @@ export class OfficeRoom extends Room<OfficeState> {
     this.motions.set(client.sessionId, createMotion(spawn.x, spawn.z, spawn.yaw, now));
     this.budgets.set(client.sessionId, createExpressionBudget(now));
 
+    if (name !== undefined && refused !== undefined) {
+      client.send(SERVER_MESSAGE.nameRejected, { name, rejection: refused } satisfies NameRejectedEvent);
+    }
     if (this.projectBoard !== undefined) {
       sendProjectBoard(client, this.projectBoard);
     }

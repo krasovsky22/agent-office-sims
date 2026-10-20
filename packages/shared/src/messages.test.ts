@@ -21,6 +21,7 @@ import {
   parseAgentProfileMessage,
   parseAgentPromptMessage,
   parseChatMessage,
+  parseRenameMessage,
   parseDeskTerminalSizeMessage,
   parseEmoteMessage,
   parseInteractMessage,
@@ -104,6 +105,15 @@ describe("the one-line sanitizers", () => {
     const title = sanitizeTitle(`a${"\u{1f600}".repeat(MAX_TITLE_LENGTH)}`);
     expect(Array.from(title)).toHaveLength(MAX_TITLE_LENGTH);
     expect(title.endsWith("\u{1f600}")).toBe(true);
+  });
+});
+
+describe("parseRenameMessage", () => {
+  it("returns the sanitized name, and nothing for a payload with no legible one", () => {
+    expect(parseRenameMessage({ name: "  Dana \u0000 Lee " })).toEqual({ name: "Dana Lee" });
+    for (const raw of [undefined, null, "Dana", {}, { name: 7 }, { name: " \t " }]) {
+      expect(parseRenameMessage(raw)).toBeUndefined();
+    }
   });
 });
 

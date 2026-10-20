@@ -83,6 +83,7 @@ import {
   type ManagerRejectedEvent,
   type ManagerSayMessage,
   type ManagerStatus,
+  type NameRejectedEvent,
   OFFICE_ROOM_NAME,
   type Occupant,
   type OccupantKind,
@@ -92,6 +93,7 @@ import {
   type PoseMessage,
   type ProjectBoardSnapshot,
   RECONNECT_GRACE_SECONDS,
+  type RenameMessage,
   type ReportedAnimation,
   type RunnerSpendTotal,
   SERVER_MESSAGE,
@@ -247,6 +249,8 @@ export interface RoomConnectionEvents {
   onAgentPromptRejected?: (event: AgentPromptRejectedEvent) => void;
   /** One of the local client's own edits to an agent's profile was not passed on, and why. */
   onAgentProfileRejected?: (event: AgentProfileRejectedEvent) => void;
+  /** The name the local player asked for, on joining or renaming, is someone else's in the office. */
+  onNameRejected?: (event: NameRejectedEvent) => void;
   /** The local client's own cancel or firing was not carried out, and why. */
   onAgentActionRejected?: (event: AgentActionRejectedEvent) => void;
   /** The runners' standing tasks, after any of them is added, changed or removed. */
@@ -587,6 +591,11 @@ export class RoomConnection {
     return true;
   }
 
+  /** Asks for a new display name. The state patch is the reply, or a rejection to this client alone. */
+  public sendRename(name: string): void {
+    this.room?.send(CLIENT_MESSAGE.rename, { name } satisfies RenameMessage);
+  }
+
   /** Says something out loud. Echoed back by the server, like an emote. */
   public sendChat(text: string): void {
     this.room?.send(CLIENT_MESSAGE.chat, { text } satisfies ChatMessage);
@@ -851,6 +860,10 @@ export class RoomConnection {
       this.events.onAgentProfileRejected?.(event);
     });
 
+    room.onMessage<NameRejectedEvent>(SERVER_MESSAGE.nameRejected, (event) => {
+      this.events.onNameRejected?.(event);
+    });
+
     room.onMessage<AgentActionRejectedEvent>(SERVER_MESSAGE.agentActionRejected, (event) => {
       this.events.onAgentActionRejected?.(event);
     });
@@ -921,6 +934,10 @@ export class RoomConnection {
     const fired = agent?.fired ?? false;
     const carriedIssue = agent?.carriedIssue ?? 0;
     const managerStatus = isAiManager(occupant) ? occupant.status : undefined;
+    if (isLocal) {
+      // A later rejoin asks for the name the player has now, not the one they arrived with.
+      this.name = occupant.name;
+    }
     if (
       view.name !== occupant.name ||
       view.isCeo !== ceo ||
