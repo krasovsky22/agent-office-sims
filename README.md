@@ -18,6 +18,9 @@ and a kitchen. A main entrance from the pavement opens into the building's
 lobby, with a reception desk facing it, lifts down the hall (placeholders,
 nobody rides them) and, to the left of the lifts, the door into the office. Players arrive on the pavement outside, facing the
 main entrance, and walk in through the lobby.
+The server runs one office, open from boot, for up to 16 players; a 17th is
+turned away with "The office is full (16 people)" in the HUD's status rather
+than given an empty office of their own.
 Behind the reception desk stands the concierge, a teal body that is neither a
 player nor an agent: it takes no work and answers nothing, but whenever a
 player steps into the lobby, in off the street or out through the office door,

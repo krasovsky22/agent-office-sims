@@ -3,7 +3,7 @@
  * actually reaches it.
  *
  * Joining a room is two requests, not one. First an HTTP POST to
- * `/matchmake/joinOrCreate/office`, which hands back a seat reservation; then a
+ * `/matchmake/join/office`, which hands back a seat reservation; then a
  * WebSocket upgrade carrying that reservation. Colyseus leaves both open by
  * default — it echoes whatever `Origin` it is given back as
  * `Access-Control-Allow-Origin`, which is a wildcard wearing a disguise, and

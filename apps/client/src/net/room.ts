@@ -80,6 +80,7 @@ import {
   type ManagerRejectedEvent,
   type ManagerSayMessage,
   type ManagerStatus,
+  OFFICE_CAPACITY,
   OFFICE_ROOM_NAME,
   type Occupant,
   type OccupantKind,
@@ -115,7 +116,7 @@ import {
   normalizeYaw,
   shortestYawDelta,
 } from "@sim/shared";
-import { Client, type Room, getStateCallbacks } from "colyseus.js";
+import { Client, ErrorCode, MatchMakeError, type Room, getStateCallbacks } from "colyseus.js";
 
 import { type StandingTaskData, copyStandingTask } from "../standingAccess.js";
 import { type TerminalScreen, applyScreenFrame } from "./screens.js";
@@ -315,7 +316,7 @@ export class RoomConnection {
     try {
       const client = new Client(serverUrl);
       this.client = client;
-      this.attach(await client.joinOrCreate<OfficeState>(OFFICE_ROOM_NAME, { name }));
+      this.attach(await client.join<OfficeState>(OFFICE_ROOM_NAME, { name }));
     } catch (error) {
       this.events.onStatusChanged?.("failed", describeError(error));
       throw error;
@@ -1017,7 +1018,11 @@ export class RoomConnection {
  * A refused WebSocket rejects with a bare `Event`, whose default string form is
  * `[object ProgressEvent]` — true, and useless to the reader.
  */
-function describeError(error: unknown): string {
+export function describeError(error: unknown): string {
+  // The server opens one office and lets clients only join it, so a join it cannot seat means the office is full.
+  if (error instanceof MatchMakeError && error.code === ErrorCode.MATCHMAKE_INVALID_CRITERIA) {
+    return `The office is full (${OFFICE_CAPACITY} people)`;
+  }
   if (error instanceof Error && error.message !== "") {
     return error.message;
   }

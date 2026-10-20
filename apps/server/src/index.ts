@@ -67,6 +67,7 @@ import { ProjectFeed } from "./github/feed.js";
 import { type RouteHandler, createHealthServer } from "./http.js";
 import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
 import { OfficeRoom, type OfficeRoomOptions } from "./rooms/OfficeRoom.js";
+import { openOnlyOffice } from "./rooms/onlyOffice.js";
 import type { IssueStates } from "./rooms/issueStateHandlers.js";
 
 const { port, allowedOrigins, projectBoard, liveAgents, runner, manager, dataDir } = readConfig();
@@ -199,6 +200,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 await server.listen(port);
+await openOnlyOffice();
 projectFeed.start();
 liveAgentRegistry?.start();
 runnerLink?.start();

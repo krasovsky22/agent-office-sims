@@ -42,6 +42,9 @@ import type { WorkAction, WorkRejection } from "./work.js";
 /** Matchmaking name of the only room type this milestone defines. */
 export const OFFICE_ROOM_NAME = "office";
 
+/** How many players the one office holds; the next is turned away. */
+export const OFFICE_CAPACITY = 16;
+
 export const CLIENT_MESSAGE = {
   /** The client's own pose, sent on a fixed interval while it is connected. */
   pose: "pose",
