@@ -29,7 +29,7 @@
  * identity; dropping an open issue on In progress opens its detail to choose
  * the agent, as its assign button does, and once given the card stays there. `boardDrop` in `projectBoard.ts`
  * decides which column takes which card. A dropped card shows in its new
- * column at once, from the moves `main.ts` keeps, and goes back with the
+ * column at once, from the moves `pendingIssueMoves.ts` keeps, and goes back with the
  * reason, said here on the board, if GitHub does not take it.
  *
  * Every string is a React text node, from a snapshot or state the server
@@ -93,7 +93,7 @@ export interface ProjectBoardActions {
   readonly assign: (issueNumber: number, agentId: string) => void;
   readonly move: (issueNumber: number, status: WorkStatus) => void;
   readonly release: (issueNumber: number) => void;
-  /** Closes or reopens the issue on GitHub; `main.ts` shows the move until GitHub's answer. */
+  /** Closes or reopens the issue on GitHub; `pendingIssueMoves.ts` shows the move until GitHub's answer. */
   readonly setIssueState: (issueNumber: number, state: IssueState) => void;
 }
 

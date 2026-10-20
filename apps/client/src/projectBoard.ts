@@ -281,7 +281,7 @@ export const formatClockTime: TimeFormatter = (epochMs) =>
 export const formatShortDate: TimeFormatter = (epochMs) =>
   new Date(epochMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
-/** An agent as the board names them; `Hud.tsx`'s roster entries satisfy it. */
+/** An agent as the board names them; `ui/hudStore.ts`'s roster entries satisfy it. */
 export interface BoardAgent {
   readonly id: string;
   readonly name: string;

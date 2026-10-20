@@ -20,7 +20,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { type AgentProfileAccess, PROFILE_TAKES_EFFECT, profileDraft } from "../agentProfileAccess.js";
-import type { RosterEntry } from "./Hud.js";
+import type { RosterEntry } from "./hudStore.js";
 
 export interface AgentProfileActions {
   /** Asks for the agent's profile to be edited; the server sanitises it and decides. Says whether it went out at all. */

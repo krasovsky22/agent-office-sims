@@ -90,6 +90,7 @@ import {
 } from "@sim/shared";
 
 import { type SpendLedger, localDay } from "../budget.js";
+import { EventOutbox } from "../eventOutbox.js";
 import { type Redactor, createRedactor } from "../redact.js";
 import { STANDING_SLOT_END, type SlotPool, type StandingSlotLease, fitBytes } from "../slots.js";
 import type { OpenPull, PullSource } from "./pulls.js";
@@ -121,9 +122,6 @@ const MAX_LEDGER_ENTRIES = 500;
 
 /** Most firings a schedule's ledger keeps. */
 const MAX_SCHEDULE_ENTRIES = 20;
-
-/** Events held while the server cannot be reached, as a slot pool holds them. */
-const MAX_PENDING_EVENTS = 256;
 
 /** At most one save a second while a run reports its spend. */
 const SPEND_SAVE_MS = 1000;
@@ -229,7 +227,7 @@ function stepOf(key: string): StandingStep {
 
 export class StandingScheduler {
   private data: StandingFile;
-  private readonly events: RunnerEvent[] = [];
+  private readonly events = new EventOutbox<RunnerEvent>();
   private readonly runs = new Map<string, ActiveRun>();
   private readonly polling = new Set<string>();
   private readonly now: () => number;
@@ -267,16 +265,11 @@ export class StandingScheduler {
   }
 
   public pendingEvents(): readonly RunnerEvent[] {
-    return this.events;
+    return this.events.pending();
   }
 
   public delivered(ids: ReadonlySet<string>): void {
-    for (let index = this.events.length - 1; index >= 0; index -= 1) {
-      const event = this.events[index];
-      if (event !== undefined && ids.has(event.id)) {
-        this.events.splice(index, 1);
-      }
-    }
+    this.events.forget((event) => ids.has(event.id));
     const unsent = this.data.unsent.filter((record) => !ids.has(record.id));
     if (unsent.length !== this.data.unsent.length) {
       this.data.unsent = unsent;
@@ -974,9 +967,6 @@ export class StandingScheduler {
 
   private emit(event: RunnerEvent): void {
     this.events.push(event);
-    if (this.events.length > MAX_PENDING_EVENTS) {
-      this.events.shift();
-    }
   }
 
   private reportOf(task: StoredTask): StandingTaskReport {

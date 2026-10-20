@@ -48,7 +48,8 @@
  * report spending today is copied into the state on the tick, for every
  * client's HUD. The CEO's prompts to those agents, and keys for their choice
  * screens, go out through `agents/agentPrompts.ts`, and what the runner says came of each comes
- * back on the same tick as its events.
+ * back on the same tick as its events. `runnerWiring.ts` builds all of them,
+ * and the room only steps them on the tick.
  *
  * The runners' standing tasks arrive as a source handed over at definition
  * time too: a process-wide mirror (`agents/standingMirror.ts`) the tick
@@ -89,7 +90,6 @@ import {
   DEFAULT_AGENT_RESTRICT_LABEL,
   EMOTE,
   type EmoteEvent,
-  type JumpEvent,
   HumanPlayer,
   type IssueWork,
   type RunnerSpendTotal,
@@ -117,29 +117,19 @@ import {
   managerSeat,
   nameRefusal,
   normalizeYaw,
-  parseChatMessage,
-  parseDeskTerminalSizeMessage,
-  parseEmoteMessage,
-  parseInteractMessage,
   parseJoinOptions,
-  parsePoseMessage,
-  parseRenameMessage,
   releaseGoneWork,
 } from "@sim/shared";
 
-import { AgentPrompts } from "../agents/agentPrompts.js";
-import { type DeskRunner, DeskTerminal } from "../agents/deskTerminal.js";
+import { type DeskRunner } from "../agents/deskTerminal.js";
 import type { LiveAgentSource } from "../agents/registry.js";
 import type {
-  RunnerEventInbox,
   RunnerEventSource,
   RunnerSpendSource,
   RunnerStandupHold,
 } from "../agents/runnerLink.js";
-import { type RunnerCommands, RunnerWork } from "../agents/runnerWork.js";
+import { type RunnerCommands } from "../agents/runnerWork.js";
 import type { ScreenSource } from "../agents/screens.js";
-import { StandingAnnouncer } from "../agents/standingAnnouncer.js";
-import { StandingControl } from "../agents/standingControl.js";
 import { type StandingMirror, copyStandingTasks } from "../agents/standingMirror.js";
 import type { ProjectBoardSource } from "../github/feed.js";
 import { type SimClock, createSimClock, stepClock } from "../sim/clock.js";
@@ -155,22 +145,16 @@ import {
   HoldRegistry,
   type InteractionHost,
   holdTick,
-  releaseHold,
-  requestInteract,
 } from "../sim/interaction.js";
 import { LiveAgentCrew } from "../sim/liveAgents.js";
-import { type OccupantMotion, applyPose, createMotion, recordPose, tryJump } from "../sim/movement.js";
+import { type OccupantMotion, applyPose, createMotion } from "../sim/movement.js";
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
-import { StandupMeeting } from "../sim/standup.js";
-import { registerAgentActionHandlers } from "./agentActionHandlers.js";
-import { registerAgentProfileHandlers } from "./agentProfileHandlers.js";
-import { registerAgentPromptHandlers } from "./agentPromptHandlers.js";
 import { registerManagerHandlers } from "./managerHandlers.js";
-import { registerStandingHandlers } from "./standingHandlers.js";
+import { registerPresenceHandlers } from "./presenceHandlers.js";
+import { type RunnerWiring, wireRunners } from "./runnerWiring.js";
 import { relayProjectBoard, sendProjectBoard } from "./projectBoardDelivery.js";
-import { registerStandupHandlers } from "./standupHandlers.js";
-import { type IssueStates, registerIssueStateHandler } from "./issueStateHandlers.js";
-import { type WorkHost, registerWorkHandlers } from "./workHandlers.js";
+import { type IssueStates } from "./issueStateHandlers.js";
+import { type WorkHost } from "./workHandlers.js";
 
 /**
  * Silence after which an occupant is shown as standing still.
@@ -291,35 +275,16 @@ export class OfficeRoom extends Room<OfficeState> {
   private stopWatchingLiveAgents: (() => void) | undefined;
   /** Set by the source, cleared by the tick that reads it. */
   private liveAgentsChanged = true;
-  /** This room's share of the runners' events, drained by the tick. */
-  private runnerEvents: RunnerEventInbox | undefined;
-  /** The runners' side of the work; unset in a room given no runner. */
-  private runnerWork: RunnerWork | undefined;
-  /** Read every tick into the state's books; unset in a room given no runner. */
-  private runnerSpend: RunnerSpendSource | undefined;
-  private issueStates: IssueStates | undefined;
-  /** The CEO's prompts to the runners' agents; assigned in `onCreate`. */
-  private agentPrompts!: AgentPrompts;
-  private screens: ScreenSource | undefined;
-  private stopRelayingScreens: (() => void) | undefined;
+  /** Everything built around the agent runners; assigned in `onCreate`. */
+  private runners!: RunnerWiring;
 
   /** The AI manager's mind; unset in a room given no advisor. */
   private manager: OfficeManager | undefined;
   /** The concierge's welcomes; unset in a layout with no reception desk. */
   private concierge: ConciergeDesk | undefined;
 
-  /** The runners' standing tasks, copied into the state when they change; unset in a room given no runner. */
-  private standing: StandingMirror | undefined;
+  /** The version of the runners' standing tasks last copied into the state. */
   private standingVersion = -1;
-  /** The CEO's say over the standing tasks, for the roster's buttons and the manager alike. */
-  private standingControl: StandingControl | undefined;
-  private standingAnnouncer: StandingAnnouncer | undefined;
-
-  /** The CEO's standup; assigned in `onCreate`. */
-  private standup!: StandupMeeting;
-  /** The CEO's desk terminal; assigned in `onCreate`. */
-  private deskTerminal!: DeskTerminal;
-  private runnerStandup: RunnerStandupHold | undefined;
 
   public override onCreate(): void {
     if (mainOfficeId === undefined) {
@@ -353,10 +318,10 @@ export class OfficeRoom extends Room<OfficeState> {
         const shipped: IssueWork[] = [];
         const released = releaseGoneWork(this.state.work, snapshot, shipped);
         for (const work of released) {
-          this.runnerWork?.ended(work, `#${work.issueNumber} was closed on GitHub`);
+          this.runners.runnerWork?.ended(work, `#${work.issueNumber} was closed on GitHub`);
         }
         for (const work of shipped) {
-          this.runnerWork?.ended(work, "the work shipped");
+          this.runners.runnerWork?.ended(work, "the work shipped");
           this.announceShipped(work);
         }
       });
@@ -367,12 +332,8 @@ export class OfficeRoom extends Room<OfficeState> {
       occupants: this.state.occupants,
       interaction: this.interaction,
       work: this.state.work,
-      say: (occupantId, text) => {
-        this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
-      },
-      wave: (occupantId) => {
-        this.broadcast(SERVER_MESSAGE.emote, { occupantId, emote: EMOTE.wave } satisfies EmoteEvent);
-      },
+      say: (occupantId, text) => this.say(occupantId, text),
+      wave: (occupantId) => this.wave(occupantId),
       announce: (text) => this.manager?.report(text),
       random: Math.random,
     });
@@ -383,231 +344,23 @@ export class OfficeRoom extends Room<OfficeState> {
         this.liveAgentsChanged = true;
       });
     }
-    this.runnerEvents = services.runnerEvents?.openEventInbox();
-    this.runnerSpend = services.runnerSpend;
-    const screens = services.screens;
-    if (screens !== undefined) {
-      this.screens = screens;
-      // Called from the screens route as each batch is accepted, between ticks.
-      this.stopRelayingScreens = screens.onScreens((event) => {
-        this.broadcast(SERVER_MESSAGE.screens, event satisfies ScreenFramesEvent);
-      });
-    }
-
-    // `Date.now()` rather than `this.clock`, because a work timestamp is read
-    // as a wall-clock date, not as an offset from this room's start.
-    const workHost: WorkHost = {
-      state: this.state,
-      now: () => Date.now(),
-      board: () => this.projectBoard?.current(),
-      observe: (change) => {
-        this.runnerWork?.changed(change);
-      },
-    };
-    const runnerCommands = services.runnerCommands;
-    if (runnerCommands !== undefined) {
-      this.runnerWork = new RunnerWork({
-        host: workHost,
-        runner: runnerCommands,
-        log: recordOfficeEvent,
-        announce: (text) => this.manager?.report(text),
-      });
-    }
-    registerWorkHandlers(this, workHost);
-    this.issueStates = services.issueStates;
-    registerIssueStateHandler(this, {
-      state: this.state,
-      board: () => this.projectBoard?.current(),
-      issues: this.issueStates,
-    });
-    const standing = services.standing;
-    if (standing !== undefined && runnerCommands !== undefined) {
-      this.standing = standing;
-      this.standingControl = new StandingControl({ directory: standing, commands: runnerCommands });
-      // GitHub answers an issue's link for a pull request's number by going to the pull request.
-      const pullUrl = (number: number): string => runnerCommands.issueUrl(number).replace(/\/issues\/(\d+)$/, "/pull/$1");
-      this.standingAnnouncer = new StandingAnnouncer({
-        pullUrl,
-        taskName: (taskId) => standing.standingTasks().find((record) => record.report.id === taskId)?.report.name,
-        taskKind: (taskId) => standing.standingTasks().find((record) => record.report.id === taskId)?.report.kind,
-        occupantName: (occupantId) => this.state.occupants.get(occupantId)?.name,
-        announce: (text) => this.manager?.report(text),
-        refused: (taskId) => standing.refused(taskId),
-      });
-      registerStandingHandlers(this, {
-        state: this.state,
-        control: this.standingControl,
-        allow: (client, command) => this.spend(client, command),
-        // Links built here, on the board's repository, never taken from a runner.
-        history: (taskId) =>
-          standing.standingRuns(taskId).map((run) => ({
-            ...run,
-            url: run.pr === undefined ? "" : `${pullUrl(run.pr.number)}${run.commentId === undefined ? "" : `#issuecomment-${run.commentId}`}`,
-          })),
-      });
-    }
-    this.agentPrompts = new AgentPrompts({
-      state: this.state,
-      runner: runnerCommands,
-      now: () => Date.now(),
-      refuse: (sessionId, event) => {
-        this.clients.getById(sessionId)?.send(SERVER_MESSAGE.agentPromptRejected, event);
-      },
-      publish: (entry) => {
-        this.broadcast(SERVER_MESSAGE.agentPrompted, entry);
-      },
-      log: recordOfficeEvent,
-      directed: (commandId, outcome) => {
-        this.standup.settle(commandId, outcome);
-      },
-    });
-    registerAgentPromptHandlers(this, {
-      state: this.state,
-      prompts: this.agentPrompts,
-      allow: (client) => this.spend(client, CLIENT_MESSAGE.agentPrompt),
-      allowKey: (client) => this.spend(client, CLIENT_MESSAGE.agentKey),
-    });
-    registerAgentProfileHandlers(this, {
-      state: this.state,
-      runner: runnerCommands,
-      allow: (client) => this.spend(client, CLIENT_MESSAGE.agentProfile),
-      log: recordOfficeEvent,
-    });
-    registerAgentActionHandlers(this, {
-      work: workHost,
-      runner: runnerCommands,
-      fire: (agentId) => {
-        this.crew.fire(agentId, this.clock.currentTime);
-      },
-      announce: (text) => this.manager?.report(text),
-      allow: (client) => this.spend(client, CLIENT_MESSAGE.agentAction),
-      log: recordOfficeEvent,
-    });
-    this.runnerStandup = services.runnerStandup;
-    this.standup = new StandupMeeting({
-      state: this.state,
-      layout: OFFICE_LAYOUT,
+    this.runners = wireRunners(this, {
+      services,
       crew: this.crew,
-      now: () => Date.now(),
-      clock: () => this.clock.currentTime,
-      prompts: runnerCommands === undefined ? undefined : this.agentPrompts,
-      say: (occupantId, text) => {
-        this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
-      },
-      report: (text) => this.manager?.report(text),
-      hold: (on) => this.runnerStandup?.holdForStandup(this.roomId, on),
-      log: recordOfficeEvent,
+      board: () => this.projectBoard?.current(),
+      allow: (client, command) => this.spend(client, command),
+      say: (occupantId, text) => this.say(occupantId, text),
+      announce: (text) => this.manager?.report(text),
     });
-    registerStandupHandlers(this, {
-      state: this.state,
-      standup: this.standup,
-      allowCall: (client) => this.spend(client, CLIENT_MESSAGE.standupStart),
-      allowDirection: (client) => this.spend(client, CLIENT_MESSAGE.standupDirect),
-    });
-    this.deskTerminal = new DeskTerminal({
-      state: this.state,
-      layout: OFFICE_LAYOUT,
-      runner: runnerCommands,
-      log: recordOfficeEvent,
-    });
-    this.openManagersDesk(workHost, services);
+    this.openManagersDesk(this.runners.workHost, services);
     this.openReception();
 
-    this.onMessage(CLIENT_MESSAGE.pose, (client, raw: unknown) => {
-      const pose = parsePoseMessage(raw);
-      const motion = this.motions.get(client.sessionId);
-      if (pose === undefined || motion === undefined) {
-        // A malformed payload is dropped; another pose follows in ~50ms.
-        return;
-      }
-      recordPose(motion, pose, this.clock.currentTime);
-    });
-
-    this.onMessage(CLIENT_MESSAGE.jump, (client) => {
-      const occupant = this.state.occupants.get(client.sessionId);
-      const motion = this.motions.get(client.sessionId);
-      if (occupant === undefined || motion === undefined || !tryJump(occupant, motion, this.clock.currentTime)) {
-        return;
-      }
-      // Not back to the jumper, who drew the jump the moment the key went down.
-      this.broadcast(SERVER_MESSAGE.jump, { occupantId: client.sessionId } satisfies JumpEvent, { except: client });
-    });
-
-    this.onMessage(CLIENT_MESSAGE.interact, (client, raw: unknown) => {
-      const message = parseInteractMessage(raw);
-      if (message === undefined) {
-        return;
-      }
-      // A refusal is not answered: the client ran the same rule before showing
-      // its prompt, so a refusal means either a race it will see resolved in
-      // the next patch or a client that was not asking honestly.
-      const outcome = requestInteract(
-        this.interaction,
-        client.sessionId,
-        message.target,
-        this.clock.currentTime,
-      );
-      if (outcome.result === "used") {
-        // An interaction that holds nothing has no state to change, so all it
-        // can do for now is leave a trace — see `sim/events.ts`. A wall board's
-        // close-up is the reading client's own view, so it changes nothing here.
-        recordOfficeEvent("interact", {
-          actor: this.state.occupants.get(client.sessionId)?.name ?? client.sessionId,
-          target: outcome.target.id,
-          kind: outcome.target.kind,
-        });
-      }
-    });
-
-    this.onMessage(CLIENT_MESSAGE.release, (client) => {
-      releaseHold(this.interaction, client.sessionId, this.clock.currentTime);
-    });
-
-    this.onMessage(CLIENT_MESSAGE.deskTerminalSize, (client, raw: unknown) => {
-      // Kept, not acted on: the tick's step sends a changed size at most once.
-      const size = parseDeskTerminalSizeMessage(raw);
-      if (size !== undefined) {
-        this.deskTerminal.resize(client.sessionId, size.cols, size.rows);
-      }
-    });
-
-    this.onMessage(CLIENT_MESSAGE.emote, (client, raw: unknown) => {
-      const message = parseEmoteMessage(raw);
-      if (message === undefined || !this.spend(client, CLIENT_MESSAGE.emote)) {
-        return;
-      }
-      this.broadcast(SERVER_MESSAGE.emote, {
-        occupantId: client.sessionId,
-        emote: message.emote,
-      } satisfies EmoteEvent);
-    });
-
-    this.onMessage(CLIENT_MESSAGE.chat, (client, raw: unknown) => {
-      // The text is sanitized by the parser, so what goes out over the wire is
-      // already capped and stripped. No client ever has to re-check it.
-      const message = parseChatMessage(raw);
-      if (message === undefined || !this.spend(client, CLIENT_MESSAGE.chat)) {
-        return;
-      }
-      this.broadcast(SERVER_MESSAGE.chat, {
-        occupantId: client.sessionId,
-        text: message.text,
-      } satisfies ChatEvent);
-    });
-
-    this.onMessage(CLIENT_MESSAGE.rename, (client, raw: unknown) => {
-      const message = parseRenameMessage(raw);
-      const player = this.state.occupants.get(client.sessionId);
-      if (message === undefined || player === undefined || !this.spend(client, CLIENT_MESSAGE.rename)) {
-        return;
-      }
-      const others = [...this.state.occupants.values()].filter((occupant) => occupant !== player);
-      const rejection = nameRefusal(message.name, others);
-      if (rejection !== undefined) {
-        client.send(SERVER_MESSAGE.nameRejected, { name: message.name, rejection } satisfies NameRejectedEvent);
-        return;
-      }
-      player.name = message.name;
+    registerPresenceHandlers(this, {
+      state: this.state,
+      interaction: this.interaction,
+      now: () => this.clock.currentTime,
+      allow: (client, command) => this.spend(client, command),
+      say: (occupantId, text) => this.say(occupantId, text),
     });
 
     this.setSimulationInterval((deltaMs) => {
@@ -649,7 +402,7 @@ export class OfficeRoom extends Room<OfficeState> {
       } satisfies ManagerHistoryEvent);
     }
     this.sendScreens(client);
-    const prompts = this.agentPrompts.history();
+    const prompts = this.runners.agentPrompts.history();
     if (prompts.length > 0) {
       client.send(SERVER_MESSAGE.agentPromptHistory, { entries: prompts } satisfies AgentPromptHistoryEvent);
     }
@@ -657,7 +410,7 @@ export class OfficeRoom extends Room<OfficeState> {
 
   /** Every screen whole, since the diffs broadcast while this client was away are not repeated. */
   private sendScreens(client: Client): void {
-    const screens = this.screens?.fullScreens();
+    const screens = this.runners.screens?.fullScreens();
     if (screens !== undefined && screens.screens.length > 0) {
       client.send(SERVER_MESSAGE.screens, screens satisfies ScreenFramesEvent);
     }
@@ -672,11 +425,7 @@ export class OfficeRoom extends Room<OfficeState> {
     this.stopRelayingProjectBoard?.();
     this.stopReleasingWork?.();
     this.stopWatchingLiveAgents?.();
-    this.runnerEvents?.close();
-    this.stopRelayingScreens?.();
-    this.deskTerminal.dispose();
-    // A room closing mid-standup must not leave the runners' agents paused.
-    this.runnerStandup?.holdForStandup(this.roomId, false);
+    this.runners.dispose();
   }
 
   /**
@@ -724,37 +473,39 @@ export class OfficeRoom extends Room<OfficeState> {
       this.crew.sync(this.liveAgents.current(), now);
     }
     this.crew.step(now, Math.min(Math.max(deltaMs, 0), MAX_AGENT_STEP_MS) / 1000);
-    this.standup.step();
+    this.runners.standup.step();
     // A runner comes and goes; the board offers its drops only while one is here.
-    this.state.issuesWritable = this.issueStates?.canChangeIssues() === true;
+    this.state.issuesWritable = this.runners.issueStates?.canChangeIssues() === true;
     // Drained every tick so a room's inbox never holds more than a tick's
     // worth, after the crew has seated any slot the same sync brought, so
     // each event finds the agent it is about.
-    const events = this.runnerEvents?.drain();
+    const events = this.runners.runnerEvents?.drain();
     if (events !== undefined && events.length > 0) {
-      this.runnerWork?.receive(events);
-      this.standingAnnouncer?.receive(events);
-      this.deskTerminal.receive(events);
+      this.runners.runnerWork?.receive(events);
+      this.runners.standingAnnouncer?.receive(events);
+      this.runners.deskTerminal.receive(events);
     }
     // Every tick, so standing up hands the desk's agent back at once.
-    this.deskTerminal.step();
-    if (this.standing !== undefined && this.standing.standingVersion() !== this.standingVersion) {
-      this.standingVersion = this.standing.standingVersion();
-      copyStandingTasks(this.state.standing, this.standing.standingTasks());
+    this.runners.deskTerminal.step();
+    const standing = this.runners.standing;
+    if (standing !== undefined && standing.standingVersion() !== this.standingVersion) {
+      this.standingVersion = standing.standingVersion();
+      copyStandingTasks(this.state.standing, standing.standingTasks());
     }
-    const prompts = this.runnerEvents?.drainPrompts();
+    const prompts = this.runners.runnerEvents?.drainPrompts();
     if (prompts !== undefined && prompts.length > 0) {
-      this.agentPrompts.receive(prompts);
+      this.runners.agentPrompts.receive(prompts);
     }
     // Once a second: a slot still holding work this room has no record of,
     // as after the server restarted, is stopped, and a prompt
     // its runner never answered is given up on.
     if (this.state.tick % TICK_RATE_HZ === 0) {
-      this.runnerWork?.reconcile();
-      this.agentPrompts.expire();
+      this.runners.runnerWork?.reconcile();
+      this.runners.agentPrompts.expire();
     }
-    if (this.runnerSpend !== undefined) {
-      this.showRunnerSpend(this.runnerSpend.spend());
+    const runnerSpend = this.runners.runnerSpend;
+    if (runnerSpend !== undefined) {
+      this.showRunnerSpend(runnerSpend.spend());
     }
 
     for (const [sessionId, motion] of this.motions) {
@@ -823,12 +574,8 @@ export class OfficeRoom extends Room<OfficeState> {
       {
         layout: OFFICE_LAYOUT,
         occupants: this.state.occupants,
-        say: (occupantId, text) => {
-          this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
-        },
-        wave: (occupantId) => {
-          this.broadcast(SERVER_MESSAGE.emote, { occupantId, emote: EMOTE.wave } satisfies EmoteEvent);
-        },
+        say: (occupantId, text) => this.say(occupantId, text),
+        wave: (occupantId) => this.wave(occupantId),
       },
       concierge,
       post,
@@ -862,13 +609,13 @@ export class OfficeRoom extends Room<OfficeState> {
       liveAgents: assignments,
       floor: this.liveAgents,
       assignments,
-      ...(this.standingControl === undefined ? {} : { standing: this.standingControl }),
+      ...(this.runners.standingControl === undefined ? {} : { standing: this.runners.standingControl }),
       ...(services.agentHiring === undefined ? {} : { hiring: services.agentHiring }),
       origin: this.roomId,
       publish: (entry) => {
         this.broadcast(SERVER_MESSAGE.managerEntry, entry satisfies ManagerEntry);
       },
-      standup: (action, ceo) => this.standup.forManager(action, ceo),
+      standup: (action, ceo) => this.runners.standup.forManager(action, ceo),
     });
     registerManagerHandlers(this, {
       state: this.state,
@@ -901,7 +648,17 @@ export class OfficeRoom extends Room<OfficeState> {
   private announceShipped(work: IssueWork): void {
     recordOfficeEvent("work-shipped", { agent: work.assigneeId, issue: work.issueNumber });
     const text = `Shipped #${work.issueNumber}: ${clip(work.title, MAX_TITLE_LENGTH)}`.slice(0, MAX_CHAT_LENGTH);
-    this.broadcast(SERVER_MESSAGE.chat, { occupantId: work.assigneeId, text } satisfies ChatEvent);
+    this.say(work.assigneeId, text);
+  }
+
+  /** Says something out loud on an occupant's behalf, through the chat everyone reads. */
+  private say(occupantId: string, text: string): void {
+    this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
+  }
+
+  /** Waves on an occupant's behalf, as a greeting. */
+  private wave(occupantId: string): void {
+    this.broadcast(SERVER_MESSAGE.emote, { occupantId, emote: EMOTE.wave } satisfies EmoteEvent);
   }
 
   /** Cycles the layout's spawn points so arrivals do not stack on one spot. */

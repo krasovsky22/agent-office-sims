@@ -46,87 +46,33 @@
  */
 
 import {
-  type AgentPromptEntry,
-  type AgentPromptHistoryEvent,
-  type AgentKey,
-  type AgentKeyMessage,
-  type DeskTerminalSizeMessage,
-  type AgentProfile,
-  type AgentAction,
-  type AgentActionMessage,
-  type AgentActionRejectedEvent,
-  type AgentProfileMessage,
-  type AgentProfileRejectedEvent,
-  type AgentPromptMessage,
-  type AgentPromptRejectedEvent,
-  ANIMATION_STATE,
   type AnimationState,
-  type CeoChangedEvent,
-  type ChatEvent,
-  type ChatMessage,
-  CLIENT_MESSAGE,
   type DeskTerminal,
-  type Emote,
-  type EmoteEvent,
-  type EmoteMessage,
-  type JumpEvent,
-  INTERPOLATION_DELAY_MS,
   NO_STANDUP,
-  type InteractMessage,
-  type IssueState,
-  type IssueStateMessage,
-  type IssueStateResultEvent,
   type IssueWork,
   type LiveAgentStatus,
-  type ManagerEntry,
-  type ManagerHistoryEvent,
-  type ManagerRejectedEvent,
-  type ManagerSayMessage,
   type ManagerStatus,
-  type NameRejectedEvent,
   OFFICE_ROOM_NAME,
   type Occupant,
   type OccupantKind,
   type OfficeState,
-  POSE_BUFFER_SIZE,
-  POSE_SEND_INTERVAL_MS,
-  type PoseMessage,
-  type ProjectBoardSnapshot,
   RECONNECT_GRACE_SECONDS,
-  type RenameMessage,
-  type ReportedAnimation,
   type RunnerSpendTotal,
   SERVER_MESSAGE,
-  STANDING_ACTION,
-  type StandingClientMessage,
-  type StandingCreateMessage,
-  type StandingHistoryEvent,
-  type StandingRejectedEvent,
-  type StandingRescheduleMessage,
-  type StandingSchedule,
-  type StandingTaskAction,
-  type StandingTaskMessage,
   type ScreenFramesEvent,
   type Standup,
   type StandupData,
-  type StandupDirectMessage,
-  type StandupRejectedEvent,
-  type ThrottledEvent,
-  type WorkAssignMessage,
   type WorkData,
-  type WorkMoveMessage,
-  type WorkRejectedEvent,
-  type WorkReleaseMessage,
-  type WorkStatus,
   isAiManager,
   isCeo,
   isLiveAgent,
-  normalizeYaw,
-  shortestYawDelta,
 } from "@sim/shared";
 import { Client, ErrorCode, MatchMakeError, type Room, getStateCallbacks } from "colyseus.js";
 
-import { type StandingTaskData, copyStandingTask } from "../standingAccess.js";
+import { copyStandingTask } from "../standingAccess.js";
+import { type PoseSample, type RemotePose, pushPose, samplePoses } from "./poseBuffer.js";
+import { RoomCommands } from "./roomCommands.js";
+import { type RoomConnectionEvents, forwardServerEvents } from "./roomEvents.js";
 import { type TerminalScreen, applyScreenFrame } from "./screens.js";
 
 export type ConnectionStatus =
@@ -139,15 +85,6 @@ export type ConnectionStatus =
 
 /** Pause between reconnection attempts while the server's grace period lasts. */
 const RECONNECT_RETRY_MS = 1000;
-
-/** One pose as received, stamped with local arrival time. */
-interface PoseSample {
-  t: number;
-  x: number;
-  z: number;
-  yaw: number;
-  animation: AnimationState;
-}
 
 /**
  * What the HUD and the avatar layer need to know about an occupant.
@@ -195,88 +132,6 @@ export interface OccupantView {
   managerStatus: ManagerStatus | undefined;
 }
 
-/** The local pose as reported to the server: only states a client may claim. */
-export interface ReportedPose {
-  readonly x: number;
-  readonly z: number;
-  readonly yaw: number;
-  readonly animation: ReportedAnimation;
-}
-
-/** A pose written by {@link RoomConnection.sampleRemote}. */
-export interface RemotePose {
-  x: number;
-  z: number;
-  yaw: number;
-  animation: AnimationState;
-}
-
-export interface RoomConnectionEvents {
-  /** An occupant arrived, left, was renamed, became CEO, or an agent changed status. */
-  onOccupantsChanged?: () => void;
-  onStatusChanged?: (status: ConnectionStatus, detail?: string) => void;
-  /** The local player's starting pose, as the server assigned it. */
-  onLocalSpawn?: (x: number, z: number, yaw: number) => void;
-  /** An occupant emoted. Fired for the local player too, via the server. */
-  onEmote?: (event: EmoteEvent) => void;
-  /** Another occupant jumped; the local player's own jump is not echoed back. */
-  onJump?: (event: JumpEvent) => void;
-  /** An occupant said something. Fired for the local player too. */
-  onChat?: (event: ChatEvent) => void;
-  /** The local client's own emote or chat was dropped by the rate limiter. */
-  onThrottled?: (event: ThrottledEvent) => void;
-  /** The project board's snapshot, on joining and whenever the server's feed replaces it. */
-  onProjectBoard?: (snapshot: ProjectBoardSnapshot) => void;
-  /** The in-game clock moved on a minute, which is several times a second. */
-  onClockChanged?: (minuteOfDay: number) => void;
-  /** What the runners' real agents have spent today, or their budgets, changed. */
-  onSpendChanged?: (spend: RunnerSpendTotal) => void;
-  /** The office refused one of the local client's own work commands. */
-  onWorkRejected?: (event: WorkRejectedEvent) => void;
-  /** GitHub answered, or the office refused, one of the local client's own drops on Closed or Open. */
-  onIssueStateResult?: (event: IssueStateResultEvent) => void;
-  /** The CEO left and the role passed to someone else. */
-  onCeoChanged?: (event: CeoChangedEvent) => void;
-  /** All the agents' work, after any of it is added, changed or removed. */
-  onWorkChanged?: (work: readonly WorkData[]) => void;
-  /** The conversation with the manager so far, on joining and on every reconnection. */
-  onManagerHistory?: (entries: readonly ManagerEntry[]) => void;
-  /** One new line in that conversation, from the CEO or the manager. */
-  onManagerEntry?: (entry: ManagerEntry) => void;
-  /** The manager did not take one of the local client's own messages. */
-  onManagerRejected?: (event: ManagerRejectedEvent) => void;
-  /** The prompts typed into the coding agents' terminals lately, on joining. */
-  onAgentPromptHistory?: (entries: readonly AgentPromptEntry[]) => void;
-  /** A prompt was typed into a coding agent's terminal, the local player's own included. */
-  onAgentPrompted?: (entry: AgentPromptEntry) => void;
-  /** One of the local client's own prompts was not typed, or keys not pressed, and why. */
-  onAgentPromptRejected?: (event: AgentPromptRejectedEvent) => void;
-  /** One of the local client's own edits to an agent's profile was not passed on, and why. */
-  onAgentProfileRejected?: (event: AgentProfileRejectedEvent) => void;
-  /** The name the local player asked for, on joining or renaming, is someone else's in the office. */
-  onNameRejected?: (event: NameRejectedEvent) => void;
-  /** The local client's own cancel or firing was not carried out, and why. */
-  onAgentActionRejected?: (event: AgentActionRejectedEvent) => void;
-  /** The runners' standing tasks, after any of them is added, changed or removed. */
-  onStandingChanged?: (tasks: readonly StandingTaskData[]) => void;
-  /** The office did nothing about one of the local client's standing task buttons. */
-  onStandingRejected?: (event: StandingRejectedEvent) => void;
-  /** A standing task's last runs, which the local client asked for from the wall board. */
-  onStandingHistory?: (event: StandingHistoryEvent) => void;
-  /** The standup, after any of it changed: called, an update given, a direction's fate, ended. */
-  onStandupChanged?: (standup: StandupData) => void;
-  /** The office refused one of the local client's own standup commands. */
-  onStandupRejected?: (event: StandupRejectedEvent) => void;
-}
-
-/** The message each standing task button sends. */
-const STANDING_MESSAGES: Readonly<Record<StandingTaskAction, StandingClientMessage>> = {
-  [STANDING_ACTION.pause]: CLIENT_MESSAGE.standingPause,
-  [STANDING_ACTION.resume]: CLIENT_MESSAGE.standingResume,
-  [STANDING_ACTION.remove]: CLIENT_MESSAGE.standingRemove,
-  [STANDING_ACTION.checkNow]: CLIENT_MESSAGE.standingCheckNow,
-};
-
 /** The runners' books as the state replicates them, back as one total. */
 function runnerSpendOf(state: Pick<OfficeState, "spendRunners" | "spentUsd" | "budgeted" | "budgetUsd" | "budgetSpent">): RunnerSpendTotal {
   return {
@@ -287,14 +142,13 @@ function runnerSpendOf(state: Pick<OfficeState, "spendRunners" | "spentUsd" | "b
   };
 }
 
-export class RoomConnection {
+export class RoomConnection extends RoomCommands {
   /** Authoritative pose of the local player, for reconciliation. */
   public readonly localServerPose = { x: 0, z: 0, yaw: 0, known: false };
 
   private client: Client | undefined;
   /** The name first asked for, which a fresh join after a lost session asks for again. */
   private name = "";
-  private room: Room<OfficeState> | undefined;
   /** Set while a join is in flight, so a second click on Rejoin cannot seat the player twice. */
   private joining = false;
   /** Set by {@link leave}, so a deliberate exit is never reconnected. */
@@ -307,15 +161,9 @@ export class RoomConnection {
   private standingQueued = false;
   private standupQueued = false;
 
-  private lastSentAt = Number.NEGATIVE_INFINITY;
-  private readonly lastSent = {
-    x: Number.NaN,
-    z: Number.NaN,
-    yaw: Number.NaN,
-    animation: ANIMATION_STATE.idle as ReportedAnimation,
-  };
-
-  public constructor(private readonly events: RoomConnectionEvents = {}) {}
+  public constructor(private readonly events: RoomConnectionEvents = {}) {
+    super();
+  }
 
   public get sessionId(): string {
     return this.room?.sessionId ?? "";
@@ -413,86 +261,6 @@ export class RoomConnection {
     return undefined;
   }
 
-  /** Asks to use an interactable. The server decides; there is no reply. */
-  public sendInteract(target: string): void {
-    this.room?.send(CLIENT_MESSAGE.interact, { target } satisfies InteractMessage);
-  }
-
-  /** Asks to be let go of whatever the local player is engaged with. */
-  public sendRelease(): void {
-    this.room?.send(CLIENT_MESSAGE.release, {});
-  }
-
-  /** Gives an issue to an agent. Like every work command, the state patch is the reply. */
-  public sendWorkAssign(issueNumber: number, assigneeId: string): void {
-    this.room?.send(CLIENT_MESSAGE.workAssign, { issueNumber, assigneeId } satisfies WorkAssignMessage);
-  }
-
-  /** Takes an issue back off the agent it was given to. */
-  public sendWorkRelease(issueNumber: number): void {
-    this.room?.send(CLIENT_MESSAGE.workRelease, { issueNumber } satisfies WorkReleaseMessage);
-  }
-
-  /** Moves an issue's work a step: approve it, send it back, have it tried again. */
-  public sendWorkMove(issueNumber: number, status: WorkStatus): void {
-    this.room?.send(CLIENT_MESSAGE.workMove, { issueNumber, status } satisfies WorkMoveMessage);
-  }
-
-  /** Closes or reopens an issue on GitHub; the answer comes as an `issue:state-result`. */
-  public sendIssueState(issueNumber: number, state: IssueState): void {
-    this.room?.send(CLIENT_MESSAGE.issueState, { issueNumber, state } satisfies IssueStateMessage);
-  }
-
-  /**
-   * Reports the local pose, at most once per {@link POSE_SEND_INTERVAL_MS}.
-   *
-   * A pose identical to the last one sent is skipped: a player standing still
-   * has nothing to report, and the server already shows them idle.
-   */
-  public sendPose(pose: ReportedPose, nowMs: number): void {
-    const room = this.room;
-    if (room === undefined || nowMs - this.lastSentAt < POSE_SEND_INTERVAL_MS) {
-      return;
-    }
-    if (
-      pose.x === this.lastSent.x &&
-      pose.z === this.lastSent.z &&
-      pose.yaw === this.lastSent.yaw &&
-      pose.animation === this.lastSent.animation
-    ) {
-      return;
-    }
-
-    this.lastSent.x = pose.x;
-    this.lastSent.z = pose.z;
-    this.lastSent.yaw = pose.yaw;
-    this.lastSent.animation = pose.animation;
-    this.lastSentAt = nowMs;
-    room.send(CLIENT_MESSAGE.pose, {
-      x: pose.x,
-      z: pose.z,
-      yaw: pose.yaw,
-      animation: pose.animation,
-    } satisfies PoseMessage);
-  }
-
-  /**
-   * Fires an emote.
-   *
-   * Nothing is drawn locally in response: the emote is drawn when the server
-   * broadcasts it back, which is the same path every other client sees. An
-   * emote the server rate-limited away therefore does not appear above the
-   * sender's own head either, which is the honest thing to show.
-   */
-  public sendEmote(emote: Emote): void {
-    this.room?.send(CLIENT_MESSAGE.emote, { emote } satisfies EmoteMessage);
-  }
-
-  /** Tells the others the local player jumped; the local avatar has already left the floor. */
-  public sendJump(): void {
-    this.room?.send(CLIENT_MESSAGE.jump);
-  }
-
   /**
    * The CEO's desk terminal as of the last patch, or `undefined` before the
    * state arrives. Read in place by the game loop, which must not allocate.
@@ -511,117 +279,6 @@ export class RoomConnection {
     return this.room?.state.issuesWritable ?? false;
   }
 
-  /** Tells the AI manager something. The conversation broadcast is the reply. */
-  public sendManagerSay(text: string): void {
-    this.room?.send(CLIENT_MESSAGE.managerSay, { text } satisfies ManagerSayMessage);
-  }
-
-  /**
-   * Asks for a prompt to be typed into a coding agent's terminal. The
-   * broadcast of it typed is the reply, or a rejection to this client alone.
-   *
-   * @returns whether it went out at all.
-   */
-  public sendAgentPrompt(agentId: string, text: string): boolean {
-    if (this.room === undefined) {
-      return false;
-    }
-    this.room.send(CLIENT_MESSAGE.agentPrompt, { agentId, text } satisfies AgentPromptMessage);
-    return true;
-  }
-
-  /**
-   * Asks for a key to be pressed on the choice screen a coding agent waits
-   * on. Its terminal is the reply, or a rejection to this client alone.
-   *
-   * @returns whether it went out at all.
-   */
-  public sendAgentKey(agentId: string, key: AgentKey): boolean {
-    if (this.room === undefined) {
-      return false;
-    }
-    this.room.send(CLIENT_MESSAGE.agentKey, { agentId, key } satisfies AgentKeyMessage);
-    return true;
-  }
-
-  /** Says how many cells the CEO's desk terminal panel has room for, which its session's terminal is sized to. */
-  public sendDeskTerminalSize(cols: number, rows: number): void {
-    this.room?.send(CLIENT_MESSAGE.deskTerminalSize, { cols, rows } satisfies DeskTerminalSizeMessage);
-  }
-
-  /**
-   * Asks for a coding agent's profile to be edited. The state patch, once its
-   * runner has it, is the reply, or a rejection to this client alone.
-   *
-   * @returns whether it went out at all.
-   */
-  public sendAgentProfile(agentId: string, profile: AgentProfile): boolean {
-    if (this.room === undefined) {
-      return false;
-    }
-    this.room.send(CLIENT_MESSAGE.agentProfile, { agentId, ...profile } satisfies AgentProfileMessage);
-    return true;
-  }
-
-  /** Cancels a coding agent's task, or fires it. The state patch is the reply, or a rejection to this client alone. */
-  public sendAgentAction(agentId: string, action: AgentAction): void {
-    this.room?.send(CLIENT_MESSAGE.agentAction, { agentId, action } satisfies AgentActionMessage);
-  }
-
-  /** Pauses, resumes, removes or checks a standing task. The state patch is the reply, or a rejection to this client alone. */
-  public sendStanding(action: StandingTaskAction, taskId: string): void {
-    this.room?.send(STANDING_MESSAGES[action], { taskId } satisfies StandingTaskMessage);
-  }
-
-  /** Changes how often a standing task runs, from the wall board. The state patch is the reply, or a rejection to this client alone. */
-  public sendStandingReschedule(taskId: string, schedule: StandingSchedule): void {
-    this.room?.send(CLIENT_MESSAGE.standingReschedule, { taskId, schedule } satisfies StandingRescheduleMessage);
-  }
-
-  /** Sets a new standing task up, from the wall board's form. The state patch is the reply, or a rejection to this client alone. */
-  public sendStandingCreate(task: StandingCreateMessage): void {
-    this.room?.send(CLIENT_MESSAGE.standingCreate, task);
-  }
-
-  /** Asks for a standing task's last runs, for the wall board; they come back to this client alone. */
-  public requestStandingHistory(taskId: string): void {
-    this.room?.send(CLIENT_MESSAGE.standingHistory, { taskId } satisfies StandingTaskMessage);
-  }
-
-  /** Calls a standup. The standup in the next patch is the reply, or a rejection to this client alone. */
-  public sendStandupStart(): void {
-    this.room?.send(CLIENT_MESSAGE.standupStart, {});
-  }
-
-  /** Ends the standup. */
-  public sendStandupEnd(): void {
-    this.room?.send(CLIENT_MESSAGE.standupEnd, {});
-  }
-
-  /**
-   * Gives one agent at the standup, or every one for `STANDUP_EVERYONE`, a
-   * direction; its record in the standup says what came of it.
-   *
-   * @returns whether it went out at all.
-   */
-  public sendStandupDirection(agentId: string, text: string): boolean {
-    if (this.room === undefined) {
-      return false;
-    }
-    this.room.send(CLIENT_MESSAGE.standupDirect, { agentId, text } satisfies StandupDirectMessage);
-    return true;
-  }
-
-  /** Asks for a new display name. The state patch is the reply, or a rejection to this client alone. */
-  public sendRename(name: string): void {
-    this.room?.send(CLIENT_MESSAGE.rename, { name } satisfies RenameMessage);
-  }
-
-  /** Says something out loud. Echoed back by the server, like an emote. */
-  public sendChat(text: string): void {
-    this.room?.send(CLIENT_MESSAGE.chat, { text } satisfies ChatMessage);
-  }
-
   /**
    * Interpolates a remote occupant's pose for the current frame.
    *
@@ -630,45 +287,7 @@ export class RoomConnection {
    */
   public sampleRemote(id: string, nowMs: number, out: RemotePose): boolean {
     const buffer = this.buffers.get(id);
-    if (buffer === undefined || buffer.length === 0) {
-      return false;
-    }
-
-    const renderTime = nowMs - INTERPOLATION_DELAY_MS;
-    const oldest = buffer[0];
-    const newest = buffer[buffer.length - 1];
-    if (oldest === undefined || newest === undefined) {
-      return false;
-    }
-
-    // Outside the buffered window there is nothing to interpolate between, so
-    // hold the nearest sample rather than extrapolating into a guess.
-    if (renderTime <= oldest.t) {
-      copySample(oldest, out);
-      return true;
-    }
-    if (renderTime >= newest.t) {
-      copySample(newest, out);
-      return true;
-    }
-
-    for (let i = buffer.length - 1; i > 0; i -= 1) {
-      const after = buffer[i];
-      const before = buffer[i - 1];
-      if (after === undefined || before === undefined || before.t > renderTime) {
-        continue;
-      }
-      const span = after.t - before.t;
-      const alpha = span <= 0 ? 1 : (renderTime - before.t) / span;
-      out.x = before.x + (after.x - before.x) * alpha;
-      out.z = before.z + (after.z - before.z) * alpha;
-      out.yaw = normalizeYaw(before.yaw + shortestYawDelta(before.yaw, after.yaw) * alpha);
-      out.animation = after.animation;
-      return true;
-    }
-
-    copySample(newest, out);
-    return true;
+    return buffer !== undefined && samplePoses(buffer, nowMs, out);
   }
 
   private attach(room: Room<OfficeState>): void {
@@ -818,88 +437,7 @@ export class RoomConnection {
       this.queueStandup(room);
     });
 
-    // Expression arrives as events rather than state, so there is nothing to
-    // diff here: the server has already validated and sanitized each one, and
-    // the handler's job is only to pass it on.
-    room.onMessage<EmoteEvent>(SERVER_MESSAGE.emote, (event) => {
-      this.events.onEmote?.(event);
-    });
-
-    room.onMessage<JumpEvent>(SERVER_MESSAGE.jump, (event) => {
-      this.events.onJump?.(event);
-    });
-
-    room.onMessage<ChatEvent>(SERVER_MESSAGE.chat, (event) => {
-      this.events.onChat?.(event);
-    });
-
-    room.onMessage<ThrottledEvent>(SERVER_MESSAGE.throttled, (event) => {
-      this.events.onThrottled?.(event);
-    });
-
-    room.onMessage<ProjectBoardSnapshot>(SERVER_MESSAGE.projectBoard, (snapshot) => {
-      this.events.onProjectBoard?.(snapshot);
-    });
-
-    room.onMessage<WorkRejectedEvent>(SERVER_MESSAGE.workRejected, (event) => {
-      this.events.onWorkRejected?.(event);
-    });
-
-    room.onMessage<IssueStateResultEvent>(SERVER_MESSAGE.issueStateResult, (event) => {
-      this.events.onIssueStateResult?.(event);
-    });
-
-    room.onMessage<CeoChangedEvent>(SERVER_MESSAGE.ceoChanged, (event) => {
-      this.events.onCeoChanged?.(event);
-    });
-
-    room.onMessage<ManagerHistoryEvent>(SERVER_MESSAGE.managerHistory, (event) => {
-      this.events.onManagerHistory?.(event.entries);
-    });
-
-    room.onMessage<ManagerEntry>(SERVER_MESSAGE.managerEntry, (entry) => {
-      this.events.onManagerEntry?.(entry);
-    });
-
-    room.onMessage<ManagerRejectedEvent>(SERVER_MESSAGE.managerRejected, (event) => {
-      this.events.onManagerRejected?.(event);
-    });
-
-    room.onMessage<AgentPromptHistoryEvent>(SERVER_MESSAGE.agentPromptHistory, (event) => {
-      this.events.onAgentPromptHistory?.(event.entries);
-    });
-
-    room.onMessage<AgentPromptEntry>(SERVER_MESSAGE.agentPrompted, (entry) => {
-      this.events.onAgentPrompted?.(entry);
-    });
-
-    room.onMessage<AgentPromptRejectedEvent>(SERVER_MESSAGE.agentPromptRejected, (event) => {
-      this.events.onAgentPromptRejected?.(event);
-    });
-
-    room.onMessage<AgentProfileRejectedEvent>(SERVER_MESSAGE.agentProfileRejected, (event) => {
-      this.events.onAgentProfileRejected?.(event);
-    });
-
-    room.onMessage<NameRejectedEvent>(SERVER_MESSAGE.nameRejected, (event) => {
-      this.events.onNameRejected?.(event);
-    });
-
-    room.onMessage<AgentActionRejectedEvent>(SERVER_MESSAGE.agentActionRejected, (event) => {
-      this.events.onAgentActionRejected?.(event);
-    });
-
-    room.onMessage<StandingRejectedEvent>(SERVER_MESSAGE.standingRejected, (event) => {
-      this.events.onStandingRejected?.(event);
-    });
-
-    room.onMessage<StandingHistoryEvent>(SERVER_MESSAGE.standingHistory, (event) => {
-      this.events.onStandingHistory?.(event);
-    });
-
-    room.onMessage<StandupRejectedEvent>(SERVER_MESSAGE.standupRejected, (event) => {
-      this.events.onStandupRejected?.(event);
-    });
+    forwardServerEvents(room, this.events);
 
     // Several times a second, so kept rather than passed on: the game loop
     // reads a screen when it is due a repaint.
@@ -1015,17 +553,7 @@ export class RoomConnection {
     if (buffer === undefined) {
       return;
     }
-    const sample = sampleOf(occupant);
-    const previous = buffer[buffer.length - 1];
-    if (previous !== undefined && previous.t === sample.t) {
-      // Two changes decoded in the same frame describe one moment in time.
-      buffer[buffer.length - 1] = sample;
-      return;
-    }
-    buffer.push(sample);
-    if (buffer.length > POSE_BUFFER_SIZE) {
-      buffer.shift();
-    }
+    pushPose(buffer, sampleOf(occupant));
   }
 
   /**
@@ -1173,11 +701,4 @@ function sampleOf(occupant: Occupant): PoseSample {
     yaw: occupant.yaw,
     animation: occupant.animation,
   };
-}
-
-function copySample(sample: PoseSample, out: RemotePose): void {
-  out.x = sample.x;
-  out.z = sample.z;
-  out.yaw = sample.yaw;
-  out.animation = sample.animation;
 }

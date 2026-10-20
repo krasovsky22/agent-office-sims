@@ -8,16 +8,12 @@
  */
 
 import {
-  type AgentPromptEntry,
   ANIMATION_STATE,
-  CLIENT_MESSAGE,
   INTERACT_RANGE,
   INTERACTION_KIND,
   type InteractableSpec,
-  type IssueState,
   LIVE_AGENT_STATUS,
   MANAGER_INTERACTABLE_ID,
-  type ManagerEntry,
   OFFICE_DECOR,
   OFFICE_LAYOUT,
   OFFICE_PROPS,
@@ -46,24 +42,27 @@ import {
   AGENT_MENU_RANGE,
   type AgentMenuView,
   type AgentSpot,
-  agentActionRejectionText,
   agentMenuFor,
   facedAgent,
 } from "./agentMenu.js";
-import { agentProfileAccessFor, agentProfileRejectionText } from "./agentProfileAccess.js";
-import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
+import { agentProfileAccessFor } from "./agentProfileAccess.js";
+import { agentPromptAccessFor } from "./agentPromptAccess.js";
 import { deskForbiddenText, deskPanelFor, deskScreenKey, sameDeskPanel } from "./deskTerminalAccess.js";
-import { standupAccessFor, standupRejectionText } from "./standupAccess.js";
-import { boardAccessFor, issueStateRejectionText, rejectionText } from "./boardAccess.js";
+import { standupAccessFor } from "./standupAccess.js";
+import { boardAccessFor } from "./boardAccess.js";
+import { browserStorage, readDebugEnabled, readPropsEnabled, readServerUrl, requireCanvas, requireHudMount } from "./browserEnv.js";
 import { DayClock } from "./dayClock.js";
-import { helpSeen, markHelpSeen } from "./help.js";
-import { hasIssueMoveLanded, withOfficeWork } from "./projectBoard.js";
-import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
+import { hudActions } from "./hudActions.js";
+import { hudRoomEvents } from "./hudRoomEvents.js";
+import { withOfficeWork } from "./projectBoard.js";
+import { managerAccessFor } from "./managerAccess.js";
+import { PendingIssueMoves } from "./pendingIssueMoves.js";
 import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
-import { keepAcceptedName, nameRejectionText, readPlayerName } from "./playerName.js";
-import { recurringRow, standingAccessFor, standingRejectionText } from "./standingAccess.js";
-import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
-import { resolveServerUrl } from "./net/serverUrl.js";
+import { keepAcceptedName, readPlayerName } from "./playerName.js";
+import { recurringRow, standingAccessFor } from "./standingAccess.js";
+import { timedNotice } from "./timedNotice.js";
+import type { RemotePose } from "./net/poseBuffer.js";
+import { type OccupantView, RoomConnection } from "./net/room.js";
 import { CAMERA_MODE, type CameraMode, otherCameraMode, readCameraMode, writeCameraMode } from "./player/cameraMode.js";
 import { type CameraFocus, PlayerController, shoulderView } from "./player/controller.js";
 import { AgentScreens } from "./scene/agentScreen.js";
@@ -79,13 +78,8 @@ import { loadPropKit, screenFaceOf, screenMaterialOf } from "./scene/propKit.js"
 import { buildProps } from "./scene/props.js";
 import { StickerBoards } from "./scene/stickerBoards.js";
 import { buildStreet, streetReach } from "./scene/street.js";
-import {
-  Hud,
-  type ChatLogEntry,
-  type HudPrompt,
-  type HudSnapshot,
-  createHudStore,
-} from "./ui/Hud.js";
+import { Hud } from "./ui/Hud.js";
+import { type ChatLogEntry, type HudPrompt, type HudSnapshot, createHudStore } from "./ui/hudStore.js";
 
 /**
  * Longest frame the simulation will integrate.
@@ -105,32 +99,11 @@ const MAX_FRAME_SECONDS = 0.1;
  */
 const CHAT_LOG_LIMIT = 50;
 
-/**
- * Lines of the conversation with the manager kept on the client: the server
- * keeps fewer than this, so it is only ever a guard against a runaway session.
- */
-const MANAGER_LOG_LIMIT = 200;
-
-/** Prompts typed into the agents' terminals kept on the client; the server hands a joiner fewer. */
-const AGENT_PROMPT_LIMIT = 100;
-
 /** How long a "you are going too fast" notice stays on the HUD. */
 const NOTICE_DURATION_MS = 2500;
 
 /** How long the board says why a dragged card went back: long enough to read a sentence about GitHub. */
 const BOARD_NOTICE_DURATION_MS = 8000;
-
-/**
- * How long a card dropped on Closed or Open waits for the server's answer
- * before it goes back; past the server's own wait on GitHub, which answers first.
- */
-const ISSUE_MOVE_ANSWER_MS = 30_000;
-
-/**
- * How long a card GitHub moved stays where it was dropped without a snapshot
- * showing it there, for a feed that has gone stale and stopped publishing.
- */
-const ISSUE_MOVE_HOLD_MS = 120_000;
 
 /**
  * How far into its lean over a working agent's shoulder the camera hides
@@ -153,59 +126,6 @@ const CLOSE_TERMINAL_LABEL = "Close the terminal";
 
 /** The prompt shown while the player is sitting, so standing up is discoverable. */
 const STAND_UP_PROMPT: HudPrompt = { keys: "W A S D", label: "Stand up", blocked: false };
-
-function requireCanvas(): HTMLCanvasElement {
-  const canvas = document.querySelector<HTMLCanvasElement>("#scene");
-  if (canvas === null) {
-    throw new Error("index.html is missing the #scene canvas");
-  }
-  return canvas;
-}
-
-function requireHudMount(): HTMLElement {
-  const mount = document.querySelector<HTMLElement>("#hud");
-  if (mount === null) {
-    throw new Error("index.html is missing the #hud container");
-  }
-  return mount;
-}
-
-/**
- * The server URL baked in at build time. A production build cannot get here
- * without one — `vite.config.ts` refuses to build — so the fallback only ever
- * serves `pnpm dev`.
- */
-function readServerUrl(): string {
-  return resolveServerUrl(import.meta.env.VITE_SERVER_URL);
-}
-
-/**
- * Whether to draw the asset kit's furniture or stay on the grey boxes.
- *
- * `?props=off` turns it off for one tab and `VITE_PROPS=off` for a whole build,
- * which is what makes the grey-box path something you can actually look at rather
- * than dead code. Either way the office is the same shape and walkable — a failed
- * load lands in the same place, see {@link furnish}.
- */
-function readPropsEnabled(): boolean {
-  const requested =
-    new URLSearchParams(window.location.search).get("props") ?? import.meta.env.VITE_PROPS;
-  return requested !== "off";
-}
-
-/** Whether `?debug` asked for the draw-call readout. */
-function readDebugEnabled(): boolean {
-  return new URLSearchParams(window.location.search).has("debug");
-}
-
-/** The browser's local storage, or `undefined` where merely touching it throws, as a locked-down browser's does. */
-function browserStorage(): Storage | undefined {
-  try {
-    return window.localStorage;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * The second line of a live agent's nameplate and roster entry, with what the
@@ -336,16 +256,10 @@ function start(): void {
   };
 
   let nextChatId = 1;
-  let nextRefusalId = 1;
-  let noticeTimer: number | undefined;
-  let standupNoticeTimer: number | undefined;
   // The agent whose key pad in the standup panel was last pressed, for a key the limiter dropped.
   let lastKeyAgentId = "";
   // The agent whose profile was last saved, for an edit the limiter dropped.
   let lastProfileAgentId = "";
-  // The agent whose terminal panel is open: the one watched at its screen, or the one lent to the CEO's desk.
-  const openTerminalAgentId = (): string | undefined =>
-    hud.terminalAgentId ?? (hud.desk === undefined || hud.desk.agentId === "" ? undefined : hud.desk.agentId);
   // The agent whose terminal the CEO opened from the roster's Answer button, from wherever they stand.
   let answeringAgentId: string | undefined;
   // The agents waiting on a person as of the last roster, so only one that has just started waiting chimes.
@@ -353,86 +267,17 @@ function start(): void {
   const baseTitle = document.title;
 
   /** Shows a line to this player only, and takes it down again shortly. */
-  const showNotice = (text: string) => {
-    if (noticeTimer !== undefined) {
-      window.clearTimeout(noticeTimer);
-    }
-    publishHud({ notice: text });
-    noticeTimer = window.setTimeout(() => {
-      noticeTimer = undefined;
-      publishHud({ notice: undefined });
-    }, NOTICE_DURATION_MS);
-  };
-
-  let boardNoticeTimer: number | undefined;
-
+  const showNotice = timedNotice((notice) => publishHud({ notice }), NOTICE_DURATION_MS);
   /** Shows a line on the project board's close-up, to this player only, and takes it down again. */
-  const showBoardNotice = (text: string) => {
-    if (boardNoticeTimer !== undefined) {
-      window.clearTimeout(boardNoticeTimer);
-    }
-    publishHud({ boardNotice: text });
-    boardNoticeTimer = window.setTimeout(() => {
-      boardNoticeTimer = undefined;
-      publishHud({ boardNotice: undefined });
-    }, BOARD_NOTICE_DURATION_MS);
-  };
-
-  /**
-   * The cards this player dropped on Closed or Open, shown there at once.
-   *
-   * Each waits for the server's answer; a refusal puts it back and says why.
-   * One GitHub took stays until a snapshot shows it there, or one from a poll
-   * begun after the change shows GitHub's own state, whatever this tab assumed.
-   */
-  interface PendingIssueMove {
-    readonly issueNumber: number;
-    readonly state: IssueState;
-    /** Once GitHub made the change, the fresh snapshots since; the move now waits only for a snapshot. */
-    freshSince: number | undefined;
-    timer: number;
-  }
-  let issueMoves: PendingIssueMove[] = [];
-
-  const publishIssueMoves = () => {
-    publishHud({ issueMoves: issueMoves.map(({ issueNumber, state }) => ({ issueNumber, state })) });
-  };
-
-  const dropIssueMove = (move: PendingIssueMove) => {
-    window.clearTimeout(move.timer);
-    issueMoves = issueMoves.filter((candidate) => candidate !== move);
-    publishIssueMoves();
-  };
-
-  const moveIssue = (issueNumber: number, state: IssueState) => {
-    if (issueMoves.some((move) => move.issueNumber === issueNumber)) {
-      return;
-    }
-    const move: PendingIssueMove = {
-      issueNumber,
-      state,
-      freshSince: undefined,
-      timer: window.setTimeout(() => {
-        dropIssueMove(move);
-        showBoardNotice(`No answer about #${issueNumber} from the server; the board shows it as GitHub last did.`);
-      }, ISSUE_MOVE_ANSWER_MS),
-    };
-    issueMoves = [...issueMoves, move];
-    publishIssueMoves();
-    room.sendIssueState(issueNumber, state);
-  };
-
+  const showBoardNotice = timedNotice((boardNotice) => publishHud({ boardNotice }), BOARD_NOTICE_DURATION_MS);
   /** Shows a line in the standup panel, to this player only, and takes it down again shortly. */
-  const showStandupNotice = (text: string) => {
-    if (standupNoticeTimer !== undefined) {
-      window.clearTimeout(standupNoticeTimer);
-    }
-    publishHud({ standupNotice: text });
-    standupNoticeTimer = window.setTimeout(() => {
-      standupNoticeTimer = undefined;
-      publishHud({ standupNotice: undefined });
-    }, NOTICE_DURATION_MS);
-  };
+  const showStandupNotice = timedNotice((standupNotice) => publishHud({ standupNotice }), NOTICE_DURATION_MS);
+
+  const issueMoves = new PendingIssueMoves({
+    publish: (moves) => publishHud({ issueMoves: moves }),
+    notice: showBoardNotice,
+    send: (issueNumber, state) => room.sendIssueState(issueNumber, state),
+  });
 
   const appendChatLine = (entry: ChatLogEntry) => {
     publishHud({ chatLog: [...hud.chatLog, entry].slice(-CHAT_LOG_LIMIT) });
@@ -510,19 +355,27 @@ function start(): void {
   let askedName: string | undefined;
 
   const room: RoomConnection = new RoomConnection({
-    onStatusChanged: (status, detail) => {
-      publishHud({ status, detail });
-    },
+    ...hudRoomEvents({
+      publish: publishHud,
+      hud: () => hud,
+      notice: showNotice,
+      standupNotice: showStandupNotice,
+      nameOf: (id) => room.occupantName(id),
+      localId: () => room.sessionId,
+      restrictLabel: () => room.agentRestrictLabel(),
+      lastKeyAgentId: () => lastKeyAgentId,
+      lastProfileAgentId: () => lastProfileAgentId,
+    }),
     onLocalSpawn: (x, z, yaw) => {
       controller.teleport(x, z, yaw);
     },
+
     onOccupantsChanged: () => {
       if (askedName !== undefined && keepAcceptedName(browserStorage(), askedName, room.occupantName(room.sessionId))) {
         askedName = undefined;
       }
       const present = room.occupants();
       const ids = new Set<string>();
-
       for (const view of present) {
         ids.add(view.id);
         const caption = captionOf(view);
@@ -550,14 +403,12 @@ function start(): void {
           existing.setFired(view.fired);
         }
       }
-
       for (const [id, avatar] of avatars) {
         if (!ids.has(id)) {
           avatar.dispose();
           avatars.delete(id);
         }
       }
-
       const local = present.find((view) => view.isLocal);
       const ceo = present.find((view) => view.isCeo);
       publishHud({
@@ -585,7 +436,6 @@ function start(): void {
         agentProfileAccess: local === undefined ? undefined : agentProfileAccessFor(local, ceo?.name),
       });
       refreshStickerNotes();
-
       // Only the CEO can answer, so only the CEO's tab counts, chimes and notifies.
       const waiting = present.filter((view) => view.agentStatus === LIVE_AGENT_STATUS.needsInput);
       const ceoTab = local?.isCeo === true;
@@ -611,6 +461,7 @@ function start(): void {
     onJump: (event) => {
       avatars.get(event.occupantId)?.jump();
     },
+
     onEmote: (event) => {
       avatars.get(event.occupantId)?.showEmote(event.emote, performance.now());
     },
@@ -625,80 +476,8 @@ function start(): void {
       });
     },
 
-    onThrottled: (event) => {
-      if (event.command === CLIENT_MESSAGE.agentPrompt) {
-        // Said in the terminal panel the prompt was sent from, which is waiting on an answer.
-        publishHud({
-          agentPromptRefusal: {
-            id: nextRefusalId++,
-            agentId: openTerminalAgentId() ?? "",
-            text: "Too many prompts — that one was dropped. Wait a few seconds and send it again.",
-          },
-        });
-        return;
-      }
-      if (event.command === CLIENT_MESSAGE.agentKey) {
-        publishHud({
-          agentPromptRefusal: {
-            id: nextRefusalId++,
-            agentId: openTerminalAgentId() ?? lastKeyAgentId,
-            text: "Too many keys — that one was not pressed. Check the terminal, then go on.",
-            forKey: true,
-          },
-        });
-        return;
-      }
-      if (event.command === CLIENT_MESSAGE.agentProfile) {
-        // Said on the profile card the edit was saved from, which is waiting on an answer.
-        publishHud({
-          agentProfileNotice: {
-            id: nextRefusalId++,
-            agentId: lastProfileAgentId,
-            text: "Too many profile edits — that one was dropped. Wait a few seconds and save it again.",
-          },
-        });
-        return;
-      }
-      if (event.command === CLIENT_MESSAGE.standupDirect || event.command === CLIENT_MESSAGE.standupStart) {
-        showStandupNotice(
-          event.command === CLIENT_MESSAGE.standupDirect
-            ? "Too many directions — that one was dropped. Wait a few seconds and send it again."
-            : "Too many standups called or ended — that one was dropped. Wait a few seconds.",
-        );
-        return;
-      }
-      showNotice(
-        event.command === CLIENT_MESSAGE.chat
-          ? "Too many messages — that one was dropped."
-          : event.command === CLIENT_MESSAGE.managerSay
-            ? "Too many messages to the manager — that one was dropped."
-            : event.command === CLIENT_MESSAGE.emote
-              ? "Too many emotes — that one was dropped."
-              : event.command === CLIENT_MESSAGE.rename
-                ? "Too many renames — that one was dropped. Wait a few seconds."
-                : "Too many standing task buttons — that one was dropped. Wait a few seconds.",
-      );
-    },
-
-    onWorkRejected: (event) => {
-      showNotice(rejectionText(event.rejection, room.agentRestrictLabel()));
-    },
-
     onIssueStateResult: (event) => {
-      const move = issueMoves.find(
-        (candidate) => candidate.issueNumber === event.issueNumber && candidate.state === event.state && candidate.freshSince === undefined,
-      );
-      if (move === undefined) {
-        return;
-      }
-      if (event.rejection !== undefined) {
-        dropIssueMove(move);
-        showBoardNotice(issueStateRejectionText(event.rejection, event.issueNumber, event.state));
-        return;
-      }
-      window.clearTimeout(move.timer);
-      move.freshSince = 0;
-      move.timer = window.setTimeout(() => dropIssueMove(move), ISSUE_MOVE_HOLD_MS);
+      issueMoves.answered(event);
     },
 
     // Announced in the chat log, where everyone in the office is already
@@ -720,16 +499,7 @@ function start(): void {
     // The same snapshot goes to the wall and to the close-up panel, so what
     // the board shows at a distance and up close cannot disagree.
     onProjectBoard: (snapshot) => {
-      for (const move of issueMoves) {
-        if (move.freshSince === undefined) {
-          continue;
-        }
-        if (hasIssueMoveLanded(snapshot, move, move.freshSince)) {
-          dropIssueMove(move);
-        } else if (!snapshot.stale) {
-          move.freshSince += 1;
-        }
-      }
+      issueMoves.snapshot(snapshot);
       publishHud({ projectBoard: snapshot });
       boardSnapshot = snapshot;
       showWallBoard();
@@ -746,97 +516,6 @@ function start(): void {
       officeWork = work;
       showWallBoard();
       refreshStickerNotes();
-    },
-
-    onSpendChanged: (runnerSpend) => {
-      publishHud({ runnerSpend });
-    },
-
-    onStandingChanged: (standingTasks) => {
-      publishHud({ standingTasks });
-    },
-
-    onStandingRejected: (event) => {
-      showNotice(event.reason ?? standingRejectionText(event.rejection));
-    },
-
-    onStandingHistory: (event) => {
-      publishHud({ standingHistory: { ...hud.standingHistory, [event.taskId]: event.runs } });
-    },
-
-    // Handed over whole on every join, a reconnection included, so it replaces
-    // what this tab had rather than adding to it.
-    onManagerHistory: (entries) => {
-      publishHud({ managerLog: entries.slice(-MANAGER_LOG_LIMIT), managerUnread: 0 });
-    },
-
-    onManagerEntry: (entry) => {
-      if (hud.managerLog.some((line) => line.id === entry.id)) {
-        return;
-      }
-      const managerLog: readonly ManagerEntry[] = [...hud.managerLog, entry].slice(-MANAGER_LOG_LIMIT);
-      publishHud({ managerLog, managerUnread: hud.managerOpen ? 0 : hud.managerUnread + 1 });
-    },
-
-    onManagerRejected: (event) => {
-      showNotice(managerRejectionText(event.rejection));
-    },
-
-    // Handed over on every join, a reconnection included, so it replaces what this tab had.
-    onAgentPromptHistory: (entries) => {
-      publishHud({ agentPrompts: entries.slice(-AGENT_PROMPT_LIMIT) });
-    },
-
-    onAgentPrompted: (entry) => {
-      if (hud.agentPrompts.some((known) => known.id === entry.id)) {
-        return;
-      }
-      const agentPrompts: readonly AgentPromptEntry[] = [...hud.agentPrompts, entry].slice(-AGENT_PROMPT_LIMIT);
-      publishHud({ agentPrompts });
-    },
-
-    // Shown in the agent's terminal panel, and as a notice for a panel already closed.
-    onAgentPromptRejected: (event) => {
-      const agentName = room.occupantName(event.agentId) ?? "The agent";
-      const text =
-        event.key === undefined
-          ? agentPromptRejectionText(event.rejection, agentName)
-          : agentKeyRejectionText(event.rejection, agentName, event.key);
-      publishHud({ agentPromptRefusal: { id: nextRefusalId++, agentId: event.agentId, text, forKey: event.key !== undefined } });
-      // The standup panel says it under the agent's key pad, as the terminal panel does.
-      if (openTerminalAgentId() !== event.agentId && !hud.standup.active) {
-        showNotice(text);
-      }
-    },
-
-    onAgentActionRejected: (event) => {
-      showNotice(
-        agentActionRejectionText(event.rejection, room.occupantName(event.agentId) ?? "The agent", hud.roster.find((entry) => entry.isCeo)?.name),
-      );
-    },
-
-    // On the agent's profile card, where the edit was saved from.
-    onAgentProfileRejected: (event) => {
-      const text = agentProfileRejectionText(event, room.occupantName(event.agentId) ?? "The agent");
-      publishHud({ agentProfileNotice: { id: nextRefusalId++, agentId: event.agentId, text } });
-    },
-
-    onNameRejected: (event) => {
-      showNotice(nameRejectionText(event, room.occupantName(room.sessionId)));
-    },
-
-    onStandupChanged: (standup) => {
-      publishHud({ standup });
-    },
-
-    // In the standup panel while one is on, where the command came from; as a notice otherwise.
-    onStandupRejected: (event) => {
-      const text = standupRejectionText(event);
-      if (hud.standup.active) {
-        showStandupNotice(text);
-      } else {
-        showNotice(text);
-      }
     },
   });
 
@@ -869,85 +548,38 @@ function start(): void {
   createRoot(requireHudMount()).render(
     createElement(Hud, {
       store: hudStore,
-      actions: {
-        sendEmote: (emote) => room.sendEmote(emote),
-        sendChat: (text) => room.sendChat(text),
+      actions: hudActions({
+        room,
+        publish: publishHud,
+        hud: () => hud,
+        browserStorage,
+        serverUrl: readServerUrl,
         toggleCamera: toggleCameraMode,
-        toggleHelp: () => publishHud({ helpOpen: !hud.helpOpen }),
         answer,
-        rejoin: () => {
-          // A refusal is already on the HUD, with the button still by it.
-          void room.rejoin().catch(() => {});
-        },
-        join: (name) => {
+        issueMoves,
+        askedFor: (name) => {
           askedName = name;
-          // A first visit gets the controls once it is in, not over the name card.
-          const firstVisit = !helpSeen(browserStorage());
-          markHelpSeen(browserStorage());
-          publishHud({ nameCard: undefined, helpOpen: hud.helpOpen || firstVisit });
-          void room.connect(readServerUrl(), name).catch(() => {
-            // The status is already on the HUD; the empty office keeps rendering so the
-            // failure is visible rather than a blank page.
-          });
         },
-        rename: (name) => {
-          askedName = name;
-          room.sendRename(name);
+        closePanel: () => {
+          readingBoard = "";
         },
-        projectBoard: {
-          assign: (issueNumber, agentId) => room.sendWorkAssign(issueNumber, agentId),
-          move: (issueNumber, status) => room.sendWorkMove(issueNumber, status),
-          release: (issueNumber) => room.sendWorkRelease(issueNumber),
-          setIssueState: moveIssue,
+        closeTerminal: () => {
+          readingBoard = "";
+          answeringAgentId = undefined;
         },
-        manager: {
-          say: (text) => room.sendManagerSay(text),
-          close: () => {
-            readingBoard = "";
-          },
+        savedProfile: (agentId) => {
+          lastProfileAgentId = agentId;
         },
-        standing: {
-          act: (action, taskId) => room.sendStanding(action, taskId),
-          reschedule: (taskId, schedule) => room.sendStandingReschedule(taskId, schedule),
-          history: (taskId) => room.requestStandingHistory(taskId),
-          create: (task) => room.sendStandingCreate(task),
-        },
-        terminal: {
-          screenOf: (agentId) => room.screenOf(agentId),
-          prompt: (agentId, text) => room.sendAgentPrompt(agentId, text),
-          key: (agentId, key) => room.sendAgentKey(agentId, key),
-          resizeDesk: (cols, rows) => room.sendDeskTerminalSize(cols, rows),
-          close: () => {
-            readingBoard = "";
-            answeringAgentId = undefined;
-          },
-        },
-        profile: {
-          save: (agentId, profile) => {
-            lastProfileAgentId = agentId;
-            return room.sendAgentProfile(agentId, profile);
-          },
+        pressedKey: (agentId) => {
+          lastKeyAgentId = agentId;
         },
         standUp: () => {
           standUpRequested = true;
         },
-        agentMenu: {
-          act: (agentId, action) => {
-            room.sendAgentAction(agentId, action);
-            agentMenuId = undefined;
-          },
+        closeAgentMenu: () => {
+          agentMenuId = undefined;
         },
-        standup: {
-          start: () => room.sendStandupStart(),
-          end: () => room.sendStandupEnd(),
-          direct: (agentId, text) => room.sendStandupDirection(agentId, text),
-          key: (agentId, key) => {
-            lastKeyAgentId = agentId;
-            return room.sendAgentKey(agentId, key);
-          },
-          screenOf: (agentId) => room.screenOf(agentId),
-        },
-      },
+      }),
     }),
   );
 

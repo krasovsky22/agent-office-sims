@@ -30,7 +30,7 @@ import { useEffect, useRef, useState } from "react";
 import type { TerminalScreen } from "../net/screens.js";
 import { type StandupAccess, directionStatusText, standupPhaseText } from "../standupAccess.js";
 import { type AgentPromptRefusal, KeyPad, useTerminalCanvas } from "./AgentTerminalPanel.js";
-import type { RosterEntry } from "./Hud.js";
+import type { RosterEntry } from "./hudStore.js";
 
 export interface StandupActions {
   readonly end: () => void;

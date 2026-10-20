@@ -60,7 +60,7 @@ import { KEYBOARD_OWNER_ATTRIBUTE, isTypingTarget } from "../keys.js";
 import type { TerminalScreen } from "../net/screens.js";
 import { SCREEN_PLACEHOLDER, paintScreen } from "../scene/agentScreen.js";
 import { TERMINAL_FONT_PX, type TerminalScroll, paintTerminal, scrollTerminal, terminalCells, wheelRows } from "../terminalView.js";
-import type { RosterEntry } from "./Hud.js";
+import type { RosterEntry } from "./hudStore.js";
 
 export interface AgentTerminalActions {
   /** The agent's terminal as of the latest frame, read on every repaint. */

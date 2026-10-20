@@ -1,6 +1,6 @@
 /**
  * The list of every control, over the office: opened by itself on a first
- * visit (`main.ts` decides that), and by `H` at any time after.
+ * visit (`hudActions.ts` decides that), and by `H` at any time after.
  *
  * Always mounted, so `H` reaches it whether or not it is showing. Opening it
  * frees a captured mouse, which would otherwise swallow the click on its
