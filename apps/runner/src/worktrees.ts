@@ -85,7 +85,8 @@ export interface WorktreesOptions {
 }
 
 export class Worktrees {
-  private readonly repoDir: string;
+  /** The runner's clone, which every task's worktree is one of. */
+  public readonly repoDir: string;
   private readonly worktreesDir: string;
   private readonly env: NodeJS.ProcessEnv;
   private readonly log: (line: string) => void;

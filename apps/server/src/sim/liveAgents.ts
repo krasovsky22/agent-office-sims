@@ -40,6 +40,12 @@
  * back to the chair it left, if nobody has taken it meanwhile, and an idle one
  * wanders off again.
  *
+ * An agent the CEO fires ({@link LiveAgentCrew.fire}) is let go on the spot:
+ * it says something sad, gets up, and walks out through the lobby onto the
+ * pavement with its box of belongings, and only then leaves the floor, its
+ * runner long since told. It takes no part in anything else on the way, a
+ * standup included, and what its runner reports of it meanwhile is not news.
+ *
  * All of it is synchronous and runs inside the room's tick. What the agents are
  * meant to be doing arrives from the feed as a finished list; the tick reads it
  * through {@link LiveAgentCrew.sync} without waiting on anything.
@@ -136,6 +142,14 @@ export const NOTE_HANDLING_MS = 1200;
 /** How often an agent waiting for a note another agent still holds looks again. */
 const NOTE_RETRY_MS = 1500;
 
+/** What an agent says as it is fired, one picked at random. */
+export const FIRED_LINES: readonly string[] = [
+  "Oh. Okay. I'll go pack my things…",
+  "But I was nearly done with that PR…",
+  "I'll just… get my box, then.",
+  "Please water my plant.",
+];
+
 /**
  * What two idle agents say to each other, alternating, first speaker first.
  *
@@ -200,6 +214,8 @@ interface AgentBody {
   homeSeatId: string;
   /** It is walking to the coffee machine, to pour one when it gets there. */
   coffeeRun: boolean;
+  /** The CEO fired it: it is on its way out, and leaves once it is outside. */
+  leaving: boolean;
 }
 
 /** What the crew needs from the room, named so a test can supply it. */
@@ -229,6 +245,12 @@ export class LiveAgentCrew {
   private entranceCursor = 0;
   /** The places in the conference room while a standup is on; `undefined` otherwise. */
   private standupSpots: readonly StandupSpot[] | undefined;
+  /**
+   * Agents fired and already gone whose source still reports them, not to be
+   * let back in; each is forgotten once a sync leaves it out, so one that
+   * comes back later, hired back at its runner, is a new arrival.
+   */
+  private readonly fired = new Set<string>();
 
   public constructor(private readonly host: LiveAgentHost) {
     // Agents walk in through the open floor's doorways, which is where their
@@ -253,14 +275,62 @@ export class LiveAgentCrew {
     const present = new Set<string>();
     for (const record of records) {
       present.add(record.id);
-      const body = this.bodies.get(record.id) ?? this.arrive(record, now);
-      this.update(body, record, now);
+      const known = this.bodies.get(record.id);
+      if (known?.leaving === true || (known === undefined && this.fired.has(record.id))) {
+        continue;
+      }
+      this.update(known ?? this.arrive(record, now), record, now);
     }
     for (const [id, body] of this.bodies) {
-      if (!present.has(id)) {
+      if (!present.has(id) && !body.leaving) {
         this.depart(id, body, now);
       }
     }
+    for (const id of this.fired) {
+      if (!present.has(id) && !this.bodies.has(id)) {
+        this.fired.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Fires an agent, by occupant key: from the next tick it gets up and walks
+   * out, box in hand, and leaves the floor once it is out on the pavement.
+   * What its source says of it from now on changes nothing.
+   *
+   * @returns whether there was such an agent, not already on its way out.
+   */
+  public fire(key: string, now: number): boolean {
+    for (const body of this.bodies.values()) {
+      if (body.key !== key || body.leaving) {
+        continue;
+      }
+      body.leaving = true;
+      if (body.conversation !== undefined) {
+        this.endConversation(body.conversation, now);
+      }
+      const { occupant } = body;
+      occupant.fired = true;
+      occupant.status = LIVE_AGENT_STATUS.idle;
+      occupant.canTakeIssues = false;
+      occupant.taskTitle = "";
+      occupant.taskUrl = "";
+      occupant.activity = "";
+      occupant.assignedTitle = "";
+      occupant.assignedUrl = "";
+      // Its note goes back on the board: the work it was for is gone.
+      occupant.carriedIssue = 0;
+      body.status = LIVE_AGENT_STATUS.idle;
+      body.errand = undefined;
+      body.spot = undefined;
+      body.atSpot = false;
+      body.coffeeRun = false;
+      body.route = [];
+      body.seatId = "";
+      this.host.say(key, FIRED_LINES[Math.floor(this.host.random() * FIRED_LINES.length)] ?? "");
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -308,13 +378,23 @@ export class LiveAgentCrew {
 
   /** One tick. `deltaSeconds` is the time since the last one. */
   public step(now: number, deltaSeconds: number): void {
+    for (const [id, body] of this.bodies) {
+      if (body.leaving) {
+        this.stepLeaving(id, body, now, deltaSeconds);
+      }
+    }
     if (this.standupSpots !== undefined) {
       for (const body of this.bodies.values()) {
-        this.stepStandup(body, now, deltaSeconds);
+        if (!body.leaving) {
+          this.stepStandup(body, now, deltaSeconds);
+        }
       }
       return;
     }
     for (const body of this.bodies.values()) {
+      if (body.leaving) {
+        continue;
+      }
       if (this.stepErrand(body, now, deltaSeconds)) {
         body.coffeeRun = false;
         continue;
@@ -364,6 +444,7 @@ export class LiveAgentCrew {
       refusedSpots: new Set(),
       homeSeatId: "",
       coffeeRun: false,
+      leaving: false,
     };
     this.bodies.set(record.id, body);
     this.host.occupants.set(key, occupant);
@@ -433,6 +514,46 @@ export class LiveAgentCrew {
     releaseWorkOf(body.key, this.host.work);
     this.host.occupants.delete(body.key);
     this.bodies.delete(id);
+  }
+
+  /**
+   * One tick of a fired agent's way out: up from wherever it sits, then along
+   * the waypoint graph to the far end of the pavement, where it leaves. One
+   * with no way out leaves where it stands.
+   */
+  private stepLeaving(id: string, body: AgentBody, now: number, deltaSeconds: number): void {
+    const { occupant } = body;
+    if (occupant.interactableId !== "") {
+      releaseHold(this.host.interaction, body.key, now);
+      return;
+    }
+    if (body.route.length === 0) {
+      const exit = this.exitFor(occupant);
+      body.route = exit === undefined ? [] : this.routeTo(occupant, exit);
+      if (body.route.length === 0) {
+        this.depart(id, body, now);
+        this.fired.add(id);
+        return;
+      }
+    }
+    if (this.walk(body, deltaSeconds)) {
+      this.depart(id, body, now);
+      this.fired.add(id);
+    }
+  }
+
+  /** Where a fired agent walks out to: the waypoint out on the pavement furthest from it. */
+  private exitFor(from: Vec2): Vec2 | undefined {
+    let exit: Vec2 | undefined;
+    let furthest = -1;
+    for (const node of this.host.layout.waypoints) {
+      const distance = Math.hypot(node.x - from.x, node.z - from.z);
+      if (roomAt(this.host.layout, node)?.id === SIDEWALK_ROOM_ID && distance > furthest) {
+        exit = node;
+        furthest = distance;
+      }
+    }
+    return exit;
   }
 
   /**
@@ -806,6 +927,7 @@ export class LiveAgentCrew {
       const others = [...this.bodies.values()].filter(
         (other) =>
           other !== body &&
+          !other.leaving &&
           other.status === LIVE_AGENT_STATUS.idle &&
           other.conversation === undefined &&
           other.errand === undefined &&
@@ -943,6 +1065,7 @@ export class LiveAgentCrew {
     const available: AgentBody[] = [];
     for (const body of this.bodies.values()) {
       if (
+        !body.leaving &&
         body.status === LIVE_AGENT_STATUS.idle &&
         body.conversation === undefined &&
         body.errand === undefined &&

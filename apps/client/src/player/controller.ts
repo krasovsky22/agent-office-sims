@@ -340,6 +340,8 @@ export class PlayerController {
   private releasePending = false;
 
   private interactRequested = false;
+  /** `E` is down, from its press until it comes up: how long it is held opens the agent menu. */
+  private interactDown = false;
   private releaseRequested = false;
   private closeRequested = false;
   private cameraToggleRequested = false;
@@ -388,6 +390,7 @@ export class PlayerController {
         // A press, not a state: holding the key down must not fire repeatedly.
         if (!event.repeat) {
           this.interactRequested = true;
+          this.interactDown = true;
         }
         return;
       }
@@ -411,10 +414,14 @@ export class PlayerController {
     // otherwise stay held forever.
     const onKeyUp = (event: KeyboardEvent) => {
       this.pressed.delete(event.code);
+      if (event.code === INTERACT_KEY) {
+        this.interactDown = false;
+      }
     };
     // A window that loses focus mid-stride would otherwise keep walking.
     const onBlur = () => {
       this.pressed.clear();
+      this.interactDown = false;
     };
     // Same for focus moving into a text field mid-stride, which stays inside the
     // window and so never reaches `blur`.
@@ -610,6 +617,11 @@ export class PlayerController {
     const requested = this.interactRequested && !this.releasePending;
     this.interactRequested = false;
     return requested;
+  }
+
+  /** Whether `E` is still held down since its last press. */
+  public get interactHeld(): boolean {
+    return this.interactDown;
   }
 
   /**

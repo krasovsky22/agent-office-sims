@@ -19,6 +19,7 @@ export * from "./manager.js";
 export * from "./concierge.js";
 export * from "./agentPrompt.js";
 export * from "./agentProfile.js";
+export * from "./agentActions.js";
 export * from "./runner.js";
 export * from "./screens.js";
 export * from "./spend.js";

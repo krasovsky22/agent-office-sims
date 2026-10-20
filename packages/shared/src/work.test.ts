@@ -218,6 +218,23 @@ describe("moving and releasing work", () => {
     expect(run(at, release(4))).toEqual({ ok: false, rejection: WORK_REJECTION.noWork });
   });
 
+  it("cancels the CEO's way any work short of done, a review in hand included", () => {
+    const at = office();
+    workAt(at, 1, WORK_STATUS.assigned);
+    workAt(at, 2, WORK_STATUS.in_progress);
+    workAt(at, 3, WORK_STATUS.review);
+    workAt(at, 4, WORK_STATUS.done);
+    const cancel = (issueNumber: number): WorkCommand => ({ action: WORK_ACTION.cancel, payload: { issueNumber } });
+    expect(run(at, cancel(1), EXEC_ID)).toEqual({ ok: false, rejection: WORK_REJECTION.forbidden });
+    expect(run(at, cancel(1), "agent-1")).toEqual({ ok: false, rejection: WORK_REJECTION.forbidden });
+    for (const issueNumber of [1, 2, 3]) {
+      expect(run(at, cancel(issueNumber)).ok).toBe(true);
+      expect(at.work.has(workKey(issueNumber))).toBe(false);
+    }
+    expect(run(at, cancel(4))).toEqual({ ok: false, rejection: WORK_REJECTION.illegalTransition });
+    expect(run(at, cancel(5))).toEqual({ ok: false, rejection: WORK_REJECTION.noWork });
+  });
+
   it("releases a review whose agent has left instead of sending it back to them", () => {
     const at = office();
     workAt(at, 1, WORK_STATUS.review, "agent-gone");

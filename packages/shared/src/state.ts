@@ -265,6 +265,12 @@ export class LiveAgent extends Occupant {
    * a runner's agent, whose runner keeps the profile and prompts with it.
    */
   declare public profileEditable: boolean;
+  /**
+   * The CEO fired it: it is walking out of the office with a box of its
+   * belongings, in tears, and leaves the floor once it is outside. Its work is
+   * already gone; see `agentActions.ts`.
+   */
+  declare public fired: boolean;
 
   public constructor() {
     super();
@@ -280,6 +286,7 @@ export class LiveAgent extends Occupant {
     this.title = "";
     this.description = "";
     this.profileEditable = false;
+    this.fired = false;
   }
 }
 
@@ -295,6 +302,7 @@ defineTypes(LiveAgent, {
   title: "string",
   description: "string",
   profileEditable: "boolean",
+  fired: "boolean",
 });
 
 /**

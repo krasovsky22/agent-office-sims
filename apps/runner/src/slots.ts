@@ -73,6 +73,13 @@
  * bounds it, and the server closes it the moment the CEO stands up. Ending,
  * however it ends, stops its agent and discards its worktree; a session that
  * ends without the server asking says so with a `desk-ended` event.
+ *
+ * The CEO can cancel a slot's task from the office, a `stop` marked
+ * `discard`: its worktree and branch go whatever is in them, and its pull
+ * request and pushed branch go on GitHub. Firing the slot's agent, `fire`,
+ * ends whatever the slot runs, discarding a task the same way, and takes the
+ * slot out of the pool: it is reported no more and takes no command, and it
+ * stays out across a restart, kept in `./firedSlots.ts`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -109,6 +116,7 @@ import { systemPrompt } from "./agents/prompt.js";
 import type { Agent, AgentReporter, AgentRun, AgentSession } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
 import { NO_GITHUB, type TaskGithub } from "./github.js";
+import type { FiredSlots } from "./firedSlots.js";
 import type { AgentProfiles } from "./profiles.js";
 import { type Redactor, createRedactor } from "./redact.js";
 import { SCREEN_COLS, SCREEN_ROWS, ScreenMirror } from "./terminal.js";
@@ -130,8 +138,13 @@ export const NO_PULL_REQUEST = "Finished without a pull request";
 export interface SlotWorkspaces {
   /** A working directory for the task, ready to work in; rejects with why not. */
   open(slotId: string, issueNumber: number): Promise<string>;
-  /** The task is over, whether or not its directory was ever opened. Never rejects. */
-  close(slotId: string, issueNumber: number): Promise<void>;
+  /**
+   * The task is over, whether or not its directory was ever opened. A task
+   * that was cancelled passes `discard`, given the task's branch and a
+   * checkout to run in first, and then nothing in its directory is kept.
+   * Never rejects.
+   */
+  close(slotId: string, issueNumber: number, discard?: (branch: string, cwd: string) => Promise<void>): Promise<void>;
 }
 
 /** Where a slot's desk sessions work. */
@@ -151,10 +164,11 @@ type PromptCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KI
 type KeyCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.key }>;
 type ProfileCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.profile }>;
 type DeskResizeCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.deskResize }>;
+type FireCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.fire }>;
 
 /** Why a standing run gave its slot up before it finished. */
 export const STANDING_SLOT_END = {
-  /** An issue's start arrived for the slot: issue work always comes first. */
+  /** An issue's start arrived for the slot, issue work always coming first, or its agent was fired: it runs again on a free slot. */
   preempted: "preempted",
   /** The runner is shutting down. */
   shutdown: "shutdown",
@@ -213,6 +227,8 @@ export interface SlotPoolOptions {
   readonly runnerId?: string;
   /** Where the CEO's edits to the agents' profiles are kept; every agent keeps its default without it. */
   readonly profiles?: AgentProfiles;
+  /** Where the slots whose agents were fired are kept, out of the pool; none is kept without it. */
+  readonly fired?: FiredSlots;
   readonly workspaces: SlotWorkspaces;
   /** Where desk sessions work; without it, the slots are lent to no desk. */
   readonly desks?: DeskWorkspaces;
@@ -295,6 +311,8 @@ export class SlotPool {
   private readonly keptOutsidePool: ReadonlyMap<string, AgentProfile>;
   /** A standup is on in the office, as the server last said. */
   private standup = false;
+  /** The slots whose agents were fired, by id, kept out of the pool. */
+  private readonly firedIds: Set<string>;
 
   public constructor(private readonly options: SlotPoolOptions) {
     this.redactor = options.redactor ?? createRedactor([]);
@@ -305,6 +323,7 @@ export class SlotPool {
     this.debug = options.debug ?? (() => undefined);
     const now = Date.now();
     const kept = options.profiles?.load() ?? new Map<string, AgentProfile>();
+    this.firedIds = new Set(options.fired?.load() ?? []);
     this.slots = Array.from({ length: options.count }, (_, index) => {
       const id = `slot-${index + 1}`;
       const edited = kept.get(id);
@@ -325,7 +344,10 @@ export class SlotPool {
         screen,
         kept: [],
       };
-    });
+    }).filter((slot) => !this.firedIds.has(slot.id));
+    if (this.firedIds.size > 0) {
+      this.log(`fired, and so not on the floor: ${[...this.firedIds].join(", ")}`);
+    }
     const inPool = new Set(this.slots.map((slot) => slot.id));
     this.keptOutsidePool = new Map([...kept].filter(([id]) => !inPool.has(id)));
   }
@@ -490,6 +512,11 @@ export class SlotPool {
   /** Carries out one command from the server for one of the slots. */
   public handle(command: RunnerSlotCommand): void {
     const slot = this.slots.find((candidate) => candidate.id === command.slotId);
+    if (slot === undefined && command.kind === RUNNER_COMMAND_KIND.stop && command.discard === true && this.firedIds.has(command.slotId)) {
+      // The task of an agent fired with it: the work its slot kept goes too.
+      this.discardKept(command.slotId, command.issueNumber);
+      return;
+    }
     if (slot === undefined) {
       this.log(`command ${command.id} names no slot of ours (${command.slotId}); ignored`);
       return;
@@ -501,14 +528,23 @@ export class SlotPool {
       case RUNNER_COMMAND_KIND.stop:
         if (slot.run === undefined) {
           this.debug(`stop for ${slot.id} ignored: it holds no task`);
+          this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined);
           return;
         }
         if (command.issueNumber !== undefined && command.issueNumber !== slot.run.issueNumber) {
-          // Meant for work the slot has already left behind.
+          // Meant for work the slot has already left behind, whose kept worktree a cancel still discards.
           this.log(`stop for ${slot.id} on #${command.issueNumber} ignored: it is on #${slot.run.issueNumber}`);
+          this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined);
           return;
         }
-        this.end(slot, RUNNER_EVENT_KIND.failed, `Stopped: ${command.reason || "the server asked"}`);
+        this.end(
+          slot,
+          RUNNER_EVENT_KIND.failed,
+          `Stopped: ${command.reason || "the server asked"}`,
+          undefined,
+          RUNNER_SLOT_STATUS.idle,
+          command.discard === true,
+        );
         return;
       case RUNNER_COMMAND_KIND.prompt:
         if (command.fromCeo === true && slot.desk !== undefined) {
@@ -544,7 +580,28 @@ export class SlotPool {
       case RUNNER_COMMAND_KIND.profile:
         this.setProfile(slot, command);
         return;
+      case RUNNER_COMMAND_KIND.fire:
+        this.fire(slot, command);
+        return;
     }
+  }
+
+  /**
+   * Lets the slot's agent go: whatever it runs ends, a task discarded as a
+   * cancelled one is, and the slot leaves the pool, so no sync reports it and
+   * no command reaches it again, this run or the next.
+   */
+  private fire(slot: Slot, command: FireCommand): void {
+    const by = command.requestedBy || "the CEO";
+    this.log(`${slot.id}, ${slot.profile.name}, fired by ${by}`);
+    this.end(slot, RUNNER_EVENT_KIND.failed, `Fired by ${by}`, undefined, RUNNER_SLOT_STATUS.idle, true);
+    this.endStanding(slot, STANDING_SLOT_END.preempted);
+    if (slot.desk !== undefined) {
+      this.endDesk(slot, `${slot.profile.name} was fired`);
+    }
+    this.slots.splice(this.slots.indexOf(slot), 1);
+    this.firedIds.add(slot.id);
+    this.options.fired?.save(this.firedIds);
   }
 
   /**
@@ -1322,13 +1379,19 @@ export class SlotPool {
     }
   }
 
-  /** Ends a slot's run, says how, and leaves the slot free for the next start, `idle` unless its agent `exited`. */
+  /**
+   * Ends a slot's run, says how, and leaves the slot free for the next start,
+   * `idle` unless its agent `exited`. A `discard`ed run's pull request and
+   * pushed branch go on GitHub first, then its worktree and branch, whatever
+   * is in them.
+   */
   private end(
     slot: Slot,
     kind: RunnerWorkEventKind,
     message: string,
     pr?: RunnerPullRequest,
     status: RunnerSlotStatus = RUNNER_SLOT_STATUS.idle,
+    discard = false,
   ): void {
     const run = slot.run;
     if (run === undefined) {
@@ -1347,7 +1410,30 @@ export class SlotPool {
     // The message can quote the agent's last line, so it is masked as its event's is.
     const said = this.redactor.redactText(message);
     this.log(`${slot.id} ${kind} on #${run.issueNumber}${said === "" ? "" : `: ${said}`} (${formatUsd(run.spentUsd)} spent)`);
-    void this.options.workspaces.close(slot.id, run.issueNumber);
+    if (discard) {
+      this.discardKept(slot.id, run.issueNumber);
+    } else {
+      void this.options.workspaces.close(slot.id, run.issueNumber);
+    }
+  }
+
+  /**
+   * Throws a cancelled task's work away: its pull request and pushed branch
+   * on GitHub, even once its worktree is gone, then its worktree and branch,
+   * whatever is in them.
+   */
+  private discardKept(slotId: string, issueNumber: number | undefined): void {
+    if (issueNumber === undefined) {
+      return;
+    }
+    void this.options.workspaces.close(slotId, issueNumber, async (branch, cwd) => {
+      const failed = await this.github.discard(branch, cwd);
+      this.log(
+        failed === undefined
+          ? `${slotId} discarded its work on #${issueNumber}`
+          : `${slotId} could not discard its work on #${issueNumber} on GitHub: ${failed}`,
+      );
+    });
   }
 
   private emit(

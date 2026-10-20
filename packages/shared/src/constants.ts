@@ -233,6 +233,16 @@ export const AGENT_PROFILE_BURST_ALLOWANCE = 4;
 export const AGENT_PROFILE_REFILL_PER_SECOND = 0.2;
 
 /**
+ * Cancels and firings the CEO may send back to back before the server starts
+ * dropping them. Each stops a real agent and throws its work away, and there
+ * are only a handful of agents to do it to.
+ */
+export const AGENT_ACTION_BURST_ALLOWANCE = 4;
+
+/** Rate at which that allowance is restored, in actions/second. */
+export const AGENT_ACTION_REFILL_PER_SECOND = 0.2;
+
+/**
  * Standing task commands (pause, resume, remove, check now) the CEO may send
  * back to back, all four together, before the server starts dropping them.
  * Each one waits in its runner's command queue, which issue work shares, and

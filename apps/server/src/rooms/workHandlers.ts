@@ -52,7 +52,7 @@ export interface WorkChange {
   readonly command: WorkCommand;
   /** The work as it was; `undefined` when the command created it. */
   readonly before: { readonly status: WorkStatus; readonly assigneeId: string } | undefined;
-  /** The work as it is now; for a release, the work that was removed. */
+  /** The work as it is now; for a release or a cancel, the work that was removed. */
   readonly work: IssueWork;
 }
 

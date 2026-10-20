@@ -181,6 +181,8 @@ export const RUNNER_COMMAND_KIND = {
   deskClose: "desk-close",
   /** Size the desk session's terminal to the CEO's panel; see {@link RunnerDeskResizeCommand}. */
   deskResize: "desk-resize",
+  /** The CEO fired the slot's agent: end whatever it runs and report the slot no more; see {@link RunnerFireCommand}. */
+  fire: "fire",
 } as const;
 
 export type RunnerCommandKind = (typeof RUNNER_COMMAND_KIND)[keyof typeof RUNNER_COMMAND_KIND];
@@ -482,6 +484,25 @@ export interface RunnerStopCommand {
   readonly kind: typeof RUNNER_COMMAND_KIND.stop;
   readonly reason: string;
   readonly issueNumber?: number;
+  /**
+   * The CEO cancelled the task: its worktree and branch go whatever is in
+   * them, and its pull request is closed and its pushed branch deleted. Only
+   * the task's own `sims/` branch; never the default branch.
+   */
+  readonly discard?: boolean;
+}
+
+/**
+ * The CEO fired the slot's agent: whatever the slot runs ends, an issue's
+ * task discarded as a cancelled one is, and the runner reports the slot no
+ * more and takes no command for it, so its agent leaves the office.
+ */
+export interface RunnerFireCommand {
+  readonly id: string;
+  readonly slotId: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.fire;
+  /** The CEO who fired it, by name. */
+  readonly requestedBy: string;
 }
 
 /**
@@ -613,7 +634,8 @@ export type RunnerSlotCommand =
   | RunnerProfileCommand
   | RunnerDeskOpenCommand
   | RunnerDeskCloseCommand
-  | RunnerDeskResizeCommand;
+  | RunnerDeskResizeCommand
+  | RunnerFireCommand;
 
 /** The commands for the runner's standing tasks, which address no slot. */
 export type RunnerStandingCommand = RunnerStandingSetCommand | RunnerStandingTaskCommand;
@@ -632,7 +654,8 @@ export function isRunnerSlotCommand<T extends { readonly kind: RunnerCommandKind
     command.kind === RUNNER_COMMAND_KIND.profile ||
     command.kind === RUNNER_COMMAND_KIND.deskOpen ||
     command.kind === RUNNER_COMMAND_KIND.deskClose ||
-    command.kind === RUNNER_COMMAND_KIND.deskResize
+    command.kind === RUNNER_COMMAND_KIND.deskResize ||
+    command.kind === RUNNER_COMMAND_KIND.fire
   );
 }
 
@@ -645,7 +668,8 @@ export type RunnerSlotCommandDraft =
   | Omit<RunnerProfileCommand, "id">
   | Omit<RunnerDeskOpenCommand, "id">
   | Omit<RunnerDeskCloseCommand, "id">
-  | Omit<RunnerDeskResizeCommand, "id">;
+  | Omit<RunnerDeskResizeCommand, "id">
+  | Omit<RunnerFireCommand, "id">;
 
 /** A command before the server has given it an id. */
 export type RunnerCommandDraft =
@@ -1208,7 +1232,13 @@ function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCom
       };
     }
     case RUNNER_COMMAND_KIND.stop: {
-      const stop = { id, slotId: draft.slotId, kind: draft.kind, reason: sanitizeWorkNote(draft.reason) };
+      const stop = {
+        id,
+        slotId: draft.slotId,
+        kind: draft.kind,
+        reason: sanitizeWorkNote(draft.reason),
+        ...(draft.discard === true ? { discard: true } : {}),
+      };
       if (draft.issueNumber === undefined) {
         return stop;
       }
@@ -1248,5 +1278,7 @@ function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCom
       return isDeskSeatId(draft.seatId) && isTerminalSize(draft.cols, draft.rows)
         ? { id, slotId: draft.slotId, kind: draft.kind, seatId: draft.seatId, cols: draft.cols, rows: draft.rows }
         : undefined;
+    case RUNNER_COMMAND_KIND.fire:
+      return { id, slotId: draft.slotId, kind: draft.kind, requestedBy: sanitizeName(draft.requestedBy) };
   }
 }

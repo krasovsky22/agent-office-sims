@@ -24,6 +24,8 @@ import { promisify } from "node:util";
 
 import { MAX_TITLE_LENGTH, type RunnerPullRequest } from "@sim/shared";
 
+import { BRANCH_PREFIX } from "./worktrees.js";
+
 const execFileP = promisify(execFile);
 
 const GH_TIMEOUT_MS = 60_000;
@@ -90,6 +92,13 @@ export interface TaskGithub {
   pullRequest(task: HandInTask): Promise<RunnerPullRequest | undefined>;
   /** The title of pull request `number`, for one read off the command that opened it; `""` when GitHub could not say. Never rejects. */
   pullRequestTitle(number: number): Promise<string>;
+  /**
+   * Throws a cancelled task's work away on GitHub: closes the open pull
+   * request for its `branch` and deletes the branch from origin, run in `cwd`,
+   * a checkout of the repository. Only a task's own `sims/` branch is touched.
+   * Says what went wrong, if anything; never rejects.
+   */
+  discard(branch: string, cwd: string): Promise<string | undefined>;
 }
 
 export interface TaskGithubOptions {
@@ -183,6 +192,28 @@ export function createTaskGithub(options: TaskGithubOptions): TaskGithub {
       return { number, title, url };
     },
 
+    async discard(branch, workdir) {
+      try {
+        if (!branch.startsWith(BRANCH_PREFIX)) {
+          return undefined;
+        }
+        const listed = JSON.parse(
+          await gh(["pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number"], workdir),
+        ) as { number?: unknown }[];
+        for (const { number } of listed) {
+          if (typeof number === "number") {
+            await gh(["pr", "close", String(number), "--repo", repo, "--comment", "Closed from the office: the CEO cancelled this task."], workdir);
+          }
+        }
+        if ((await git(["ls-remote", "--heads", "origin", `refs/heads/${branch}`], workdir)) !== "") {
+          await git(["push", "origin", "--delete", branch], workdir);
+        }
+        return undefined;
+      } catch (error) {
+        return failure(error);
+      }
+    },
+
     async pullRequestTitle(number) {
       try {
         const { title } = JSON.parse(await gh(["pr", "view", String(number), "--repo", repo, "--json", "title"])) as { title?: unknown };
@@ -199,4 +230,5 @@ export const NO_GITHUB: TaskGithub = {
   refusal: () => Promise.resolve(undefined),
   pullRequest: () => Promise.resolve(undefined),
   pullRequestTitle: () => Promise.resolve(""),
+  discard: () => Promise.resolve(undefined),
 };

@@ -5,6 +5,8 @@
  * A task gets a worktree as it starts and gives it up as it ends: removed
  * when nothing in it would be lost, kept otherwise with the reason logged,
  * and handed back to the same slot if the same issue comes to it again. A
+ * task the CEO cancelled has its worktree and branch removed whatever is in
+ * them. A
  * runner that restarts finds the worktrees its last run left mid-task and
  * settles them the same way; anything else in its worktrees dir is a stray,
  * reported and left alone, since the runner cannot vouch for it.
@@ -126,12 +128,19 @@ export class SlotWorktrees implements SlotWorkspaces {
     });
   }
 
-  /** A task is over: its worktree goes when nothing in it would be lost, and stays, saying why, when something would. */
-  public close(slotId: string, issueNumber: number): Promise<void> {
+  /**
+   * A task is over: its worktree goes when nothing in it would be lost, and
+   * stays, saying why, when something would, unless it is a cancelled task's
+   * to `discard`, which is given its branch and the clone first, whether or
+   * not the worktree is still there.
+   */
+  public close(slotId: string, issueNumber: number, discard?: (branch: string, cwd: string) => Promise<void>): Promise<void> {
     return this.chain(slotId, async () => {
+      const { worktrees } = this.options;
+      await discard?.(worktrees.refFor(issueNumber, slotId).branch, worktrees.repoDir);
       const record = this.find(slotId, issueNumber);
       if (record !== undefined) {
-        await this.settle(record);
+        await this.settle(record, discard !== undefined);
       }
     }).catch((error: unknown) => {
       this.log(`${slotId} could not give up its worktree for #${issueNumber}: ${(error as Error).message}`);
@@ -143,11 +152,11 @@ export class SlotWorktrees implements SlotWorkspaces {
     await Promise.all(this.chains.values());
   }
 
-  private async settle(record: WorktreeRecord): Promise<void> {
+  private async settle(record: WorktreeRecord, discard = false): Promise<void> {
     const { worktrees } = this.options;
     const ref = this.refOf(record);
     const lose = await worktrees.wouldLose(ref);
-    if (lose !== "") {
+    if (lose !== "" && !discard) {
       this.log(`${record.slotId} keeps its worktree for #${record.issueNumber} at ${ref.path}: ${lose}`);
       return;
     }
@@ -157,7 +166,9 @@ export class SlotWorktrees implements SlotWorkspaces {
       return;
     }
     this.forget(record);
-    this.log(`${record.slotId} removed its worktree for #${record.issueNumber}: nothing in it to keep`);
+    this.log(
+      `${record.slotId} removed its worktree for #${record.issueNumber}: ${lose === "" ? "nothing in it to keep" : `cancelled, discarding ${lose}`}`,
+    );
   }
 
   /** Runs `step` after every earlier step for the same slot, whether or not those succeeded. */

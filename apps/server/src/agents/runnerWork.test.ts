@@ -187,6 +187,22 @@ describe("RunnerWork outward: the CEO's word to the slots", () => {
     ]);
   });
 
+  it("has the slot discard the task the CEO cancelled, a review in hand included", () => {
+    const { ceoDoes, state, syncSlots, pending, ack, runnerWork } = setup();
+    ceoDoes(assign(39));
+    ack();
+    syncSlots({ "slot-1": 39 });
+    runnerWork.receive(
+      [event("started", 39), event("pr-opened", 39, { pr: PR })].map((item) => ({ runnerId: "box", event: item })),
+    );
+    expect(state.work.get(workKey(39))?.status).toBe(WORK_STATUS.review);
+    expect(ceoDoes({ action: WORK_ACTION.cancel, payload: { issueNumber: 39 } }).ok).toBe(true);
+    expect(state.work.has(workKey(39))).toBe(false);
+    expect(pending()).toEqual([
+      { kind: "stop", slotId: "slot-1", reason: "the CEO cancelled the task", issueNumber: 39, discard: true },
+    ]);
+  });
+
   it("sends a review back as a rework prompt to the slot holding it, or a start with the same words when it is not", () => {
     const { ceoDoes, state, syncSlots, pending, ack, runnerWork } = setup();
     ceoDoes(assign(39));
@@ -280,6 +296,23 @@ describe("RunnerWork.reconcile", () => {
     runnerWork.reconcile();
     expect(pending()).toEqual([
       { kind: "stop", slotId: "slot-2", reason: "the office has no work for it on this issue", issueNumber: 40 },
+    ]);
+  });
+
+  it("still has a slot discard the task the CEO cancelled when the cancel's own stop never reached it", () => {
+    const { ceoDoes, link, syncSlots, pending, ack, runnerWork } = setup();
+    ceoDoes(assign(39));
+    ack();
+    syncSlots({ "slot-1": 39 });
+    ceoDoes({ action: WORK_ACTION.cancel, payload: { issueNumber: 39 } });
+    // Lost on the way, as to a runner that was offline.
+    for (const command of link.pending("box")) {
+      link.withdraw("box", command.id);
+    }
+    syncSlots({ "slot-1": 39 });
+    runnerWork.reconcile();
+    expect(pending()).toEqual([
+      { kind: "stop", slotId: "slot-1", reason: "the CEO cancelled the task", issueNumber: 39, discard: true },
     ]);
   });
 

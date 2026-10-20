@@ -141,3 +141,39 @@ describe("pullRequestTitle", () => {
     expect(await github({ "gh pr view": "<html>" }).github.pullRequestTitle(96)).toBe("");
   });
 });
+
+describe("discard", () => {
+  const branch = "sims/issue-39-slot-1";
+
+  it("closes the branch's open pull request and deletes the branch from origin, as the runner's identity", async () => {
+    const { github: gh, calls } = github({
+      "gh pr list": '[{"number":96}]',
+      "gh pr close": "",
+      "git ls-remote": `abc123\trefs/heads/${branch}`,
+      "git push": "",
+    });
+    expect(await gh.discard(branch, TASK.workdir)).toBeUndefined();
+    expect(calls.map((call) => `${call.file} ${call.args.slice(0, 3).join(" ")}`)).toEqual([
+      "gh pr list --repo",
+      "gh pr close 96",
+      "git ls-remote --heads origin",
+      `git push origin --delete`,
+    ]);
+    expect(calls.at(-1)?.args).toEqual(["push", "origin", "--delete", branch]);
+    expect(calls.every((call) => call.env === ENV && call.cwd === TASK.workdir)).toBe(true);
+  });
+
+  it("deletes nothing for a branch never pushed, and touches no branch but a task's own", async () => {
+    const unpushed = github({ "gh pr list": "[]", "git ls-remote": "" });
+    expect(await unpushed.github.discard(branch, TASK.workdir)).toBeUndefined();
+    expect(unpushed.calls.map((call) => call.args[0])).toEqual(["pr", "ls-remote"]);
+    const main = github({});
+    expect(await main.github.discard("main", TASK.workdir)).toBeUndefined();
+    expect(main.calls).toHaveLength(0);
+  });
+
+  it("says what went wrong rather than rejecting", async () => {
+    const { github: gh } = github({ "gh pr list": new Error("HTTP 401: Bad credentials") });
+    expect(await gh.discard(branch, TASK.workdir)).toBe("HTTP 401: Bad credentials");
+  });
+});

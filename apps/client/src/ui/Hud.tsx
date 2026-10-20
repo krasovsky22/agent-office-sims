@@ -44,6 +44,7 @@ import {
 } from "@sim/shared";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import type { AgentMenuView } from "../agentMenu.js";
 import type { AgentProfileAccess } from "../agentProfileAccess.js";
 import type { AgentPromptAccess } from "../agentPromptAccess.js";
 import { NO_LINKS, terminalLinks } from "../agentTerminal.js";
@@ -58,6 +59,7 @@ import { type StandingAccess, type StandingTaskData, standingRow } from "../stan
 import type { ConnectionStatus } from "../net/room.js";
 import { CAMERA_MODE, type CameraMode } from "../player/cameraMode.js";
 import type { StandupAccess } from "../standupAccess.js";
+import { AgentMenu, type AgentMenuActions } from "./AgentMenu.js";
 import { type AgentProfileActions, AgentProfileCard, type AgentProfileNotice } from "./AgentProfileCard.js";
 import { type AgentPromptRefusal, type AgentTerminalActions, AgentTerminalPanel } from "./AgentTerminalPanel.js";
 import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
@@ -154,6 +156,8 @@ export interface HudPrompt {
   readonly keys: string;
   readonly label: string;
   readonly blocked: boolean;
+  /** What holding `E` does as well, at an agent the player faces; absent for nothing. */
+  readonly hold?: string | undefined;
 }
 
 export interface HudSnapshot {
@@ -221,6 +225,8 @@ export interface HudSnapshot {
   readonly agentProfileNotice?: AgentProfileNotice | undefined;
   /** Which camera the local player is looking through. */
   readonly cameraMode: CameraMode;
+  /** The menu a long press of `E` opened on the agent the local player faces, or `undefined`. */
+  readonly agentMenu?: AgentMenuView | undefined;
 }
 
 /** What the standing tasks' buttons do; the server decides whether it happens. */
@@ -242,6 +248,7 @@ export interface HudActions {
   readonly standing: StandingActions;
   readonly standup: StandupActions & { readonly start: () => void };
   readonly profile: AgentProfileActions;
+  readonly agentMenu: AgentMenuActions;
 }
 
 export interface HudStore {
@@ -771,6 +778,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     chatLog,
     notice,
     prompt,
+    agentMenu,
     assets,
     debug,
     projectBoard,
@@ -939,10 +947,18 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
         </div>
       </div>
 
+      {agentMenu === undefined ? null : <AgentMenu menu={agentMenu} actions={actions.agentMenu} />}
+
       {prompt === undefined ? null : (
         <div className={prompt.blocked ? "hud__prompt hud__prompt--blocked" : "hud__prompt"}>
           <span className="hud__keys">{prompt.keys}</span>
           <span>{prompt.label}</span>
+          {prompt.hold === undefined ? null : (
+            <>
+              <span className="hud__keys">Hold E</span>
+              <span>{prompt.hold}</span>
+            </>
+          )}
         </div>
       )}
     </div>

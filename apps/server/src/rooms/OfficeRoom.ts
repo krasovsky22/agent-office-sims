@@ -157,6 +157,7 @@ import { LiveAgentCrew } from "../sim/liveAgents.js";
 import { type OccupantMotion, applyPose, createMotion, recordPose, tryJump } from "../sim/movement.js";
 import { appointSuccessor, roleForArrival } from "../sim/roles.js";
 import { StandupMeeting } from "../sim/standup.js";
+import { registerAgentActionHandlers } from "./agentActionHandlers.js";
 import { registerAgentProfileHandlers } from "./agentProfileHandlers.js";
 import { registerAgentPromptHandlers } from "./agentPromptHandlers.js";
 import { registerManagerHandlers } from "./managerHandlers.js";
@@ -459,6 +460,16 @@ export class OfficeRoom extends Room<OfficeState> {
       state: this.state,
       runner: runnerCommands,
       allow: (client) => this.spend(client, CLIENT_MESSAGE.agentProfile),
+      log: recordOfficeEvent,
+    });
+    registerAgentActionHandlers(this, {
+      work: workHost,
+      runner: runnerCommands,
+      fire: (agentId) => {
+        this.crew.fire(agentId, this.clock.currentTime);
+      },
+      announce: (text) => this.manager?.report(text),
+      allow: (client) => this.spend(client, CLIENT_MESSAGE.agentAction),
       log: recordOfficeEvent,
     });
     const runnerStandup = roomOptions?.runnerStandup;

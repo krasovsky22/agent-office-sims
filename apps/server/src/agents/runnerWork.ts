@@ -14,11 +14,15 @@
  * - Work sent back to `assigned` starts again from the top: stop, then start.
  * - Work taken back, approved, or finished by GitHub closing the issue stops
  *   the slot, which settles its worktree.
+ * - Work the CEO cancelled stops the slot and has it discard the task: its
+ *   worktree, branch and pull request go, whatever is in them.
  * - A slot holding an issue on which the office has no unfinished work of its
  *   own, as after the room was closed and opened again, is stopped too, by
  *   {@link RunnerWork.reconcile}: the office's work is the record of what each
  *   agent should be doing, and an agent nobody can see the work of could never
- *   be taken off it. What it had is kept in its worktree, as for any stop.
+ *   be taken off it. What it had is kept in its worktree, as for any stop,
+ *   unless the CEO cancelled that work: a runner that missed the cancel's own
+ *   stop, offline at the time, still discards it.
  *
  * Inward, from {@link RunnerWork.receive}, each event the runner reports is
  * applied through the same `applyAs` as the slot's live agent, so the work's
@@ -128,6 +132,11 @@ export function pullRequestArtifact(pr: RunnerPullRequest): string {
 
 const LIVE_AGENT_PREFIX = liveAgentKey("");
 
+/** A slot holding an issue, as one string. */
+function heldKey(runnerId: string, slotId: string, issueNumber: number): string {
+  return `${runnerId}:${slotId}#${issueNumber}`;
+}
+
 /** The slot an occupant key names, for a runner's live agent. */
 export function slotOf(occupantId: string): RunnerSlotRef | undefined {
   return isLiveAgentKey(occupantId) ? runnerSlotOf(occupantId.slice(LIVE_AGENT_PREFIX.length)) : undefined;
@@ -146,6 +155,8 @@ export class RunnerWork {
   private readonly log: NonNullable<RunnerWorkOptions["log"]>;
   /** Slots already told to stop holding an issue the office has no work of theirs on, as `runner:slot#issue`. */
   private readonly orphans = new Set<string>();
+  /** Slots whose work the CEO cancelled, as `runner:slot#issue`, so a later stop for it discards too. */
+  private readonly cancelled = new Set<string>();
 
   public constructor(private readonly options: RunnerWorkOptions) {
     this.log = options.log ?? (() => undefined);
@@ -169,6 +180,14 @@ export class RunnerWork {
       case WORK_ACTION.release:
         this.stop(work.assigneeId, work.issueNumber, "the CEO took the work back");
         return;
+      case WORK_ACTION.cancel: {
+        const slot = slotOf(work.assigneeId);
+        if (slot !== undefined) {
+          this.cancelled.add(heldKey(slot.runnerId, slot.slotId, work.issueNumber));
+        }
+        this.stop(work.assigneeId, work.issueNumber, "the CEO cancelled the task", true);
+        return;
+      }
       case WORK_ACTION.moveStatus:
         if (before === undefined || before.status === work.status) {
           return;
@@ -196,7 +215,7 @@ export class RunnerWork {
     const held = this.options.runner.heldIssues();
     const current = new Set<string>();
     for (const { runnerId, slotId, issueNumber } of held) {
-      const key = `${runnerId}:${slotId}#${issueNumber}`;
+      const key = heldKey(runnerId, slotId, issueNumber);
       current.add(key);
       const agentId = liveAgentKey(runnerSlotAgentId(runnerId, slotId));
       const work = this.options.host.state.work.get(workKey(issueNumber));
@@ -204,7 +223,8 @@ export class RunnerWork {
         continue;
       }
       this.orphans.add(key);
-      this.stop(agentId, issueNumber, "the office has no work for it on this issue");
+      const cancelled = this.cancelled.delete(key);
+      this.stop(agentId, issueNumber, cancelled ? "the CEO cancelled the task" : "the office has no work for it on this issue", cancelled);
     }
     for (const key of this.orphans) {
       if (!current.has(key)) {
@@ -287,6 +307,8 @@ export class RunnerWork {
     if (slot === undefined) {
       return;
     }
+    // Given the issue again: its next stop is an ordinary one.
+    this.cancelled.delete(heldKey(slot.runnerId, slot.slotId, work.issueNumber));
     this.send(work, slot, {
       kind: RUNNER_COMMAND_KIND.start,
       slotId: slot.slotId,
@@ -303,7 +325,7 @@ export class RunnerWork {
    * holding it, since a start still on its way would otherwise begin after
    * the work was taken back; naming the issue keeps it from ending any other.
    */
-  private stop(assigneeId: string, issueNumber: number, reason: string): void {
+  private stop(assigneeId: string, issueNumber: number, reason: string, discard = false): void {
     const slot = slotOf(assigneeId);
     if (slot === undefined) {
       return;
@@ -313,6 +335,7 @@ export class RunnerWork {
       slotId: slot.slotId,
       reason,
       issueNumber,
+      ...(discard ? { discard: true } : {}),
     });
     this.log(command === undefined ? "runner-command-refused" : "runner-command", {
       kind: RUNNER_COMMAND_KIND.stop,

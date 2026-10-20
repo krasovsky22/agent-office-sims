@@ -153,8 +153,22 @@ function readDraft(raw: Record<string, unknown>, slotId: string): RunnerCommandD
       }
       return { kind, slotId, issueNumber, title, url, note, requestedBy };
     }
-    case RUNNER_COMMAND_KIND.stop:
-      return typeof raw["reason"] === "string" ? { kind, slotId, reason: raw["reason"] } : undefined;
+    case RUNNER_COMMAND_KIND.stop: {
+      const { reason, issueNumber } = raw;
+      if (typeof reason !== "string") {
+        return undefined;
+      }
+      // The issue keeps a late stop off work the slot moved on to; a cancel's discard must never land on any other.
+      return {
+        kind,
+        slotId,
+        reason,
+        ...(typeof issueNumber === "number" ? { issueNumber } : {}),
+        ...(raw["discard"] === true ? { discard: true } : {}),
+      };
+    }
+    case RUNNER_COMMAND_KIND.fire:
+      return typeof raw["requestedBy"] === "string" ? { kind, slotId, requestedBy: raw["requestedBy"] } : undefined;
     case RUNNER_COMMAND_KIND.prompt: {
       const { text, requestedBy } = raw;
       if (typeof text !== "string" || typeof requestedBy !== "string") {
