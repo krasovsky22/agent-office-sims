@@ -298,10 +298,14 @@ function readHire(message: string, view: OfficeView): Omit<ManagerPlan, "tokensU
  * strict grammar over the whole message up to a first colon, after which a
  * send-back's note to the agent goes:
  *
- * - (approve|accept) WORK
- * - send WORK back [for rework], send back WORK
- * - take WORK (back|off AGENT), take back WORK, unassign WORK [from AGENT]
- * - start WORK (again|over), restart WORK
+ * - approve WORK
+ * - send WORK back [for rework]
+ * - take WORK off AGENT, unassign WORK
+ * - start WORK again
+ *
+ * and, only where WORK names an issue by number, the synonyms "accept WORK",
+ * "send back WORK", "take back WORK", "take WORK back", "unassign WORK from
+ * AGENT", "start WORK over" and "restart WORK".
  *
  * One that starts like a move and names no work is answered with how to say
  * it. `undefined` for any other message, a question included.
@@ -349,11 +353,17 @@ function workMoveShape(
   const [verb = "", second = ""] = words;
   const last = words[words.length - 1] ?? "";
   const rest = words.slice(1);
-  if (verb === "approve" || verb === "accept") {
+  const byNumber = (shape: { readonly move: WorkMoveKind; readonly work: readonly string[]; readonly agent?: readonly string[] }) =>
+    namesNumber(shape.work) ? shape : undefined;
+  if (verb === "approve") {
+    return { move: "approve", work: rest };
+  }
+  if (verb === "accept") {
+    return byNumber({ move: "approve", work: rest });
     return { move: "approve", work: rest };
   }
   if (verb === "send" && second === "back") {
-    return { move: "send-back", work: words.slice(2) };
+    return byNumber({ move: "send-back", work: words.slice(2) });
   }
   if (verb === "send") {
     const back = rest.lastIndexOf("back");
@@ -362,23 +372,26 @@ function workMoveShape(
   }
   if (verb === "unassign") {
     const from = rest.indexOf("from");
-    return from > 0 ? { move: "take-back", work: rest.slice(0, from), agent: rest.slice(from + 1) } : { move: "take-back", work: rest };
+    return from > 0 ? byNumber({ move: "take-back", work: rest.slice(0, from), agent: rest.slice(from + 1) }) : { move: "take-back", work: rest };
   }
   if (verb === "take" && second === "back") {
-    return { move: "take-back", work: words.slice(2) };
+    return byNumber({ move: "take-back", work: words.slice(2) });
   }
   if (verb === "take") {
     const off = rest.lastIndexOf("off");
     if (off > 0) {
       return { move: "take-back", work: rest.slice(0, off), agent: rest.slice(off + 1) };
     }
-    return last === "back" && words.length > 2 ? { move: "take-back", work: rest.slice(0, -1) } : undefined;
+    return last === "back" && words.length > 2 ? byNumber({ move: "take-back", work: rest.slice(0, -1) }) : undefined;
   }
   if (verb === "restart") {
-    return { move: "start-again", work: rest };
+    return byNumber({ move: "start-again", work: rest });
   }
-  if (verb === "start" && (last === "again" || last === "over") && words.length > 2) {
+  if (verb === "start" && last === "again" && words.length > 2) {
     return { move: "start-again", work: rest.slice(0, -1) };
+  }
+  if (verb === "start" && last === "over" && words.length > 2) {
+    return byNumber({ move: "start-again", work: rest.slice(0, -1) });
   }
   return undefined;
 }
@@ -497,6 +510,11 @@ function readAgent(words: readonly string[], view: OfficeView): { readonly agent
  * full title, or words only one open issue's title has, with no work
  * reference among them. `null` when they are not.
  */
+/** Whether the words name work by number: "#39", "issue 39" or "pr 39". */
+function namesNumber(words: readonly string[]): boolean {
+  return words.some((word, at) => /^#\d+$/.test(word) || ((word === "issue" || word === "pr") && NUMBER.test(words[at + 1] ?? "")));
+}
+
 function readWork(words: readonly string[], view: OfficeView): WorkSlot | null {
   const plain = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const said = plain(words.join(" "));
@@ -505,9 +523,7 @@ function readWork(words: readonly string[], view: OfficeView): WorkSlot | null {
     return { work: [{ kind: "issue", issue: titled }], unknown: [] };
   }
 
-  const numbered = words.some(
-    (word, at) => /^#\d+$/.test(word) || ((word === "issue" || word === "pr") && NUMBER.test(words[at + 1] ?? "")),
-  );
+  const numbered = namesNumber(words);
   const references: string[] = [];
   for (let at = 0; at < words.length; at += 1) {
     const word = words[at] ?? "";

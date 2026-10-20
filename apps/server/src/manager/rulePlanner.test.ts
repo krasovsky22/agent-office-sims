@@ -618,6 +618,9 @@ describe("planFromRules: moves on work in hand", () => {
     ["unassign #11 from Ada", [move("take-back", "issue #11")]],
     ["start #12 again", [move("start-again", "issue #12")]],
     ["restart #12", [move("start-again", "issue #12")]],
+    ["accept #14", [move("approve", "issue #14")]],
+    ["start #12 over", [move("start-again", "issue #12")]],
+    ["take #11 back", [move("take-back", "issue #11")]],
   ])("plans the move an instruction names: %j", (message, moves) => {
     expect(ask(message, MOVES_VIEW)).toEqual({ reply: "Here's how that went:", assignments: [], moves, tokensUsed: 0 });
   });
@@ -640,6 +643,20 @@ describe("planFromRules: moves on work in hand", () => {
     expect(ask("should I approve #14?", MOVES_VIEW).moves).toBeUndefined();
     expect(ask("take a look at #14", MOVES_VIEW).moves).toBeUndefined();
     expect(ask("send #14 to Deckhand", MOVES_VIEW).assignments).toEqual([{ work: "issue #14", agent: "crew-2" }]);
+  });
+
+  it.each([
+    "restart the runner",
+    "accept the invite",
+    "send back the chairs",
+    "take back the keys",
+    "take the plant back",
+    "start the day over",
+    "unassign the desk from Ada",
+  ])("does not read %j, which names no issue, as a move", (message) => {
+    const plan = ask(message, MOVES_VIEW);
+    expect(plan.moves).toBeUndefined();
+    expect(plan.reply).not.toBe(MOVE_REPHRASE_TEXT);
   });
 
   it("lists the moves among what it can do", () => {
