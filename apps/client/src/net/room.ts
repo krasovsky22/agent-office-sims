@@ -70,7 +70,6 @@ import {
   type EmoteEvent,
   type EmoteMessage,
   type JumpEvent,
-  INTERPOLATION_DELAY_MS,
   NO_STANDUP,
   type InteractMessage,
   type IssueState,
@@ -88,7 +87,6 @@ import {
   type Occupant,
   type OccupantKind,
   type OfficeState,
-  POSE_BUFFER_SIZE,
   POSE_SEND_INTERVAL_MS,
   type PoseMessage,
   type ProjectBoardSnapshot,
@@ -117,12 +115,11 @@ import {
   isAiManager,
   isCeo,
   isLiveAgent,
-  normalizeYaw,
-  shortestYawDelta,
 } from "@sim/shared";
 import { Client, ErrorCode, MatchMakeError, type Room, getStateCallbacks } from "colyseus.js";
 
 import { type StandingTaskData, copyStandingTask } from "../standingAccess.js";
+import { type PoseSample, type RemotePose, pushPose, samplePoses } from "./poseBuffer.js";
 import { type TerminalScreen, applyScreenFrame } from "./screens.js";
 
 export type ConnectionStatus =
@@ -135,15 +132,6 @@ export type ConnectionStatus =
 
 /** Pause between reconnection attempts while the server's grace period lasts. */
 const RECONNECT_RETRY_MS = 1000;
-
-/** One pose as received, stamped with local arrival time. */
-interface PoseSample {
-  t: number;
-  x: number;
-  z: number;
-  yaw: number;
-  animation: AnimationState;
-}
 
 /**
  * What the HUD and the avatar layer need to know about an occupant.
@@ -197,14 +185,6 @@ export interface ReportedPose {
   readonly z: number;
   readonly yaw: number;
   readonly animation: ReportedAnimation;
-}
-
-/** A pose written by {@link RoomConnection.sampleRemote}. */
-export interface RemotePose {
-  x: number;
-  z: number;
-  yaw: number;
-  animation: AnimationState;
 }
 
 export interface RoomConnectionEvents {
@@ -609,45 +589,7 @@ export class RoomConnection {
    */
   public sampleRemote(id: string, nowMs: number, out: RemotePose): boolean {
     const buffer = this.buffers.get(id);
-    if (buffer === undefined || buffer.length === 0) {
-      return false;
-    }
-
-    const renderTime = nowMs - INTERPOLATION_DELAY_MS;
-    const oldest = buffer[0];
-    const newest = buffer[buffer.length - 1];
-    if (oldest === undefined || newest === undefined) {
-      return false;
-    }
-
-    // Outside the buffered window there is nothing to interpolate between, so
-    // hold the nearest sample rather than extrapolating into a guess.
-    if (renderTime <= oldest.t) {
-      copySample(oldest, out);
-      return true;
-    }
-    if (renderTime >= newest.t) {
-      copySample(newest, out);
-      return true;
-    }
-
-    for (let i = buffer.length - 1; i > 0; i -= 1) {
-      const after = buffer[i];
-      const before = buffer[i - 1];
-      if (after === undefined || before === undefined || before.t > renderTime) {
-        continue;
-      }
-      const span = after.t - before.t;
-      const alpha = span <= 0 ? 1 : (renderTime - before.t) / span;
-      out.x = before.x + (after.x - before.x) * alpha;
-      out.z = before.z + (after.z - before.z) * alpha;
-      out.yaw = normalizeYaw(before.yaw + shortestYawDelta(before.yaw, after.yaw) * alpha);
-      out.animation = after.animation;
-      return true;
-    }
-
-    copySample(newest, out);
-    return true;
+    return buffer !== undefined && samplePoses(buffer, nowMs, out);
   }
 
   private attach(room: Room<OfficeState>): void {
@@ -990,17 +932,7 @@ export class RoomConnection {
     if (buffer === undefined) {
       return;
     }
-    const sample = sampleOf(occupant);
-    const previous = buffer[buffer.length - 1];
-    if (previous !== undefined && previous.t === sample.t) {
-      // Two changes decoded in the same frame describe one moment in time.
-      buffer[buffer.length - 1] = sample;
-      return;
-    }
-    buffer.push(sample);
-    if (buffer.length > POSE_BUFFER_SIZE) {
-      buffer.shift();
-    }
+    pushPose(buffer, sampleOf(occupant));
   }
 
   /**
@@ -1148,11 +1080,4 @@ function sampleOf(occupant: Occupant): PoseSample {
     yaw: occupant.yaw,
     animation: occupant.animation,
   };
-}
-
-function copySample(sample: PoseSample, out: RemotePose): void {
-  out.x = sample.x;
-  out.z = sample.z;
-  out.yaw = sample.yaw;
-  out.animation = sample.animation;
 }
