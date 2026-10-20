@@ -35,6 +35,21 @@ export function writePlayerName(storage: Pick<Storage, "setItem"> | undefined, n
   }
 }
 
+/**
+ * Keeps the name the player asked for once the office has given it to them:
+ * `current` is the name they hold now, so a refused name, a numbered variant
+ * or a generated `Employee N` is never kept.
+ *
+ * @returns whether `asked` was accepted, and so kept.
+ */
+export function keepAcceptedName(storage: Pick<Storage, "setItem"> | undefined, asked: string, current: string | undefined): boolean {
+  if (current === undefined || sanitizeName(asked) !== current) {
+    return false;
+  }
+  writePlayerName(storage, current);
+  return true;
+}
+
 /** Why the office refused `event.name`, and what the player is called instead when that is known. */
 export function nameRejectionText(event: NameRejectedEvent, current: string | undefined): string {
   const reason =

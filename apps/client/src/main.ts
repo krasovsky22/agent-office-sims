@@ -58,7 +58,7 @@ import { DayClock } from "./dayClock.js";
 import { hasIssueMoveLanded, withOfficeWork } from "./projectBoard.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
 import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
-import { nameRejectionText, readPlayerName, writePlayerName } from "./playerName.js";
+import { keepAcceptedName, nameRejectionText, readPlayerName } from "./playerName.js";
 import { standingAccessFor, standingRejectionText } from "./standingAccess.js";
 import { type OccupantView, RoomConnection, type RemotePose } from "./net/room.js";
 import { resolveServerUrl } from "./net/serverUrl.js";
@@ -497,6 +497,9 @@ function start(): void {
     wallBoard?.show(shown);
   };
 
+  // The name asked for on the card or in Rename, kept in the browser only once the office gives it.
+  let askedName: string | undefined;
+
   const room: RoomConnection = new RoomConnection({
     onStatusChanged: (status, detail) => {
       publishHud({ status, detail });
@@ -505,6 +508,9 @@ function start(): void {
       controller.teleport(x, z, yaw);
     },
     onOccupantsChanged: () => {
+      if (askedName !== undefined && keepAcceptedName(browserStorage(), askedName, room.occupantName(room.sessionId))) {
+        askedName = undefined;
+      }
       const present = room.occupants();
       const ids = new Set<string>();
 
@@ -860,7 +866,7 @@ function start(): void {
           void room.rejoin().catch(() => {});
         },
         join: (name) => {
-          writePlayerName(browserStorage(), name);
+          askedName = name;
           publishHud({ nameCard: undefined });
           void room.connect(readServerUrl(), name).catch(() => {
             // The status is already on the HUD; the empty office keeps rendering so the
@@ -868,7 +874,7 @@ function start(): void {
           });
         },
         rename: (name) => {
-          writePlayerName(browserStorage(), name);
+          askedName = name;
           room.sendRename(name);
         },
         projectBoard: {

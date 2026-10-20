@@ -1,7 +1,7 @@
 import { NAME_REJECTION } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { PLAYER_NAME_STORAGE_KEY, nameRejectionText, readPlayerName, writePlayerName } from "./playerName.js";
+import { PLAYER_NAME_STORAGE_KEY, keepAcceptedName, nameRejectionText, readPlayerName, writePlayerName } from "./playerName.js";
 
 function memoryStorage(): Pick<Storage, "getItem" | "setItem"> {
   const items = new Map<string, string>();
@@ -37,6 +37,18 @@ describe("readPlayerName", () => {
     expect(readPlayerName("", undefined)).toBe("");
     expect(readPlayerName("", refusing)).toBe("");
     expect(() => writePlayerName(refusing, "Dana")).not.toThrow();
+  });
+});
+
+describe("keepAcceptedName", () => {
+  it("keeps the asked name only once the office has given it", () => {
+    const storage = memoryStorage();
+    expect(keepAcceptedName(storage, "dana", undefined)).toBe(false);
+    expect(keepAcceptedName(storage, "dana", "dana 2")).toBe(false);
+    expect(keepAcceptedName(storage, "", "Employee 3")).toBe(false);
+    expect(storage.getItem(PLAYER_NAME_STORAGE_KEY)).toBeNull();
+    expect(keepAcceptedName(storage, " Maya ", "Maya")).toBe(true);
+    expect(storage.getItem(PLAYER_NAME_STORAGE_KEY)).toBe("Maya");
   });
 });
 

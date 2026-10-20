@@ -221,6 +221,17 @@ describe("editing a coding agent's profile", () => {
     expect(dana.rejections).toHaveLength(2);
   });
 
+  it("takes an edit that keeps the agent's name, even one a player also has", async () => {
+    const { dana, milo } = await openOffice();
+    reported = { ...DEFAULT, name: "Milo" };
+    runnerSync();
+    await settled(() => profileIn(dana)?.name === "Milo");
+    edit(dana, { ...GRACE, name: "milo" });
+    expect(await commandsAfterAWhile()).toEqual([expect.objectContaining({ kind: "profile", name: "milo", title: GRACE.title })]);
+    expect(dana.rejections).toEqual([]);
+    expect(milo.room.state.occupants.get(milo.room.sessionId)?.name).toBe("Milo");
+  });
+
   it("rate-limits the CEO's edits", async () => {
     const { dana } = await openOffice();
     for (let index = 0; index <= AGENT_PROFILE_BURST_ALLOWANCE; index += 1) {

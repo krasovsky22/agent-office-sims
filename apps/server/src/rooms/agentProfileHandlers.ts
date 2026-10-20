@@ -70,8 +70,9 @@ export function registerAgentProfileHandlers(room: Pick<Room<OfficeState>, "onMe
       refuse(client, message.agentId, message.name, AGENT_PROFILE_REJECTION.noAgent);
       return;
     }
+    const renamed = message.name.toLowerCase() !== agent.name.toLowerCase();
     const others = [...host.state.occupants.values()].filter((occupant) => occupant !== agent);
-    const taken = nameRefusal(message.name, others);
+    const taken = renamed ? nameRefusal(message.name, others) : undefined;
     if (taken !== undefined) {
       refuse(
         client,

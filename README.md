@@ -1624,7 +1624,9 @@ Then confirm all twenty-seven:
     his tab without `?name=` offers `Maya` on the card. Dana renaming a coding
     agent to `Milo` from its profile card is refused there with
     `Someone here is already called Milo.`
-    `apps/server/src/rooms/OfficeRoom.test.ts` checks both against a live room.
+    `apps/server/src/rooms/OfficeRoom.test.ts` checks the arrival and rename
+    refusals against a live room, and
+    `apps/server/src/rooms/agentProfileHandlers.test.ts` the agent-profile one.
 27. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
