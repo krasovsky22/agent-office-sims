@@ -148,7 +148,8 @@ orchestrator's agent, which the office cannot stop, offers neither.
   pavement in tears, a crying face over its head, head bowed and a box of its
   belongings in both hands, then leaves the floor. Its runner reports the slot
   no more, and keeps it out across a restart in `<RUNNER_DATA_DIR>/fired.json`;
-  removing the slot's id from that file hires it back at the next start.
+  removing the slot's id from that file hires it back at the next start,
+  unless the AI Manager hired it, which a fire forgets for good.
 
 The AI Manager says in its conversation what was cancelled or who was fired.
 Both are limited to four in a burst, one more every five seconds.
