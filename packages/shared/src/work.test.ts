@@ -93,7 +93,7 @@ function office(): Office {
     occupants.set(id, agent);
   }
   const manager = new AiManager();
-  manager.id = "manager:firstmate";
+  manager.id = "manager:ai";
   occupants.set(manager.id, manager);
   return { work: new MapSchema<IssueWork>(), occupants, board: snapshot() };
 }
@@ -148,7 +148,7 @@ describe("assigning an issue", () => {
 
   it("gives work only to an agent in the office that can take issues", () => {
     const at = office();
-    for (const id of [CEO_ID, "manager:firstmate", "agent-99"]) {
+    for (const id of [CEO_ID, "manager:ai", "agent-99"]) {
       expect(run(at, assign(1, id))).toEqual({ ok: false, rejection: WORK_REJECTION.unknownAssignee });
     }
     expect(at.work.size).toBe(0);

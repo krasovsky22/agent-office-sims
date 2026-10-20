@@ -594,7 +594,7 @@ describe("players' names", () => {
 
     expect(occupants.get(second.room.sessionId)?.name).toBe("dana 2");
     expect(second.nameRejections).toEqual([{ name: "dana", rejection: NAME_REJECTION.taken }]);
-    expect(occupants.get(borrowed.room.sessionId)?.name).toMatch(/^Employee \d+$/);
+    expect(occupants.get(borrowed.room.sessionId)?.name).toMatch(/^Guest \d+$/);
     expect(borrowed.nameRejections).toEqual([{ name: CONCIERGE_NAME, rejection: NAME_REJECTION.reserved }]);
     expect(dana.nameRejections).toEqual([]);
 

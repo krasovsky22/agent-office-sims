@@ -113,7 +113,7 @@ export function applyAs(host: WorkHost, actor: OfficeActor, command: WorkCommand
  * rejection leaves the office unchanged and is reported to the sender as a
  * {@link WorkRejectedEvent}.
  */
-export function runWorkCommand(
+function runWorkCommand(
   host: WorkHost,
   client: Client,
   command: WorkCommand,

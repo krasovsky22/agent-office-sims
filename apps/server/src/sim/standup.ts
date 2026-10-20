@@ -379,9 +379,7 @@ export class StandupMeeting {
       .map((id) => agents.find((agent) => agent.id === id))
       .find((agent): agent is LiveAgent => agent !== undefined && !spoken.has(agent.id));
     if (speaker === undefined) {
-      if (standup.speakerId !== "") {
-        standup.speakerId = "";
-      }
+      standup.speakerId = "";
       if (!this.summarised && standup.updates.length > 0) {
         this.summarised = true;
         this.host.report(this.summary());
@@ -461,9 +459,7 @@ export class StandupMeeting {
   }
 
   private mark(direction: StandupDirection, status: StandupDirectionStatus): void {
-    if (direction.status !== status) {
-      direction.status = status;
-    }
+    direction.status = status;
   }
 
   /** Every live agent on the floor, in the order they came in, but one fired and on its way out. */

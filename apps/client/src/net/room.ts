@@ -272,7 +272,7 @@ const STANDING_MESSAGES: Readonly<Record<StandingTaskAction, StandingClientMessa
 };
 
 /** The runners' books as the state replicates them, back as one total. */
-export function runnerSpendOf(state: Pick<OfficeState, "spendRunners" | "spentUsd" | "budgeted" | "budgetUsd" | "budgetSpent">): RunnerSpendTotal {
+function runnerSpendOf(state: Pick<OfficeState, "spendRunners" | "spentUsd" | "budgeted" | "budgetUsd" | "budgetSpent">): RunnerSpendTotal {
   return {
     runners: state.spendRunners,
     spentUsd: state.spentUsd,
@@ -1109,7 +1109,7 @@ function copyWork(work: IssueWork): WorkData {
 }
 
 /** A plain copy of the replicated standup. */
-export function copyStandup(standup: Standup): StandupData {
+function copyStandup(standup: Standup): StandupData {
   return {
     active: standup.active,
     calledBy: standup.calledBy,

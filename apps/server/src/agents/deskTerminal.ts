@@ -77,7 +77,7 @@ export function isDeskRunner(value: unknown): value is DeskRunner {
 }
 
 /** Why a session ended that the runner says ended without saying why. */
-export const DESK_SESSION_GONE = "The session ended.";
+const DESK_SESSION_GONE = "The session ended.";
 
 export interface DeskTerminalOptions {
   readonly state: OfficeState;
@@ -354,27 +354,13 @@ export class DeskTerminal {
     const needsInput = slot?.status === RUNNER_SLOT_STATUS.needsInput;
     const activity = slot?.activity ?? "";
     const note = session?.ended ?? "";
-    if (desk.seatId !== (session?.seatId ?? "")) {
-      desk.seatId = session?.seatId ?? "";
-    }
-    if (desk.ownerId !== (session?.ownerId ?? "")) {
-      desk.ownerId = session?.ownerId ?? "";
-    }
-    if (desk.agentId !== agentId) {
-      desk.agentId = agentId;
-    }
-    if (desk.phase !== phase) {
-      desk.phase = phase;
-    }
-    if (desk.needsInput !== needsInput) {
-      desk.needsInput = needsInput;
-    }
-    if (desk.activity !== activity) {
-      desk.activity = activity;
-    }
-    if (desk.note !== note) {
-      desk.note = note;
-    }
+    desk.seatId = session?.seatId ?? "";
+    desk.ownerId = session?.ownerId ?? "";
+    desk.agentId = agentId;
+    desk.phase = phase;
+    desk.needsInput = needsInput;
+    desk.activity = activity;
+    desk.note = note;
   }
 
   private phaseOf(session: Session | undefined, slot: RunnerDeskSlot | undefined): DeskTerminalPhase {

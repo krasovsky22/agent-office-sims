@@ -13,7 +13,7 @@
  */
 
 /** Matches the server's own default port, so `pnpm dev` needs no configuration. */
-export const DEV_SERVER_URL = "ws://localhost:2567";
+const DEV_SERVER_URL = "ws://localhost:2567";
 
 /**
  * Hosts that may be reached over an unencrypted socket.

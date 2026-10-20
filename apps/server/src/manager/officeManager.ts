@@ -79,7 +79,7 @@ import { carryOutMoves } from "./workMoves.js";
 export const MAX_WAITING_MESSAGES = 3;
 
 /** How often the manager looks for news to post. */
-export const UPDATE_INTERVAL_MS = 2000;
+const UPDATE_INTERVAL_MS = 2000;
 
 /** What the manager needs from its room, named so a test can supply it. */
 export interface ManagerHost {

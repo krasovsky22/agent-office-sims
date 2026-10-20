@@ -163,7 +163,7 @@ export interface DeskWorkspaces {
 }
 
 /** What a desk session's activity says while its worktree is made. */
-export const DESK_STARTING = "Making a scratch worktree";
+const DESK_STARTING = "Making a scratch worktree";
 
 type StartCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.start }>;
 type DeskOpenCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.deskOpen }>;

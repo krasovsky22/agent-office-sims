@@ -28,7 +28,7 @@ import type { OfficeActor } from "./work.js";
  * Holds a colon, which no Colyseus session id does, so it can never collide
  * with a player's, the same reason a live agent's key carries one.
  */
-export const MANAGER_OCCUPANT_ID = "manager:firstmate";
+export const MANAGER_OCCUPANT_ID = "manager:ai";
 
 /** What the nameplate and the conversation call it. */
 export const MANAGER_NAME = "AI Manager";

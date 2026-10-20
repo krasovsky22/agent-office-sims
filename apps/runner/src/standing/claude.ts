@@ -39,10 +39,10 @@ import { REVIEW_DIR, type ReviewGithub, reviewBody, reviewMarker } from "./revie
 import type { StandingJob, StandingRunResult, StandingRunners } from "./types.js";
 
 /** The tools a review has: reading the checkout and the pull request's files, nothing else. */
-export const REVIEW_TOOLS = "Read,Grep,Glob";
+const REVIEW_TOOLS = "Read,Grep,Glob";
 
 /** The commands a scheduled run may use with `RUNNER_AGENT_PERMISSIONS=allowlist`: every one only reads. */
-export const SCHEDULE_ALLOWED_COMMANDS: readonly string[] = [
+const SCHEDULE_ALLOWED_COMMANDS: readonly string[] = [
   "Bash(gh issue list:*)",
   "Bash(gh issue view:*)",
   "Bash(gh pr list:*)",
@@ -103,7 +103,7 @@ export function reviewPrompt(number: number, title: string, note: string): strin
 }
 
 /** The first message of a scheduled run: the job, in the CEO's words, and how to answer. */
-export function schedulePrompt(name: string, when: string, instruction: string, note: string, permissions: RunnerAgentPermissions): string {
+function schedulePrompt(name: string, when: string, instruction: string, note: string, permissions: RunnerAgentPermissions): string {
   const lines = [
     `You are doing a recurring job for the office, “${name}”, which runs ${when}.`,
     "",

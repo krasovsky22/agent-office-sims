@@ -31,7 +31,5 @@ export function stepClock(state: OfficeState, clock: SimClock, now: number): voi
   clock.seconds = (clock.seconds + simSecondsFor(elapsed)) % SECONDS_PER_DAY;
 
   const minute = Math.floor(clock.seconds / 60);
-  if (state.minuteOfDay !== minute) {
-    state.minuteOfDay = minute;
-  }
+  state.minuteOfDay = minute;
 }

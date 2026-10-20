@@ -51,7 +51,7 @@ function liveAgent(id: string, canTakeIssues = false): RosterEntry {
 
 function manager(): RosterEntry {
   return {
-    ...person("manager:firstmate"),
+    ...person("manager:ai"),
     kind: OCCUPANT_KIND.manager,
     managerStatus: MANAGER_STATUS.idle,
   };
@@ -71,7 +71,7 @@ describe("groupRoster", () => {
 
   it("lists the AI manager under a heading of its own", () => {
     const { people, liveAgents, managers } = groupRoster([manager(), person("Dana", true), liveAgent("live-1")]);
-    expect(managers.map((entry) => entry.id)).toEqual(["manager:firstmate"]);
+    expect(managers.map((entry) => entry.id)).toEqual(["manager:ai"]);
     expect(people.map((entry) => entry.id)).toEqual(["Dana"]);
     expect(liveAgents.map((entry) => entry.id)).toEqual(["live-1"]);
   });

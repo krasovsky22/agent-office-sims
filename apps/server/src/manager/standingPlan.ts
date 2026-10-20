@@ -287,7 +287,7 @@ export function readStandingInstruction(message: string, words: string, view: Of
 }
 
 /** One standing task in a line: `“Watch for new pull requests” (every 2 min) · active; last: reviewed PR #112; $0.20 of $2.00 today`. */
-export function describeStandingTask(task: StandingTaskView): string {
+function describeStandingTask(task: StandingTaskView): string {
   const status = isStandingStatus(task.status) ? STANDING_STATUS_TEXT[task.status as StandingStatus] : task.status;
   const parts = [`“${task.name}” (${task.trigger}) · ${status}`];
   if (task.runningOn !== undefined) {
@@ -328,7 +328,7 @@ export interface StandingContext {
 }
 
 /** Most standing actions one plan may take, so a runaway model cannot churn every task. */
-export const MAX_STANDING_PER_PLAN = 4;
+const MAX_STANDING_PER_PLAN = 4;
 
 /**
  * Carries out each standing action, in order.

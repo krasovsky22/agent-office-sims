@@ -84,11 +84,11 @@ const RESET = "\u001b[0m";
 export const MOCK_PERMISSION_CHOICES = ["Yes", "No, and tell the agent what to do differently (esc)"] as const;
 
 /** What it prints when it stops for a standup, and when it carries on. */
-export const MOCK_PAUSED = "Paused for the standup.";
-export const MOCK_RESUMED = "Back from the standup.";
+const MOCK_PAUSED = "Paused for the standup.";
+const MOCK_RESUMED = "Back from the standup.";
 
 /** What it prints when it is told no, ending its turn. */
-export const MOCK_DECLINED = "Declined. Waiting to be told what to do instead.";
+const MOCK_DECLINED = "Declined. Waiting to be told what to do instead.";
 
 /** What a desk session says as it comes up. */
 export const MOCK_SESSION_HINT = "A pretend session: type a prompt in the office and it answers.";

@@ -106,7 +106,7 @@ const KIT: Readonly<Record<AssetPropKind, KitEntry>> = {
 };
 
 /** Every kind the kit supplies, for callers that want to preload or report. */
-export const PROP_KINDS = Object.keys(KIT) as readonly AssetPropKind[];
+const PROP_KINDS = Object.keys(KIT) as readonly AssetPropKind[];
 
 function materialOf(mesh: THREE.Mesh): THREE.Material | undefined {
   return Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
@@ -324,18 +324,4 @@ export async function loadPropKit(): Promise<PropKit> {
     }),
   );
   return new Map(loaded.map((model) => [model.kind, model]));
-}
-
-/** Releases every GPU buffer the kit holds. */
-export function disposePropKit(kit: PropKit): void {
-  const materials = new Set<THREE.Material>();
-  for (const model of kit.values()) {
-    for (const part of model.parts) {
-      part.geometry.dispose();
-      materials.add(part.material);
-    }
-  }
-  for (const material of materials) {
-    material.dispose();
-  }
 }

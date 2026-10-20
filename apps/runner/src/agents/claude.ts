@@ -181,7 +181,7 @@ function line(value: string): string {
 }
 
 /** `Bash: pnpm test`, `Edit: src/index.ts`. */
-export function describeTool(payload: Payload): string {
+function describeTool(payload: Payload): string {
   const name = text(payload["tool_name"]) || "tool";
   const input = asPayload(payload["tool_input"]);
   const detail = ["command", "file_path", "pattern", "url", "description"].map((key) => text(input[key])).find(Boolean) ?? "";

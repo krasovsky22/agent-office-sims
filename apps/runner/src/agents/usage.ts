@@ -28,7 +28,7 @@ export interface Usage {
   readonly calls: number;
 }
 
-export const ZERO_USAGE: Usage = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, costUsd: 0, calls: 0 };
+const ZERO_USAGE: Usage = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, costUsd: 0, calls: 0 };
 
 function addUsage(a: Usage, b: Usage, sign = 1): Usage {
   return {

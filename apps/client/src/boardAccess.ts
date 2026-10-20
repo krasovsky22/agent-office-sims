@@ -18,11 +18,9 @@ import {
   type IssueStateRejection,
   type OfficeActor,
   WORK_REJECTION,
-  type WorkAction,
   type WorkData,
   type WorkMove,
   type WorkRejection,
-  mayActOnWork,
   mayAssignWork,
   mayChangeIssueState,
   workMoves,
@@ -49,11 +47,6 @@ export interface BoardAccess {
    * the shared planner's answer.
    */
   readonly movesFor: (work: WorkData, people: readonly { readonly id: string }[]) => WorkMove[];
-}
-
-/** Whether `actor` may perform `action`; the server's own rule. */
-export function mayAct(actor: OfficeActor, action: WorkAction): boolean {
-  return mayActOnWork({ actor, action });
 }
 
 /**

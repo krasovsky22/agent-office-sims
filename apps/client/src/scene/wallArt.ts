@@ -41,7 +41,7 @@ function verticalGradient(ctx: Ctx, h: number, stops: readonly string[]): Canvas
 }
 
 /** The floating diamond, centred on (x, y), `size` tall. */
-export function paintPlumbob(ctx: Ctx, x: number, y: number, size: number): void {
+function paintPlumbob(ctx: Ctx, x: number, y: number, size: number): void {
   const half = size / 2;
   const width = size * 0.34;
   const waist = y - size * 0.12;

@@ -115,7 +115,7 @@ export function reworkPrompt(issueNumber: number, note = ""): string {
  * retries a refused start by itself, so the work stays stopped until the CEO
  * starts it again.
  */
-export function budgetRefusalText(agentName: string, issueNumber: number, title: string, reason: string): string {
+function budgetRefusalText(agentName: string, issueNumber: number, title: string, reason: string): string {
   const issue = title === "" ? `#${issueNumber}` : `#${issueNumber} “${title}”`;
   const why = reason === "" ? "the runner's daily budget is spent" : reason.charAt(0).toLowerCase() + reason.slice(1);
   return (

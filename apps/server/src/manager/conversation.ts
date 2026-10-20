@@ -12,7 +12,7 @@
 import { type ManagerEntry, type ManagerEntryKind, sanitizeManagerReply } from "@sim/shared";
 
 /** Lines kept: a long session's worth of questions, small enough to send on join. */
-export const MAX_CONVERSATION_ENTRIES = 80;
+const MAX_CONVERSATION_ENTRIES = 80;
 
 export class ManagerConversation {
   private readonly kept: ManagerEntry[] = [];

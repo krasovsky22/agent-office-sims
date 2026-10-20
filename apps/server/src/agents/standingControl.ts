@@ -66,7 +66,7 @@ export type StandingResult =
   | { readonly ok: false; readonly rejection: StandingRejection; readonly text: string };
 
 /** Why the office did nothing, in the AI Manager's words and the roster's. */
-export const STANDING_REJECTION_TEXT: Readonly<Record<StandingRejection, string>> = {
+const STANDING_REJECTION_TEXT: Readonly<Record<StandingRejection, string>> = {
   [STANDING_REJECTION.forbidden]: "Only the CEO can set up, pause, resume, remove or check a standing task.",
   [STANDING_REJECTION.unknownTask]: "There's no standing task like that.",
   [STANDING_REJECTION.noRunner]: "No agent runner is connected, so there is nobody to give a standing task to.",

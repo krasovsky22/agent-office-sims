@@ -38,7 +38,7 @@ export function writePlayerName(storage: Pick<Storage, "setItem"> | undefined, n
 /**
  * Keeps the name the player asked for once the office has given it to them:
  * `current` is the name they hold now, so a refused name, a numbered variant
- * or a generated `Employee N` is never kept.
+ * or a generated `Guest N` is never kept.
  *
  * @returns whether `asked` was accepted, and so kept.
  */

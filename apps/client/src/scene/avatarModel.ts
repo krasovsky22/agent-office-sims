@@ -27,7 +27,7 @@ import { type AvatarClips, buildAvatarClips, sourceSeatedClip } from "./avatarCl
 import { measureSeatPlacement } from "./avatarSeat.js";
 
 /** Where the model lives, relative to the client's base URL. */
-export const AVATAR_MODEL_PATH = "models/RobotExpressive.glb";
+const AVATAR_MODEL_PATH = "models/RobotExpressive.glb";
 
 /**
  * Half turn applied to the model so its face points the way yaw 0 does.
@@ -88,7 +88,7 @@ export async function loadAvatarModel(baseUrl: string): Promise<AvatarModel> {
 }
 
 /** Prepares a loaded model for stamping bodies out of it. */
-export function prepareAvatarModel(gltf: GLTF): AvatarModel {
+function prepareAvatarModel(gltf: GLTF): AvatarModel {
   const template = standAtOrigin(gltf.scene);
   const seat = measureSeatPlacement(template, sourceSeatedClip(gltf.animations), DESK_CHAIR);
   const clips = buildAvatarClips(template, gltf.animations, seat);
