@@ -855,6 +855,47 @@ describe("SlotPool", () => {
     expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39", "open slot-1 #39"]);
   });
 
+  it("still waits for the first stopped run's exit when a restart is stopped again before it opens", async () => {
+    const exits: Array<() => void> = [];
+    const slow: Agent = {
+      label: "Slow",
+      start: () => ({ stop: () => new Promise<void>((resolve) => exits.push(resolve)) }),
+    };
+    const slots = pool("failed", slow);
+    slots.handle(START);
+    await settle();
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "" });
+    slots.handle({ ...START, id: "command-3" });
+    await settle();
+    slots.handle({ id: "command-4", slotId: "slot-1", kind: "stop", reason: "" });
+    slots.handle({ ...START, id: "command-5" });
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39"]);
+
+    exits[0]?.();
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39", "close slot-1 #39", "open slot-1 #39"]);
+  });
+
+  it("discards a cancelled task's worktree only once its stopped agent has exited", async () => {
+    const exits: Array<() => void> = [];
+    const slow: Agent = {
+      label: "Slow",
+      start: () => ({ stop: () => new Promise<void>((resolve) => exits.push(resolve)) }),
+    };
+    const slots = pool("failed", slow);
+    slots.handle(START);
+    await settle();
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "" });
+    slots.handle({ id: "command-3", slotId: "slot-1", kind: "stop", reason: "", issueNumber: 39, discard: true });
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39"]);
+
+    exits[0]?.();
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39", "close slot-1 #39 discarding"]);
+  });
+
   it("ignores a command for a slot it does not have, and a prompt for a slot holding no task", () => {
     const slots = pool();
     slots.handle({ ...START, slotId: "slot-9" });

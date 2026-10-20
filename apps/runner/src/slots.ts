@@ -558,13 +558,13 @@ export class SlotPool {
       case RUNNER_COMMAND_KIND.stop:
         if (slot.run === undefined) {
           this.debug(`stop for ${slot.id} ignored: it holds no task`);
-          void this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined);
+          slot.ended = slot.ended.then(() => this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined));
           return;
         }
         if (command.issueNumber !== undefined && command.issueNumber !== slot.run.issueNumber) {
           // Meant for work the slot has already left behind, whose kept worktree a cancel still discards.
           this.log(`stop for ${slot.id} on #${command.issueNumber} ignored: it is on #${slot.run.issueNumber}`);
-          void this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined);
+          slot.ended = slot.ended.then(() => this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined));
           return;
         }
         void this.end(
@@ -1483,7 +1483,7 @@ export class SlotPool {
     // The message can quote the agent's last line, so it is masked as its event's is.
     const said = this.redactor.redactText(message);
     this.log(`${slot.id} ${kind} on #${run.issueNumber}${said === "" ? "" : `: ${said}`} (${formatUsd(run.spentUsd)} spent)`);
-    slot.ended = stopped.then(() =>
+    slot.ended = Promise.all([slot.ended, stopped]).then(() =>
       discard ? this.discardKept(slot.id, run.issueNumber) : this.options.workspaces.close(slot.id, run.issueNumber),
     );
     return slot.ended;
