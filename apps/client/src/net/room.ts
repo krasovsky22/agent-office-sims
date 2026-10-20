@@ -46,51 +46,33 @@
  */
 
 import {
-  type AgentPromptEntry,
-  type AgentPromptHistoryEvent,
-  type AgentActionRejectedEvent,
-  type AgentProfileRejectedEvent,
-  type AgentPromptRejectedEvent,
   type AnimationState,
-  type CeoChangedEvent,
-  type ChatEvent,
   type DeskTerminal,
-  type EmoteEvent,
-  type JumpEvent,
   NO_STANDUP,
-  type IssueStateResultEvent,
   type IssueWork,
   type LiveAgentStatus,
-  type ManagerEntry,
-  type ManagerHistoryEvent,
-  type ManagerRejectedEvent,
   type ManagerStatus,
-  type NameRejectedEvent,
   OFFICE_ROOM_NAME,
   type Occupant,
   type OccupantKind,
   type OfficeState,
-  type ProjectBoardSnapshot,
   RECONNECT_GRACE_SECONDS,
   type RunnerSpendTotal,
   SERVER_MESSAGE,
-  type StandingRejectedEvent,
   type ScreenFramesEvent,
   type Standup,
   type StandupData,
-  type StandupRejectedEvent,
-  type ThrottledEvent,
   type WorkData,
-  type WorkRejectedEvent,
   isAiManager,
   isCeo,
   isLiveAgent,
 } from "@sim/shared";
 import { Client, ErrorCode, MatchMakeError, type Room, getStateCallbacks } from "colyseus.js";
 
-import { type StandingTaskData, copyStandingTask } from "../standingAccess.js";
+import { copyStandingTask } from "../standingAccess.js";
 import { type PoseSample, type RemotePose, pushPose, samplePoses } from "./poseBuffer.js";
 import { RoomCommands } from "./roomCommands.js";
+import { type RoomConnectionEvents, forwardServerEvents } from "./roomEvents.js";
 import { type TerminalScreen, applyScreenFrame } from "./screens.js";
 
 export type ConnectionStatus =
@@ -148,62 +130,6 @@ export interface OccupantView {
   carriedIssue: number;
   /** The AI manager's status, or `undefined` for anyone else. */
   managerStatus: ManagerStatus | undefined;
-}
-
-export interface RoomConnectionEvents {
-  /** An occupant arrived, left, was renamed, became CEO, or an agent changed status. */
-  onOccupantsChanged?: () => void;
-  onStatusChanged?: (status: ConnectionStatus, detail?: string) => void;
-  /** The local player's starting pose, as the server assigned it. */
-  onLocalSpawn?: (x: number, z: number, yaw: number) => void;
-  /** An occupant emoted. Fired for the local player too, via the server. */
-  onEmote?: (event: EmoteEvent) => void;
-  /** Another occupant jumped; the local player's own jump is not echoed back. */
-  onJump?: (event: JumpEvent) => void;
-  /** An occupant said something. Fired for the local player too. */
-  onChat?: (event: ChatEvent) => void;
-  /** The local client's own emote or chat was dropped by the rate limiter. */
-  onThrottled?: (event: ThrottledEvent) => void;
-  /** The project board's snapshot, on joining and whenever the server's feed replaces it. */
-  onProjectBoard?: (snapshot: ProjectBoardSnapshot) => void;
-  /** The in-game clock moved on a minute, which is several times a second. */
-  onClockChanged?: (minuteOfDay: number) => void;
-  /** What the runners' real agents have spent today, or their budgets, changed. */
-  onSpendChanged?: (spend: RunnerSpendTotal) => void;
-  /** The office refused one of the local client's own work commands. */
-  onWorkRejected?: (event: WorkRejectedEvent) => void;
-  /** GitHub answered, or the office refused, one of the local client's own drops on Closed or Open. */
-  onIssueStateResult?: (event: IssueStateResultEvent) => void;
-  /** The CEO left and the role passed to someone else. */
-  onCeoChanged?: (event: CeoChangedEvent) => void;
-  /** All the agents' work, after any of it is added, changed or removed. */
-  onWorkChanged?: (work: readonly WorkData[]) => void;
-  /** The conversation with the manager so far, on joining and on every reconnection. */
-  onManagerHistory?: (entries: readonly ManagerEntry[]) => void;
-  /** One new line in that conversation, from the CEO or the manager. */
-  onManagerEntry?: (entry: ManagerEntry) => void;
-  /** The manager did not take one of the local client's own messages. */
-  onManagerRejected?: (event: ManagerRejectedEvent) => void;
-  /** The prompts typed into the coding agents' terminals lately, on joining. */
-  onAgentPromptHistory?: (entries: readonly AgentPromptEntry[]) => void;
-  /** A prompt was typed into a coding agent's terminal, the local player's own included. */
-  onAgentPrompted?: (entry: AgentPromptEntry) => void;
-  /** One of the local client's own prompts was not typed, or keys not pressed, and why. */
-  onAgentPromptRejected?: (event: AgentPromptRejectedEvent) => void;
-  /** One of the local client's own edits to an agent's profile was not passed on, and why. */
-  onAgentProfileRejected?: (event: AgentProfileRejectedEvent) => void;
-  /** The name the local player asked for, on joining or renaming, is someone else's in the office. */
-  onNameRejected?: (event: NameRejectedEvent) => void;
-  /** The local client's own cancel or firing was not carried out, and why. */
-  onAgentActionRejected?: (event: AgentActionRejectedEvent) => void;
-  /** The runners' standing tasks, after any of them is added, changed or removed. */
-  onStandingChanged?: (tasks: readonly StandingTaskData[]) => void;
-  /** The office did nothing about one of the local client's standing task buttons. */
-  onStandingRejected?: (event: StandingRejectedEvent) => void;
-  /** The standup, after any of it changed: called, an update given, a direction's fate, ended. */
-  onStandupChanged?: (standup: StandupData) => void;
-  /** The office refused one of the local client's own standup commands. */
-  onStandupRejected?: (event: StandupRejectedEvent) => void;
 }
 
 /** The runners' books as the state replicates them, back as one total. */
@@ -511,84 +437,7 @@ export class RoomConnection extends RoomCommands {
       this.queueStandup(room);
     });
 
-    // Expression arrives as events rather than state, so there is nothing to
-    // diff here: the server has already validated and sanitized each one, and
-    // the handler's job is only to pass it on.
-    room.onMessage<EmoteEvent>(SERVER_MESSAGE.emote, (event) => {
-      this.events.onEmote?.(event);
-    });
-
-    room.onMessage<JumpEvent>(SERVER_MESSAGE.jump, (event) => {
-      this.events.onJump?.(event);
-    });
-
-    room.onMessage<ChatEvent>(SERVER_MESSAGE.chat, (event) => {
-      this.events.onChat?.(event);
-    });
-
-    room.onMessage<ThrottledEvent>(SERVER_MESSAGE.throttled, (event) => {
-      this.events.onThrottled?.(event);
-    });
-
-    room.onMessage<ProjectBoardSnapshot>(SERVER_MESSAGE.projectBoard, (snapshot) => {
-      this.events.onProjectBoard?.(snapshot);
-    });
-
-    room.onMessage<WorkRejectedEvent>(SERVER_MESSAGE.workRejected, (event) => {
-      this.events.onWorkRejected?.(event);
-    });
-
-    room.onMessage<IssueStateResultEvent>(SERVER_MESSAGE.issueStateResult, (event) => {
-      this.events.onIssueStateResult?.(event);
-    });
-
-    room.onMessage<CeoChangedEvent>(SERVER_MESSAGE.ceoChanged, (event) => {
-      this.events.onCeoChanged?.(event);
-    });
-
-    room.onMessage<ManagerHistoryEvent>(SERVER_MESSAGE.managerHistory, (event) => {
-      this.events.onManagerHistory?.(event.entries);
-    });
-
-    room.onMessage<ManagerEntry>(SERVER_MESSAGE.managerEntry, (entry) => {
-      this.events.onManagerEntry?.(entry);
-    });
-
-    room.onMessage<ManagerRejectedEvent>(SERVER_MESSAGE.managerRejected, (event) => {
-      this.events.onManagerRejected?.(event);
-    });
-
-    room.onMessage<AgentPromptHistoryEvent>(SERVER_MESSAGE.agentPromptHistory, (event) => {
-      this.events.onAgentPromptHistory?.(event.entries);
-    });
-
-    room.onMessage<AgentPromptEntry>(SERVER_MESSAGE.agentPrompted, (entry) => {
-      this.events.onAgentPrompted?.(entry);
-    });
-
-    room.onMessage<AgentPromptRejectedEvent>(SERVER_MESSAGE.agentPromptRejected, (event) => {
-      this.events.onAgentPromptRejected?.(event);
-    });
-
-    room.onMessage<AgentProfileRejectedEvent>(SERVER_MESSAGE.agentProfileRejected, (event) => {
-      this.events.onAgentProfileRejected?.(event);
-    });
-
-    room.onMessage<NameRejectedEvent>(SERVER_MESSAGE.nameRejected, (event) => {
-      this.events.onNameRejected?.(event);
-    });
-
-    room.onMessage<AgentActionRejectedEvent>(SERVER_MESSAGE.agentActionRejected, (event) => {
-      this.events.onAgentActionRejected?.(event);
-    });
-
-    room.onMessage<StandingRejectedEvent>(SERVER_MESSAGE.standingRejected, (event) => {
-      this.events.onStandingRejected?.(event);
-    });
-
-    room.onMessage<StandupRejectedEvent>(SERVER_MESSAGE.standupRejected, (event) => {
-      this.events.onStandupRejected?.(event);
-    });
+    forwardServerEvents(room, this.events);
 
     // Several times a second, so kept rather than passed on: the game loop
     // reads a screen when it is due a repaint.
