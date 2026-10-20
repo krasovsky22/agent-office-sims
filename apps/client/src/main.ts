@@ -55,6 +55,7 @@ import { deskForbiddenText, deskPanelFor, deskScreenKey, sameDeskPanel } from ".
 import { standupAccessFor, standupRejectionText } from "./standupAccess.js";
 import { boardAccessFor, issueStateRejectionText, rejectionText } from "./boardAccess.js";
 import { DayClock } from "./dayClock.js";
+import { helpSeen, markHelpSeen } from "./help.js";
 import { hasIssueMoveLanded, withOfficeWork } from "./projectBoard.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
 import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
@@ -860,6 +861,7 @@ function start(): void {
         sendEmote: (emote) => room.sendEmote(emote),
         sendChat: (text) => room.sendChat(text),
         toggleCamera: toggleCameraMode,
+        toggleHelp: () => publishHud({ helpOpen: !hud.helpOpen }),
         answer,
         rejoin: () => {
           // A refusal is already on the HUD, with the button still by it.
@@ -867,7 +869,10 @@ function start(): void {
         },
         join: (name) => {
           askedName = name;
-          publishHud({ nameCard: undefined });
+          // A first visit gets the controls once it is in, not over the name card.
+          const firstVisit = !helpSeen(browserStorage());
+          markHelpSeen(browserStorage());
+          publishHud({ nameCard: undefined, helpOpen: hud.helpOpen || firstVisit });
           void room.connect(readServerUrl(), name).catch(() => {
             // The status is already on the HUD; the empty office keeps rendering so the
             // failure is visible rather than a blank page.

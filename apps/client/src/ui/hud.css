@@ -1304,6 +1304,36 @@
   color: #f3a59d;
 }
 
+/* The list of controls, over the office on a first visit and on `H`. */
+.hud__help {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 14, 0.55);
+  pointer-events: auto;
+}
+
+.hud__help .hud__panel {
+  max-width: 440px;
+}
+
+.hud__help-list {
+  margin: 0 0 10px;
+}
+
+.hud__help-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  padding: 3px 0;
+}
+
+.hud__help-row dd {
+  margin: 0;
+}
+
 /* The arrival card, over the office until the player has given a name. */
 .hud__name-card {
   position: absolute;
