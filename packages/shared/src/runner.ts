@@ -24,6 +24,7 @@ import {
   sanitizeAgentTitle,
 } from "./agentProfile.js";
 import { MAX_AGENT_PROMPT_LENGTH, MAX_WORK_NOTE_LENGTH } from "./constants.js";
+import { REPOSITORY_PATTERN } from "./env.js";
 import { type IssueState, isIssueState } from "./issueState.js";
 import { MAX_TASK_URL_LENGTH, parseTaskUrl } from "./liveAgents.js";
 import { MAX_LABEL_LENGTH } from "./projectBoard.js";
@@ -778,9 +779,6 @@ const RUNNER_ITEM_ID = /^[A-Za-z0-9._:-]{1,64}$/;
 /** A seat's interactable id, as a desk session names it: `seat-<desk>-<n>`, see `./layout.ts`. */
 const SEAT_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
-/** `owner/name`, in the characters GitHub allows in each. */
-const REPOSITORY = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
-
 const SLOT_STATUSES: ReadonlySet<string> = new Set(Object.values(RUNNER_SLOT_STATUS));
 const EVENT_KINDS: ReadonlySet<string> = new Set([
   RUNNER_EVENT_KIND.started,
@@ -1245,7 +1243,7 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
     return undefined;
   }
   const { runnerId, repo } = candidate;
-  if (!isRunnerName(runnerId) || typeof repo !== "string" || !REPOSITORY.test(repo)) {
+  if (!isRunnerName(runnerId) || typeof repo !== "string" || !REPOSITORY_PATTERN.test(repo)) {
     return undefined;
   }
   const acked = parseList(candidate["acked"], MAX_RUNNER_ACKS, (item) => (isItemId(item) ? item : undefined));

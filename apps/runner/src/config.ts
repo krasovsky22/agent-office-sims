@@ -13,7 +13,17 @@ import { readFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { isAbsolute, join } from "node:path";
 
-import { MAX_RUNNER_SLOTS, MAX_RUNNER_USD, readAgentRestrictLabel } from "@sim/shared";
+import {
+  DEFAULT_REPOSITORY,
+  MAX_RUNNER_SLOTS,
+  MAX_RUNNER_USD,
+  MIN_SECRET_LENGTH,
+  REPOSITORY_PATTERN,
+  readAgentRestrictLabel,
+  readChoice,
+  readEnv as read,
+  readWholeNumber,
+} from "@sim/shared";
 
 import { MOCK_OUTCOMES, type MockOutcome } from "./agents/mock.js";
 import type { GithubAppConfig } from "./githubApp.js";
@@ -48,18 +58,9 @@ export type RunnerAgentPermissions = (typeof RUNNER_AGENT_PERMISSIONS)[number];
 /** Where the runner finds the game server when `RUNNER_SERVER_URL` is unset: `pnpm dev`'s. */
 const DEFAULT_SERVER_URL = "http://localhost:2567";
 
-/** The repository the runner works on when none is configured: this one, as the server's board defaults to. */
-const DEFAULT_REPOSITORY = "krasovsky22/agent-office-sims";
-
 const DEFAULT_MAX_AGENTS = 2;
 
 const DEFAULT_TASK_TIMEOUT_MINUTES = 60;
-
-/** Shortest secret the server accepts for its sync route; a shorter one could never be right. */
-const MIN_SECRET_LENGTH = 16;
-
-/** `owner/name`, as the sync contract accepts it. */
-const REPOSITORY_PATTERN = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 
 /** A model name or alias as Claude Code takes it: `sonnet`, `claude-sonnet-4-5`, `opus[1m]`. */
 const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,63}$/;
@@ -175,8 +176,8 @@ export function readConfig(
   host: string = hostname(),
   ghToken: () => string | undefined = ghAuthToken,
 ): RunnerConfig {
-  const agent = readAgent(env);
-  const auth = readGithubAuth(env);
+  const agent = readChoice(env, "RUNNER_AGENT", RUNNER_AGENT_KINDS, "mock");
+  const auth = readChoice(env, "RUNNER_GITHUB_AUTH", RUNNER_GITHUB_AUTHS, "app");
   const dailyBudgetUsd = readDailyBudget(env);
   const maxAgents = readMaxAgents(env);
   return {
@@ -185,32 +186,25 @@ export function readConfig(
     repo: readRepository(env),
     dataDir: readDataDir(env),
     agent,
-    mockOutcome: readMockOutcome(env),
+    mockOutcome: readChoice(env, "RUNNER_MOCK_OUTCOME", MOCK_OUTCOMES, "failed"),
     model: readModel(env),
-    agentPermissions: readAgentPermissions(env),
+    agentPermissions: readChoice(env, "RUNNER_AGENT_PERMISSIONS", RUNNER_AGENT_PERMISSIONS, "allowlist"),
     maxAgents,
-    taskTimeoutMs: readTaskTimeoutMinutes(env) * 60_000,
+    taskTimeoutMs:
+      readWholeNumber(env, "RUNNER_TASK_TIMEOUT_MINUTES", {
+        fallback: DEFAULT_TASK_TIMEOUT_MINUTES,
+        min: 1,
+        means: "of minutes, at least 1",
+      }) * 60_000,
     dailyBudgetUsd,
     runnerId: runnerIdFor(host),
     restrictLabel: readAgentRestrictLabel(env["REAL_AGENT_RESTRICT_LABEL"]),
     githubApp: auth === "app" ? readGithubApp(env, agent) : undefined,
     personalGithub: auth === "personal" && agent !== "mock" ? readPersonalGithub(env, ghToken) : undefined,
-    logLevel: readLogLevel(env),
+    logLevel: readChoice(env, "RUNNER_LOG_LEVEL", RUNNER_LOG_LEVELS, "info"),
     standingDailyBudgetUsd: readStandingBudget(env, dailyBudgetUsd),
     standingMaxConcurrent: readStandingMaxConcurrent(env, maxAgents),
   };
-}
-
-function readGithubAuth(env: NodeJS.ProcessEnv): RunnerGithubAuth {
-  const raw = read(env, "RUNNER_GITHUB_AUTH").toLowerCase();
-  if (raw === "") {
-    return "app";
-  }
-  const auth = RUNNER_GITHUB_AUTHS.find((candidate) => candidate === raw);
-  if (auth === undefined) {
-    throw new Error(`RUNNER_GITHUB_AUTH must be one of ${RUNNER_GITHUB_AUTHS.join(", ")}, got "${env["RUNNER_GITHUB_AUTH"]}"`);
-  }
-  return auth;
 }
 
 /**
@@ -292,10 +286,6 @@ function readGithubApp(env: NodeJS.ProcessEnv, agent: RunnerAgentKind): GithubAp
   return { appId, installationId, privateKey };
 }
 
-function read(env: NodeJS.ProcessEnv, name: string): string {
-  return env[name]?.trim() ?? "";
-}
-
 function readServerUrl(env: NodeJS.ProcessEnv): URL {
   const raw = read(env, "RUNNER_SERVER_URL");
   if (raw === "") {
@@ -352,56 +342,6 @@ function readDataDir(env: NodeJS.ProcessEnv): string {
   return raw;
 }
 
-function readAgent(env: NodeJS.ProcessEnv): RunnerAgentKind {
-  const raw = read(env, "RUNNER_AGENT").toLowerCase();
-  if (raw === "") {
-    return "mock";
-  }
-  const kind = RUNNER_AGENT_KINDS.find((candidate) => candidate === raw);
-  if (kind === undefined) {
-    throw new Error(`RUNNER_AGENT must be one of ${RUNNER_AGENT_KINDS.join(", ")}, got "${env["RUNNER_AGENT"]}"`);
-  }
-  return kind;
-}
-
-function readAgentPermissions(env: NodeJS.ProcessEnv): RunnerAgentPermissions {
-  const raw = read(env, "RUNNER_AGENT_PERMISSIONS").toLowerCase();
-  if (raw === "") {
-    return "allowlist";
-  }
-  const permissions = RUNNER_AGENT_PERMISSIONS.find((candidate) => candidate === raw);
-  if (permissions === undefined) {
-    throw new Error(
-      `RUNNER_AGENT_PERMISSIONS must be one of ${RUNNER_AGENT_PERMISSIONS.join(", ")}, got "${env["RUNNER_AGENT_PERMISSIONS"]}"`,
-    );
-  }
-  return permissions;
-}
-
-function readLogLevel(env: NodeJS.ProcessEnv): RunnerLogLevel {
-  const raw = read(env, "RUNNER_LOG_LEVEL").toLowerCase();
-  if (raw === "") {
-    return "info";
-  }
-  const level = RUNNER_LOG_LEVELS.find((candidate) => candidate === raw);
-  if (level === undefined) {
-    throw new Error(`RUNNER_LOG_LEVEL must be one of ${RUNNER_LOG_LEVELS.join(", ")}, got "${env["RUNNER_LOG_LEVEL"]}"`);
-  }
-  return level;
-}
-
-function readMockOutcome(env: NodeJS.ProcessEnv): MockOutcome {
-  const raw = read(env, "RUNNER_MOCK_OUTCOME").toLowerCase();
-  if (raw === "") {
-    return "failed";
-  }
-  const outcome = MOCK_OUTCOMES.find((candidate) => candidate === raw);
-  if (outcome === undefined) {
-    throw new Error(`RUNNER_MOCK_OUTCOME must be one of ${MOCK_OUTCOMES.join(", ")}, got "${env["RUNNER_MOCK_OUTCOME"]}"`);
-  }
-  return outcome;
-}
-
 function readModel(env: NodeJS.ProcessEnv): string | undefined {
   const raw = read(env, "RUNNER_MODEL");
   if (raw === "") {
@@ -419,29 +359,12 @@ function readModel(env: NodeJS.ProcessEnv): string | undefined {
  * for six and got four would be looking for the bug in the wrong place.
  */
 function readMaxAgents(env: NodeJS.ProcessEnv): number {
-  const raw = read(env, "RUNNER_MAX_AGENTS");
-  if (raw === "") {
-    return DEFAULT_MAX_AGENTS;
-  }
-  const count = Number(raw);
-  if (!Number.isInteger(count) || count < 1 || count > MAX_RUNNER_SLOTS) {
-    throw new Error(
-      `RUNNER_MAX_AGENTS must be a whole number from 1 to ${MAX_RUNNER_SLOTS}, the server's slot cap; got "${raw}"`,
-    );
-  }
-  return count;
-}
-
-function readTaskTimeoutMinutes(env: NodeJS.ProcessEnv): number {
-  const raw = read(env, "RUNNER_TASK_TIMEOUT_MINUTES");
-  if (raw === "") {
-    return DEFAULT_TASK_TIMEOUT_MINUTES;
-  }
-  const minutes = Number(raw);
-  if (!Number.isInteger(minutes) || minutes < 1) {
-    throw new Error(`RUNNER_TASK_TIMEOUT_MINUTES must be a whole number of minutes, at least 1, got "${raw}"`);
-  }
-  return minutes;
+  return readWholeNumber(env, "RUNNER_MAX_AGENTS", {
+    fallback: DEFAULT_MAX_AGENTS,
+    min: 1,
+    max: MAX_RUNNER_SLOTS,
+    means: `from 1 to ${MAX_RUNNER_SLOTS} (the server's slot cap)`,
+  });
 }
 
 /** A plain amount of dollars, `5` or `12.50`: no sign, exponent or thousands separator. */
@@ -480,15 +403,12 @@ function readStandingBudget(env: NodeJS.ProcessEnv, dailyBudgetUsd: number | und
 }
 
 function readStandingMaxConcurrent(env: NodeJS.ProcessEnv, maxAgents: number): number {
-  const raw = read(env, "RUNNER_STANDING_MAX_CONCURRENT");
-  if (raw === "") {
-    return 1;
-  }
-  const count = Number(raw);
-  if (!Number.isInteger(count) || count < 1 || count > maxAgents) {
-    throw new Error(`RUNNER_STANDING_MAX_CONCURRENT must be a whole number from 1 to RUNNER_MAX_AGENTS (${maxAgents}); got "${raw}"`);
-  }
-  return count;
+  return readWholeNumber(env, "RUNNER_STANDING_MAX_CONCURRENT", {
+    fallback: 1,
+    min: 1,
+    max: maxAgents,
+    means: `from 1 to RUNNER_MAX_AGENTS (${maxAgents})`,
+  });
 }
 
 /** The machine's name, narrowed to what a runner id may hold. */

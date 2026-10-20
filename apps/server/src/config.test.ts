@@ -128,7 +128,7 @@ describe("readProjectBoardConfig", () => {
     ).toMatchObject({ repository: "someone/some.repo", pollIntervalMs: 300_000 });
   });
 
-  it.each(["off", "agent-office-sims", "a/b/c", "https://github.com/a/b", "a/b c"])(
+  it.each(["off", "agent-office-sims", "a/b/c", "https://github.com/a/b", "a/b c", `${"a".repeat(40)}/b`])(
     "refuses to start on repository %j",
     (value) => {
       expect(() => readProjectBoardConfig({ PROJECT_BOARD_REPO: value })).toThrow(/PROJECT_BOARD_REPO/);
