@@ -18,6 +18,8 @@ import { WebSocketTransport } from "@colyseus/ws-transport";
 import {
   type BoardIssue,
   CONCIERGE_NAME,
+  NAME_REJECTION,
+  type NameRejectedEvent,
   CONCIERGE_OCCUPANT_ID,
   type CeoChangedEvent,
   type ChatEvent,
@@ -130,6 +132,7 @@ interface Tab {
   room: Room<OfficeState>;
   readonly rejections: WorkRejectedEvent[];
   readonly announcements: CeoChangedEvent[];
+  readonly nameRejections: NameRejectedEvent[];
 }
 
 function listen(tab: Tab, room: Room<OfficeState>): void {
@@ -139,6 +142,9 @@ function listen(tab: Tab, room: Room<OfficeState>): void {
   });
   room.onMessage<CeoChangedEvent>(SERVER_MESSAGE.ceoChanged, (event) => {
     tab.announcements.push(event);
+  });
+  room.onMessage<NameRejectedEvent>(SERVER_MESSAGE.nameRejected, (event) => {
+    tab.nameRejections.push(event);
   });
   // Registered so the client library does not warn about them; unused here.
   room.onMessage(SERVER_MESSAGE.throttled, () => undefined);
@@ -152,7 +158,7 @@ function listen(tab: Tab, room: Room<OfficeState>): void {
 async function openOffice(name: string, roomName = OFFICE_ROOM_NAME): Promise<Tab> {
   const client = new Client(endpoint);
   const room = await client.create<OfficeState>(roomName, { name });
-  const tab: Tab = { client, room, rejections: [], announcements: [] };
+  const tab: Tab = { client, room, rejections: [], announcements: [], nameRejections: [] };
   listen(tab, room);
   await settled(() => room.state.occupants?.size === serverRoom(tab).state.occupants.size);
   return tab;
@@ -161,7 +167,7 @@ async function openOffice(name: string, roomName = OFFICE_ROOM_NAME): Promise<Ta
 async function joinOffice(office: Tab, name: string): Promise<Tab> {
   const client = new Client(endpoint);
   const room = await client.joinById<OfficeState>(office.room.roomId, { name });
-  const tab: Tab = { client, room, rejections: [], announcements: [] };
+  const tab: Tab = { client, room, rejections: [], announcements: [], nameRejections: [] };
   listen(tab, room);
   await settled(() => serverRoom(office).state.occupants.has(room.sessionId));
   await settled(() => room.state.occupants?.size === serverRoom(office).state.occupants.size);
@@ -573,6 +579,48 @@ describe("the concierge at reception", () => {
     await settled(() => heard.length > 0);
 
     expect(heard).toEqual([{ occupantId: CONCIERGE_OCCUPANT_ID, text: conciergeWelcome("Dana") }]);
+
+    await milo.room.leave();
+    await dana.room.leave();
+  });
+});
+
+describe("players' names", () => {
+  it("gives a name already in the office a numbered variant, and a concierge's name a generated one", async () => {
+    const dana = await openOffice("Dana");
+    const second = await joinOffice(dana, "dana");
+    const borrowed = await joinOffice(dana, CONCIERGE_NAME);
+    const occupants = serverRoom(dana).state.occupants;
+
+    expect(occupants.get(second.room.sessionId)?.name).toBe("dana 2");
+    expect(second.nameRejections).toEqual([{ name: "dana", rejection: NAME_REJECTION.taken }]);
+    expect(occupants.get(borrowed.room.sessionId)?.name).toMatch(/^Employee \d+$/);
+    expect(borrowed.nameRejections).toEqual([{ name: CONCIERGE_NAME, rejection: NAME_REJECTION.reserved }]);
+    expect(dana.nameRejections).toEqual([]);
+
+    await borrowed.room.leave();
+    await second.room.leave();
+    await dana.room.leave();
+  });
+
+  it("renames a player to a free name, and refuses one someone in the office has", async () => {
+    const dana = await openOffice("Dana");
+    const milo = await joinOffice(dana, "Milo");
+    const name = () => serverRoom(dana).state.occupants.get(milo.room.sessionId)?.name;
+
+    milo.room.send(CLIENT_MESSAGE.rename, { name: "DANA" });
+    milo.room.send(CLIENT_MESSAGE.rename, { name: CONCIERGE_NAME });
+    await roundTrip(milo);
+    expect(name()).toBe("Milo");
+    expect(milo.nameRejections).toEqual([
+      { name: "DANA", rejection: NAME_REJECTION.taken },
+      { name: CONCIERGE_NAME, rejection: NAME_REJECTION.reserved },
+    ]);
+
+    milo.room.send(CLIENT_MESSAGE.rename, { name: "  Maya  " });
+    await roundTrip(milo);
+    expect(name()).toBe("Maya");
+    await settled(() => dana.room.state.occupants.get(milo.room.sessionId)?.name === "Maya");
 
     await milo.room.leave();
     await dana.room.leave();

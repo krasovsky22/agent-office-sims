@@ -11,6 +11,7 @@ export * from "./nav.js";
 export * from "./interaction.js";
 export * from "./state.js";
 export * from "./messages.js";
+export * from "./playerName.js";
 export * from "./work.js";
 export * from "./issueState.js";
 export * from "./clock.js";

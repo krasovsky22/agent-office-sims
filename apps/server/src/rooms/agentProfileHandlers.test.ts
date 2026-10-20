@@ -162,7 +162,7 @@ describe("editing a coding agent's profile", () => {
     const { dana, milo } = await openOffice();
     edit(milo, GRACE);
     await settled(() => milo.rejections.length === 1);
-    expect(milo.rejections).toEqual([{ agentId: AGENT, rejection: AGENT_PROFILE_REJECTION.forbidden }]);
+    expect(milo.rejections).toEqual([{ agentId: AGENT, name: "Grace", rejection: AGENT_PROFILE_REJECTION.forbidden }]);
     expect(dana.rejections).toEqual([]);
     expect(await commandsAfterAWhile()).toEqual([]);
   });
@@ -196,13 +196,40 @@ describe("editing a coding agent's profile", () => {
     const { dana } = await openOffice();
     edit(dana, GRACE, liveAgentKey("someone-else"));
     await settled(() => dana.rejections.length === 1);
-    expect(dana.rejections).toEqual([{ agentId: liveAgentKey("someone-else"), rejection: AGENT_PROFILE_REJECTION.noAgent }]);
+    expect(dana.rejections).toEqual([{ agentId: liveAgentKey("someone-else"), name: "Grace", rejection: AGENT_PROFILE_REJECTION.noAgent }]);
 
     edit(dana, { ...GRACE, title: "   " });
     edit(dana, { ...GRACE, name: "\u0007" });
     edit(dana, { name: "Grace" });
     expect(await commandsAfterAWhile()).toEqual([]);
     expect(dana.rejections).toHaveLength(1);
+  });
+
+  it("refuses a name anyone else in the office has, but not the agent's own", async () => {
+    const { dana } = await openOffice();
+    edit(dana, { ...GRACE, name: "milo" });
+    edit(dana, { ...GRACE, name: "Concierge" });
+    await settled(() => dana.rejections.length === 2);
+    expect(dana.rejections).toEqual([
+      { agentId: AGENT, name: "milo", rejection: AGENT_PROFILE_REJECTION.nameTaken },
+      { agentId: AGENT, name: "Concierge", rejection: AGENT_PROFILE_REJECTION.nameReserved },
+    ]);
+    expect(await commandsAfterAWhile()).toEqual([]);
+
+    edit(dana, { ...GRACE, name: DEFAULT.name });
+    expect(await commandsAfterAWhile()).toEqual([expect.objectContaining({ kind: "profile", name: DEFAULT.name })]);
+    expect(dana.rejections).toHaveLength(2);
+  });
+
+  it("takes an edit that keeps the agent's name, even one a player also has", async () => {
+    const { dana, milo } = await openOffice();
+    reported = { ...DEFAULT, name: "Milo" };
+    runnerSync();
+    await settled(() => profileIn(dana)?.name === "Milo");
+    edit(dana, { ...GRACE, name: "milo" });
+    expect(await commandsAfterAWhile()).toEqual([expect.objectContaining({ kind: "profile", name: "milo", title: GRACE.title })]);
+    expect(dana.rejections).toEqual([]);
+    expect(milo.room.state.occupants.get(milo.room.sessionId)?.name).toBe("Milo");
   });
 
   it("rate-limits the CEO's edits", async () => {

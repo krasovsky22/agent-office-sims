@@ -86,6 +86,10 @@ export const AGENT_PROFILE_REJECTION = {
   noAgent: "no-agent",
   /** Its runner could not be given the edit: gone silent, or too much waiting for it. */
   offline: "offline",
+  /** Another player in the office has the new name. */
+  nameTaken: "name-taken",
+  /** The AI manager, the concierge or another coding agent has the new name. */
+  nameReserved: "name-reserved",
 } as const;
 
 export type AgentProfileRejection = (typeof AGENT_PROFILE_REJECTION)[keyof typeof AGENT_PROFILE_REJECTION];

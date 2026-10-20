@@ -1303,3 +1303,20 @@
   border-color: rgba(232, 106, 96, 0.5);
   color: #f3a59d;
 }
+
+/* The arrival card, over the office until the player has given a name. */
+.hud__name-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 14, 0.55);
+  pointer-events: auto;
+}
+
+.hud__name-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}

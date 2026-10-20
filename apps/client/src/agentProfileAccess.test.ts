@@ -28,10 +28,13 @@ describe("agentProfileAccessFor", () => {
 describe("agentProfileRejectionText", () => {
   it("has words for every refusal", () => {
     for (const rejection of Object.values(AGENT_PROFILE_REJECTION)) {
-      expect(agentProfileRejectionText(rejection, "Maya")).not.toBe("");
+      expect(agentProfileRejectionText({ agentId: "agent:x", name: "Grace", rejection }, "Maya")).not.toBe("");
     }
-    expect(agentProfileRejectionText(AGENT_PROFILE_REJECTION.offline, "Maya")).toBe(
+    expect(agentProfileRejectionText({ agentId: "agent:x", name: "Grace", rejection: AGENT_PROFILE_REJECTION.offline }, "Maya")).toBe(
       "Maya's runner could not take the edit; it may be offline. Try again shortly.",
+    );
+    expect(agentProfileRejectionText({ agentId: "agent:x", name: "Dana", rejection: AGENT_PROFILE_REJECTION.nameTaken }, "Maya")).toBe(
+      "Someone here is already called Dana.",
     );
   });
 });

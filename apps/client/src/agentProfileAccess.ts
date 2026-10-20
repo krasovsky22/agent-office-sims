@@ -12,7 +12,7 @@
 import {
   AGENT_PROFILE_REJECTION,
   type AgentProfile,
-  type AgentProfileRejection,
+  type AgentProfileRejectedEvent,
   type OfficeActor,
   agentProfileRefusal,
   parseAgentProfile,
@@ -47,14 +47,18 @@ export function agentProfileAccessFor(actor: OfficeActor, ceoName: string | unde
 }
 
 /** What to tell the player when their edit was not passed on to the agent's runner. */
-export function agentProfileRejectionText(rejection: AgentProfileRejection, agentName: string): string {
-  switch (rejection) {
+export function agentProfileRejectionText(event: AgentProfileRejectedEvent, agentName: string): string {
+  switch (event.rejection) {
     case AGENT_PROFILE_REJECTION.forbidden:
       return "Only the CEO can edit a coding agent's profile.";
     case AGENT_PROFILE_REJECTION.noAgent:
       return `${agentName}'s profile is not kept by a runner, so it cannot be edited from the office.`;
     case AGENT_PROFILE_REJECTION.offline:
       return `${agentName}'s runner could not take the edit; it may be offline. Try again shortly.`;
+    case AGENT_PROFILE_REJECTION.nameTaken:
+      return `Someone here is already called ${event.name}.`;
+    case AGENT_PROFILE_REJECTION.nameReserved:
+      return `${event.name} is the name of someone who works here.`;
   }
 }
 
