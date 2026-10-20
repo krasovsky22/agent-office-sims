@@ -314,11 +314,17 @@ export class RoomConnection {
   public async connect(serverUrl: string, name: string): Promise<void> {
     this.client = new Client(serverUrl);
     this.name = name;
-    await this.rejoin();
+    await this.join();
   }
 
-  /** Joins the office afresh, as a new session; does nothing while one is attached or on its way. */
+  /** The player's own Rejoin, which overrides an earlier {@link leave}. */
   public async rejoin(): Promise<void> {
+    this.leaving = false;
+    await this.join();
+  }
+
+  /** Joins the office afresh, as a new session; does nothing while one is attached or on its way, or after a leave. */
+  private async join(): Promise<void> {
     const client = this.client;
     if (client === undefined || this.room !== undefined || this.joining || this.leaving) {
       return;
@@ -672,7 +678,7 @@ export class RoomConnection {
         await new Promise((resolve) => setTimeout(resolve, RECONNECT_RETRY_MS));
       }
     }
-    await this.rejoin().catch(() => {
+    await this.join().catch(() => {
       // The status is already on the HUD, and Rejoin with it.
     });
   }

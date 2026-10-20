@@ -51,6 +51,7 @@ describe("RoomConnection after a dropped socket", () => {
     vi.useFakeTimers();
     fake.rooms.length = 0;
     fake.join.mockClear();
+    fake.reconnect.mockClear();
     statuses = [];
     connection = new RoomConnection({ onStatusChanged: (status) => statuses.push(status) });
     await connection.connect("ws://localhost:2567", "Ada");
@@ -103,10 +104,19 @@ describe("RoomConnection after a dropped socket", () => {
   it("stays out after a deliberate leave", async () => {
     await connection.leave();
     fake.rooms[0]?.leave(4000);
-    await connection.rejoin();
     await vi.runAllTimersAsync();
+    expect(fake.reconnect).not.toHaveBeenCalled();
     expect(fake.join).toHaveBeenCalledTimes(1);
     expect(statuses.at(-1)).toBe("disconnected");
+  });
+
+  it("comes back in when the player presses Rejoin after a deliberate leave", async () => {
+    await connection.leave();
+    fake.rooms[0]?.leave(4000);
+    await connection.rejoin();
+    expect(fake.join).toHaveBeenCalledTimes(2);
+    expect(fake.rooms[1]?.name).toBe("Ada");
+    expect(statuses.at(-1)).toBe("connected");
   });
 });
 
