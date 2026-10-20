@@ -797,7 +797,6 @@ export class Avatar {
         this.group.position.z,
       );
     }
-    this.group.updateMatrixWorld(true);
     head.getWorldPosition(target);
     target.y += EYE_ABOVE_HEAD_BONE;
     return target;

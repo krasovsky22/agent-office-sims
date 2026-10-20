@@ -118,6 +118,13 @@ function prepareAvatarModel(gltf: GLTF): AvatarModel {
         seatedHeadDrop: seat.headDrop,
         dispose: () => {
           root.removeFromParent();
+          // The clone has its own skeletons, and the renderer backs each with a
+          // bone texture that only the skeleton can free.
+          root.traverse((node) => {
+            if (node instanceof THREE.SkinnedMesh) {
+              node.skeleton.dispose();
+            }
+          });
           for (const material of owned) {
             material.dispose();
           }
