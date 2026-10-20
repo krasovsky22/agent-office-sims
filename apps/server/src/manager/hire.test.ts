@@ -153,6 +153,18 @@ describe("HireDesk", () => {
     expect(hired.map((each) => each.profile.title)).toEqual(["Accessibility Specialist", hireTitle(41)]);
   });
 
+  it("keeps a title the rule planner read from the CEO's words, punctuation and all", () => {
+    const { desk, context, hired } = office({ message: "hire a sr. engineer, frontend for #41" });
+    desk.carryOut(
+      [
+        { work: "#41", name: "Nova", title: "Sr Engineer , Frontend", description: "" },
+        { work: "#41", name: "Orla", title: "Sr Engineer Backend", description: "" },
+      ],
+      context(),
+    );
+    expect(hired.map((each) => each.profile.title)).toEqual(["Sr Engineer , Frontend", hireTitle(41)]);
+  });
+
   it("says the office is full at its cap, hires on their way included, and suggests firing or reusing an agent", () => {
     const { desk, context, hired } = office({ coders: ["Maya"], cap: 2 });
     const lines = desk.carryOut([NOVA, { ...NOVA, name: "Orla", work: "#15" }], context());

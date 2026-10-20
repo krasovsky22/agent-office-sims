@@ -93,7 +93,16 @@ export function hireDescription(issueNumber: number): string {
 
 /** Whether the plan's title or description is the CEO's own words, copied from their message. */
 function fromCeo(description: string, message: string): boolean {
-  const words = (text: string): string => text.replace(/\s+/g, " ").trim().toLowerCase();
+  // Read as the rule planner reads the message, so a title it took from the CEO's words matches them.
+  const words = (text: string): string =>
+    text
+      .toLowerCase()
+      .replace(/’/g, "'")
+      .replace(/,/g, " , ")
+      .split(/\s+/)
+      .map((word) => word.replace(/[.!?;:]+$/, ""))
+      .filter((word) => word !== "")
+      .join(" ");
   return words(description) !== "" && words(message).includes(words(description));
 }
 
