@@ -863,14 +863,17 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
   /** A slot as a live agent on the floor. */
   private record(runnerId: string, runner: Runner, slot: RunnerSlotReport): LiveAgentRecord {
     if (slot.desk !== undefined) {
-      // Lent to the CEO: free on the floor, with no task, and given none while it is.
+      // Lent to the CEO: free on the floor, with no task, and given none while it is; still the same agent, profile and all.
       return {
         id: runnerSlotAgentId(runnerId, slot.id),
         name: slot.name,
+        title: slot.title,
+        description: slot.description,
         status: LIVE_AGENT_STATUS.idle,
         task: undefined,
         activity: LENT_TO_DESK_ACTIVITY,
         canTakeIssues: false,
+        profileEditable: true,
       };
     }
     return {

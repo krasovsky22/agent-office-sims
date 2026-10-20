@@ -486,7 +486,8 @@ on a branch and push before standing up.
 Which slot is lent is the server's call (`apps/server/src/agents/deskTerminal.ts`),
 made on the tick: the first slot of any runner that is idle, holds no issue,
 standing run or desk, and has no work in the office assigned to it. While it is
-lent, its body on the floor wanders as an idle agent, `At the CEO's desk`, and
+lent, its body on the floor wanders as an idle agent, `At the CEO's desk`,
+keeping its title and its `Profile` the CEO can still edit, and
 takes no issues, so neither the board nor the AI Manager hands it work; its
 needs-you beacon stays off, since the CEO is the one at its screen. An issue's
 start for it anyway takes it back, as it does a standing run's slot, while a
