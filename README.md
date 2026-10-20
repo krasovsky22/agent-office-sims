@@ -76,6 +76,12 @@ It posts updates of its own to the same conversation when a coding agent starts
 on its issue, waits on a person, opens its pull request (with the link) or
 cannot carry on (with the runner's reason), and when one of the orchestrator's
 agents starts or stops. Everyone can read the conversation; only the CEO can instruct it.
+It also makes the board's moves on work an agent already has, as the CEO who
+asked and through the same rules: "approve #39", "send #39 back: the empty case
+fails" (the words after the colon go to the agent with its rework prompt),
+"take #39 off Maya" or "unassign #39", and "start #39 again" (the card's
+`Start again` for stopped work, otherwise back to `assigned`). Each one it
+cannot make gets a line saying why, such as `it isn't waiting for your review`.
 The CEO can also call a standup, from the HUD or by telling the AI Manager
 "call a standup": every agent walks to the conference room and sits at its
 table, each gives an update in turn on what it has worked on and what blocks
@@ -556,7 +562,7 @@ the work, whoever gave it, the board or the manager:
 | --- | --- |
 | assigned to it | `start` |
 | handed on to another slot | `stop` to the one that had it, `start` to the new one |
-| sent back from `review` to `in_progress` | a rework `prompt` (read the review, change, commit, push the same branch), or a `start` with the same words if the slot no longer holds the issue |
+| sent back from `review` to `in_progress` | a rework `prompt` (read the review, change, commit, push the same branch, plus the CEO's note when the send-back came through the AI Manager with one), or a `start` with the same words if the slot no longer holds the issue |
 | moved back from `in_progress` to `assigned`, or stopped work given to the same agent again (`Start again`) | `stop`, then `start`: a fresh start |
 | unassigned, approved as `done`, or finished by GitHub closing the issue | `stop` |
 | cancelled by the CEO from the agent's menu | `stop` marked `discard`, and again, still marked, if the slot is seen holding the issue afterwards (its runner missed the first) |
@@ -1841,6 +1847,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/agents/standingAnnouncer.ts  what the AI Manager says of each standing run
   src/manager/standingPlan.ts    the AI Manager's words for standing tasks, schedules read into cron
   src/manager/hire.ts            hiring a new coding agent for an issue: the cap, the profile, and the issue once it walks in
+  src/manager/workMoves.ts       approving, sending back, taking back and starting again work in hand, as the CEO
   src/rooms/standupHandlers.ts  the CEO's standup commands: call, end, direct, and the refusals sent back
   src/sim/standup.ts      the standup: gathering, the turns and each update read off an agent's real state, directions, blockers, the end
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk, and carry the sticky notes between boards and desk

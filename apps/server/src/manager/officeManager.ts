@@ -27,6 +27,10 @@
  * coding agents, and hands it the issue once it has walked in, as the CEO who
  * asked; with the office full it says so and suggests firing or reusing one.
  *
+ * Asked to approve, send back, take back or start again work an agent has,
+ * it does so as the CEO who asked, through the same rules as the project
+ * board (`./workMoves.ts`), and says how each went.
+ *
  * Asked to call or end a standup, it does so as the CEO who asked, through
  * the standup's own gate (`../sim/standup.ts`), and adds a line saying how
  * it went, as it does for an assignment.
@@ -69,6 +73,7 @@ import { ADVICE_FAILURE } from "./plannerError.js";
 import { planFromRules } from "./rulePlanner.js";
 import { carryOutStanding } from "./standingPlan.js";
 import { type Observation, describeChanges, observe } from "./updates.js";
+import { carryOutMoves } from "./workMoves.js";
 
 /** Messages that may wait behind the one being answered. */
 export const MAX_WAITING_MESSAGES = 3;
@@ -256,6 +261,12 @@ export class OfficeManager {
             origin: this.host.origin,
             note: question.text,
           });
+    }
+    const moves = plan.moves ?? [];
+    if (moves.length > 0) {
+      outcomes.push(
+        ...(stillCeo ? carryOutMoves(moves, { work: this.host.work, ceo, view }) : ["✗ You are no longer the CEO, so I changed no work."]),
+      );
     }
     const hires = plan.hires ?? [];
     if (hires.length > 0) {

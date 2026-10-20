@@ -389,6 +389,15 @@ export interface WorkNotePayload {
   readonly text: string;
 }
 
+/**
+ * A status move. A send-back for rework the AI Manager makes may carry the
+ * CEO's own words for the agent; the board sends none, and no client message
+ * is parsed into one. The rules ignore it: it is for whoever hears the change.
+ */
+export interface WorkMovePayload extends WorkMoveMessage {
+  readonly reworkNote?: string;
+}
+
 /** The issue whose work the CEO cancels. Built by the server's agent action handler, never parsed from a client. */
 export interface WorkCancelPayload {
   readonly issueNumber: number;
@@ -398,7 +407,7 @@ export interface WorkCancelPayload {
 export type WorkCommand =
   | { readonly action: typeof WORK_ACTION.assign; readonly payload: WorkAssignMessage }
   | { readonly action: typeof WORK_ACTION.release; readonly payload: WorkReleaseMessage }
-  | { readonly action: typeof WORK_ACTION.moveStatus; readonly payload: WorkMoveMessage }
+  | { readonly action: typeof WORK_ACTION.moveStatus; readonly payload: WorkMovePayload }
   | { readonly action: typeof WORK_ACTION.claim; readonly payload: WorkClaimPayload }
   | { readonly action: typeof WORK_ACTION.attachOutput; readonly payload: WorkAttachOutputPayload }
   | { readonly action: typeof WORK_ACTION.handIn; readonly payload: WorkHandInPayload }

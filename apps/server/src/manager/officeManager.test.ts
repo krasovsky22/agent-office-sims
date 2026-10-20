@@ -184,6 +184,22 @@ describe("OfficeManager", () => {
     expect(queue.collect()).toEqual([expect.objectContaining({ agentId: "crew-1", requestedBy: "Dana" })]);
   });
 
+  it("approves work handed in for the CEO, through the same rules as the board", async () => {
+    const entry = new IssueWork();
+    entry.issueNumber = 10;
+    entry.title = "Fix the login redirect loop";
+    entry.status = WORK_STATUS.review;
+    entry.assigneeId = "crew-1";
+    entry.outputArtifact = "PR #50";
+    const { state, dana, office, published } = setUp(rules(), 60_000, undefined, (office) => office.work.set(workKey(10), entry));
+    office.instruct(dana, "approve #10");
+    await until(() => published.length === 2);
+    expect(published[1]?.text).toBe(
+      "Here's how that went:\n✓ #10 “Fix the login redirect loop”: approved; Crewmate's work on it is done.",
+    );
+    expect(state.work.get(workKey(10))?.status).toBe(WORK_STATUS.done);
+  });
+
   it("hires an agent for the CEO, and gives it the issue once it has walked in", async () => {
     let agents = 0;
     const hiring: AgentHiring = {

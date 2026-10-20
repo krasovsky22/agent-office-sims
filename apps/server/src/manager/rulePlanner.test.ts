@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ManagerRequest } from "./advisor.js";
 import { type IssueAgentView, type IssueColumn, type IssueView, NO_STANDUP_VIEW, type OfficeView, type WorkView } from "./officeView.js";
-import { HELP_TEXT, HIRE_REPHRASE_TEXT, REPHRASE_TEXT, planFromRules } from "./rulePlanner.js";
+import { HELP_TEXT, HIRE_REPHRASE_TEXT, MOVE_REPHRASE_TEXT, REPHRASE_TEXT, planFromRules } from "./rulePlanner.js";
 
 function work(overrides: Partial<WorkView> & Pick<WorkView, "issueNumber" | "title" | "status">): WorkView {
   return {
@@ -598,5 +598,51 @@ describe("planFromRules: hiring", () => {
 
   it("lists hiring among what it can do", () => {
     expect(ask("help").reply).toContain("“Hire someone for #39”");
+  });
+});
+
+describe("planFromRules: moves on work in hand", () => {
+  const MOVES_VIEW: OfficeView = { ...VIEW, issueAgents: [coder("agent-1", "Ada Byrne", { issue: WORK[0] })] };
+  const move = (kind: string, work: string, note = "") => ({ move: kind, work, note });
+
+  it.each([
+    ["approve #14", [move("approve", "issue #14")]],
+    ["Please approve the third-party licences", [move("approve", "issue #14")]],
+    ["send #14 back", [move("send-back", "issue #14")]],
+    ["send #14 back for rework: the empty case fails", [move("send-back", "issue #14", "the empty case fails")]],
+    ["send back #14: Handle the empty case", [move("send-back", "issue #14", "Handle the empty case")]],
+    ["take #11 off Ada", [move("take-back", "issue #11")]],
+    ["take back #11", [move("take-back", "issue #11")]],
+    ["take #11 and #12 back", [move("take-back", "issue #11"), move("take-back", "issue #12")]],
+    ["unassign #11", [move("take-back", "issue #11")]],
+    ["unassign #11 from Ada", [move("take-back", "issue #11")]],
+    ["start #12 again", [move("start-again", "issue #12")]],
+    ["restart #12", [move("start-again", "issue #12")]],
+  ])("plans the move an instruction names: %j", (message, moves) => {
+    expect(ask(message, MOVES_VIEW)).toEqual({ reply: "Here's how that went:", assignments: [], moves, tokensUsed: 0 });
+  });
+
+  it("takes nothing off an agent who does not have it", () => {
+    expect(ask("take #12 off Ada", MOVES_VIEW)).toEqual({
+      reply: "#12 isn't Ada Byrne's: Cleo Hart has it. I haven't changed anything.",
+      assignments: [],
+      tokensUsed: 0,
+    });
+  });
+
+  it("asks again rather than guess, and says which work it cannot find", () => {
+    expect(ask("approve", MOVES_VIEW)).toEqual({ reply: MOVE_REPHRASE_TEXT, assignments: [], tokensUsed: 0 });
+    expect(ask("take #11 off the shelf", MOVES_VIEW)).toEqual({ reply: MOVE_REPHRASE_TEXT, assignments: [], tokensUsed: 0 });
+    expect(ask("approve #99", MOVES_VIEW).reply).toBe("I can't find #99 on the project board.");
+  });
+
+  it("moves nothing for a question, or a message that only sounds like a move", () => {
+    expect(ask("should I approve #14?", MOVES_VIEW).moves).toBeUndefined();
+    expect(ask("take a look at #14", MOVES_VIEW).moves).toBeUndefined();
+    expect(ask("send #14 to Deckhand", MOVES_VIEW).assignments).toEqual([{ work: "issue #14", agent: "crew-2" }]);
+  });
+
+  it("lists the moves among what it can do", () => {
+    expect(ask("help").reply).toContain("“Approve #39”");
   });
 });
