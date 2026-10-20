@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { RunnerCommand } from "@sim/shared";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createMockAgent } from "./agents/mock.js";
 import { type GitFixture, gitFixture } from "./gitFixture.js";
@@ -22,8 +22,18 @@ import { Worktrees } from "./worktrees.js";
 let fixture: GitFixture;
 let logged: string[];
 
+let template: GitFixture;
+
+beforeAll(() => {
+  template = gitFixture();
+});
+
+afterAll(() => {
+  template.cleanup();
+});
+
 beforeEach(() => {
-  fixture = gitFixture();
+  fixture = template.copy();
   logged = [];
 });
 

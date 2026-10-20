@@ -1781,7 +1781,7 @@ Then confirm all twenty-seven:
     the board's `Assign…` list. Stop the runner and Dana sits again: the panel
     says `No agent runner is connected`. `apps/server/src/agents/deskTerminal.test.ts`
     checks the lending, the hand-back and the gate against a real runner link,
-    and `apps/runner/src/slots.test.ts` the session on the runner's side.
+    and `apps/runner/src/slotsDesks.test.ts` the session on the runner's side.
 26. **Nobody can borrow a name.** Open a third tab at
     <http://localhost:5173/?name=dana>: it arrives as `dana 2`, with the
     notice `Someone here is already called dana. You are dana 2; rename yourself from the roster.`; one at `?name=AI%20Manager`

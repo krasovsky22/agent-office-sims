@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { type GitFixture, gitFixture } from "./gitFixture.js";
 import { Worktrees, describeWork } from "./worktrees.js";
@@ -18,8 +18,18 @@ const FETCH_FRESH_MS = 15_000;
 let fixture: GitFixture;
 const clock = { now: 1_000_000 };
 
+let template: GitFixture;
+
+beforeAll(() => {
+  template = gitFixture();
+});
+
+afterAll(() => {
+  template.cleanup();
+});
+
 beforeEach(() => {
-  fixture = gitFixture();
+  fixture = template.copy();
 });
 
 afterEach(() => {

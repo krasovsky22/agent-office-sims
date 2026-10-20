@@ -1,5 +1,5 @@
 /**
- * A headless run, with a small node script standing in for Claude Code's
+ * A headless run, with a small shell script standing in for Claude Code's
  * stream: its steps reach the screen, its spend is booked, its final message
  * is kept, and it is stopped, process group and all, at its minutes or its
  * signal.
@@ -9,14 +9,14 @@ import { describe, expect, it } from "vitest";
 
 import { type HeadlessOptions, describeToolUse, runHeadless, screenLine } from "./headless.js";
 
-/** Runs `script` in node as the CLI would run, printing stream events. */
+/** Runs `script` in `/bin/sh` as the CLI would run, printing stream events. */
 function options(script: string, overrides: Partial<HeadlessOptions> = {}): HeadlessOptions & { lines: string[]; activities: string[]; spends: number[] } {
   const lines: string[] = [];
   const activities: string[] = [];
   const spends: number[] = [];
   return {
-    command: process.execPath,
-    args: ["-e", script],
+    command: "/bin/sh",
+    args: ["-c", script],
     cwd: process.cwd(),
     env: { PATH: process.env["PATH"] ?? "" },
     signal: new AbortController().signal,
@@ -33,7 +33,7 @@ function options(script: string, overrides: Partial<HeadlessOptions> = {}): Head
   };
 }
 
-const say = (event: unknown): string => `console.log(${JSON.stringify(JSON.stringify(event))});`;
+const say = (event: unknown): string => `printf '%s\\n' '${JSON.stringify(event).replace(/'/g, `'\\''`)}'\n`;
 
 const USAGE = { input_tokens: 1000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
 
@@ -63,11 +63,11 @@ describe("runHeadless", () => {
   });
 
   it("is stopped at its minutes, and when its signal aborts", async () => {
-    const timedOut = await runHeadless(options("setTimeout(() => {}, 60_000);", { timeoutMs: 150 }));
+    const timedOut = await runHeadless(options("sleep 60", { timeoutMs: 150 }));
     expect(timedOut).toMatchObject({ ok: false, why: expect.stringMatching(/^it ran past its/) });
 
     const controller = new AbortController();
-    const stopping = runHeadless(options("setTimeout(() => {}, 60_000);", { signal: controller.signal }));
+    const stopping = runHeadless(options("sleep 60", { signal: controller.signal }));
     setTimeout(() => controller.abort("preempted"), 50);
     expect(await stopping).toMatchObject({ ok: false, why: "it was stopped" });
   });
@@ -75,13 +75,13 @@ describe("runHeadless", () => {
   it("is stopped once its own estimate passes its cap by a margin", async () => {
     const big = { input_tokens: 10_000_000, output_tokens: 0 };
     const result = await runHeadless(
-      options(`${say({ type: "assistant", message: { id: "m1", model: "claude-sonnet-5-5", usage: big, content: [] } })} setTimeout(() => {}, 60_000);`),
+      options(`${say({ type: "assistant", message: { id: "m1", model: "claude-sonnet-5-5", usage: big, content: [] } })}sleep 60`),
     );
     expect(result).toMatchObject({ ok: false, why: "it passed its spending cap of $0.50" });
   });
 
   it("says when the agent ended without a result", async () => {
-    const result = await runHeadless(options("console.error('Not logged in'); process.exit(2);"));
+    const result = await runHeadless(options("echo 'Not logged in' >&2; exit 2"));
     expect(result).toMatchObject({ ok: false, why: "the agent exited with code 2 without finishing: Not logged in" });
   });
 });
