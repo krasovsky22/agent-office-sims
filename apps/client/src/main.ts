@@ -54,6 +54,7 @@ import { agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText }
 import { deskForbiddenText, deskPanelFor, deskScreenKey, sameDeskPanel } from "./deskTerminalAccess.js";
 import { standupAccessFor, standupRejectionText } from "./standupAccess.js";
 import { boardAccessFor, issueStateRejectionText, rejectionText } from "./boardAccess.js";
+import { browserStorage, readDebugEnabled, readPropsEnabled, readServerUrl, requireCanvas, requireHudMount } from "./browserEnv.js";
 import { DayClock } from "./dayClock.js";
 import { helpSeen, markHelpSeen } from "./help.js";
 import { hasIssueMoveLanded, withOfficeWork } from "./projectBoard.js";
@@ -63,7 +64,6 @@ import { keepAcceptedName, nameRejectionText, readPlayerName } from "./playerNam
 import { standingAccessFor, standingRejectionText } from "./standingAccess.js";
 import type { RemotePose } from "./net/poseBuffer.js";
 import { type OccupantView, RoomConnection } from "./net/room.js";
-import { resolveServerUrl } from "./net/serverUrl.js";
 import { CAMERA_MODE, type CameraMode, otherCameraMode, readCameraMode, writeCameraMode } from "./player/cameraMode.js";
 import { type CameraFocus, PlayerController, shoulderView } from "./player/controller.js";
 import { AgentScreens } from "./scene/agentScreen.js";
@@ -147,59 +147,6 @@ const CLOSE_TERMINAL_LABEL = "Close the terminal";
 
 /** The prompt shown while the player is sitting, so standing up is discoverable. */
 const STAND_UP_PROMPT: HudPrompt = { keys: "W A S D", label: "Stand up", blocked: false };
-
-function requireCanvas(): HTMLCanvasElement {
-  const canvas = document.querySelector<HTMLCanvasElement>("#scene");
-  if (canvas === null) {
-    throw new Error("index.html is missing the #scene canvas");
-  }
-  return canvas;
-}
-
-function requireHudMount(): HTMLElement {
-  const mount = document.querySelector<HTMLElement>("#hud");
-  if (mount === null) {
-    throw new Error("index.html is missing the #hud container");
-  }
-  return mount;
-}
-
-/**
- * The server URL baked in at build time. A production build cannot get here
- * without one — `vite.config.ts` refuses to build — so the fallback only ever
- * serves `pnpm dev`.
- */
-function readServerUrl(): string {
-  return resolveServerUrl(import.meta.env.VITE_SERVER_URL);
-}
-
-/**
- * Whether to draw the asset kit's furniture or stay on the grey boxes.
- *
- * `?props=off` turns it off for one tab and `VITE_PROPS=off` for a whole build,
- * which is what makes the grey-box path something you can actually look at rather
- * than dead code. Either way the office is the same shape and walkable — a failed
- * load lands in the same place, see {@link furnish}.
- */
-function readPropsEnabled(): boolean {
-  const requested =
-    new URLSearchParams(window.location.search).get("props") ?? import.meta.env.VITE_PROPS;
-  return requested !== "off";
-}
-
-/** Whether `?debug` asked for the draw-call readout. */
-function readDebugEnabled(): boolean {
-  return new URLSearchParams(window.location.search).has("debug");
-}
-
-/** The browser's local storage, or `undefined` where merely touching it throws, as a locked-down browser's does. */
-function browserStorage(): Storage | undefined {
-  try {
-    return window.localStorage;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * The second line of a live agent's nameplate and roster entry, with what the
