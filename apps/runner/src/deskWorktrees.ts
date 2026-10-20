@@ -13,7 +13,7 @@
 import { mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import type { DeskWorkspaces } from "./slots.js";
+import type { DeskWorkspaces } from "./deskSessions.js";
 import type { Worktrees } from "./worktrees.js";
 
 export interface DeskWorktreesOptions {
