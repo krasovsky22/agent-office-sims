@@ -3,15 +3,17 @@
 import { ErrorCode, MatchMakeError } from "colyseus.js";
 import { describe, expect, it } from "vitest";
 
-import { describeError } from "./room.js";
+import { describeError, isOfficeFull } from "./room.js";
 
-describe("describeError", () => {
-  it("says the office is full when the join finds no seat", () => {
+describe("isOfficeFull", () => {
+  it("recognises a join the office has no seat for", () => {
     const refused = new MatchMakeError("no rooms found with provided criteria", ErrorCode.MATCHMAKE_INVALID_CRITERIA);
-    expect(describeError(refused)).toBe("The office is full (16 people)");
+    expect(isOfficeFull(refused)).toBe(true);
   });
 
-  it("passes any other matchmaking error through", () => {
-    expect(describeError(new MatchMakeError("invalid method", ErrorCode.MATCHMAKE_NO_HANDLER))).toBe("invalid method");
+  it("leaves any other matchmaking error alone", () => {
+    const error = new MatchMakeError("invalid method", ErrorCode.MATCHMAKE_NO_HANDLER);
+    expect(isOfficeFull(error)).toBe(false);
+    expect(describeError(error)).toBe("invalid method");
   });
 });

@@ -32,6 +32,7 @@ import {
   type ManagerEntry,
   type ManagerStatus,
   OCCUPANT_KIND,
+  OFFICE_CAPACITY,
   type OccupantKind,
   type ProjectBoardSnapshot,
   type RunnerSpendTotal,
@@ -301,8 +302,13 @@ const STATUS_TEXT: Record<ConnectionStatus, string> = {
   connected: "Connected",
   reconnecting: "Connection lost — reconnecting…",
   disconnected: "Disconnected",
+  full: `The office is full (${OFFICE_CAPACITY} people)`,
   failed: "Could not reach the office server",
 };
+
+export function statusLine(status: ConnectionStatus, detail: string | undefined): string {
+  return detail === undefined ? STATUS_TEXT[status] : `${STATUS_TEXT[status]} — ${detail}`;
+}
 
 /** Digit to emote, from the one appearance table. */
 const EMOTE_HOTKEYS = new Map<string, Emote>(
@@ -837,9 +843,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
 
         <div className="hud__panel">
           <h2 className="hud__title">Status</h2>
-          <p className={status === "failed" ? "hud__status hud__status--failed" : "hud__status"}>
-            {STATUS_TEXT[status]}
-            {detail === undefined ? "" : ` — ${detail}`}
+          <p className={status === "failed" || status === "full" ? "hud__status hud__status--failed" : "hud__status"}>
+            {statusLine(status, detail)}
           </p>
           {assetNote === undefined ? null : <p className="hud__status">{assetNote}</p>}
           <p className="hud__hint">

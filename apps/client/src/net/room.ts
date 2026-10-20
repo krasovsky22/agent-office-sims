@@ -80,7 +80,6 @@ import {
   type ManagerRejectedEvent,
   type ManagerSayMessage,
   type ManagerStatus,
-  OFFICE_CAPACITY,
   OFFICE_ROOM_NAME,
   type Occupant,
   type OccupantKind,
@@ -126,6 +125,7 @@ export type ConnectionStatus =
   | "connected"
   | "reconnecting"
   | "disconnected"
+  | "full"
   | "failed";
 
 /**
@@ -318,7 +318,11 @@ export class RoomConnection {
       this.client = client;
       this.attach(await client.join<OfficeState>(OFFICE_ROOM_NAME, { name }));
     } catch (error) {
-      this.events.onStatusChanged?.("failed", describeError(error));
+      if (isOfficeFull(error)) {
+        this.events.onStatusChanged?.("full");
+      } else {
+        this.events.onStatusChanged?.("failed", describeError(error));
+      }
       throw error;
     }
   }
@@ -1012,6 +1016,11 @@ export class RoomConnection {
   }
 }
 
+/** The server opens one office and lets clients only join it, so a join it cannot seat means the office is full. */
+export function isOfficeFull(error: unknown): boolean {
+  return error instanceof MatchMakeError && error.code === ErrorCode.MATCHMAKE_INVALID_CRITERIA;
+}
+
 /**
  * Turns whatever the socket threw into something worth putting on screen.
  *
@@ -1019,10 +1028,6 @@ export class RoomConnection {
  * `[object ProgressEvent]` — true, and useless to the reader.
  */
 export function describeError(error: unknown): string {
-  // The server opens one office and lets clients only join it, so a join it cannot seat means the office is full.
-  if (error instanceof MatchMakeError && error.code === ErrorCode.MATCHMAKE_INVALID_CRITERIA) {
-    return `The office is full (${OFFICE_CAPACITY} people)`;
-  }
   if (error instanceof Error && error.message !== "") {
     return error.message;
   }
