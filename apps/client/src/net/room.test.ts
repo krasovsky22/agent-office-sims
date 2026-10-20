@@ -1,9 +1,19 @@
-/** What the HUD says when the office server turns a join away. */
+/** What the HUD says when the office server turns a join away, and what it hears of the state. */
 
+import { Encoder, Reflection } from "@colyseus/schema";
+import { LIVE_AGENT_STATUS, LiveAgent, NO_STANDUP, Standup, StandupUpdate } from "@sim/shared";
 import { ErrorCode, MatchMakeError } from "colyseus.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type ConnectionStatus, RoomConnection, describeError, isOfficeFull, isSessionGone } from "./room.js";
+import {
+  type ConnectionStatus,
+  RoomConnection,
+  assignHudFields,
+  describeError,
+  hudFieldsOf,
+  isOfficeFull,
+  isSessionGone,
+} from "./room.js";
 
 /** A stand-in for the Colyseus client, so the connection's own decisions can be driven without a server. */
 const fake = vi.hoisted(() => {
@@ -142,5 +152,44 @@ describe("isOfficeFull", () => {
     const error = new MatchMakeError("invalid method", ErrorCode.MATCHMAKE_NO_HANDLER);
     expect(isOfficeFull(error)).toBe(false);
     expect(describeError(error)).toBe("invalid method");
+  });
+});
+
+describe("assignHudFields", () => {
+  it("tells the HUD about a change to any field it renders, and only then", () => {
+    const agent = new LiveAgent();
+    agent.name = "Coder";
+    const view = hudFieldsOf(agent);
+
+    expect(assignHudFields(view, hudFieldsOf(agent))).toBe(false);
+
+    agent.title = "Reviewer";
+    agent.carriedIssue = 33;
+    expect(assignHudFields(view, hudFieldsOf(agent))).toBe(true);
+    expect(view).toMatchObject({ title: "Reviewer", carriedIssue: 33, agentStatus: LIVE_AGENT_STATUS.idle });
+  });
+});
+
+describe("toJSON on decoded state", () => {
+  it("copies the standup, down to its updates, into plain data", () => {
+    const standup = new Standup();
+    standup.order.push("live:a");
+    const update = new StandupUpdate();
+    update.agentId = "live:a";
+    update.workedOn = "#33";
+    standup.updates.push(update);
+    // Decoded by reflection, as the client decodes it.
+    const encoder = new Encoder(standup);
+    const decoder = Reflection.decode<Standup>(Reflection.encode(encoder));
+    decoder.decode(encoder.encodeAll());
+
+    const copy = decoder.state.toJSON();
+
+    expect(copy).toEqual({
+      ...NO_STANDUP,
+      order: ["live:a"],
+      updates: [{ agentId: "live:a", agentName: "", workedOn: "#33", blockers: "", needsYou: false, resolved: false, at: 0 }],
+    });
+    expect(Array.isArray(copy.updates)).toBe(true);
   });
 });

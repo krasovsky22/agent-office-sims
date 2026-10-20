@@ -3,7 +3,7 @@
  * agent, and the only one that is text, so its grouping is pinned here.
  */
 
-import { MANAGER_STATUS, OCCUPANT_KIND } from "@sim/shared";
+import { LIVE_AGENT_STATUS, MANAGER_STATUS, OCCUPANT_KIND } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
@@ -22,12 +22,18 @@ function person(id: string, isCeo = false): RosterEntry {
     isLocal: false,
     caption: "",
     needsInput: false,
+    agentStatus: undefined,
+    taskTitle: "",
     taskUrl: "",
+    agentActivity: "",
+    assignedTitle: "",
     assignedUrl: "",
     canTakeIssues: false,
     title: "",
     description: "",
     profileEditable: false,
+    fired: false,
+    carriedIssue: 0,
     managerStatus: undefined,
   };
 }
@@ -41,12 +47,18 @@ function liveAgent(id: string, canTakeIssues = false): RosterEntry {
     isLocal: false,
     caption: "Working on #33",
     needsInput: false,
+    agentStatus: LIVE_AGENT_STATUS.working,
+    taskTitle: "",
     taskUrl: "https://github.com/krasovsky22/agent-office-sims/issues/33",
+    agentActivity: "",
+    assignedTitle: "",
     assignedUrl: "",
     canTakeIssues,
     title: "Software Developer",
     description: "",
     profileEditable: canTakeIssues,
+    fired: false,
+    carriedIssue: 0,
     managerStatus: undefined,
   };
 }
