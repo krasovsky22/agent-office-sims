@@ -179,6 +179,12 @@ and says why; a new agent not on the floor within a minute, its runner
 having refused it, is given up on and the AI Manager says that too. Only the
 CEO's instructions reach the AI Manager, so only the CEO hires.
 
+A hire on its way in is held in the server's memory only, since the issue is
+handed over as the CEO who asked, whose session a restart ends. A server that
+restarts after the runner took the hire, but before the new agent reached the
+floor, loses it: the agent still arrives and stays, but idle, and the CEO
+gives it the issue again, from the board or the AI Manager.
+
 Behind the chair of an open-floor desk where a live agent is working, the
 prompt reads `Watch the agent's terminal` and `E` opens its terminal at full
 size, with its name, what it is doing, and links to its issue and pull
