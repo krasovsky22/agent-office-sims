@@ -30,6 +30,7 @@ import { type BuildingSpec, type BuildingStyle, seededRandom, skylineOf, upperSt
 import {
   CROSSING_HALF_WIDTH,
   type Car,
+  type CarPose,
   type SignalPhase,
   type Traffic,
   carPose,
@@ -617,13 +618,14 @@ export function buildStreet(scene: THREE.Scene, layout: OfficeLayout): StreetVie
   const up = new THREE.Vector3(0, 1, 0);
   const one = new THREE.Vector3(1, 1, 1);
   const partNames = Object.keys(parts) as (keyof CarParts)[];
+  const pose: CarPose = { x: 0, z: 0, yaw: 0 };
 
   let shownPhase: SignalPhase | undefined;
   let shownNight = -1;
 
   const placeCars = () => {
     traffic.cars.forEach((car, index) => {
-      const pose = carPose(street, car);
+      carPose(street, car, pose);
       world.compose(position.set(pose.x, ROAD_Y, pose.z), turn.setFromAxisAngle(up, pose.yaw), one);
       const local = locals[index];
       if (local === undefined) {

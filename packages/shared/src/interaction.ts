@@ -176,11 +176,9 @@ export function nearestInteractable(
   let nearestDistance = Number.POSITIVE_INFINITY;
 
   for (const spec of interactables(layout)) {
-    if (!isOffered(spec, holderOf)) {
-      continue;
-    }
     const distance = distanceToInteractable(spec, point);
-    if (distance <= range && distance < nearestDistance) {
+    // Distance first: isOffered scans the occupants.
+    if (distance <= range && distance < nearestDistance && isOffered(spec, holderOf)) {
       nearest = spec;
       nearestDistance = distance;
     }

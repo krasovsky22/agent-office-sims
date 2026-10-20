@@ -94,15 +94,17 @@ export interface Car {
 
 export interface Traffic {
   readonly cars: readonly Car[];
+  /** The same cars grouped by lane, since no car ever changes lane. */
+  readonly lanes: readonly Car[][];
   /** Seconds simulated, which is also what the lights run off. */
   seconds: number;
 }
 
 /** Where a car is on the ground, and which way it faces: yaw 0 faces -Z, as everywhere. */
 export interface CarPose {
-  readonly x: number;
-  readonly z: number;
-  readonly yaw: number;
+  x: number;
+  z: number;
+  yaw: number;
 }
 
 function laneLength(street: StreetSpec): number {
@@ -122,13 +124,14 @@ export function createTraffic(street: StreetSpec, seed = 115): Traffic {
   const random = seededRandom(seed);
   const length = laneLength(street);
   const cars: Car[] = [];
-  street.lanes.forEach((_, lane) => {
+  const lanes = street.lanes.map((_, lane) => {
+    const inLane: Car[] = [];
     const count = Math.max(1, Math.round(length / CAR_SPACING));
     for (let index = 0; index < count; index += 1) {
       const spacing = length / count;
       const cab = random() < CAB_SHARE;
       const colour = CAR_COLOURS[Math.floor(random() * CAR_COLOURS.length)] ?? CAR_COLOURS[0];
-      cars.push({
+      inLane.push({
         lane,
         travelled: (index + 0.15 + random() * 0.7) * spacing,
         speed: 0,
@@ -140,17 +143,22 @@ export function createTraffic(street: StreetSpec, seed = 115): Traffic {
         stopsForLight: false,
       });
     }
+    cars.push(...inLane);
+    return inLane;
   });
   for (const car of cars) {
     car.speed = car.cruise;
   }
-  return { cars, seconds: 0 };
+  return { cars, lanes, seconds: 0 };
 }
 
 /** The fastest a car may go and still stop `distance` ahead, braking at `braking`. */
 function speedToStopIn(distance: number, braking: number): number {
   return Math.sqrt(2 * braking * Math.max(0, distance));
 }
+
+/** Each car's move this step, by its place in its lane; reused, as steps never overlap. */
+const moves: number[] = [];
 
 /**
  * Advances the street by `deltaSeconds`.
@@ -169,9 +177,13 @@ export function stepTraffic(traffic: Traffic, street: StreetSpec, deltaSeconds: 
   const cycle = Math.floor(traffic.seconds / SIGNAL_CYCLE);
   const length = laneLength(street);
 
-  const moves = new Map<Car, number>();
   street.lanes.forEach((lane, laneIndex) => {
-    const inLane = traffic.cars.filter((car) => car.lane === laneIndex).sort((a, b) => a.travelled - b.travelled);
+    const inLane = traffic.lanes[laneIndex];
+    if (inLane === undefined) {
+      return;
+    }
+    // In place: the order barely changes between steps, only when a car wraps.
+    inLane.sort((a, b) => a.travelled - b.travelled);
     const stopLine = stopLineAt(street, lane.direction);
 
     inLane.forEach((car, index) => {
@@ -210,22 +222,31 @@ export function stepTraffic(traffic: Traffic, street: StreetSpec, deltaSeconds: 
         car.speed + Math.min(ACCELERATION * deltaSeconds, Math.max(-HARD_BRAKING * deltaSeconds, change)),
       );
       car.speed = speed;
-      moves.set(car, Math.min(speed * deltaSeconds, Math.max(0, gap - STANDING_GAP / 2)));
+      moves[index] = Math.min(speed * deltaSeconds, Math.max(0, gap - STANDING_GAP / 2));
+    });
+
+    // Lanes never look at each other, so each can move once its own cars have decided.
+    inLane.forEach((car, index) => {
+      car.travelled = (car.travelled + (moves[index] ?? 0)) % length;
     });
   });
-
-  for (const [car, distance] of moves) {
-    car.travelled = (car.travelled + distance) % length;
-  }
 }
 
-/** Where a car is drawn. */
-export function carPose(street: StreetSpec, car: Car): CarPose {
+/** Where a car is drawn, written into `into` so a frame of cars needs no new objects. */
+export function carPose(street: StreetSpec, car: Car, into: CarPose = { x: 0, z: 0, yaw: 0 }): CarPose {
   const lane = street.lanes[car.lane];
   if (lane === undefined) {
-    return { x: 0, z: 0, yaw: 0 };
+    into.x = 0;
+    into.z = 0;
+    into.yaw = 0;
+  } else if (lane.direction === 1) {
+    into.x = lane.x;
+    into.z = street.road.minZ + car.travelled;
+    into.yaw = Math.PI;
+  } else {
+    into.x = lane.x;
+    into.z = street.road.maxZ - car.travelled;
+    into.yaw = 0;
   }
-  return lane.direction === 1
-    ? { x: lane.x, z: street.road.minZ + car.travelled, yaw: Math.PI }
-    : { x: lane.x, z: street.road.maxZ - car.travelled, yaw: 0 };
+  return into;
 }
