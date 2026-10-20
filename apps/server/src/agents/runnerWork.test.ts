@@ -224,6 +224,25 @@ describe("RunnerWork outward: the CEO's word to the slots", () => {
     expect(pending()).toEqual([expect.objectContaining({ kind: "start", issueNumber: 39, note: reworkPrompt(39) })]);
   });
 
+  it("gives the agent the CEO's note with its rework, when the send-back carries one", () => {
+    const { ceoDoes, syncSlots, pending, ack, runnerWork } = setup();
+    ceoDoes(assign(39));
+    ack();
+    syncSlots({ "slot-1": 39 });
+    runnerWork.receive(
+      [event("started", 39), event("pr-opened", 39, { pr: PR })].map((item) => ({ runnerId: "box", event: item })),
+    );
+    ceoDoes({
+      action: WORK_ACTION.moveStatus,
+      payload: { issueNumber: 39, status: WORK_STATUS.in_progress, reworkNote: "the empty case fails" },
+    });
+    expect(pending()).toEqual([
+      { kind: "prompt", slotId: "slot-1", text: reworkPrompt(39, "the empty case fails"), requestedBy: "Dana" },
+    ]);
+    expect(reworkPrompt(39, "the empty case fails")).toContain("The CEO's note: the empty case fails");
+    expect(reworkPrompt(39, " ")).toBe(reworkPrompt(39));
+  });
+
   it("starts work sent back to assigned again from the top, and stops it once approved", () => {
     const { ceoDoes, state, pending, ack, runnerWork } = setup();
     ceoDoes(assign(39));

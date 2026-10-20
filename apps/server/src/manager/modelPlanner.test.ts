@@ -64,12 +64,12 @@ describe("the request", () => {
     };
     const planner = createModelPlanner({ apiKey: "test-key", model: "claude-opus-5-5", send });
 
-    expect(await planner(REQUEST, SIGNAL)).toEqual({ reply: "Ada is idle.", assignments: [], hires: [], standing: [], tokensUsed: 1000 });
+    expect(await planner(REQUEST, SIGNAL)).toEqual({ reply: "Ada is idle.", assignments: [], moves: [], hires: [], standing: [], tokensUsed: 1000 });
     const params = sent[0];
     expect(params?.model).toBe("claude-opus-5-5");
     expect(params?.output_config).toMatchObject({
       effort: "low",
-      format: { type: "json_schema", schema: { required: expect.arrayContaining(["hires"]) as unknown } },
+      format: { type: "json_schema", schema: { required: expect.arrayContaining(["hires", "moves"]) as unknown } },
     });
     expect(params?.messages).toHaveLength(1);
     const prompt = JSON.stringify(params?.messages);
@@ -145,6 +145,33 @@ describe("readReply", () => {
     expect(plan.hires).toEqual([
       { work: "#39", name: "Nova", title: "Accessibility Specialist", description: "Makes the HUD work with a screen reader." },
     ]);
+  });
+
+  it("reads the moves on work in hand, keeping a note only on a send-back and dropping malformed ones", () => {
+    const plan = readReply(
+      reply(
+        JSON.stringify({
+          reply: "Done.",
+          assignments: [],
+          moves: [
+            { move: "send-back", work: " #39 ", note: " the empty case fails " },
+            { move: "approve", work: "#12", note: "ignored" },
+            { move: "cancel", work: "#12", note: "" },
+            { move: "take-back", work: "", note: "" },
+            "junk",
+          ],
+        }),
+      ),
+    );
+    expect(plan.moves).toEqual([
+      { move: "send-back", work: "#39", note: "the empty case fails" },
+      { move: "approve", work: "#12", note: "" },
+    ]);
+  });
+
+  it("is told it can make the board's moves on work in hand", () => {
+    expect(systemPrompt()).toContain("You can make the moves the project board offers");
+    expect(systemPrompt()).not.toContain("approve work, or change anything on GitHub");
   });
 
   it("is asked for a standup field, and told what a standup is", () => {

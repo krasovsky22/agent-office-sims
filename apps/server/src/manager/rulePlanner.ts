@@ -29,6 +29,10 @@
  *   changed", "pause the pull request watch", "what are you watching?":
  *   standing tasks, read by `./standingPlan.ts` and carried out, like an
  *   assignment, afterwards and through the office's own gate.
+ * - **"Approve #39"**, "send #39 back: the empty case fails", "take #39 off
+ *   Maya", "start #39 again": a plan to make one of the project board's moves
+ *   on work an agent has, a send-back carrying the words after the colon to
+ *   the agent, carried out afterwards like an assignment (`./workMoves.ts`).
  * - **"Hire someone for #39"**, "hire a frontend specialist to work on the
  *   jumping ticket": a plan to hire a new coding agent for each issue named,
  *   titled from the words before "for" when they say more than "an agent",
@@ -44,7 +48,7 @@
 
 import { LIVE_AGENT_STATUS, WORK_STATUS, type WorkStatus } from "@sim/shared";
 
-import { ANY_CODING_AGENT, type ManagerPlan, type ManagerRequest, type PlannedStandup } from "./advisor.js";
+import { ANY_CODING_AGENT, type ManagerPlan, type ManagerRequest, type PlannedStandup, type WorkMoveKind } from "./advisor.js";
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, WorkView } from "./officeView.js";
 import { type WorkRef, findAgents, findIssueByTitle, findUnknownWork, findWork, resolveAgent } from "./resolve.js";
 import { readStandingInstruction, standingSummary } from "./standingPlan.js";
@@ -95,6 +99,9 @@ const HIRE_LINKS: readonly string[] = ["to work on", "to start on", "to pick up"
 const ANY_HIRE =
   /^(?:(?:a|an|one|another|some) )?(?:new )?(?:agent|coding agent|developer|dev|engineer|coder|someone|somebody|person|specialist)?$/;
 
+export const MOVE_REPHRASE_TEXT =
+  "I couldn't tell which work you mean, so I haven't changed anything. Say it like “approve #39”, “send #39 back: the empty case fails”, “take #39 off Maya” or “start #39 again”.";
+
 export const HIRE_REPHRASE_TEXT =
   "I couldn't tell which issue to hire someone for, so I haven't hired anyone. Say it like “hire someone for #39”.";
 
@@ -132,6 +139,7 @@ export const HELP_TEXT = [
   "- “What is Maya doing?”",
   "- “Assign #39”, “Put someone on #39” or “Have Maya do #39”",
   "- “Hand out the backlog”",
+  "- “Approve #39”, “Send #39 back: the empty case fails”, “Take #39 off Maya” or “Start #39 again”",
   "- “Hire someone for #39”, or “Hire a frontend specialist to work on #39”",
   "- “Watch for new pull requests”, or “Every weekday at 9, summarise what changed yesterday”",
   "- “What are you watching?”, “Pause the pull request watch”",
@@ -157,6 +165,10 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   const hire = readHire(message, view);
   if (hire !== undefined) {
     return hire;
+  }
+  const move = readWorkMove(message, view);
+  if (move !== undefined) {
+    return move;
   }
   const work = findWork(message, view);
   const agents = findAgents(message, view);
@@ -281,6 +293,108 @@ function readHire(message: string, view: OfficeView): Omit<ManagerPlan, "tokensU
   return { reply: HIRE_REPHRASE_TEXT, assignments: [] };
 }
 
+/**
+ * A message asking for a move on work in hand, the project board's, by a
+ * strict grammar over the whole message up to a first colon, after which a
+ * send-back's note to the agent goes:
+ *
+ * - approve WORK
+ * - send WORK back [for rework]
+ * - take WORK off AGENT, unassign WORK
+ * - start WORK again
+ *
+ * and, only where WORK names an issue by number, the synonyms "accept WORK",
+ * "send back WORK", "take back WORK", "take WORK back", "unassign WORK from
+ * AGENT", "start WORK over" and "restart WORK".
+ *
+ * One that starts like a move and names no work is answered with how to say
+ * it. `undefined` for any other message, a question included.
+ */
+function readWorkMove(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUsed"> | undefined {
+  const colon = message.indexOf(":");
+  const words = wordsOf(colon === -1 ? message : message.slice(0, colon));
+  if (QUESTION_START.test(words.join(" "))) {
+    return undefined;
+  }
+  const shape = workMoveShape(words);
+  if (shape === undefined) {
+    return undefined;
+  }
+  const slot = readWork(shape.work, view);
+  if (slot === null || (slot.work.length === 0 && slot.unknown.length === 0)) {
+    return { reply: MOVE_REPHRASE_TEXT, assignments: [] };
+  }
+  if (slot.unknown.length > 0) {
+    return { reply: cannotFind(slot.unknown, view), assignments: [] };
+  }
+  if (shape.agent !== undefined) {
+    const named = readAgent(shape.agent, view)?.agent;
+    if (named === undefined || named === ANY_CODING_AGENT) {
+      return { reply: MOVE_REPHRASE_TEXT, assignments: [] };
+    }
+    const elsewhere = slot.work.find((ref) => ref.kind === "issue" && ref.issue.work?.assigneeId !== named.id);
+    if (elsewhere?.kind === "issue") {
+      const holder = elsewhere.issue.work === undefined ? "nobody in the office has it" : `${elsewhere.issue.work.assignee ?? "someone who has left"} has it`;
+      return { reply: `#${elsewhere.issue.number} isn't ${named.name}'s: ${holder}. I haven't changed anything.`, assignments: [] };
+    }
+  }
+  const note = shape.move === "send-back" && colon !== -1 ? message.slice(colon + 1).trim() : "";
+  return {
+    reply: "Here's how that went:",
+    assignments: [],
+    moves: slot.work.map((ref) => ({ move: shape.move, work: workId(ref), note })),
+  };
+}
+
+/** Which move the words ask for, with the words naming the WORK and the AGENT it is taken off. */
+function workMoveShape(
+  words: readonly string[],
+): { readonly move: WorkMoveKind; readonly work: readonly string[]; readonly agent?: readonly string[] } | undefined {
+  const [verb = "", second = ""] = words;
+  const last = words[words.length - 1] ?? "";
+  const rest = words.slice(1);
+  const byNumber = (shape: { readonly move: WorkMoveKind; readonly work: readonly string[]; readonly agent?: readonly string[] }) =>
+    namesNumber(shape.work) ? shape : undefined;
+  if (verb === "approve") {
+    return { move: "approve", work: rest };
+  }
+  if (verb === "accept") {
+    return byNumber({ move: "approve", work: rest });
+  }
+  if (verb === "send" && second === "back") {
+    return byNumber({ move: "send-back", work: words.slice(2) });
+  }
+  if (verb === "send") {
+    const back = rest.lastIndexOf("back");
+    const tail = back === -1 ? [] : rest.slice(back + 1);
+    return back > 0 && (tail.length === 0 || tail.join(" ") === "for rework") ? { move: "send-back", work: rest.slice(0, back) } : undefined;
+  }
+  if (verb === "unassign") {
+    const from = rest.indexOf("from");
+    return from > 0 ? byNumber({ move: "take-back", work: rest.slice(0, from), agent: rest.slice(from + 1) }) : { move: "take-back", work: rest };
+  }
+  if (verb === "take" && second === "back") {
+    return byNumber({ move: "take-back", work: words.slice(2) });
+  }
+  if (verb === "take") {
+    const off = rest.lastIndexOf("off");
+    if (off > 0) {
+      return { move: "take-back", work: rest.slice(0, off), agent: rest.slice(off + 1) };
+    }
+    return last === "back" && words.length > 2 ? byNumber({ move: "take-back", work: rest.slice(0, -1) }) : undefined;
+  }
+  if (verb === "restart") {
+    return byNumber({ move: "start-again", work: rest });
+  }
+  if (verb === "start" && last === "again" && words.length > 2) {
+    return { move: "start-again", work: rest.slice(0, -1) };
+  }
+  if (verb === "start" && last === "over" && words.length > 2) {
+    return byNumber({ move: "start-again", work: rest.slice(0, -1) });
+  }
+  return undefined;
+}
+
 function titleCase(words: string): string {
   return words.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
 }
@@ -389,6 +503,11 @@ function readAgent(words: readonly string[], view: OfficeView): { readonly agent
   return null;
 }
 
+/** Whether the words name work by number: "#39", "issue 39" or "pr 39". */
+function namesNumber(words: readonly string[]): boolean {
+  return words.some((word, at) => /^#\d+$/.test(word) || ((word === "issue" || word === "pr") && NUMBER.test(words[at + 1] ?? "")));
+}
+
 /**
  * The WORK slot, when these words are exactly one: work references joined by
  * "the", "and", commas and possessives such as "Bo's", exactly one issue's
@@ -403,9 +522,7 @@ function readWork(words: readonly string[], view: OfficeView): WorkSlot | null {
     return { work: [{ kind: "issue", issue: titled }], unknown: [] };
   }
 
-  const numbered = words.some(
-    (word, at) => /^#\d+$/.test(word) || ((word === "issue" || word === "pr") && NUMBER.test(words[at + 1] ?? "")),
-  );
+  const numbered = namesNumber(words);
   const references: string[] = [];
   for (let at = 0; at < words.length; at += 1) {
     const word = words[at] ?? "";

@@ -69,6 +69,24 @@ export interface PlannedHire {
   readonly description: string;
 }
 
+/** The moves on work in hand the project board offers the CEO, as a plan names them. */
+export const WORK_MOVES = ["approve", "send-back", "take-back", "start-again"] as const;
+
+export type WorkMoveKind = (typeof WORK_MOVES)[number];
+
+/**
+ * One move the manager wants made on work an agent has, as the planner wrote
+ * it: carried out afterwards through the work's rules with the CEO as the
+ * actor (`./workMoves.ts`), never trusted. `work` names it as an assignment's
+ * does; `note` is, for a send-back, the CEO's words on what to change, which
+ * go to the agent with its rework, and `""` otherwise.
+ */
+export interface PlannedWorkMove {
+  readonly move: WorkMoveKind;
+  readonly work: string;
+  readonly note: string;
+}
+
 /** What a plan asks of the standup: call one, or end the one that is on. */
 export type PlannedStandup = "start" | "end";
 
@@ -78,6 +96,8 @@ export interface ManagerPlan {
   readonly assignments: readonly PlannedAssignment[];
   /** New agents to hire, each for one issue; none when left out. */
   readonly hires?: readonly PlannedHire[];
+  /** Work in hand to approve, send back, take back or start again; none when left out. */
+  readonly moves?: readonly PlannedWorkMove[];
   /** Standing tasks to set up, pause, resume, remove or check; none when left out. */
   readonly standing?: readonly PlannedStanding[];
   /** Absent for a plan that leaves the standup alone. */

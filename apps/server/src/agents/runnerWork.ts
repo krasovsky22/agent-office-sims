@@ -58,6 +58,7 @@ import {
   isRunnerWorkEvent,
   isWorkStopped,
   liveAgentKey,
+  sanitizeWorkNote,
   simulatedPullRequestArtifact,
   workKey,
 } from "@sim/shared";
@@ -96,10 +97,12 @@ export function isRunnerCommands(value: unknown): value is RunnerCommands {
   );
 }
 
-/** The words a slot is sent back to work with. */
-export function reworkPrompt(issueNumber: number): string {
+/** The words a slot is sent back to work with, and the CEO's own note on what to change when they gave one. */
+export function reworkPrompt(issueNumber: number, note = ""): string {
+  const said = sanitizeWorkNote(note);
   return [
     `The CEO sent your pull request for issue #${issueNumber} back for more work.`,
+    ...(said === "" ? [] : [`The CEO's note: ${said}`]),
     "Read what reviewers said on it with `gh pr view --comments`, make the changes, verify and commit them,",
     "then push the same branch so the pull request updates. Don't open a second pull request.",
   ].join(" ");
@@ -206,7 +209,7 @@ export class RunnerWork {
         if (work.status === WORK_STATUS.done) {
           this.stop(work.assigneeId, work.issueNumber, "the work is done");
         } else if (before.status === WORK_STATUS.review && work.status === WORK_STATUS.in_progress) {
-          this.rework(work, actor);
+          this.rework(work, actor, command.payload.reworkNote ?? "");
         } else if (before.status === WORK_STATUS.in_progress && work.status === WORK_STATUS.assigned) {
           this.restart(work, actor);
         }
@@ -309,12 +312,12 @@ export class RunnerWork {
   }
 
   /** Sends the review back to the slot holding it, or starts it on it again with the same words when it is not. */
-  private rework(work: IssueWork, actor: OfficeActor): void {
+  private rework(work: IssueWork, actor: OfficeActor, note: string): void {
     const slot = slotOf(work.assigneeId);
     if (slot === undefined) {
       return;
     }
-    const text = reworkPrompt(work.issueNumber);
+    const text = reworkPrompt(work.issueNumber, note);
     if (this.options.runner.slotIssue(slot.runnerId, slot.slotId) !== work.issueNumber) {
       this.start(work, actor, text);
       return;
