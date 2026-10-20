@@ -24,7 +24,7 @@
  * and it costs nothing to say.
  */
 
-import { LIVE_AGENT_STATUS, WORK_STATUS, type WorkStatus, isLiveAgentOnTask } from "@sim/shared";
+import { LIVE_AGENT_STATUS, MAX_TITLE_LENGTH, WORK_STATUS, type WorkStatus, clip, isLiveAgentOnTask } from "@sim/shared";
 
 import { LIVE_ASSIGNMENT_STATUS, type LiveAssignment, type LiveAssignmentStatus } from "./liveAssignments.js";
 import type { LinkView, LiveAgentView, OfficeView } from "./officeView.js";
@@ -89,7 +89,7 @@ export function observe(
       view.work.map((work) => [
         work.issueNumber,
         {
-          label: `#${work.issueNumber} “${work.title}”`,
+          label: `#${work.issueNumber} “${clip(work.title, MAX_TITLE_LENGTH)}”`,
           status: work.status,
           assigneeId: work.assigneeId,
           assignee: work.assignee,
@@ -115,7 +115,7 @@ export function observe(
         assignment.id,
         {
           status: assignment.status,
-          label: `${assignment.item.kind === "pull" ? "PR " : ""}#${assignment.item.number} “${assignment.item.title}”`,
+          label: `${assignment.item.kind === "pull" ? "PR " : ""}#${assignment.item.number} “${clip(assignment.item.title, MAX_TITLE_LENGTH)}”`,
           agent: liveNames.get(assignment.agentId) ?? assignment.agentId,
         },
       ]),

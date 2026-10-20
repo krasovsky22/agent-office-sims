@@ -46,7 +46,7 @@
  * answer comes from the {@link OfficeView} it is handed.
  */
 
-import { LIVE_AGENT_STATUS, WORK_STATUS, type WorkStatus } from "@sim/shared";
+import { LIVE_AGENT_STATUS, MAX_TITLE_LENGTH, WORK_STATUS, type WorkStatus, clip } from "@sim/shared";
 
 import { ANY_CODING_AGENT, type ManagerPlan, type ManagerRequest, type PlannedStandup, type WorkMoveKind } from "./advisor.js";
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, WorkView } from "./officeView.js";
@@ -209,7 +209,8 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   }
 
   if (work.length > 0) {
-    const lines = work.slice(0, LIST_LIMIT).map((ref) => describeRef(ref, view));
+    const titleLength = work.length === 1 ? Infinity : MAX_TITLE_LENGTH;
+    const lines = work.slice(0, LIST_LIMIT).map((ref) => describeRef(ref, view, titleLength));
     if (ASKING_ADVICE.test(message)) {
       lines.push(adviceFor(view));
     }
@@ -701,12 +702,13 @@ function adviceFor(view: OfficeView): string {
   return `${free.join(", ")} ${free.length === 1 ? "is" : "are"} free. Say “put ${say} on it” and I'll hand it over.`;
 }
 
-function describeRef(ref: WorkRef, view: OfficeView): string {
+/** `ref` in words, its title clipped to `titleLength` so a list of several stays within a reply. */
+function describeRef(ref: WorkRef, view: OfficeView, titleLength: number): string {
   switch (ref.kind) {
     case "issue":
-      return describeIssue(ref.issue, view);
+      return describeIssue(ref.issue, view, titleLength);
     case "pull":
-      return describePull(ref.pull, view);
+      return describePull(ref.pull, view, titleLength);
   }
 }
 
@@ -757,7 +759,7 @@ function labelText(labels: readonly string[]): string {
   return labels.length === 0 ? "" : ` [${labels.join(", ")}]`;
 }
 
-function describeIssue(issue: IssueView, view: OfficeView): string {
+function describeIssue(issue: IssueView, view: OfficeView, titleLength: number): string {
   const assignees = issue.assignees.length === 0 ? "" : `, assigned on GitHub to ${issue.assignees.join(", ")}`;
   const pulls =
     issue.pullRequests.length === 0
@@ -765,17 +767,17 @@ function describeIssue(issue: IssueView, view: OfficeView): string {
       : ` ${issue.pullRequests.map((number) => `PR #${number}`).join(", ")} ${issue.pullRequests.length === 1 ? "closes" : "close"} it.`;
   const people = sentences([workText(issue.work), liveAgentsOn(issue.url, view)]);
   const office = people === "" && issue.column !== "closed" ? " Nobody in the office is on it yet." : people;
-  return `#${issue.number} “${issue.title}” is ${issue.column}${labelText(issue.labels)}${assignees}.${pulls}${office}${stale(view)}`;
+  return `#${issue.number} “${clip(issue.title, titleLength)}” is ${issue.column}${labelText(issue.labels)}${assignees}.${pulls}${office}${stale(view)}`;
 }
 
-function describePull(pull: PullRequestView, view: OfficeView): string {
-  return `${pullLine(pull)}${sentences([liveAgentsOn(pull.url, view)])}${stale(view)}`;
+function describePull(pull: PullRequestView, view: OfficeView, titleLength: number): string {
+  return `${pullLine(pull, titleLength)}${sentences([liveAgentsOn(pull.url, view)])}${stale(view)}`;
 }
 
-function pullLine(pull: PullRequestView): string {
+function pullLine(pull: PullRequestView, titleLength: number): string {
   const draft = pull.draft ? ", a draft," : "";
   const checks = pull.checks === "unknown" || pull.checks === "none" ? "" : ` Checks are ${pull.checks}.`;
-  return `PR #${pull.number} “${pull.title}”${labelText(pull.labels)} by ${pull.author}${draft} is open.${checks}`;
+  return `PR #${pull.number} “${clip(pull.title, titleLength)}”${labelText(pull.labels)} by ${pull.author}${draft} is open.${checks}`;
 }
 
 type FloorAgent = IssueAgentView | LiveAgentView;
@@ -795,12 +797,12 @@ function describeCodingAgent(agent: IssueAgentView): string {
     const review = /^Review (PR #\d+)(?:: (.*))?$/.exec(task.title);
     return review === null
       ? `${who} is running the standing task “${taskName}”${activity}; an issue handed to it comes first.`
-      : `${who} is reviewing ${review[1]}${review[2] === undefined ? "" : ` “${review[2]}”`} for the standing task “${taskName}”${activity}; an issue handed to it comes first.`;
+      : `${who} is reviewing ${review[1]}${review[2] === undefined ? "" : ` “${clip(review[2], MAX_TITLE_LENGTH)}”`} for the standing task “${taskName}”${activity}; an issue handed to it comes first.`;
   }
   if (work === undefined) {
     return `${who} is idle.`;
   }
-  const issue = `#${work.issueNumber} “${work.title}”`;
+  const issue = `#${work.issueNumber} “${clip(work.title, MAX_TITLE_LENGTH)}”`;
   const note = work.note === undefined ? "" : ` Its last word on it: ${work.note}`;
   if (work.status === WORK_STATUS.review) {
     const pull = work.pullRequest;
@@ -862,7 +864,7 @@ function teamSummary(view: OfficeView): string {
 function issueItem(issue: IssueView): string {
   const who =
     issue.work === undefined ? "" : ` — ${issue.work.assignee ?? "someone who has left"}, ${WORK_TEXT[issue.work.status]}`;
-  return `#${issue.number} “${issue.title}”${labelText(issue.labels)}${who}`;
+  return `#${issue.number} “${clip(issue.title, MAX_TITLE_LENGTH)}”${labelText(issue.labels)}${who}`;
 }
 
 function boardSummary(view: OfficeView): string {
@@ -904,7 +906,7 @@ function pullRequestSummary(view: OfficeView): string {
   const more = project.counts.pullRequests - shown.length;
   return [
     `${project.repository} has ${project.counts.pullRequests} open pull requests:${stale(view)}`,
-    ...shown.map((pull) => `- ${pullLine(pull)}`),
+    ...shown.map((pull) => `- ${pullLine(pull, MAX_TITLE_LENGTH)}`),
     ...(more > 0 ? [`…and ${more} more on GitHub.`] : []),
   ].join("\n");
 }

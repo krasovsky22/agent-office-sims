@@ -3,7 +3,7 @@
  * built from the office and the project board it is shown and nothing else.
  */
 
-import { CHECK_STATUS, LIVE_AGENT_STATUS, WORK_STATUS } from "@sim/shared";
+import { CHECK_STATUS, LIVE_AGENT_STATUS, MAX_TITLE_LENGTH, WORK_STATUS, clip, sanitizeManagerReply } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import type { ManagerRequest } from "./advisor.js";
@@ -182,6 +182,19 @@ describe("planFromRules: status", () => {
       expect(reply).toContain("Open pull requests: PR #46 (checks failing), PR #47.");
       expect(reply).not.toContain("Old thing");
     }
+  });
+
+  it("clips each long title in a list so every section of the board still fits in a reply", () => {
+    const long = (number: number) => `Issue ${number} ${"with a very long title that keeps going ".repeat(6)}`.trim();
+    const issues = [8, 9, 10, 11, 12, 13, 14, 15].map((number) => issue(number, long(number), "open", { labels: ["wave-2"] }));
+    const view = { ...VIEW, project: { ...VIEW.project!, issues } };
+    const reply = sanitizeManagerReply(ask("what's open?", view).reply);
+    expect(reply).toContain(`#8 “${clip(long(8), MAX_TITLE_LENGTH)}” [wave-2]`);
+    expect(reply).not.toContain(long(8));
+    expect(reply).toContain("Waiting for your review: #14 (Ada Byrne).");
+    expect(reply).toContain("Nobody on yet: #8, #9, #10, #13, #15.");
+    expect(reply).toContain("Open pull requests: PR #46 (checks failing), PR #47.");
+    expect(ask("what's the status of #8?", view).reply).toContain(`#8 “${long(8)}”`);
   });
 
   it("lists the open pull requests when asked about PRs", () => {
