@@ -1631,3 +1631,48 @@
 .recurring__instruction {
   min-width: 0;
 }
+
+/* The radio's panel is a short one: a line, the stations and a link field. */
+.radio {
+  bottom: auto;
+  width: min(560px, calc(100vw - 32px));
+}
+
+.radio__playing {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.radio__stations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.radio__stations [aria-pressed="true"] {
+  border-color: rgba(243, 207, 106, 0.6);
+}
+
+.radio__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.radio__now {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.radio__controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  vertical-align: middle;
+}
+
+.radio__volume {
+  width: 90px;
+}

@@ -278,6 +278,16 @@ export const STANDUP_CALL_BURST_ALLOWANCE = 4;
 export const STANDUP_CALL_REFILL_PER_SECOND = 0.2;
 
 /**
+ * Times anyone may retune the office radio back to back before the server
+ * starts dropping them: each changes what the whole office hears, and a
+ * YouTube link is checked with YouTube first.
+ */
+export const RADIO_TUNE_BURST_ALLOWANCE = 3;
+
+/** Rate at which that allowance is restored, in tunes/second. */
+export const RADIO_TUNE_REFILL_PER_SECOND = 0.1;
+
+/**
  * How long the server holds a dropped player's place, in seconds.
  *
  * A socket that closes without the player leaving — a network blip, a laptop

@@ -25,7 +25,7 @@ export const CONTROLS: readonly Control[] = [
   { keys: "W A S D", action: "Walk (the arrow keys work too)" },
   { keys: "Click", action: "Capture the mouse; move it to look around" },
   { keys: "Esc", action: "Free the mouse to click the HUD, or close a panel" },
-  { keys: "E", action: "Use what you are standing by; hold it by an agent for its menu" },
+  { keys: "E", action: "Use what you are standing by — a chair, a board, the radio; hold it by an agent for its menu" },
   { keys: "Space", action: "Jump" },
   { keys: "V", action: "Switch between third and first person" },
   { keys: "Wheel", action: "Zoom the camera in third person, or scroll a panel" },

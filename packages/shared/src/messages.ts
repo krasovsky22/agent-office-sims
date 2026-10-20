@@ -116,6 +116,8 @@ export const CLIENT_MESSAGE = {
   deskTerminalSize: "desk:size",
   /** Turn the CEO's desk's computer off, ending its session; no payload. Only the CEO who turned it on is listened to. */
   deskTerminalOff: "desk:off",
+  /** Tune the office radio to a station or a YouTube link, from beside it; anyone may. See `radio.ts`. */
+  radioTune: "radio:tune",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -225,6 +227,12 @@ export const SERVER_MESSAGE = {
    * replicated state, so a command taken has no reply but the next patch.
    */
   standupRejected: "standup:rejected",
+  /**
+   * Sent only to the client whose tune the radio did not take, with the
+   * reason. Carries a `RadioRejectedEvent` from `radio.ts`; one taken has no
+   * reply but the next patch.
+   */
+  radioRejected: "radio:rejected",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];
@@ -316,7 +324,8 @@ export interface ThrottledEvent {
     | StandingClientMessage
     | typeof CLIENT_MESSAGE.standingHistory
     | typeof CLIENT_MESSAGE.standupStart
-    | typeof CLIENT_MESSAGE.standupDirect;
+    | typeof CLIENT_MESSAGE.standupDirect
+    | typeof CLIENT_MESSAGE.radioTune;
 }
 
 /** The standing task commands, which share one allowance. */

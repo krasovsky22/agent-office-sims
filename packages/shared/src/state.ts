@@ -34,6 +34,7 @@
 import { ArraySchema, MapSchema, Schema, defineTypes } from "@colyseus/schema";
 
 import { STARTING_MINUTE_OF_DAY } from "./clock.js";
+import { DEFAULT_RADIO_STATION_ID } from "./radio.js";
 
 /**
  * What sort of thing an occupant is.
@@ -707,6 +708,45 @@ defineTypes(DeskTerminal, {
   note: "string",
 });
 
+/**
+ * What the office radio plays; see `./radio.ts`. State rather than a
+ * broadcast, so a tab that joins hears what everyone else is hearing, and
+ * {@link startedAt} is what puts it at the same point in a video.
+ */
+export class Radio extends Schema {
+  /** A station from `RADIO_STATIONS`, or `""` while it plays YouTube. */
+  declare public stationId: string;
+  /** The YouTube video, or `""` for a playlist from its start. */
+  declare public videoId: string;
+  /** The YouTube playlist, or `""` for a single video. */
+  declare public listId: string;
+  /** What YouTube calls it, or `""` for a station. */
+  declare public title: string;
+  /** Epoch milliseconds it was tuned; `0` for the station the office opened on. */
+  declare public startedAt: number;
+  /** Who tuned it, by name; `""` for the station the office opened on. */
+  declare public tunedBy: string;
+
+  public constructor() {
+    super();
+    this.stationId = DEFAULT_RADIO_STATION_ID;
+    this.videoId = "";
+    this.listId = "";
+    this.title = "";
+    this.startedAt = 0;
+    this.tunedBy = "";
+  }
+}
+
+defineTypes(Radio, {
+  stationId: "string",
+  videoId: "string",
+  listId: "string",
+  title: "string",
+  startedAt: "number",
+  tunedBy: "string",
+});
+
 export class OfficeState extends Schema {
   declare public occupants: MapSchema<Occupant>;
   /** The agents' work on the project board's issues, keyed by {@link workKey}. */
@@ -749,6 +789,7 @@ export class OfficeState extends Schema {
   declare public issuesWritable: boolean;
   /** The CEO's desk terminal; see `./deskTerminal.ts`. */
   declare public desk: DeskTerminal;
+  declare public radio: Radio;
 
   public constructor() {
     super();
@@ -765,6 +806,7 @@ export class OfficeState extends Schema {
     this.standup = new Standup();
     this.issuesWritable = false;
     this.desk = new DeskTerminal();
+    this.radio = new Radio();
   }
 }
 
@@ -782,6 +824,7 @@ defineTypes(OfficeState, {
   standup: Standup,
   issuesWritable: "boolean",
   desk: DeskTerminal,
+  radio: Radio,
 });
 
 const TAU = Math.PI * 2;

@@ -293,6 +293,7 @@ describe("OFFICE_LAYOUT seats", () => {
         INTERACTION_KIND.board,
         INTERACTION_KIND.coffee,
         INTERACTION_KIND.manager,
+        INTERACTION_KIND.radio,
         INTERACTION_KIND.screen,
       ].sort(),
     );

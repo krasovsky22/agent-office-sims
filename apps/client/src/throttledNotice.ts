@@ -15,6 +15,8 @@ export const THROTTLED_PLACE = {
   profile: "profile",
   /** The standup panel. */
   standup: "standup",
+  /** The radio's panel. */
+  radio: "radio",
   /** A notice to this player. */
   notice: "notice",
 } as const;
@@ -46,6 +48,10 @@ const THROTTLED: Partial<Record<ThrottledEvent["command"], ThrottledNotice>> = {
   [CLIENT_MESSAGE.standupStart]: {
     place: THROTTLED_PLACE.standup,
     text: "Too many standups called or ended — that one was dropped. Wait a few seconds.",
+  },
+  [CLIENT_MESSAGE.radioTune]: {
+    place: THROTTLED_PLACE.radio,
+    text: "The radio was changed too often — that one was dropped. Wait a few seconds.",
   },
   [CLIENT_MESSAGE.chat]: { place: THROTTLED_PLACE.notice, text: "Too many messages — that one was dropped." },
   [CLIENT_MESSAGE.managerSay]: {

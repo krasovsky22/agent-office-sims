@@ -17,6 +17,7 @@ import { rejectionText } from "./boardAccess.js";
 import { managerRejectionText } from "./managerAccess.js";
 import type { RoomConnectionEvents } from "./net/roomEvents.js";
 import { nameRejectionText } from "./playerName.js";
+import { radioRejectionText } from "./radio.js";
 import { standingRejectionText } from "./standingAccess.js";
 import { standupRejectionText } from "./standupAccess.js";
 import { THROTTLED_PLACE, throttledNotice } from "./throttledNotice.js";
@@ -40,6 +41,8 @@ export interface HudRoomEventsHost {
   readonly notice: (text: string) => void;
   /** Shows a line in the standup panel, to this player only, and takes it down again shortly. */
   readonly standupNotice: (text: string) => void;
+  /** Shows a line in the radio's panel, or as a notice while it is closed. */
+  readonly radioNotice: (text: string) => void;
   /** An occupant's display name, `undefined` once they are gone. */
   readonly nameOf: (id: string) => string | undefined;
   /** The local player's session id. */
@@ -81,6 +84,9 @@ export function hudRoomEvents(host: HudRoomEventsHost): RoomConnectionEvents {
           return;
         case THROTTLED_PLACE.standup:
           host.standupNotice(text);
+          return;
+        case THROTTLED_PLACE.radio:
+          host.radioNotice(text);
           return;
         case THROTTLED_PLACE.notice:
           host.notice(text);
@@ -169,6 +175,10 @@ export function hudRoomEvents(host: HudRoomEventsHost): RoomConnectionEvents {
 
     onNameRejected: (event) => {
       host.notice(nameRejectionText(event, host.nameOf(host.localId())));
+    },
+
+    onRadioRejected: (event) => {
+      host.radioNotice(radioRejectionText(event.rejection));
     },
 
     onStandupChanged: (standup) => {

@@ -7,9 +7,12 @@
  * of every command.
  */
 
+import { parseRadioSource } from "@sim/shared";
+
 import { helpSeen, markHelpSeen } from "./help.js";
 import type { RoomConnection } from "./net/room.js";
 import type { PendingIssueMoves } from "./pendingIssueMoves.js";
+import { NOT_A_YOUTUBE_LINK, type RadioSettings, writeRadioSettings } from "./radio.js";
 import type { HudActions, HudSnapshot } from "./ui/hudStore.js";
 
 /** What the actions need of the game loop. */
@@ -38,10 +41,17 @@ export interface HudActionsHost {
   /** The desk panel's Stand up button, taken by the next frame as `E` would be. */
   readonly standUp: () => void;
   readonly closeAgentMenu: () => void;
+  /** Shows a line in the radio's panel, to this player only, and takes it down again. */
+  readonly radioNotice: (text: string) => void;
 }
 
 export function hudActions(host: HudActionsHost): HudActions {
   const { room } = host;
+  const setRadio = (change: Partial<RadioSettings>) => {
+    const radioSettings = { ...host.hud().radioSettings, ...change };
+    writeRadioSettings(host.browserStorage(), radioSettings);
+    host.publish({ radioSettings });
+  };
   return {
     sendEmote: (emote) => room.sendEmote(emote),
     sendChat: (text) => room.sendChat(text),
@@ -107,6 +117,18 @@ export function hudActions(host: HudActionsHost): HudActions {
         room.sendAgentAction(agentId, action);
         host.closeAgentMenu();
       },
+    },
+    radio: {
+      tune: (source) => {
+        if (parseRadioSource(source) === undefined) {
+          host.radioNotice(NOT_A_YOUTUBE_LINK);
+          return;
+        }
+        room.sendRadioTune(source);
+      },
+      setVolume: (volume) => setRadio({ volume, muted: false }),
+      toggleMute: () => setRadio({ muted: !host.hud().radioSettings.muted }),
+      close: host.closePanel,
     },
     standup: {
       start: () => room.sendStandupStart(),

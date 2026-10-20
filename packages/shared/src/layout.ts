@@ -125,7 +125,7 @@ export interface PropSpec {
 }
 
 /** What a piece of tabletop set dressing is. */
-export type TabletopKind = "microwave";
+export type TabletopKind = "microwave" | "radio";
 
 /**
  * Set dressing stood on top of a prop rather than on the floor.
@@ -261,6 +261,7 @@ export const INTERACTION_KIND = {
   board: "board",
   manager: "manager",
   screen: "screen",
+  radio: "radio",
 } as const;
 
 export type InteractionKind = (typeof INTERACTION_KIND)[keyof typeof INTERACTION_KIND];
@@ -480,6 +481,9 @@ export const MANAGER_DESK_ID = "desk-manager";
 
 /** The spot across the manager's desk where the CEO stands to talk to it. */
 export const MANAGER_INTERACTABLE_ID = "manager-desk";
+
+/** The office radio's interactable, stood at in front of the lounge's coffee table. */
+export const RADIO_INTERACTABLE_ID = "radio";
 
 /**
  * Gap between the back of a chair and the occupant who just got up from it.
@@ -713,6 +717,18 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       width: 0.55,
       depth: 0.4,
       height: 0.33,
+    },
+    // The office radio, on the lounge's coffee table and turned to face the open floor.
+    {
+      id: "lounge-radio",
+      kind: "radio",
+      on: "lounge-table",
+      x: -9.7,
+      z: -6.3,
+      yaw: Math.PI,
+      width: 0.44,
+      depth: 0.14,
+      height: 0.32,
     },
   ],
   boards: [
@@ -963,6 +979,17 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       id: MANAGER_INTERACTABLE_ID,
       kind: INTERACTION_KIND.manager,
       anchor: { x: 1.225, z: -8.2, yaw: 0 },
+      volume: undefined,
+      exit: undefined,
+      deskId: undefined,
+      seatId: undefined,
+    },
+    // South of the lounge's coffee table, facing the radio on it, clear of the
+    // sofa and the armchairs. The radio's own model shows it.
+    {
+      id: RADIO_INTERACTABLE_ID,
+      kind: INTERACTION_KIND.radio,
+      anchor: { x: -9.7, z: -5.1, yaw: 0 },
       volume: undefined,
       exit: undefined,
       deskId: undefined,

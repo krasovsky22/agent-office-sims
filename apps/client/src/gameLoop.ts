@@ -23,6 +23,7 @@ import {
   OFFICE_PROPS,
   type OfficeLayout,
   PROJECT_BOARD_ID,
+  RADIO_INTERACTABLE_ID,
   type ProjectBoardSnapshot,
   RECURRING_TASKS_BOARD_ID,
   STARTING_MINUTE_OF_DAY,
@@ -31,9 +32,11 @@ import {
   describeLiveAgentTask,
   deskTerminalSeat,
   heldAnimationFor,
+  distanceToInteractable,
   interactableById,
   nearestInteractable,
   promptFor,
+  radioLoudness,
   stickerNotes,
   taskReference,
 } from "@sim/shared";
@@ -57,6 +60,8 @@ import { DayClock } from "./dayClock.js";
 import { withOfficeWork } from "./projectBoard.js";
 import { managerAccessFor } from "./managerAccess.js";
 import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
+import { UNPLAYABLE_HERE } from "./radio.js";
+import { RadioPlayer } from "./radioPlayer.js";
 import { recurringRow, standingAccessFor } from "./standingAccess.js";
 import type { RemotePose } from "./net/poseBuffer.js";
 import type { OccupantView, RoomConnection } from "./net/room.js";
@@ -103,6 +108,9 @@ const CLOSE_BOARD_LABEL = "Close the board";
 /** What it reads while the player is talking to the manager. */
 const CLOSE_CONVERSATION_LABEL = "Close the conversation";
 
+/** What it reads while the player has the radio open. */
+const CLOSE_RADIO_LABEL = "Close the radio";
+
 /** What it reads while the player is watching a live agent's terminal. */
 const CLOSE_TERMINAL_LABEL = "Close the terminal";
 
@@ -130,7 +138,7 @@ function captionOf(view: OccupantView): string {
 
 /** Whether a panel takes the keyboard, and so is closed with `Esc` rather than `E`. */
 function takesKeyboard(interactableId: string): boolean {
-  return interactableId === MANAGER_INTERACTABLE_ID;
+  return interactableId === MANAGER_INTERACTABLE_ID || interactableId === RADIO_INTERACTABLE_ID;
 }
 
 /** Whether `Esc` closes a panel: one that takes the keyboard, and an agent's terminal. */
@@ -145,6 +153,9 @@ function closesWithEscape(interactableId: string): boolean {
 function closeLabelFor(interactableId: string): string {
   if (interactableId === MANAGER_INTERACTABLE_ID) {
     return CLOSE_CONVERSATION_LABEL;
+  }
+  if (interactableId === RADIO_INTERACTABLE_ID) {
+    return CLOSE_RADIO_LABEL;
   }
   return interactableById(OFFICE_LAYOUT, interactableId)?.kind === INTERACTION_KIND.screen
     ? CLOSE_TERMINAL_LABEL
@@ -165,6 +176,8 @@ export interface GameLoopHost {
   readonly hud: () => HudSnapshot;
   /** Shows a line to this player only, and takes it down again shortly. */
   readonly notice: (text: string) => void;
+  /** Shows a line about the radio, in its panel while that is open. */
+  readonly radioNotice: (text: string) => void;
   /** The connection, which is made with {@link GameLoop.events} and so after the loop. */
   readonly room: () => RoomConnection;
 }
@@ -254,6 +267,11 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
   let avatarModel: AvatarModel | undefined;
 
   host.publish({ cameraMode: controller.mode });
+
+  const radioSpot = interactableById(OFFICE_LAYOUT, RADIO_INTERACTABLE_ID);
+  const radioPlayer = new RadioPlayer(() => host.radioNotice(UNPLAYABLE_HERE));
+  // The radio as last published, so React hears only of a retune.
+  let radioShownAt = -1;
 
   /** Looks through the other camera, and keeps the choice for the next visit. */
   const toggleCameraMode = () => {
@@ -720,7 +738,8 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
         if (
           target.kind === INTERACTION_KIND.board ||
           target.kind === INTERACTION_KIND.manager ||
-          target.kind === INTERACTION_KIND.screen
+          target.kind === INTERACTION_KIND.screen ||
+          target.kind === INTERACTION_KIND.radio
         ) {
           readingBoard = target.id;
         }
@@ -736,6 +755,21 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     }
     if (recurringOpen !== host.hud().recurringOpen) {
       host.publish({ recurringOpen });
+    }
+    const radioOpen = readingBoard === RADIO_INTERACTABLE_ID;
+    if (radioOpen !== host.hud().radioOpen) {
+      host.publish({ radioOpen, radioNotice: undefined });
+    }
+    // The radio plays from the replicated state in every tab, louder the nearer the player stands.
+    const radio = room.radio();
+    if (radio !== undefined) {
+      if (radio.startedAt !== radioShownAt || radio.stationId !== host.hud().radio.stationId) {
+        radioShownAt = radio.startedAt;
+        host.publish({ radio: radio.toJSON() as HudSnapshot["radio"] });
+      }
+      const { volume, muted } = host.hud().radioSettings;
+      const near = radioSpot === undefined ? 1 : radioLoudness(distanceToInteractable(radioSpot, controller.pose));
+      radioPlayer.update(radio, muted ? 0 : volume * near);
     }
     const managerOpen = readingBoard === MANAGER_INTERACTABLE_ID;
     if (managerOpen !== host.hud().managerOpen) {

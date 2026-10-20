@@ -60,6 +60,7 @@ export type AssetPropKind =
   | "coffee"
   | "cabinet"
   | "microwave"
+  | "radio"
   | "table"
   | "diningChair"
   | "reception"

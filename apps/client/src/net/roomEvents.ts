@@ -24,6 +24,7 @@ import {
   type ManagerRejectedEvent,
   type NameRejectedEvent,
   type ProjectBoardSnapshot,
+  type RadioRejectedEvent,
   type RunnerSpendTotal,
   SERVER_MESSAGE,
   type ServerMessageType,
@@ -96,6 +97,8 @@ export interface RoomConnectionEvents {
   onStandupChanged?: (standup: StandupData) => void;
   /** The office refused one of the local client's own standup commands. */
   onStandupRejected?: (event: StandupRejectedEvent) => void;
+  /** The radio did not take the local client's own tune, and kept playing. */
+  onRadioRejected?: (event: RadioRejectedEvent) => void;
 }
 
 /** The server events handed to the caller whole, by the handler each one goes to. */
@@ -118,6 +121,7 @@ const FORWARDED = {
   [SERVER_MESSAGE.standingRejected]: "onStandingRejected",
   [SERVER_MESSAGE.standingHistory]: "onStandingHistory",
   [SERVER_MESSAGE.standupRejected]: "onStandupRejected",
+  [SERVER_MESSAGE.radioRejected]: "onRadioRejected",
 } as const satisfies Partial<Record<ServerMessageType, keyof RoomConnectionEvents>>;
 
 /** Passes every event-borne message on to the caller's handler for it, looked up as each one arrives. */

@@ -40,6 +40,8 @@ import {
   EMOTE_REFILL_PER_SECOND,
   MANAGER_BURST_ALLOWANCE,
   MANAGER_REFILL_PER_SECOND,
+  RADIO_TUNE_BURST_ALLOWANCE,
+  RADIO_TUNE_REFILL_PER_SECOND,
   RENAME_BURST_ALLOWANCE,
   RENAME_REFILL_PER_SECOND,
   STANDING_BURST_ALLOWANCE,
@@ -129,5 +131,6 @@ export function createExpressionBudget(now: number): ExpressionBudget {
     [CLIENT_MESSAGE.standupStart]: createTokenBucket(STANDUP_CALL_BURST_ALLOWANCE, STANDUP_CALL_REFILL_PER_SECOND, now),
     // A direction may start a real agent's turn, as a prompt does.
     [CLIENT_MESSAGE.standupDirect]: createTokenBucket(AGENT_PROMPT_BURST_ALLOWANCE, AGENT_PROMPT_REFILL_PER_SECOND, now),
+    [CLIENT_MESSAGE.radioTune]: createTokenBucket(RADIO_TUNE_BURST_ALLOWANCE, RADIO_TUNE_REFILL_PER_SECOND, now),
   };
 }

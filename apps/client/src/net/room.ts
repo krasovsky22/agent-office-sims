@@ -55,6 +55,7 @@ import {
   type Occupant,
   type OccupantKind,
   type OfficeState,
+  type Radio,
   RECONNECT_GRACE_SECONDS,
   type RunnerSpendTotal,
   SERVER_MESSAGE,
@@ -303,6 +304,11 @@ export class RoomConnection extends RoomCommands {
    */
   public desk(): DeskTerminal | undefined {
     return this.room?.state.desk;
+  }
+
+  /** What the office radio plays as of the last patch, or `undefined` before the state arrives. Read in place, like {@link desk}. */
+  public radio(): Radio | undefined {
+    return this.room?.state.radio;
   }
 
   /** The label that keeps an issue from the live coding agents; `""` before the state arrives. */

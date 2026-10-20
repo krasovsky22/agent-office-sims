@@ -154,8 +154,8 @@ then move it to swing the camera; `Esc` releases it. `V`, or the button under
 the HUD's hints, switches between the camera behind you and first person, at
 your avatar's eyes with its hands in view; the browser remembers the choice.
 Behind you, the mouse wheel over the office zooms the camera in and out. Walk
-up to a desk chair, the coffee machine, the project board or the manager's desk
-and a prompt appears; `E` uses it. Any movement key gets you out of a chair. A
+up to a desk chair, the coffee machine, the project board, the manager's desk
+or the radio and a prompt appears; `E` uses it. Any movement key gets you out of a chair. A
 coffee goes with you: the cup steams in your hand and is sipped every few
 seconds, ten sips in all, then it is gone; idle agents now and then go for one
 too, and everyone in the office sees the same cup and the same sips.
@@ -281,6 +281,22 @@ on, its panel is docked over the foot of the office in every tab, and moves
 to the right edge while the AI Manager's conversation, the board close-up or an
 agent's terminal is open, so neither covers the other; see
 [The standup](#the-standup).
+
+The office radio stands on the lounge's coffee table and plays the whole
+time, through the whole office, louder the nearer you stand to it; it opens on
+Radio Paradise, a listener-supported public internet station. At the radio,
+`E` opens its panel and puts the keyboard in its link box: anyone may pick
+another station, or paste a YouTube video or playlist link and press `Enter`,
+and everyone in the office hears it, a video at the same point in every tab,
+a late joiner's included (a playlist is only lined up within its first video).
+`Esc` closes it, and stepping away does too. The server asks YouTube's oEmbed
+endpoint about a link before taking it; one that is not YouTube's, or a video
+or playlist that is private, removed or may not be embedded, is refused with
+a message in the panel and the radio keeps playing what it had. Should YouTube
+still refuse to play it in one tab, that tab says so and plays the default
+station until the radio changes. Your own `Mute` and volume are in the Status
+panel and the radio's panel, and the browser remembers them
+(`packages/shared/src/radio.ts`, `apps/client/src/radioPlayer.ts`).
 
 At the manager's desk in its office, `E` opens the conversation with the AI Manager
 and puts the keyboard in its message box: `Enter` sends, `Esc` closes, and
@@ -2066,6 +2082,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/agentActions.ts cancelling an agent's task or firing it: the CEO-only gate, and why one was refused
   src/standup.ts      the standup: the CEO-only gate, why a command was refused, the places in the conference room, what came of a direction
   src/deskTerminal.ts the CEO's desk terminal: which seats have a computer, the CEO-only gate, and the session's phases
+  src/radio.ts        the office radio: its stations, reading a YouTube link, and how loud it is across the office
   src/layout.ts       the office floor plan and its interactables, as data
   src/props.ts        the furniture, derived from that floor plan
   src/decor.ts        the wall decor: pictures, posters, clocks, whiteboards, a shelf and the TV, each on the wall it names
@@ -2099,6 +2116,8 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/manager/standingPlan.ts    the AI Manager's words for standing tasks, schedules read into cron
   src/manager/hire.ts            hiring a new coding agent for an issue or a recurring task: the cap, the profile, and its work once it walks in
   src/manager/workMoves.ts       approving, sending back, taking back and starting again work in hand, as the CEO
+  src/rooms/radioHandlers.ts  tuning the radio from beside it, and the refusals sent back
+  src/sim/youtube.ts      asking YouTube's oEmbed endpoint whether the radio may play a link
   src/rooms/standupHandlers.ts  the CEO's standup commands: call, end, direct, and the refusals sent back
   src/sim/standup.ts      the standup: gathering, the turns and each update read off an agent's real state, directions, blockers, the end
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk, and carry the sticky notes between boards and desk
@@ -2197,6 +2216,9 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/agentMenu.ts        the agent the local player faces, and what its long-press `E` menu offers, and why not
   src/ui/AgentMenu.tsx    the long-press `E` menu: cancel the agent's task, or fire it
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk
+  src/radio.ts            the listener's own radio volume and mute, and what the HUD says about the radio
+  src/radioPlayer.ts      the radio's speakers in this tab: a station's stream, or a hidden YouTube player
+  src/ui/RadioPanel.tsx   the radio's panel, opened beside it, and the mute and volume controls
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to
   src/ui/AgentTerminalPanel.tsx  a working agent's terminal at full size, opened behind its chair, or at the CEO's own desk
   src/deskTerminalAccess.ts  what the local player's desk shows them: the CEO's terminal, why there is none yet, or why it is the CEO's alone

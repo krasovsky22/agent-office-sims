@@ -1,6 +1,6 @@
 # Office prop kit — provenance
 
-The fifteen models in this directory are vendored, unmodified, from a third-party
+The sixteen models in this directory are vendored, unmodified, from a third-party
 asset pack. This file is the licence record: it is what makes it safe to ship
 the bundle these files end up in.
 
@@ -12,7 +12,7 @@ the bundle these files end up in.
 | Licence | **CC0 1.0 Universal** (public domain dedication) — <https://creativecommons.org/publicdomain/zero/1.0/> |
 | Pack page | <https://kenney.nl/assets/furniture-kit> |
 | Archive | <https://kenney.nl/media/pages/assets/furniture-kit/440e0608a4-1677580847/kenney_furniture-kit.zip> |
-| Retrieved | 2026-10-03; the four kitchen furnishings 2026-10-14, the reception counter 2026-10-18, and the lounge seating, coffee table and sideboard 2026-10-18 again, from the same archive |
+| Retrieved | 2026-10-03; the four kitchen furnishings 2026-10-14, the reception counter 2026-10-18, the lounge seating, coffee table and sideboard 2026-10-18 again, and the radio 2026-10-20, from the same archive |
 
 `LICENSE.txt` beside this file is the pack's own licence text, copied verbatim
 out of the archive. CC0 asks for nothing, but the pack asks to be credited, so
@@ -20,7 +20,7 @@ the repository README credits Kenney and so does this file.
 
 ## What was taken
 
-Only the `Models/GLTF format/` entries the office needs — 176 KB in total, which
+Only the `Models/GLTF format/` entries the office needs — 201 KB in total, which
 is small enough to vendor rather than fetch at runtime. Each file is byte-for-byte
 the archive's copy; nothing was re-exported, re-scaled, or re-materialled.
 
@@ -41,6 +41,7 @@ the archive's copy; nothing was re-exported, re-scaled, or re-materialled.
 | `armchair` | `loungeChair.glb` | `Models/GLTF format/loungeChair.glb` |
 | `coffeeTable` | `tableCoffee.glb` | `Models/GLTF format/tableCoffee.glb` |
 | `sideboard` | `cabinetTelevisionDoors.glb` | `Models/GLTF format/cabinetTelevisionDoors.glb` |
+| `radio` | `radio.glb` | `Models/GLTF format/radio.glb` |
 
 The prop kinds on the left are the shared layout's `AssetPropKind` union, and
 `apps/client/src/scene/propKit.ts` is the registry that holds this mapping in
@@ -66,6 +67,7 @@ c8a11eec93e89e31250ba91afc1b8d56c3bec7ae86640fd1239f595ff4180883  chair.glb
 ddfe6bc4b3451bca61666d7b614552d6ed2a03d82fc76244b72ae3155874dc6c  loungeChair.glb
 e38bea760fbd514efbb75528d09b4752c91af44677bbb97e6d4386c263525179  tableCoffee.glb
 8959347bfe26b1ac7e44c476f05789466bb84bcd2ad8b0fb40286005399bfcfc  cabinetTelevisionDoors.glb
+1ba93d6ba6f049750853b4652b92f286f2898e527695a0705b75cc7615897fed  radio.glb
 ```
 
 ## Re-fetching
@@ -79,7 +81,7 @@ unzip -j kenney_furniture-kit.zip 'Models/GLTF format/desk.glb' -d .
 
 - The pack is untextured: every model is a handful of flat-coloured materials and
   a few hundred vertices. There are no images to load, which is why the kit costs
-  176 KB and why the loader never needs a texture path.
+  201 KB and why the loader never needs a texture path.
 - The pack is authored at roughly half-metre scale and its models are *not*
   centred on the origin. The loader normalises both — see `KIT_SCALE` and
   `normalise` in `apps/client/src/scene/propKit.ts` — so no measurement from this
