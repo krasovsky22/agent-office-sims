@@ -207,10 +207,10 @@ describe("the AI manager in a live room", () => {
     const manager = room.state.occupants.get(MANAGER_OCCUPANT_ID);
     expect(manager !== undefined && isAiManager(manager) && manager.status === MANAGER_STATUS.thinking).toBe(true);
 
-    const before = room.state.tick;
+    const before = room.ticks;
     await new Promise((resolve) => setTimeout(resolve, 500));
     // Half a second at the tick rate, less a generous margin for a busy test machine.
-    expect(room.state.tick - before).toBeGreaterThanOrEqual(TICK_RATE_HZ / 2 - 3);
+    expect(room.ticks - before).toBeGreaterThanOrEqual(TICK_RATE_HZ / 2 - 3);
 
     await milo.room.leave();
     await dana.room.leave();

@@ -61,6 +61,25 @@ describe("ProjectFeed", () => {
     expect(published).toEqual([expected]);
   });
 
+  it("publishes again only when the lists change, keeping the time they last did", async () => {
+    let clock = 1_000;
+    const changed: ProjectBoardLists = { ...LISTS, open: [], counts: { open: 0, inProgress: 0, pullRequests: 0 } };
+    const { feed, published } = feedWith(scripted(LISTS, { ...LISTS }, changed), () => clock);
+
+    await feed.poll();
+    clock = 5_000;
+    await expect(feed.poll()).resolves.toBe(INTERVAL);
+    expect(published).toHaveLength(1);
+    expect(feed.current()?.updatedAt).toBe(1_000);
+
+    clock = 9_000;
+    await feed.poll();
+    expect(published).toEqual([
+      { repository: REPO, ...LISTS, updatedAt: 1_000, stale: false },
+      { repository: REPO, ...changed, updatedAt: 9_000, stale: false },
+    ]);
+  });
+
   it("keeps the last good lists and marks them stale when a poll fails", async () => {
     const { feed, published, log } = feedWith(scripted(LISTS, new TypeError("fetch failed")));
 
