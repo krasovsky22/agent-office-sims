@@ -75,7 +75,7 @@ export function isAgentHiring(value: unknown): value is AgentHiring {
   );
 }
 
-/** What a new agent's title is when the plan wrote none: what it was hired for. */
+/** What a new agent's title is unless the CEO named one: what it was hired for. */
 export function hireTitle(issueNumber: number): string {
   return `Specialist for #${issueNumber}`;
 }
@@ -91,7 +91,7 @@ export function hireDescription(issueNumber: number): string {
   );
 }
 
-/** Whether the plan's description is the CEO's own words, copied from their message. */
+/** Whether the plan's title or description is the CEO's own words, copied from their message. */
 function fromCeo(description: string, message: string): boolean {
   const words = (text: string): string => text.replace(/\s+/g, " ").trim().toLowerCase();
   return words(description) !== "" && words(message).includes(words(description));
@@ -170,7 +170,7 @@ export class HireDesk {
     }
     const profile = parseAgentProfile({
       name: freeName(planned.name, state.occupants.values(), named),
-      title: planned.title.trim() === "" ? hireTitle(issue.number) : planned.title,
+      title: fromCeo(planned.title, context.message) ? planned.title : hireTitle(issue.number),
       description: fromCeo(planned.description, context.message) ? planned.description : hireDescription(issue.number),
     });
     if (profile === undefined) {

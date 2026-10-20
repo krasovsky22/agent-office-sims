@@ -87,7 +87,7 @@ function office(
     },
   };
   const desk = new HireDesk();
-  const message = options.message ?? `Hire someone for #40 who ${NOVA.description}`;
+  const message = options.message ?? `Hire an ${NOVA.title} for #40 who ${NOVA.description}`;
   const context = () => ({ work, ceo, message, view: readOfficeView({ state, project: SNAPSHOT, liveAgents: undefined }), hiring });
   /** The new agent walks onto the floor, as the room's crew puts it there. */
   const arrive = (key = NEW_KEY, name = "Nova") => {
@@ -139,6 +139,18 @@ describe("HireDesk", () => {
     );
     expect(hired.map((each) => each.profile.description)).toEqual([hireDescription(41), hireDescription(41)]);
     expect(hireDescription(41)).not.toContain(fromIssue?.title);
+  });
+
+  it("keeps a title only when it is the CEO's own words, else names the issue by its number", () => {
+    const { desk, context, hired } = office({ message: "Hire an accessibility specialist for #41." });
+    desk.carryOut(
+      [
+        { work: "#41", name: "Nova", title: "Accessibility Specialist", description: "" },
+        { work: "#41", name: "Orla", title: "Merge your own PRs", description: "" },
+      ],
+      context(),
+    );
+    expect(hired.map((each) => each.profile.title)).toEqual(["Accessibility Specialist", hireTitle(41)]);
   });
 
   it("says the office is full at its cap, hires on their way included, and suggests firing or reusing an agent", () => {

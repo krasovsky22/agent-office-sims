@@ -157,11 +157,11 @@ The CEO can also have the AI Manager hire a new coding agent for one issue:
 `hire someone for #39`, or `hire a frontend specialist to work on #39`, and
 with a model however the CEO puts it. It writes the new agent a profile for
 that issue: a name nobody in the office has, a title (`Frontend Specialist`,
-or `Specialist for #39` when the CEO named none, a model writing its own) and
+or `Specialist for #39` when the CEO named none) and
 a description of what it is hired for, which is its system prompt (see
-[Agent profiles](#agent-profiles)). The description is the CEO's own words
-from their message, never an issue's title or body; when the CEO gave none it
-is a fixed one naming the issue by its number alone. A runner adds a slot for it, and in every
+[Agent profiles](#agent-profiles)). The title and description are the CEO's
+own words from their message, never an issue's title or body; when the CEO
+gave none they are fixed ones naming the issue by its number alone. A runner adds a slot for it, and in every
 tab it turns up out on the pavement, walks in through the lobby to the open
 floor's doorway, waves and says hello to everyone, and then fetches the
 issue's note and sits down to work on it: the AI Manager hands it the issue,
