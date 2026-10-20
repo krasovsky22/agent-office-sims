@@ -1,7 +1,7 @@
 /**
  * A fired agent's send-off: the cardboard box of its belongings it carries
- * out, held in both hands in front of it, and the tears running down from
- * its eyes.
+ * out, held in both hands in front of it, a trophy, two framed photos and a
+ * plant standing up out of it, and the tears running down from its eyes.
  *
  * The server says only that the agent is fired (`LiveAgent.fired`) and walks
  * it out; this module turns that into something to look at, the same in every
@@ -13,18 +13,26 @@
 import { OCCUPANT_HEIGHT, OCCUPANT_RADIUS } from "@sim/shared";
 import * as THREE from "three";
 
-/** Where the box is held, in the body's own frame (forward is -Z): at the hands, raised to the chest. */
-const BOX_OFFSET = new THREE.Vector3(0, OCCUPANT_HEIGHT * 0.5, -(OCCUPANT_RADIUS + 0.12));
+/**
+ * Where the box is held, in the body's own frame (forward is -Z): at the
+ * hands, out in front of the robot's wide head so what is packed in it shows
+ * under the visor rather than behind it.
+ */
+const BOX_OFFSET = new THREE.Vector3(0, OCCUPANT_HEIGHT * 0.42, -(OCCUPANT_RADIUS + 0.35));
 const BOX_WIDTH = 0.46;
 const BOX_HEIGHT = 0.26;
 const BOX_DEPTH = 0.32;
 
 /** Where the eyes are when the body has no head to read them off: a little under the crown. */
 const CAPSULE_EYES = new THREE.Vector3(0, OCCUPANT_HEIGHT - 0.25, -OCCUPANT_RADIUS * 0.8);
-/** From the middle of the visor to each eye, and out in front of the face so the tears are not inside it. */
-const EYE_SPREAD = 0.075;
-const EYE_FORWARD = 0.17;
-const EYE_DROP = 0.04;
+/**
+ * From the middle of the visor to each eye, and out to the front of the head
+ * so the tears run down its face rather than inside it: the robot's head is
+ * about a metre across.
+ */
+const EYE_SPREAD = 0.25;
+const EYE_FORWARD = 0.47;
+const EYE_DROP = 0.08;
 
 /** Tears: a few drops per eye running down on a loop, out of step with each other. */
 const TEARS_PER_EYE = 2;
@@ -35,22 +43,63 @@ const BOX_GEOMETRY = new THREE.BoxGeometry(BOX_WIDTH, BOX_HEIGHT, BOX_DEPTH);
 const FLAP_GEOMETRY = new THREE.BoxGeometry(BOX_WIDTH, 0.01, BOX_DEPTH * 0.45);
 const POT_GEOMETRY = new THREE.CylinderGeometry(0.05, 0.04, 0.08, 8);
 const LEAVES_GEOMETRY = new THREE.SphereGeometry(0.085, 8, 6);
-const MUG_GEOMETRY = new THREE.CylinderGeometry(0.04, 0.04, 0.09, 8);
-const FRAME_GEOMETRY = new THREE.BoxGeometry(0.15, 0.12, 0.015);
-const TEAR_GEOMETRY = new THREE.SphereGeometry(0.026, 6, 4);
+/** A trophy: a plinth, a stem and an open cup, about 0.24 m tall. */
+const PLINTH_GEOMETRY = new THREE.BoxGeometry(0.08, 0.04, 0.08);
+const STEM_GEOMETRY = new THREE.CylinderGeometry(0.012, 0.02, 0.07, 6);
+const CUP_GEOMETRY = new THREE.CylinderGeometry(0.06, 0.025, 0.11, 10, 1, true);
+/** A framed photo, standing on its edge: the frame, and the picture just proud of its face. */
+const FRAME_GEOMETRY = new THREE.BoxGeometry(0.16, 0.2, 0.018);
+const PHOTO_GEOMETRY = new THREE.PlaneGeometry(0.12, 0.155);
+const TEAR_GEOMETRY = new THREE.SphereGeometry(0.03, 6, 4);
 
 const BOX_MATERIAL = new THREE.MeshLambertMaterial({ color: 0xb8864b });
 const FLAP_MATERIAL = new THREE.MeshLambertMaterial({ color: 0xa47640 });
 const POT_MATERIAL = new THREE.MeshLambertMaterial({ color: 0xc0623c });
 const LEAVES_MATERIAL = new THREE.MeshLambertMaterial({ color: 0x4f9a45 });
-const MUG_MATERIAL = new THREE.MeshLambertMaterial({ color: 0xf2f2ee });
-const FRAME_MATERIAL = new THREE.MeshLambertMaterial({ color: 0x3a3a44 });
+const PLINTH_MATERIAL = new THREE.MeshLambertMaterial({ color: 0x2e2a28 });
+const GOLD_MATERIAL = new THREE.MeshLambertMaterial({ color: 0xf2c230, emissive: 0x3a2a00, side: THREE.DoubleSide });
+const FRAME_MATERIAL = new THREE.MeshLambertMaterial({ color: 0x6b4426 });
+/** The photos: bright enough to read as pictures across the room. */
+const PHOTO_MATERIALS = [
+  new THREE.MeshLambertMaterial({ color: 0x8fd0ff }),
+  new THREE.MeshLambertMaterial({ color: 0xffb3c7 }),
+];
 // Unlit, so a tear still shows at night under the room's dimmed light.
 const TEAR_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x7cc8ff, transparent: true, opacity: 0.9 });
 
 /** How far down its run a tear is, from `0` at the eye to `1` gone, `nowMs` in. */
 export function tearFall(nowMs: number, phase: number): number {
   return (((nowMs / TEAR_PERIOD_MS + phase) % 1) + 1) % 1;
+}
+
+/** Where the rim of the box is, in its own frame: what is packed stands on the bottom and up past it. */
+const RIM = BOX_HEIGHT / 2;
+
+/** A trophy standing in the box at `x`, `z`, its cup well above the rim. */
+function trophy(x: number, z: number): THREE.Group {
+  const group = new THREE.Group();
+  const plinth = new THREE.Mesh(PLINTH_GEOMETRY, PLINTH_MATERIAL);
+  plinth.position.y = 0.02;
+  const stem = new THREE.Mesh(STEM_GEOMETRY, GOLD_MATERIAL);
+  stem.position.y = 0.075;
+  const cup = new THREE.Mesh(CUP_GEOMETRY, GOLD_MATERIAL);
+  cup.position.y = 0.165;
+  group.add(plinth, stem, cup);
+  group.position.set(x, RIM - 0.05, z);
+  return group;
+}
+
+/** A framed photo standing on its edge in the box, its picture facing out ahead of the carrier (-Z), leaning back a little. */
+function framedPhoto(x: number, z: number, turn: number, photo: number): THREE.Group {
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(FRAME_GEOMETRY, FRAME_MATERIAL));
+  const picture = new THREE.Mesh(PHOTO_GEOMETRY, PHOTO_MATERIALS[photo % PHOTO_MATERIALS.length]);
+  picture.position.z = -0.0095;
+  picture.rotation.y = Math.PI;
+  group.add(picture);
+  group.position.set(x, RIM + 0.05, z);
+  group.rotation.set(0.2, turn, 0);
+  return group;
 }
 
 /** One fired agent's box and tears: add {@link group} to the body and call {@link update} each frame. */
@@ -74,12 +123,7 @@ export class SendOff {
     pot.position.set(-0.12, BOX_HEIGHT / 2 + 0.02, 0);
     const leaves = new THREE.Mesh(LEAVES_GEOMETRY, LEAVES_MATERIAL);
     leaves.position.set(-0.12, BOX_HEIGHT / 2 + 0.12, 0);
-    const mug = new THREE.Mesh(MUG_GEOMETRY, MUG_MATERIAL);
-    mug.position.set(0.1, BOX_HEIGHT / 2 + 0.02, 0.05);
-    const frame = new THREE.Mesh(FRAME_GEOMETRY, FRAME_MATERIAL);
-    frame.position.set(0.04, BOX_HEIGHT / 2 + 0.04, -0.08);
-    frame.rotation.x = -0.3;
-    this.box.add(pot, leaves, mug, frame);
+    this.box.add(pot, leaves, trophy(0.13, 0.02), framedPhoto(-0.01, 0.07, -0.18, 0), framedPhoto(0.07, -0.07, 0.25, 1));
     this.box.position.copy(BOX_OFFSET);
     this.group.add(this.box);
 

@@ -185,7 +185,7 @@ const FIRST_PERSON_ARMS: readonly { readonly bone: string; readonly axis: THREE.
 ];
 
 /** How far a fired agent's head hangs, in radians about the head bone's local X. */
-const FIRED_HEAD_BOW = 0.45;
+const FIRED_HEAD_BOW = 0.25;
 
 /** What hangs over a fired agent's head for as long as it is on its way out. */
 const FIRED_GLYPH = "😢";
