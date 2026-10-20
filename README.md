@@ -1617,11 +1617,13 @@ Then confirm all twenty-seven:
     and `apps/runner/src/slots.test.ts` the session on the runner's side.
 26. **Nobody can borrow a name.** Open a third tab at
     <http://localhost:5173/?name=dana>: it arrives as `dana 2`, with the
-    notice `Someone here is already called dana.`; one at `?name=AI%20Manager`
+    notice `Someone here is already called dana. You are dana 2; rename yourself from the roster.`; one at `?name=AI%20Manager`
     arrives as `Employee N`. In Milo's tab, `Rename` on his own roster line to
     `Concierge` is refused with a notice and he stays Milo; renaming him to
     `Maya` changes his roster line and nameplate in every tab, and reloading
-    his tab without `?name=` offers `Maya` on the card.
+    his tab without `?name=` offers `Maya` on the card. Dana renaming a coding
+    agent to `Milo` from its profile card is refused there with
+    `Someone here is already called Milo.`
     `apps/server/src/rooms/OfficeRoom.test.ts` checks both against a live room.
 27. **`pnpm typecheck` passes** across the whole repository.
 

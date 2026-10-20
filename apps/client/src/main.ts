@@ -798,7 +798,7 @@ function start(): void {
 
     // On the agent's profile card, where the edit was saved from.
     onAgentProfileRejected: (event) => {
-      const text = agentProfileRejectionText(event.rejection, room.occupantName(event.agentId) ?? "The agent");
+      const text = agentProfileRejectionText(event, room.occupantName(event.agentId) ?? "The agent");
       publishHud({ agentProfileNotice: { id: nextRefusalId++, agentId: event.agentId, text } });
     },
 

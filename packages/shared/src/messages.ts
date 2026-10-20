@@ -453,6 +453,8 @@ export interface NameRejectedEvent {
 /** The office did not pass this client's profile edit on, and why. */
 export interface AgentProfileRejectedEvent {
   readonly agentId: string;
+  /** The name the edit asked for. */
+  readonly name: string;
   readonly rejection: AgentProfileRejection;
 }
 
