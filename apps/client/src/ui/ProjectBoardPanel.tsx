@@ -6,7 +6,7 @@
  * type and few rows. Walking up to it and pressing `E` at the proximity prompt
  * opens this panel over most of the screen, which shows everything the
  * snapshot carries and narrows it by text or by label. `E` again, or stepping
- * out of reach, closes it; `main.ts` decides both.
+ * out of reach, closes it; `officeLoop.ts` decides both.
  *
  * The filter lives and dies with this panel, so every visit to the board starts
  * unfiltered. It narrows only this tab's view: the wall board everyone sees

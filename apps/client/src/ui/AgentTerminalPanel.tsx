@@ -19,7 +19,7 @@
  * issue and pull requests, which open on GitHub in a new tab; a simulated
  * pull request, which is on no page, is named and not linked. `E` or `Esc`
  * closes the panel, and so does stepping away or the agent leaving the desk;
- * `main.ts` decides all of them.
+ * `officeLoop.ts` decides all of them.
  *
  * Below it, the prompts the CEO has had typed into this terminal, the same in
  * every tab ("Dana → Maya: …"), and the CEO's composer for another. The

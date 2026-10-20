@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AgentRun } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
-import { bookSpend, promptOutcome, runReporter } from "./slotRuns.js";
+import { bookSpend, keyOutcome, promptOutcome, runReporter } from "./slotRuns.js";
 import { ScreenMirror } from "./terminal.js";
 
 const prompted: AgentRun = { stop: () => Promise.resolve(), prompt: () => undefined };
@@ -66,5 +66,20 @@ describe("promptOutcome", () => {
     expect(promptOutcome(RUNNER_SLOT_STATUS.starting, undefined)).toBe(RUNNER_PROMPT_OUTCOME.busy);
     expect(promptOutcome(RUNNER_SLOT_STATUS.idle, undefined)).toBe(RUNNER_PROMPT_OUTCOME.unavailable);
     expect(promptOutcome(RUNNER_SLOT_STATUS.idle, { stop: () => Promise.resolve() })).toBe(RUNNER_PROMPT_OUTCOME.unavailable);
+  });
+});
+
+describe("keyOutcome", () => {
+  const keyed: AgentRun = { stop: () => Promise.resolve(), key: () => undefined };
+
+  it("presses a key only while the agent waits on a person, not at its prompt after a turn with nothing handed in", () => {
+    expect(keyOutcome(RUNNER_SLOT_STATUS.needsInput, keyed)).toBe(RUNNER_PROMPT_OUTCOME.delivered);
+    expect(keyOutcome(RUNNER_SLOT_STATUS.working, keyed)).toBe(RUNNER_PROMPT_OUTCOME.notWaiting);
+    expect(keyOutcome(RUNNER_SLOT_STATUS.needsInput, keyed, true)).toBe(RUNNER_PROMPT_OUTCOME.notWaiting);
+  });
+
+  it("calls a run that is over, or has no screen to press keys on, unavailable", () => {
+    expect(keyOutcome(RUNNER_SLOT_STATUS.needsInput, undefined)).toBe(RUNNER_PROMPT_OUTCOME.unavailable);
+    expect(keyOutcome(RUNNER_SLOT_STATUS.idle, { stop: () => Promise.resolve() })).toBe(RUNNER_PROMPT_OUTCOME.unavailable);
   });
 });

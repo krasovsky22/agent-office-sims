@@ -34,7 +34,7 @@ import type { Agent, AgentRun, AgentSession } from "./agents/types.js";
 import type { SpendLedger } from "./budget.js";
 import type { EventOutbox } from "./eventOutbox.js";
 import type { Redactor } from "./redact.js";
-import { TURN_DONE, promptOutcome, runReporter } from "./slotRuns.js";
+import { TURN_DONE, keyOutcome, promptOutcome, runReporter } from "./slotRuns.js";
 import type { KeyCommand, PromptCommand, Slot } from "./slots.js";
 import { SCREEN_COLS, SCREEN_ROWS } from "./terminal.js";
 
@@ -266,14 +266,7 @@ export class DeskSessions {
   /** A key the CEO pressed at the desk: pressed only while its agent waits on a person, and reported either way. */
   public key(slot: Slot, desk: DeskOnSlot, command: KeyCommand): void {
     const label = AGENT_KEY_LABEL[command.key];
-    let outcome: RunnerPromptOutcomeKind;
-    if (!desk.live || desk.agentRun.key === undefined) {
-      outcome = RUNNER_PROMPT_OUTCOME.unavailable;
-    } else if (slot.status !== RUNNER_SLOT_STATUS.needsInput) {
-      outcome = RUNNER_PROMPT_OUTCOME.notWaiting;
-    } else {
-      outcome = RUNNER_PROMPT_OUTCOME.delivered;
-    }
+    const outcome = keyOutcome(slot.status, desk.live ? desk.agentRun : undefined);
     if (outcome === RUNNER_PROMPT_OUTCOME.delivered) {
       this.host.log(`${slot.id} at ${desk.requestedBy}'s desk: ${command.requestedBy} pressed ${label}`);
       desk.agentRun.key?.(command.key);

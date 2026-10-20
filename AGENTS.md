@@ -14,7 +14,7 @@ Browser-based 3D multiplayer office simulator prototype (TypeScript, Three.js cl
 pnpm workspace (`pnpm-workspace.yaml`: `packages/*`, `apps/*`); the README's Layout section maps individual files.
 - `packages/shared` (`@sim/shared`): the contract both sides import — Colyseus schema, message parsers, work rules, floor plan, props, collision, nav, constants. Shipped as TypeScript source (`main`/`exports` point at `src/index.ts`); there is no build step.
 - `apps/server` (`@sim/server`): Colyseus server; `src/index.ts` boots it, `src/rooms/OfficeRoom.ts` is the single room and tick, `src/rooms/workHandlers.ts` the thin work handlers, `src/sim/` movement validation and expression budgets, `src/config.ts`/`origins.ts`/`http.ts` env, origin allowlist, `/health`.
-- `apps/client` (`@sim/client`): Vite app; `src/main.ts` holds the imperative render/game loop, `src/scene/` Three.js meshes, avatars, props, `src/net/` Colyseus connection and server URL, `src/player/` local prediction, `src/ui/` the React HUD mounted over the canvas.
+- `apps/client` (`@sim/client`): Vite app; `src/main.ts` mounts the HUD and wires its room events, `src/officeLoop.ts` the imperative scene and frame loop, `src/scene/` Three.js meshes, avatars, props, `src/net/` Colyseus connection and server URL, `src/player/` local prediction, `src/ui/` the React HUD mounted over the canvas.
 - Assets: vendored props in `apps/client/src/assets/office-kit/` (keep its `README.md` provenance record current), avatar model in `apps/client/public/models/`.
 
 ## Toolchain

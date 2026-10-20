@@ -4,7 +4,7 @@
  * standing tasks with their last runs, the standup, and every refusal of this
  * player's own commands, each said where the command came from.
  *
- * Kept apart from `main.ts`, whose own handlers move the scene, so a new
+ * Kept apart from `officeLoop.ts`, whose handlers move the scene, so a new
  * refusal or a new log is added here.
  */
 

@@ -2085,6 +2085,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/standing/steward.ts  the pull request steward's GitHub and git side: merge state and checks, the merge, the base merged in and pushed
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/browserEnv.ts       the page's mount points, the build's settings, the URL's flags, the browser's storage
+  src/officeLoop.ts       the scene and the frame loop that draws it, with the room's events that move it
   src/hudActions.ts       what the HUD's buttons and fields do: a command to the office, or a panel closed
   src/hudRoomEvents.ts    the room's events only the HUD hears of: the logs, the spend, the standing tasks, the standup, every refusal
   src/throttledNotice.ts  what a message the rate limiter dropped says, and where

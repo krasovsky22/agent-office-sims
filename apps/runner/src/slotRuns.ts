@@ -113,3 +113,18 @@ export function promptOutcome(
       return RUNNER_PROMPT_OUTCOME.unavailable;
   }
 }
+
+/**
+ * Whether an agent waits on a person, so a key answers it, and if not, why.
+ * An agent with no screen to press keys on never takes one; a slot that needs
+ * a person only because a turn ended with nothing handed in (`missing`) has
+ * its agent at its prompt, where a prompt is the answer.
+ *
+ * @param agentRun `undefined` once the run is over.
+ */
+export function keyOutcome(status: RunnerSlotStatus, agentRun: AgentRun | undefined, missing = false): RunnerPromptOutcomeKind {
+  if (agentRun?.key === undefined) {
+    return RUNNER_PROMPT_OUTCOME.unavailable;
+  }
+  return status === RUNNER_SLOT_STATUS.needsInput && !missing ? RUNNER_PROMPT_OUTCOME.delivered : RUNNER_PROMPT_OUTCOME.notWaiting;
+}
