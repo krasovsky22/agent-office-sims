@@ -37,6 +37,9 @@ import {
   type ProjectBoardSnapshot,
   type RunnerSpendTotal,
   STANDING_ACTION,
+  type StandingCreateMessage,
+  type StandingRunView,
+  type StandingSchedule,
   type StandingTaskAction,
   type StandupData,
   type WorkData,
@@ -68,6 +71,7 @@ import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
 import { HelpOverlay } from "./HelpOverlay.js";
 import { NameCard, RenameField } from "./NameCard.js";
 import { type ProjectBoardActions, ProjectBoardPanel } from "./ProjectBoardPanel.js";
+import { RecurringTasksPanel } from "./RecurringTasksPanel.js";
 import { type StandupActions, StandupPanel } from "./StandupPanel.js";
 
 import "./hud.css";
@@ -186,6 +190,10 @@ export interface HudSnapshot {
   readonly projectBoard?: ProjectBoardSnapshot;
   /** Whether the local player opened the board's close-up with `E` at its prompt. */
   readonly boardCloseUp: boolean;
+  /** Whether the local player opened the recurring tasks board's close-up with `E` at its prompt. */
+  readonly recurringOpen: boolean;
+  /** The standing tasks' last runs the local player asked for, by task id, newest first. */
+  readonly standingHistory: Readonly<Record<string, readonly StandingRunView[]>>;
   /** What the local player may do about the project board's work; absent until they are in the office. */
   readonly boardAccess?: BoardAccess | undefined;
   /** The agents' work on the project board's issues as last replicated, in no particular order. */
@@ -241,6 +249,12 @@ export interface HudSnapshot {
 /** What the standing tasks' buttons do; the server decides whether it happens. */
 export interface StandingActions {
   readonly act: (action: StandingTaskAction, taskId: string) => void;
+  /** A new schedule, from the recurring tasks board. */
+  readonly reschedule: (taskId: string, schedule: StandingSchedule) => void;
+  /** Asks for a task's last runs, which arrive in `standingHistory`. */
+  readonly history: (taskId: string) => void;
+  /** A new task, from the recurring tasks board's form. */
+  readonly create: (task: StandingCreateMessage) => void;
 }
 
 export interface HudActions {
@@ -283,6 +297,8 @@ const INITIAL: HudSnapshot = {
   chatLog: [],
   assets: "loading",
   boardCloseUp: false,
+  recurringOpen: false,
+  standingHistory: {},
   work: [],
   issueMoves: [],
   managerOpen: false,
@@ -873,6 +889,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     debug,
     projectBoard,
     boardCloseUp,
+    recurringOpen,
+    standingHistory,
     boardAccess,
     work,
     issueMoves,
@@ -902,7 +920,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
   // The CEO runs a standup from its panel and from the manager's desk at once, so
   // the standup docks to one side rather than covering another close-up.
-  const standupDocked = standup.active && (boardCloseUp || managerOpen || terminalAgentId !== undefined || desk !== undefined);
+  const standupDocked = standup.active && (boardCloseUp || recurringOpen || managerOpen || terminalAgentId !== undefined || desk !== undefined);
   const deskAgent = desk === undefined || desk.agentId === "" ? undefined : roster.find((entry) => entry.id === desk.agentId);
 
   return (
@@ -996,6 +1014,22 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           moves={issueMoves}
           notice={boardNotice}
           actions={actions.projectBoard}
+        />
+      ) : null}
+
+      {recurringOpen ? (
+        <RecurringTasksPanel
+          tasks={standingTasks}
+          history={standingHistory}
+          access={standingAccess}
+          agentName={(agentId) => roster.find((entry) => entry.id === agentId)?.name}
+          agents={assignableAgents(roster)}
+          actions={{
+            history: actions.standing.history,
+            reschedule: actions.standing.reschedule,
+            remove: (taskId) => actions.standing.act(STANDING_ACTION.remove, taskId),
+            create: actions.standing.create,
+          }}
         />
       ) : null}
 

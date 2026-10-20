@@ -52,21 +52,31 @@ export interface PlannedAssignment {
  */
 export type PlannedStanding =
   | { readonly action: "watch-pull-requests" }
+  | { readonly action: "steward-pull-requests" }
   | { readonly action: "schedule"; readonly cron: string; readonly instruction: string }
-  | { readonly action: "pause" | "resume" | "remove" | "check-now"; readonly task: string };
+  | { readonly action: "pause" | "resume" | "remove" | "check-now"; readonly task: string }
+  /** How often comes from the CEO's own message, never the plan, as a schedule's does. */
+  | { readonly action: "reschedule"; readonly task: string };
+
+/** The recurring tasks an agent can be hired for, rather than an issue. */
+export const STANDING_ROLES = ["pr-steward", "pr-review", "schedule"] as const;
+
+export type StandingRole = (typeof STANDING_ROLES)[number];
 
 /**
- * A new coding agent the manager wants hired for one issue, with the profile
- * it wrote for it. As the planner wrote it, and resolved and checked against
- * the live office when the plan is carried out (`./hire.ts`): `work` as an
- * assignment's is, and an empty name, title or description is left to the
- * office to fill.
+ * A new coding agent the manager wants hired for one issue, or for a
+ * recurring task, with the profile it wrote for it. As the planner wrote it,
+ * and resolved and checked against the live office when the plan is carried
+ * out (`./hire.ts`): `work` as an assignment's is, `""` for a standing hire,
+ * and an empty name, title or description is left to the office to fill.
  */
 export interface PlannedHire {
   readonly work: string;
   readonly name: string;
   readonly title: string;
   readonly description: string;
+  /** The recurring task it is hired for instead of an issue, which is set up to run on it alone. */
+  readonly standing?: StandingRole | undefined;
 }
 
 /** The moves on work in hand the project board offers the CEO, as a plan names them. */

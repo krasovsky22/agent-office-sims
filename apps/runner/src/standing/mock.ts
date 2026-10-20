@@ -9,6 +9,9 @@
  * watcher still reads the repository's real open pull requests, anonymously
  * and at most every five minutes, so a pull request opened while it watches
  * is what it pretends to review.
+ *
+ * It reads no pull request's checks, so its steward only ever pretends to
+ * review: nothing is resolved, pushed or merged under the mock.
  */
 
 import { STANDING_KIND } from "@sim/shared";
@@ -85,6 +88,9 @@ export function createMockStandingRunners(options: MockStandingOptions = {}): St
         "Simulated review; nothing was posted on GitHub",
       );
     },
+    // Never asked for: with no `inspect`, the mock's steward queues neither.
+    resolve: (job) => play(job, `${BOLD}mock resolve${RESET} of PR #${job.pr?.number ?? "?"}`, ["Merging the base in"], stepMs, "Simulated; nothing was pushed"),
+    merge: (job) => play(job, `${BOLD}mock merge${RESET} of PR #${job.pr?.number ?? "?"}`, ["Reading the checks"], stepMs, "Simulated; nothing was merged"),
     schedule: async (job) => {
       const instruction = job.spec.kind === STANDING_KIND.schedule ? job.spec.instruction : "";
       const result = await play(

@@ -453,6 +453,12 @@ export class StandingTask extends Schema {
   declare public status: string;
   /** Its trigger in a few words: `every 2 min`, `weekdays 09:00`. */
   declare public trigger: string;
+  /** A schedule's cron, `""` for a pull request task; what the wall board's schedule control starts from. */
+  declare public cron: string;
+  /** A pull request task's seconds between checks, `0` for a schedule. */
+  declare public intervalSeconds: number;
+  /** Occupant key of the coding agent hired for it, which runs it alone; `""` for any free agent. */
+  declare public agentId: string;
   declare public lastCheckAt: number;
   declare public nextCheckAt: number;
   /** Events waiting for a slot. */
@@ -478,6 +484,9 @@ export class StandingTask extends Schema {
     this.name = "";
     this.status = "";
     this.trigger = "";
+    this.cron = "";
+    this.intervalSeconds = 0;
+    this.agentId = "";
     this.lastCheckAt = 0;
     this.nextCheckAt = 0;
     this.queued = 0;
@@ -499,6 +508,9 @@ defineTypes(StandingTask, {
   name: "string",
   status: "string",
   trigger: "string",
+  cron: "string",
+  intervalSeconds: "uint32",
+  agentId: "string",
   lastCheckAt: "number",
   nextCheckAt: "number",
   queued: "uint32",

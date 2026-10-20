@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import { MAX_AGENT_DESCRIPTION_BYTES, MAX_AGENT_TITLE_BYTES } from "./agentProfile.js";
+import { parseStandingCreateMessage } from "./messages.js";
 import { OCCUPANT_KIND } from "./state.js";
 import {
   MAX_RUNNER_ACKS,
@@ -18,21 +19,32 @@ import {
   RUNNER_COMMAND_KIND,
   type RunnerStandingRunEvent,
   parseRunnerSync,
+  parseStandingRunRecord,
   toRunnerCommand,
 } from "./runner.js";
 import {
   DEFAULT_STANDING_CAPS,
+  MAX_STANDING_LOG_BYTES,
   MAX_STANDING_MESSAGE_BYTES,
   MAX_STANDING_NAME_BYTES,
   MAX_STANDING_RECENT,
+  MAX_STANDING_RESULT_BYTES,
+  MAX_STANDING_SUMMARY_BYTES,
   MAX_STANDING_TASKS,
   MAX_STANDING_TRIGGER_BYTES,
   MAX_STANDING_ERROR_BYTES,
   PR_REVIEW_TASK_NAME,
+  PR_STEWARD_TASK_NAME,
+  type PullCheck,
+  type PullState,
   STANDING_KIND,
   isStandingTaskId,
   mayManageStandingTasks,
+  mergeGate,
+  parseStandingSchedule,
   parseStandingTaskSpec,
+  rescheduled,
+  stewardStep,
 } from "./standing.js";
 
 const PR_REVIEW = {
@@ -45,6 +57,18 @@ const PR_REVIEW = {
   caps: DEFAULT_STANDING_CAPS,
   intervalSeconds: 120,
   authors: "collaborators",
+};
+
+const STEWARD = {
+  id: "st-steward1",
+  kind: "pr-steward",
+  name: "",
+  paused: false,
+  note: "",
+  version: 1,
+  caps: DEFAULT_STANDING_CAPS,
+  intervalSeconds: 120,
+  agent: "hired-1a2b3c4d",
 };
 
 const SCHEDULE = {
@@ -62,6 +86,13 @@ const SCHEDULE = {
 describe("parseStandingTaskSpec", () => {
   it("reads a pull request watch, naming it when nobody did", () => {
     expect(parseStandingTaskSpec(PR_REVIEW)).toEqual({ ...PR_REVIEW, name: PR_REVIEW_TASK_NAME });
+  });
+
+  it("reads a pull request steward and the agent hired for it, naming it when nobody did", () => {
+    expect(parseStandingTaskSpec(STEWARD)).toEqual({ ...STEWARD, name: PR_STEWARD_TASK_NAME });
+    expect(parseStandingTaskSpec({ ...STEWARD, agent: "a:b" })).toBeUndefined();
+    expect(parseStandingTaskSpec({ ...STEWARD, intervalSeconds: 10 })).toBeUndefined();
+    expect(parseStandingTaskSpec({ ...PR_REVIEW, agent: undefined })).toEqual({ ...PR_REVIEW, name: PR_REVIEW_TASK_NAME });
   });
 
   it("reads a schedule, normalising its expression", () => {
@@ -88,6 +119,146 @@ describe("parseStandingTaskSpec", () => {
     const spec = parseStandingTaskSpec({ ...SCHEDULE, instruction: "Check\u0000 the\n\nboard", name: "a\u001b[31mb" });
     expect(spec?.kind === STANDING_KIND.schedule ? spec.instruction : "").toBe("Check the board");
     expect(spec?.name).toBe("a [31mb");
+  });
+});
+
+describe("a new schedule", () => {
+  it("is a cron no more often than every five minutes, or whole seconds between checks inside the limits", () => {
+    expect(parseStandingSchedule({ cron: " 30  9 * * * " })).toEqual({ cron: "30 9 * * *" });
+    expect(parseStandingSchedule({ intervalSeconds: 300 })).toEqual({ intervalSeconds: 300 });
+    expect(parseStandingSchedule({ cron: "* * * * *" })).toBeUndefined();
+    expect(parseStandingSchedule({ intervalSeconds: 30 })).toBeUndefined();
+    expect(parseStandingSchedule({ intervalSeconds: 90.5 })).toBeUndefined();
+    expect(parseStandingSchedule({ cron: "0 9 * * *", intervalSeconds: 300 })).toBeUndefined();
+    expect(parseStandingSchedule("hourly")).toBeUndefined();
+  });
+
+  it("goes only on a task of a kind that takes it, as a newer version", () => {
+    const schedule = parseStandingTaskSpec(SCHEDULE);
+    const steward = parseStandingTaskSpec(STEWARD);
+    if (schedule === undefined || steward === undefined) {
+      throw new Error("fixtures");
+    }
+    expect(rescheduled(schedule, { cron: "0 * * * *" })).toMatchObject({ cron: "0 * * * *", version: 3 });
+    expect(rescheduled(schedule, { intervalSeconds: 600 })).toBeUndefined();
+    expect(rescheduled(steward, { intervalSeconds: 600 })).toMatchObject({ intervalSeconds: 600, version: 2 });
+    expect(rescheduled(steward, { cron: "0 * * * *" })).toBeUndefined();
+  });
+
+  it("is a command for the task's runner", () => {
+    expect(
+      toRunnerCommand("c9", { kind: RUNNER_COMMAND_KIND.standingReschedule, taskId: "st-abc123", schedule: { intervalSeconds: 600 }, requestedBy: "Dana" }),
+    ).toEqual({ id: "c9", kind: "standing-reschedule", taskId: "st-abc123", schedule: { intervalSeconds: 600 }, requestedBy: "Dana" });
+    expect(
+      toRunnerCommand("c9", { kind: RUNNER_COMMAND_KIND.standingReschedule, taskId: "st-abc123", schedule: { cron: "* * * * *" }, requestedBy: "Dana" }),
+    ).toBeUndefined();
+  });
+});
+
+describe("a new task from the wall board", () => {
+  it("is a kind there is, on any agent or one by key, and a scheduled job's words and cron", () => {
+    expect(parseStandingCreateMessage({ kind: "schedule", instruction: " List\u0000 open PRs ", cron: "0  9 * * 1-5", agentId: "agent:runner:box:slot-1" })).toEqual({
+      kind: "schedule",
+      instruction: "List open PRs",
+      cron: "0 9 * * 1-5",
+      agentId: "agent:runner:box:slot-1",
+    });
+    expect(parseStandingCreateMessage({ kind: "pr-steward", instruction: "ignored", cron: "* * * * *", agentId: "" })).toEqual({
+      kind: "pr-steward",
+      instruction: "",
+      cron: "",
+      agentId: "",
+    });
+    expect(parseStandingCreateMessage({ kind: "schedule", instruction: "", cron: "0 9 * * *", agentId: "" })).toBeUndefined();
+    expect(parseStandingCreateMessage({ kind: "schedule", instruction: "Spin", cron: "* * * * *", agentId: "" })).toBeUndefined();
+    expect(parseStandingCreateMessage({ kind: "email", instruction: "", cron: "", agentId: "" })).toBeUndefined();
+    expect(parseStandingCreateMessage({ kind: "pr-review", agentId: 7 })).toBeUndefined();
+  });
+});
+
+describe("the merge gate", () => {
+  const check = (name: string, state: PullCheck["state"], required = false): PullCheck => ({ name, state, required });
+
+  it("merges only when every required check passed", () => {
+    expect(mergeGate([check("ci", "pass", true), check("lint", "fail")], false)).toBeUndefined();
+    expect(mergeGate([check("ci", "fail", true), check("lint", "pass")], false)).toEqual({ why: "the check “ci” failed", pending: false });
+    expect(mergeGate([check("ci", "pending", true)], false)).toEqual({ why: "the check “ci” has not finished", pending: true });
+  });
+
+  it("counts every check when the branch requires none, passing over skipped ones", () => {
+    expect(mergeGate([check("ci", "pass"), check("deploy", "skipped")], false)).toBeUndefined();
+    expect(mergeGate([check("ci", "pass"), check("e2e", "fail")], false)?.why).toBe("the check “e2e” failed");
+  });
+
+  it("never merges a pull request with no checks, only skipped ones, or more than it read", () => {
+    expect(mergeGate([], false)).toEqual({ why: "it has no checks", pending: false });
+    expect(mergeGate([check("ci", "skipped", true)], false)).toEqual({ why: "every required check was skipped", pending: false });
+    expect(mergeGate([check("ci", "pass")], true)?.pending).toBe(false);
+  });
+});
+
+describe("the steward's next step", () => {
+  const green: PullState = {
+    open: true,
+    draft: false,
+    headSha: "abc1234",
+    headRef: "feature",
+    baseRef: "main",
+    crossRepository: false,
+    mergeable: "MERGEABLE",
+    mergeState: "CLEAN",
+    checks: [{ name: "ci", state: "pass", required: true }],
+    checksTruncated: false,
+  };
+
+  it("merges a clean pull request whose required checks are green", () => {
+    expect(stewardStep(green)).toEqual({ kind: "merge" });
+    expect(stewardStep({ ...green, mergeState: "UNSTABLE" })).toEqual({ kind: "merge" });
+  });
+
+  it("resolves conflicts, or a branch behind its base, on the repository's own branches only", () => {
+    expect(stewardStep({ ...green, mergeable: "CONFLICTING", mergeState: "DIRTY" })).toEqual({ kind: "resolve" });
+    expect(stewardStep({ ...green, mergeState: "BEHIND" })).toEqual({ kind: "resolve" });
+    expect(stewardStep({ ...green, mergeable: "CONFLICTING", crossRepository: true }).kind).toBe("hold");
+  });
+
+  it("waits on running checks and on GitHub, and holds a failed check or a blocked merge", () => {
+    expect(stewardStep({ ...green, checks: [{ name: "ci", state: "pending", required: true }] }).kind).toBe("wait");
+    expect(stewardStep({ ...green, mergeable: "UNKNOWN" }).kind).toBe("wait");
+    expect(stewardStep({ ...green, draft: true }).kind).toBe("wait");
+    expect(stewardStep({ ...green, checks: [{ name: "ci", state: "fail", required: true }] })).toEqual({ kind: "hold", why: "the check “ci” failed" });
+    expect(stewardStep({ ...green, checks: [] }).kind).toBe("hold");
+    // A required check that has not even started leaves GitHub blocking it, whatever the checks so far say.
+    expect(stewardStep({ ...green, mergeState: "BLOCKED" }).kind).toBe("hold");
+  });
+});
+
+describe("a standing run's record", () => {
+  const record = {
+    id: "standing-1",
+    taskId: "st-abc123",
+    startedAt: 1_792_320_000_000,
+    endedAt: 1_792_320_060_000,
+    outcome: "merged",
+    pr: { number: 112, title: "Fix" },
+    agent: "Leo",
+    costUsd: 0.12,
+    summary: "Merged PR #112 “Fix”",
+    result: "Every required check passed.\nSquash-merged.",
+    log: "● Inspecting PR #112\n✓ merged",
+    commentId: 99,
+  };
+
+  it("keeps its result's and log's line breaks", () => {
+    expect(parseStandingRunRecord(record)).toEqual(record);
+  });
+
+  it("refuses one past its budgets, or about something that is not a task", () => {
+    expect(parseStandingRunRecord({ ...record, log: "x".repeat(MAX_STANDING_LOG_BYTES + 1) })).toBeUndefined();
+    expect(parseStandingRunRecord({ ...record, result: "x".repeat(MAX_STANDING_RESULT_BYTES + 1) })).toBeUndefined();
+    expect(parseStandingRunRecord({ ...record, summary: "x".repeat(MAX_STANDING_SUMMARY_BYTES + 1) })).toBeUndefined();
+    expect(parseStandingRunRecord({ ...record, taskId: "nope" })).toBeUndefined();
+    expect(parseStandingRunRecord({ ...record, outcome: "won" })).toBeUndefined();
   });
 });
 
@@ -136,6 +307,7 @@ describe("standing state on a sync", () => {
     name: "Watch for new pull requests",
     status: "waiting-slot",
     trigger: "every 2 min",
+    schedule: { intervalSeconds: 120 },
     lastCheckAt: 1_792_320_000_000,
     nextCheckAt: 1_792_320_120_000,
     queued: 2,
@@ -158,7 +330,7 @@ describe("standing state on a sync", () => {
       standing: [report],
       standingOff: "no-budget",
     });
-    expect(parsed?.standing).toEqual([report]);
+    expect(parsed?.standing).toEqual([{ ...report, agent: undefined }]);
     expect(parsed?.standingOff).toBe("no-budget");
     expect(parsed?.slots[0]?.standing).toEqual({ taskId: "st-abc123", pr: 112 });
     expect(parsed?.events[0]).toEqual({
@@ -218,6 +390,9 @@ describe("standing state on a sync", () => {
       name: bytes(MAX_STANDING_NAME_BYTES),
       status: "waiting-slot",
       trigger: bytes(MAX_STANDING_TRIGGER_BYTES),
+      // The longest cron a schedule takes, at its byte budget.
+      schedule: { cron: "0,5,10,15,20,25,30,35,40,45,50,55 0-23 1-31 1-12 0-6" },
+      agent: slot32,
       lastCheckAt: 9_999_999_999_999,
       nextCheckAt: 9_999_999_999_999,
       queued: 0xffffffff,
@@ -249,10 +424,27 @@ describe("standing state on a sync", () => {
         standingOff: "no-budget",
         changesIssues: true,
         issueStates: Array.from({ length: MAX_RUNNER_ISSUE_STATE_OUTCOMES }, () => ({ commandId: id64, outcome: "refused" })),
+        standingRuns: [
+          {
+            id: id64,
+            taskId: "st-" + "r".repeat(16),
+            startedAt: 9_999_999_999_999,
+            endedAt: 9_999_999_999_999,
+            outcome: "refused-budget",
+            pr: { number: 0xffffffff, title: bytes(90) },
+            agent: bytes(MAX_STANDING_NAME_BYTES),
+            costUsd: usd,
+            summary: bytes(MAX_STANDING_SUMMARY_BYTES),
+            result: bytes(MAX_STANDING_RESULT_BYTES),
+            log: bytes(MAX_STANDING_LOG_BYTES),
+            commentId: Number.MAX_SAFE_INTEGER,
+          },
+        ],
       };
       const parsed = parseRunnerSync(sync);
       expect(parsed).toBeDefined();
       expect(parsed?.standing).toHaveLength(MAX_STANDING_TASKS);
+      expect(parsed?.standingRuns).toHaveLength(1);
       expect(parsed?.slots[0]?.description).toBe(bytes(MAX_AGENT_DESCRIPTION_BYTES));
       expect(Buffer.byteLength(JSON.stringify(sync))).toBeLessThan(MAX_RUNNER_SYNC_BYTES);
     }

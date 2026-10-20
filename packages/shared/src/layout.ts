@@ -472,6 +472,9 @@ export const ISSUES_STICKER_BOARD_ID = "issues-sticker-board";
 /** The sticker board an agent pins an issue's note on once it has handed in its pull request. */
 export const PULL_REQUESTS_STICKER_BOARD_ID = "pull-requests-sticker-board";
 
+/** The open floor's wall board of recurring tasks: each standing task, its schedule, last run and status. */
+export const RECURRING_TASKS_BOARD_ID = "recurring-tasks-board";
+
 /** The AI manager's desk in its office, where it sits for good. */
 export const MANAGER_DESK_ID = "desk-manager";
 
@@ -751,6 +754,19 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       width: 3,
       height: 2.1,
       elevation: 0.45,
+    },
+    // The recurring tasks, on the open floor's bare west wall between its two
+    // aisles, facing east over the walkway in from the office door, so it is
+    // read standing on the walkway and seen from the desks.
+    {
+      id: RECURRING_TASKS_BOARD_ID,
+      roomId: OPEN_FLOOR_ROOM_ID,
+      x: -11.7,
+      z: 1.35,
+      yaw: -QUARTER_TURN,
+      width: 2.8,
+      height: 1.7,
+      elevation: 0.7,
     },
   ],
   // Two lift doors in the face of the core, opening south into the lobby.

@@ -10,8 +10,19 @@
  * its cron names, on this machine's clock; a firing it cannot start, paused
  * or over a cap, is missed rather than caught up.
  *
+ * A `pr-steward` task reviews the same way, and then, on every check, looks
+ * at each pull request it reviewed that is still open (`inspect`), asking
+ * `stewardStep` in `@sim/shared` what next: a run that merges the base in and
+ * resolves the conflicts, a merge once every required check is green, a
+ * reason it is not merged, said once a head commit, or nothing yet. Each is
+ * keyed by the head commit it was for, so a push starts it over, and the
+ * merge run asks the gate again, on a fresh look, before it merges.
+ *
  * A queued event starts a run on a slot holding no run of any kind, at most
- * `RUNNER_STANDING_MAX_CONCURRENT` at once and one per task. Issue work
+ * `RUNNER_STANDING_MAX_CONCURRENT` at once and one per task: on the task's own
+ * agent's slot alone, for a task set up with a standing hire, or else on any
+ * free slot that is no task's own. A task whose own agent was fired goes with
+ * it. Issue work
  * always comes first: an issue's start for a slot on a standing run takes the
  * slot back (`../slots.ts`), and the run's event is queued again without
  * counting an attempt. A failed run is tried again after a backoff, up to
@@ -27,6 +38,11 @@
  * tries it again; a review's marker on the pull request (`./review.ts`) keeps
  * that from ever posting twice.
  *
+ * Every run, and everything a task said it left alone, is kept as a record
+ * with its summary, its result and the tail of what it wrote on its slot's
+ * screen, for the recurring tasks' wall board; records wait in
+ * `standing.json` until a sync carrying them is answered.
+ *
  * Everything persists in `standing.json` (`./store.ts`). Events wait here
  * until a sync carrying them is answered, as a slot's do.
  */
@@ -35,9 +51,12 @@ import { randomUUID } from "node:crypto";
 
 import {
   MAX_STANDING_ERROR_BYTES,
+  MAX_STANDING_LOG_BYTES,
   MAX_STANDING_MESSAGE_BYTES,
   MAX_STANDING_NAME_BYTES,
   MAX_STANDING_RECENT,
+  MAX_STANDING_RESULT_BYTES,
+  MAX_STANDING_SUMMARY_BYTES,
   MAX_STANDING_TASKS,
   MAX_STANDING_TRIGGER_BYTES,
   MAX_TITLE_LENGTH,
@@ -49,25 +68,41 @@ import {
   STANDING_KIND,
   STANDING_OFF,
   STANDING_OUTCOME,
+  STANDING_OUTCOME_TEXT,
   STANDING_STATUS,
   type StandingCaps,
   type StandingOff,
   type StandingOutcome,
+  type StandingRunRecord,
+  type StandingSchedule,
   type StandingStatus,
   type StandingTaskReport,
   type StandingTaskSpec,
   describeCron,
   formatUsd,
+  jsonTextBytes,
   nextFire,
   parseCron,
+  parseStandingTaskSpec,
+  rescheduled,
+  stewardStep,
+  watchesPullRequests,
 } from "@sim/shared";
 
 import { type SpendLedger, localDay } from "../budget.js";
 import { type Redactor, createRedactor } from "../redact.js";
 import { STANDING_SLOT_END, type SlotPool, type StandingSlotLease, fitBytes } from "../slots.js";
 import type { OpenPull, PullSource } from "./pulls.js";
-import { LEDGER_STATE, type LedgerEntry, type SkipReason, type StandingFile, type StandingStore, type StoredTask } from "./store.js";
-import type { StandingRunResult, StandingRunners } from "./types.js";
+import {
+  LEDGER_STATE,
+  type LedgerEntry,
+  MAX_UNSENT_RUNS,
+  type SkipReason,
+  type StandingFile,
+  type StandingStore,
+  type StoredTask,
+} from "./store.js";
+import type { StandingRunResult, StandingRunners, StandingStep } from "./types.js";
 
 /** Runs for one event, the first included. */
 export const MAX_ATTEMPTS = 3;
@@ -100,7 +135,7 @@ const COLLABORATORS: ReadonlySet<string> = new Set(["OWNER", "MEMBER", "COLLABOR
 
 export interface StandingSchedulerOptions {
   readonly store: StandingStore;
-  readonly pool: Pick<SlotPool, "freeForStanding" | "leaseForStanding">;
+  readonly pool: Pick<SlotPool, "freeForStanding" | "leaseForStanding" | "hasSlot">;
   readonly runners: StandingRunners;
   readonly pulls: PullSource;
   /** The runner's books, which standing spend is booked in and refused by too. */
@@ -125,6 +160,9 @@ interface ActiveRun {
   readonly lease: StandingSlotLease;
   /** The scheduler's own say over the run: a removed task stops it. */
   readonly controller: AbortController;
+  readonly startedAt: number;
+  /** What it wrote on its slot's screen, as plain text, its tail kept. */
+  log: string;
   /** What it has booked against its task so far. */
   bookedUsd: number;
   /** Settles once the run has ended and been recorded. */
@@ -140,6 +178,53 @@ interface Block {
 function short(text: string, maxBytes: number): string {
   const line = text.replace(/\s+/g, " ").trim();
   return fitBytes(line, maxBytes);
+}
+
+/** A terminal's output as plain text: its escape sequences gone and its line ends `\n`. */
+export function plainText(data: string): string {
+  return (
+    data
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "")
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b./g, "")
+      .replace(/\r\n?/g, "\n")
+  );
+}
+
+/** The end of `text` within `maxBytes` as JSON writes it, from a whole line where it can be. */
+export function tailBytes(text: string, maxBytes: number): string {
+  if (jsonTextBytes(text) <= maxBytes) {
+    return text;
+  }
+  const characters = Array.from(text);
+  const cut = "…\n";
+  let used = jsonTextBytes(cut);
+  let start = characters.length;
+  while (start > 0) {
+    const bytes = jsonTextBytes(characters[start - 1] ?? "");
+    if (used + bytes > maxBytes) {
+      break;
+    }
+    used += bytes;
+    start -= 1;
+  }
+  const kept = characters.slice(start).join("");
+  const line = kept.indexOf("\n");
+  return `${cut}${line >= 0 && line < kept.length - 1 ? kept.slice(line + 1) : kept}`;
+}
+
+/** What a ledger key's run does. */
+function stepOf(key: string): StandingStep {
+  if (key.startsWith("fix:")) {
+    return "resolve";
+  }
+  if (key.startsWith("merge:")) {
+    return "merge";
+  }
+  return key.startsWith("pr:") ? "review" : "run";
 }
 
 export class StandingScheduler {
@@ -192,6 +277,16 @@ export class StandingScheduler {
         this.events.splice(index, 1);
       }
     }
+    const unsent = this.data.unsent.filter((record) => !ids.has(record.id));
+    if (unsent.length !== this.data.unsent.length) {
+      this.data.unsent = unsent;
+      this.save();
+    }
+  }
+
+  /** The runs' records the server has not been given yet, oldest first. */
+  public pendingRuns(): readonly StandingRunRecord[] {
+    return this.data.unsent;
   }
 
   /** Starts checking triggers and starting runs, after booking today's standing spend in the runner's ledger. */
@@ -226,16 +321,25 @@ export class StandingScheduler {
       return;
     }
     const now = this.now();
-    for (const task of this.data.tasks) {
+    for (const task of [...this.data.tasks]) {
+      const agent = task.spec.agent;
+      if (agent !== undefined && !this.options.pool.hasSlot(agent)) {
+        // The agent hired for it was fired: the role goes with it.
+        this.data.tasks = this.data.tasks.filter((candidate) => candidate !== task);
+        this.runs.get(task.spec.id)?.controller.abort("removed");
+        this.log(`standing task "${task.spec.name}" (${task.spec.id}) removed: its agent, ${agent}, is no longer on this runner`);
+        this.save();
+        continue;
+      }
       if (task.spec.paused) {
         continue;
       }
       this.retryDue(task, now);
       if (task.nextCheckAt !== undefined && now >= task.nextCheckAt) {
-        if (task.spec.kind === STANDING_KIND.prReview) {
-          void this.poll(task);
-        } else {
+        if (task.spec.kind === STANDING_KIND.schedule) {
           this.fire(task, task.nextCheckAt);
+        } else {
+          void this.poll(task);
         }
       }
     }
@@ -251,6 +355,10 @@ export class StandingScheduler {
     const task = this.find(command.taskId);
     if (task === undefined) {
       this.log(`${command.kind} for standing task ${command.taskId} ignored: the runner holds no such task`);
+      return;
+    }
+    if (command.kind === RUNNER_COMMAND_KIND.standingReschedule) {
+      this.reschedule(task, command.schedule, command.requestedBy);
       return;
     }
     const name = `"${task.spec.name}" (${task.spec.id})`;
@@ -283,14 +391,32 @@ export class StandingScheduler {
         break;
       }
       case RUNNER_COMMAND_KIND.standingCheckNow:
-        if (task.spec.kind === STANDING_KIND.prReview) {
-          task.nextCheckAt = this.now();
-        } else {
+        if (task.spec.kind === STANDING_KIND.schedule) {
           this.fire(task, this.now());
+        } else {
+          task.nextCheckAt = this.now();
         }
         this.log(`standing task ${name} checked now by ${command.requestedBy}`);
         break;
     }
+    this.save();
+    this.tick();
+  }
+
+  /** A new schedule for a task, as a new version of its definition. */
+  private reschedule(task: StoredTask, schedule: StandingSchedule, requestedBy: string): void {
+    const name = `"${task.spec.name}" (${task.spec.id})`;
+    const changed = rescheduled(task.spec, schedule);
+    const spec = changed === undefined ? undefined : parseStandingTaskSpec(changed);
+    if (spec === undefined) {
+      const why = "that is not a schedule this task takes";
+      this.log(`new schedule for standing task ${name} from ${requestedBy} refused: ${why}`);
+      this.emit({ id: this.eventId(), kind: RUNNER_EVENT_KIND.standingRefused, taskId: task.spec.id, name: short(task.spec.name, MAX_STANDING_NAME_BYTES), message: why });
+      return;
+    }
+    task.spec = this.held(spec);
+    task.nextCheckAt = task.spec.paused ? undefined : this.firstCheck(task.spec);
+    this.log(`standing task ${name} now runs ${this.trigger(task.spec)}, as ${requestedBy} asked`);
     this.save();
     this.tick();
   }
@@ -323,8 +449,12 @@ export class StandingScheduler {
         refuse(`the runner already holds ${MAX_STANDING_TASKS} standing tasks`);
         return;
       }
-      if (spec.kind === STANDING_KIND.prReview && this.data.tasks.some((task) => task.spec.kind === STANDING_KIND.prReview)) {
+      if (watchesPullRequests(spec.kind) && this.data.tasks.some((task) => watchesPullRequests(task.spec.kind))) {
         refuse("the runner already watches for new pull requests");
+        return;
+      }
+      if (spec.agent !== undefined && !this.options.pool.hasSlot(spec.agent)) {
+        refuse(`its agent, ${spec.agent}, is not on this runner`);
         return;
       }
       const held = this.held(spec);
@@ -340,6 +470,7 @@ export class StandingScheduler {
         checkError: "",
         runError: "",
         recent: [],
+        open: [],
       });
       this.log(
         `standing task "${held.name}" (${held.id}) added by ${requestedBy}: ${this.trigger(held)}, ` +
@@ -373,7 +504,7 @@ export class StandingScheduler {
   }
 
   private firstCheck(spec: StandingTaskSpec): number | undefined {
-    if (spec.kind === STANDING_KIND.prReview) {
+    if (spec.kind !== STANDING_KIND.schedule) {
       return this.now();
     }
     const schedule = parseCron(spec.cron);
@@ -389,10 +520,10 @@ export class StandingScheduler {
     return seconds % 60 === 0 ? `every ${seconds / 60} min` : `every ${seconds} s`;
   }
 
-  /** Looks at GitHub's open pull requests for a `pr-review` task. */
+  /** Looks at GitHub's open pull requests for a pull request task, and for the steward at each it reviewed. */
   private async poll(task: StoredTask): Promise<void> {
     const id = task.spec.id;
-    if (this.polling.has(id) || task.spec.kind !== STANDING_KIND.prReview) {
+    if (this.polling.has(id) || task.spec.kind === STANDING_KIND.schedule) {
       return;
     }
     this.polling.add(id);
@@ -408,12 +539,18 @@ export class StandingScheduler {
         task.etag = listing.etag;
         this.evaluate(task, listing.pulls);
       }
+      if (task.spec.kind === STANDING_KIND.prSteward) {
+        await this.steward(task);
+        if (this.find(id) !== task) {
+          return;
+        }
+      }
       if (task.checkError !== "") {
         this.log(`standing task "${task.spec.name}" reads GitHub's pull requests again`);
       }
       task.checkError = "";
     } catch (error) {
-      const why = short(this.redactor.redactText(`Could not list pull requests: ${(error as Error).message}`), MAX_STANDING_ERROR_BYTES);
+      const why = short(this.redactor.redactText(`Could not read pull requests: ${(error as Error).message}`), MAX_STANDING_ERROR_BYTES);
       if (why !== task.checkError) {
         this.log(`standing task "${task.spec.name}": ${why}`);
       }
@@ -430,6 +567,7 @@ export class StandingScheduler {
   /** Brings a task's ledger up to date with the open pull requests. */
   private evaluate(task: StoredTask, pulls: readonly OpenPull[]): void {
     const now = this.now();
+    task.open = pulls.map((pull) => pull.number);
     const open = new Set<string>();
     for (const pull of pulls) {
       const key = `pr:${pull.number}`;
@@ -455,11 +593,11 @@ export class StandingScheduler {
       this.log(`standing task "${task.spec.name}" leaves the ${pulls.length} open pull requests there now alone; it reviews new ones`);
     }
     for (const [key, entry] of Object.entries(task.ledger)) {
-      if (open.has(key)) {
+      if (open.has(`pr:${prOf(key) ?? ""}`)) {
         continue;
       }
       if (entry.state === LEDGER_STATE.queued || (entry.state === LEDGER_STATE.failed && entry.retryAt !== undefined)) {
-        // Closed before a review could be had: nothing to review any more.
+        // Closed before a review, a resolve or a merge could be had: nothing to do any more.
         this.skip(entry, "closed");
       }
       if ((entry.seenAt ?? entry.at) < now - PRUNE_AFTER_MS && entry.state !== LEDGER_STATE.running) {
@@ -475,7 +613,8 @@ export class StandingScheduler {
     if (pull.draft) {
       return { ...base, state: LEDGER_STATE.skipped, reason: "draft" };
     }
-    if (task.spec.kind === STANDING_KIND.prReview && task.spec.authors === "collaborators" && !pull.ownAgent && !COLLABORATORS.has(pull.association)) {
+    const collaboratorsOnly = task.spec.kind === STANDING_KIND.prSteward || (task.spec.kind === STANDING_KIND.prReview && task.spec.authors === "collaborators");
+    if (collaboratorsOnly && !pull.ownAgent && !COLLABORATORS.has(pull.association)) {
       const who = pull.author === "" ? "an outside contributor" : `${pull.author}, an outside contributor`;
       this.record(task, STANDING_OUTCOME.skipped, pull.number);
       this.emitRun(task, undefined, { number: pull.number, title: pull.title }, STANDING_OUTCOME.skipped, 0, `It is by ${who}, so it was not reviewed.`, false);
@@ -484,6 +623,50 @@ export class StandingScheduler {
     }
     this.log(`standing task "${task.spec.name}" queues PR #${pull.number} for review`);
     return { ...base, state: LEDGER_STATE.queued };
+  }
+
+  /**
+   * The steward's look at each pull request it has reviewed that is still
+   * open: what next for each, from a fresh look at GitHub. A resolve or a
+   * merge is queued once for a head commit, and a reason it is not merged
+   * said once; everything else waits for the next check.
+   */
+  private async steward(task: StoredTask): Promise<void> {
+    const inspect = this.options.runners.inspect;
+    if (inspect === undefined || !task.baselined) {
+      return;
+    }
+    for (const number of task.open) {
+      const review = task.ledger[`pr:${number}`];
+      if (review?.state !== LEDGER_STATE.done) {
+        continue;
+      }
+      const state = await inspect(number);
+      if (this.find(task.spec.id) !== task || task.spec.paused) {
+        return;
+      }
+      if (!HEAD_SHA.test(state.headSha)) {
+        continue;
+      }
+      const step = stewardStep(state);
+      const at = `${number}@${state.headSha}`;
+      const now = this.now();
+      const base = { attempts: 0, at: now, title: review.title, headSha: state.headSha, seenAt: now };
+      if (step.kind === "merge" || step.kind === "resolve") {
+        const key = `${step.kind === "merge" ? "merge" : "fix"}:${at}`;
+        if (task.ledger[key] === undefined) {
+          task.ledger[key] = { ...base, state: LEDGER_STATE.queued };
+          this.log(`standing task "${task.spec.name}" queues PR #${number} at ${state.headSha.slice(0, 7)} to ${step.kind === "merge" ? "merge: every required check is green" : "merge its base in and resolve its conflicts"}`);
+        }
+      } else if (step.kind === "hold" && task.ledger[`hold:${at}`] === undefined) {
+        task.ledger[`hold:${at}`] = { ...base, state: LEDGER_STATE.skipped, reason: "held" };
+        const pr = { number, title: fitBytes(review.title ?? "", MAX_TITLE_LENGTH) };
+        this.record(task, STANDING_OUTCOME.skipped, number);
+        this.emitRun(task, undefined, pr, STANDING_OUTCOME.skipped, 0, `It is not merged yet: ${step.why}.`, false);
+        this.log(`standing task "${task.spec.name}" does not merge PR #${number} at ${state.headSha.slice(0, 7)}: ${step.why}`);
+      }
+    }
+    this.trimLedger(task, MAX_LEDGER_ENTRIES);
   }
 
   /** One firing of a schedule: queued, or missed when the task could not start it. */
@@ -530,6 +713,8 @@ export class StandingScheduler {
       .map((task) => ({ task, next: this.nextQueued(task) }))
       .filter((candidate): candidate is { task: StoredTask; next: [string, LedgerEntry] } => candidate.next !== undefined)
       .sort((a, b) => a.next[1].at - b.next[1].at);
+    // A slot an agent was hired into is its own task's alone.
+    const owned = new Set(this.data.tasks.flatMap((task) => (task.spec.agent === undefined ? [] : [task.spec.agent])));
     for (const { task, next } of candidates) {
       if (this.runs.size >= this.options.maxConcurrent) {
         return;
@@ -546,9 +731,11 @@ export class StandingScheduler {
         }
         continue;
       }
-      const slotId = this.options.pool.freeForStanding()[0];
+      const free = this.options.pool.freeForStanding();
+      const own = task.spec.agent;
+      const slotId = own === undefined ? free.find((id) => !owned.has(id)) : free.includes(own) ? own : undefined;
       if (slotId === undefined) {
-        return;
+        continue;
       }
       this.begin(task, next[0], next[1], slotId);
     }
@@ -587,7 +774,13 @@ export class StandingScheduler {
   private begin(task: StoredTask, key: string, entry: LedgerEntry, slotId: string): void {
     const now = this.now();
     const pr = this.prRef(key, entry);
-    const activity = pr === undefined ? `Running “${task.spec.name}”` : `Reviewing PR #${pr.number}`;
+    const step = stepOf(key);
+    const activity = {
+      review: `Reviewing PR #${pr?.number ?? ""}`,
+      resolve: `Resolving PR #${pr?.number ?? ""}'s conflicts`,
+      merge: `Merging PR #${pr?.number ?? ""}`,
+      run: `Running “${task.spec.name}”`,
+    }[step];
     const lease = this.options.pool.leaseForStanding(slotId, { taskId: task.spec.id, pr: pr?.number }, activity);
     if (lease === undefined) {
       return;
@@ -600,31 +793,47 @@ export class StandingScheduler {
     }
     // Saved before the agent starts, so a restart knows this run was cut short.
     this.save();
-    const run: ActiveRun = { taskId: task.spec.id, key, lease, controller: new AbortController(), bookedUsd: 0, done: Promise.resolve() };
+    const run: ActiveRun = {
+      taskId: task.spec.id,
+      key,
+      lease,
+      controller: new AbortController(),
+      startedAt: now,
+      log: "",
+      bookedUsd: 0,
+      done: Promise.resolve(),
+    };
     this.runs.set(task.spec.id, run);
     this.log(
-      `${lease.slotName} starts standing task "${task.spec.name}"${pr === undefined ? "" : ` on PR #${pr.number}`}` +
+      `${lease.slotName} starts standing task "${task.spec.name}"${pr === undefined ? "" : ` to ${step} PR #${pr.number}`}` +
         ` (attempt ${entry.attempts} of ${MAX_ATTEMPTS})` +
         (this.options.runners.simulated ? ": a simulated run, nothing is posted" : ""),
     );
     const job = {
       spec: task.spec,
+      step,
       requestedBy: task.requestedBy,
       lease: this.booking(task, run),
       signal: AbortSignal.any([lease.signal, run.controller.signal]),
       pr: pr === undefined ? undefined : { ...pr, headSha: entry.headSha ?? "" },
       firedAt: pr === undefined ? entry.at : undefined,
     };
-    const work = task.spec.kind === STANDING_KIND.prReview ? this.options.runners.review(job) : this.options.runners.schedule(job);
+    const { runners } = this.options;
+    const work = { review: () => runners.review(job), resolve: () => runners.resolve(job), merge: () => runners.merge(job), run: () => runners.schedule(job) }[step]();
     run.done = work
       .catch((error: unknown): StandingRunResult => ({ outcome: "failed", costUsd: run.bookedUsd, message: `The run broke: ${(error as Error).message}` }))
       .then((result) => this.finish(task, run, entry, result));
   }
 
-  /** The lease as a run sees it, its spend booked against its task as it is said. */
+  /** The lease as a run sees it, its spend booked against its task as it is said and its screen kept as its log. */
   private booking(task: StoredTask, run: ActiveRun): StandingSlotLease {
     return {
       ...run.lease,
+      output: (data) => {
+        run.lease.output(data);
+        // Twice the record's budget, so the tail is cut once, from a whole line, when the run is recorded.
+        run.log = tailBytes(run.log + plainText(data), MAX_STANDING_LOG_BYTES * 2);
+      },
       spent: (totalUsd) => {
         run.lease.spent(totalUsd);
         this.book(task, run, totalUsd);
@@ -676,7 +885,7 @@ export class StandingScheduler {
         task.hourCapDay = undefined;
       }
       this.record(task, STANDING_OUTCOME.preempted, pr?.number);
-      this.emitRun(task, run.lease.slotId, pr, STANDING_OUTCOME.preempted, cost, "Issue work took the slot; it runs again on a free one.", false);
+      this.emitRun(task, run.lease.slotId, pr, STANDING_OUTCOME.preempted, cost, "Issue work took the slot; it runs again on a free one.", false, undefined, run);
       this.log(`${on} gave way to issue work; queued again (${formatUsd(cost)} spent)`);
     } else if (result.outcome === "failed") {
       const final = entry.attempts >= MAX_ATTEMPTS;
@@ -685,7 +894,7 @@ export class StandingScheduler {
       task.runError = short(this.redactor.redactText(result.message), MAX_STANDING_ERROR_BYTES);
       task.handledToday += 1;
       this.record(task, STANDING_OUTCOME.failed, pr?.number);
-      this.emitRun(task, run.lease.slotId, pr, STANDING_OUTCOME.failed, cost, result.message, final);
+      this.emitRun(task, run.lease.slotId, pr, STANDING_OUTCOME.failed, cost, result.message, final, undefined, run);
       this.log(`${on} failed${final ? " for the last time" : "; it is tried again later"}: ${this.redactor.redactText(result.message)} (${formatUsd(cost)} spent)`);
     } else {
       entry.state = result.outcome === "skipped" ? LEDGER_STATE.skipped : LEDGER_STATE.done;
@@ -694,7 +903,7 @@ export class StandingScheduler {
       task.handledToday += 1;
       const outcome = toOutcome(result.outcome);
       this.record(task, outcome, pr?.number);
-      this.emitRun(task, run.lease.slotId, pr, outcome, cost, result.message, false, result.commentId);
+      this.emitRun(task, run.lease.slotId, pr, outcome, cost, result.message, false, result.commentId, run);
       this.log(`${on}: ${outcome} (${formatUsd(cost)} spent)`);
     }
     this.save();
@@ -725,20 +934,42 @@ export class StandingScheduler {
     message: string,
     final: boolean,
     commentId?: number,
+    run?: ActiveRun,
   ): void {
+    const said = pr === undefined ? undefined : { number: pr.number, title: fitBytes(this.redactor.redactText(pr.title), MAX_TITLE_LENGTH) };
+    const text = this.redactor.redactText(message.trim());
     this.emit({
       id: this.eventId(),
       kind: RUNNER_EVENT_KIND.standingRun,
       taskId: task.spec.id,
       slotId,
-      pr: pr === undefined ? undefined : { number: pr.number, title: fitBytes(this.redactor.redactText(pr.title), MAX_TITLE_LENGTH) },
+      pr: said,
       outcome,
       commentId,
       costUsd,
       // A scheduled run's result keeps its line breaks, as the AI Manager posts it.
-      message: fitBytes(this.redactor.redactText(message.trim()), MAX_STANDING_MESSAGE_BYTES),
+      message: fitBytes(text, MAX_STANDING_MESSAGE_BYTES),
       final,
     });
+    const now = this.now();
+    // The wall board's record of it, a separate id so its delivery is its own.
+    this.data.unsent = [
+      ...this.data.unsent,
+      {
+        id: this.eventId(),
+        taskId: task.spec.id,
+        startedAt: run?.startedAt ?? now,
+        endedAt: now,
+        outcome,
+        pr: said,
+        agent: run === undefined ? "" : fitBytes(run.lease.slotName, MAX_STANDING_NAME_BYTES),
+        costUsd,
+        summary: short(summaryOf(outcome, said, text, task.spec.name), MAX_STANDING_SUMMARY_BYTES),
+        result: fitBytes(text, MAX_STANDING_RESULT_BYTES),
+        log: run === undefined ? "" : tailBytes(this.redactor.redactText(run.log).trimEnd(), MAX_STANDING_LOG_BYTES),
+        commentId,
+      },
+    ].slice(-MAX_UNSENT_RUNS);
   }
 
   private emit(event: RunnerEvent): void {
@@ -758,6 +989,8 @@ export class StandingScheduler {
       name: fitBytes(task.spec.name, MAX_STANDING_NAME_BYTES),
       status: off === undefined ? this.statusOf(task, queued, block) : STANDING_STATUS.error,
       trigger: fitBytes(this.trigger(task.spec), MAX_STANDING_TRIGGER_BYTES),
+      schedule: task.spec.kind === STANDING_KIND.schedule ? { cron: task.spec.cron } : { intervalSeconds: task.spec.intervalSeconds },
+      agent: task.spec.agent,
       lastCheckAt: task.lastCheckAt,
       nextCheckAt: task.spec.paused || block !== undefined || off !== undefined ? undefined : task.nextCheckAt,
       queued,
@@ -814,7 +1047,7 @@ export class StandingScheduler {
         // A firing missed while the runner was down is not caught up.
         task.nextCheckAt = this.firstCheck(task.spec);
       }
-      if (task.spec.kind === STANDING_KIND.prReview && !task.spec.paused) {
+      if (task.spec.kind !== STANDING_KIND.schedule && !task.spec.paused) {
         task.nextCheckAt = now;
       }
     }
@@ -849,14 +1082,42 @@ export class StandingScheduler {
   }
 }
 
+/** A head commit as a ledger key names it. */
+const HEAD_SHA = /^[0-9a-f]{7,64}$/;
+
 function prOf(key: string): number | undefined {
-  return key.startsWith("pr:") ? Number(key.slice(3)) : undefined;
+  const match = /^(?:pr|fix|merge|hold):(\d+)/.exec(key);
+  return match === null ? undefined : Number(match[1]);
+}
+
+/** A record's one line: what came of it, in the board's words. */
+function summaryOf(outcome: StandingOutcome, pr: { readonly number: number; readonly title: string } | undefined, message: string, taskName: string): string {
+  const on = pr === undefined ? "" : ` PR #${pr.number}${pr.title === "" ? "" : ` “${pr.title}”`}`;
+  const first = message.split("\n").map((line) => line.trim()).find((line) => line !== "") ?? "";
+  switch (outcome) {
+    case STANDING_OUTCOME.reviewed:
+      return `Reviewed${on}`;
+    case STANDING_OUTCOME.resolved:
+      return `Merged the base into${on}, its conflicts resolved, and pushed`;
+    case STANDING_OUTCOME.merged:
+      return `Merged${on}`;
+    case STANDING_OUTCOME.completed:
+      return first === "" ? `Ran “${taskName}”` : first;
+    case STANDING_OUTCOME.simulated:
+      return `Simulated run${on === "" ? ` of “${taskName}”` : ` on${on}`}: nothing was posted or done`;
+    default:
+      return `${STANDING_OUTCOME_TEXT[outcome].charAt(0).toUpperCase()}${STANDING_OUTCOME_TEXT[outcome].slice(1)}${on}${first === "" ? "" : `: ${first}`}`;
+  }
 }
 
 function toOutcome(outcome: StandingRunResult["outcome"]): StandingOutcome {
   switch (outcome) {
     case "reviewed":
       return STANDING_OUTCOME.reviewed;
+    case "resolved":
+      return STANDING_OUTCOME.resolved;
+    case "merged":
+      return STANDING_OUTCOME.merged;
     case "completed":
       return STANDING_OUTCOME.completed;
     case "simulated":

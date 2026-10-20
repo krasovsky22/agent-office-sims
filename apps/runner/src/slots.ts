@@ -399,6 +399,11 @@ export class SlotPool {
     }));
   }
 
+  /** Whether a slot is on the floor: not fired, nor a hire waiting outside. */
+  public hasSlot(slotId: string): boolean {
+    return this.slots.some((slot) => slot.id === slotId);
+  }
+
   /** The slots free for a standing run: holding no run of any kind. */
   public freeForStanding(): readonly string[] {
     return this.slots

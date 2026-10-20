@@ -2,7 +2,9 @@
  * Hiring a new coding agent for an issue against a real office and project
  * board, and a hiring desk the test controls: the issue and the office's cap
  * checked first, the profile the plan wrote or the office's own, and the issue
- * given to the new agent through the work's rules once it has walked in.
+ * given to the new agent through the work's rules once it has walked in. A
+ * standing hire is placed on a runner that takes the task, hired onto it, and
+ * its task set up there for that agent alone, through the standing tasks' gate.
  */
 
 import {
@@ -24,6 +26,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { runnerSlotAgentId } from "../agents/runnerLink.js";
+import type { StandingControl, StandingPlacement, StandingRequest } from "../agents/standingControl.js";
 import type { WorkHost } from "../rooms/workHandlers.js";
 import { type AgentHiring, HIRE_ARRIVAL_MS, HireDesk, hireDescription, hireTitle } from "./hire.js";
 import { readOfficeView } from "./officeView.js";
@@ -77,10 +80,10 @@ function office(
   const hiring: AgentHiring = {
     cap: options.cap ?? 4,
     count: () => count,
-    hire: (profile, requestedBy) => {
+    hire: (profile, requestedBy, onRunner) => {
       hired.push({ profile, requestedBy });
       count += 1;
-      return { runnerId: "runner-1", slotId: `hired-${hired.length}`, commandId: `command-${hired.length}` };
+      return { runnerId: onRunner ?? "runner-1", slotId: `hired-${hired.length}`, commandId: `command-${hired.length}` };
     },
     withdraw: (hire) => {
       withdrawn.push(hire.commandId);
@@ -99,6 +102,61 @@ function office(
   };
   return { state, ceo, clock, work, hiring, hired, withdrawn, desk, context, arrive };
 }
+
+describe("HireDesk: a standing hire", () => {
+  /** The standing tasks' gate as the test says it is: a runner to place on, and what it was asked to set up. */
+  function gate(refusal?: string) {
+    const created: Array<{ request: StandingRequest; placement: StandingPlacement | undefined }> = [];
+    const standing: Pick<StandingControl, "place" | "create"> = {
+      place: () => (refusal === undefined ? { ok: true, runnerId: "runner-2" } : { ok: false, rejection: "duplicate", text: refusal }),
+      create: (_actor, _name, request, _note, placement) => {
+        created.push({ request, placement });
+        return { ok: true, taskId: "st-steward1", text: "✓ “Review, fix and merge pull requests” is set up on runner-2." };
+      },
+    };
+    return { standing, created };
+  }
+
+  it("hires the steward onto the runner that takes the task, and sets the task up there for it alone", () => {
+    const { desk, context, hired, work, arrive } = office({ message: "hire someone to review, resolve conflicts and merge pull requests" });
+    const { standing, created } = gate();
+    const lines = desk.carryOut([{ work: "", name: "", title: "", description: "", standing: "pr-steward" }], { ...context(), standing });
+    expect(lines).toEqual([expect.stringMatching(/^✓ Hired \w+, Pull Request Steward, for the pull request steward; on the way in/)]);
+    expect(hired[0]?.profile).toMatchObject({ title: "Pull Request Steward", description: expect.stringContaining("every required check is green") });
+    expect(created).toEqual([{ request: { kind: "pr-steward" }, placement: { runnerId: "runner-2", agent: "hired-1" } }]);
+    arrive(liveAgentKey(runnerSlotAgentId("runner-2", "hired-1")), hired[0]?.profile.name);
+    expect(desk.settle(work, context().hiring)).toEqual([`${hired[0]?.profile.name} is here, at a desk of their own, for the pull request steward.`]);
+  });
+
+  it("counts against the office's cap, and hires nobody when the task cannot be set up", () => {
+    const full = office({ agents: 4, cap: 4 });
+    const { standing } = gate();
+    expect(full.desk.carryOut([{ work: "", name: "", title: "", description: "", standing: "pr-steward" }], { ...full.context(), standing })).toEqual([
+      expect.stringContaining("the office is full, with 4 of 4 coding agents"),
+    ]);
+    expect(full.hired).toEqual([]);
+
+    const taken = office();
+    const refused = gate("I'm already watching for new pull requests.");
+    expect(taken.desk.carryOut([{ work: "", name: "", title: "", description: "", standing: "pr-steward" }], { ...taken.context(), standing: refused.standing })).toEqual([
+      "✗ I'm already watching for new pull requests.",
+    ]);
+    expect(taken.hired).toEqual([]);
+  });
+
+  it("hires for a scheduled job only from the CEO's own words for it", () => {
+    const told = office({ message: "Hire someone to summarise what changed every weekday at 9" });
+    const { standing, created } = gate();
+    told.desk.carryOut([{ work: "", name: "", title: "", description: "", standing: "schedule" }], { ...told.context(), standing });
+    expect(created[0]?.request).toEqual({ kind: "schedule", cron: "0 9 * * 1-5", instruction: "summarise what changed" });
+
+    const untold = office({ message: "what's on the board?" });
+    expect(untold.desk.carryOut([{ work: "", name: "", title: "", description: "", standing: "schedule" }], { ...untold.context(), standing })[0]).toMatch(
+      /^✗ I only hire someone for a scheduled job when you say yourself/,
+    );
+    expect(untold.hired).toEqual([]);
+  });
+});
 
 describe("HireDesk", () => {
   it("hires an agent with the profile the plan wrote, and gives it the issue once it has walked in", () => {

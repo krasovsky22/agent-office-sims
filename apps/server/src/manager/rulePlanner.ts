@@ -36,7 +36,9 @@
  * - **"Hire someone for #39"**, "hire a frontend specialist to work on the
  *   jumping ticket": a plan to hire a new coding agent for each issue named,
  *   titled from the words before "for" when they say more than "an agent",
- *   carried out afterwards like an assignment (`./hire.ts`).
+ *   carried out afterwards like an assignment (`./hire.ts`). "Hire someone to
+ *   review, resolve conflicts and merge pull requests" hires one for a
+ *   recurring task instead, read by `./standingPlan.ts`.
  * - **"Call a standup"**, "let's have a standup", "end the standup", "the
  *   standup's over": a plan to call or end one, carried out afterwards through
  *   the standup's own gate; "how did the standup go?" says what each agent
@@ -51,13 +53,15 @@ import { LIVE_AGENT_STATUS, MAX_TITLE_LENGTH, WORK_STATUS, type WorkStatus, clip
 import { ANY_CODING_AGENT, type ManagerPlan, type ManagerRequest, type PlannedStandup, type WorkMoveKind } from "./advisor.js";
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, WorkView } from "./officeView.js";
 import { type WorkRef, findAgents, findIssueByTitle, findUnknownWork, findWork, resolveAgent, titleLengthFor } from "./resolve.js";
-import { readStandingInstruction, standingSummary } from "./standingPlan.js";
+import { readStandingHire, readStandingInstruction, standingSummary } from "./standingPlan.js";
 
 /** Most items one list in an answer names before saying how many more there are. */
 const LIST_LIMIT = 8;
 
 /** "please", "can you", "AI manager," and the like ahead of an instruction. */
 const LEAD_IN = /^(?:(?:please|ok(?:ay)?|(?:can|could|would|will) you|(?:the )?ai manager)[\s,]+)*/;
+/** {@link LEAD_IN} in the message as the CEO typed it. */
+const LEAD_IN_ORIGINAL = /^(?:(?:please|ok(?:ay)?|(?:can|could|would|will) you|(?:the )?ai manager)[\s,]+)*/i;
 /** A question is answered and never acted on: it is told by how it starts. */
 const QUESTION_START =
   /^(what|what's|whats|how|how's|hows|who|who's|which|where|why|when|is|are|was|were|do|does|did|has|had|should|any|status|have you)\b/;
@@ -141,7 +145,9 @@ export const HELP_TEXT = [
   "- “Hand out the backlog”",
   "- “Approve #39”, “Send #39 back: the empty case fails”, “Take #39 off Maya” or “Start #39 again”",
   "- “Hire someone for #39”, or “Hire a frontend specialist to work on #39”",
+  "- “Hire someone to review, resolve conflicts and merge pull requests”",
   "- “Watch for new pull requests”, or “Every weekday at 9, summarise what changed yesterday”",
+  "- “Run the morning summary every day at 8”, “Check pull requests every 10 minutes”",
   "- “What are you watching?”, “Pause the pull request watch”",
   "- “Call a standup” or “End the standup”",
 ].join("\n");
@@ -157,6 +163,13 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     return standup === "start"
       ? { reply: "Calling a standup: everyone to the conference room, and each of them gives an update in turn.", assignments: [], standup }
       : { reply: "Ending the standup.", assignments: [], standup };
+  }
+  const standingHire = readStandingHire(message.trim().replace(LEAD_IN_ORIGINAL, ""));
+  if (standingHire !== undefined && !QUESTION_START.test(wordsOf(message).join(" "))) {
+    // "a release manager" is a title; "someone" says nothing the office would not.
+    const who = standingHire.who.replace(/^(?:a|an|one|another|some) /, "").replace(/^new /, "");
+    const title = ANY_HIRE.test(standingHire.who) ? "" : titleCase(who);
+    return { reply: "Here's how that went:", assignments: [], hires: [{ work: "", name: "", title, description: "", standing: standingHire.role }] };
   }
   const standing = standingAnswer(message, view);
   if (standing !== undefined) {

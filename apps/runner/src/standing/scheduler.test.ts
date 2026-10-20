@@ -2,7 +2,9 @@
  * The standing tasks' scheduler, with the mock's scripted runs on a real slot
  * pool: what a task's first look leaves alone, what it reviews once, what it
  * skips, how issue work takes a slot back, how the caps hold, what a restart
- * keeps, and when a schedule fires.
+ * keeps, when a schedule fires, what the steward merges and resolves and
+ * when, a hired agent's task on its slot alone, a new schedule, and the
+ * record each run leaves for the wall board.
  *
  * The clock the scheduler reads is the test's, and each look is a `tick` the
  * test calls; the mock's steps run on real, very short timers.
@@ -14,6 +16,7 @@ import { join } from "node:path";
 
 import {
   DEFAULT_STANDING_CAPS,
+  type PullState,
   RUNNER_COMMAND_KIND,
   type RunnerEvent,
   type RunnerSlotCommand,
@@ -42,6 +45,17 @@ const PR_TASK: StandingTaskSpec = {
   caps: DEFAULT_STANDING_CAPS,
   intervalSeconds: 120,
   authors: "collaborators",
+};
+
+const STEWARD_TASK: StandingTaskSpec = {
+  id: "st-steward1",
+  kind: "pr-steward",
+  name: "Review, fix and merge pull requests",
+  paused: false,
+  note: "",
+  version: 1,
+  caps: DEFAULT_STANDING_CAPS,
+  intervalSeconds: 120,
 };
 
 const SCHEDULE_TASK: StandingTaskSpec = {
@@ -120,6 +134,49 @@ function runs(events: readonly RunnerEvent[]): Array<[string, number | undefined
   return events
     .filter((event): event is RunnerStandingRunEvent => event.kind === "standing-run")
     .map((event) => [event.outcome, event.pr?.number]);
+}
+
+/** A pull request as the steward reads it: open at `headSha`, every required check as `ci` says. */
+function pullState(headSha: string, overrides: Partial<PullState> = {}): PullState {
+  return {
+    open: true,
+    draft: false,
+    headSha,
+    headRef: "feature",
+    baseRef: "main",
+    crossRepository: false,
+    mergeable: "MERGEABLE",
+    mergeState: "CLEAN",
+    checks: [{ name: "ci", state: "pass", required: true }],
+    checksTruncated: false,
+    ...overrides,
+  };
+}
+
+/** The mock's runs, with GitHub's merge states as the test sets them, and the merges and resolves kept rather than made. */
+function stewardRunners(states: Map<number, PullState>) {
+  const merged: Array<readonly [number, string]> = [];
+  const resolved: number[] = [];
+  const runners: StandingRunners = {
+    ...createMockStandingRunners({ stepMs: 2, minPollIntervalMs: 0 }),
+    inspect: async (number) => {
+      const state = states.get(number);
+      if (state === undefined) {
+        throw new Error(`no PR #${number}`);
+      }
+      return state;
+    },
+    merge: async (job) => {
+      merged.push([job.pr?.number ?? 0, job.pr?.headSha ?? ""]);
+      job.lease.output("\u001b[32mmerged\u001b[0m\r\n");
+      return { outcome: "merged", costUsd: 0, message: "Squash-merged." };
+    },
+    resolve: async (job) => {
+      resolved.push(job.pr?.number ?? 0);
+      return { outcome: "resolved", costUsd: 0, message: "Pushed." };
+    },
+  };
+  return { runners, merged, resolved };
 }
 
 /** Moves the clock on past the poll interval and looks again. */
@@ -409,5 +466,169 @@ describe("a schedule", () => {
     // The caps were held to the standing budget, so the task's own day is spent first.
     expect(scheduler.report()[0]?.status).toBe("over-budget");
     expect(runs(scheduler.pendingEvents()).map(([outcome]) => outcome)).toEqual(["simulated"]);
+  });
+});
+
+describe("a pull request steward", () => {
+  /** Waits for the steward's look under way, its pull requests' states read, to end. */
+  async function looked(scheduler: StandingScheduler): Promise<void> {
+    await until(() => scheduler.report()[0]?.lastCheckAt === clock);
+  }
+
+  /** Moves the clock on past the interval and waits for that look to end. */
+  async function look(scheduler: StandingScheduler): Promise<void> {
+    later(scheduler);
+    await looked(scheduler);
+  }
+
+  it("reviews a new pull request, says once why it is not merged, and merges it once its checks are green", async () => {
+    const states = new Map([[41, pullState("aaaa111", { checks: [{ name: "ci", state: "fail", required: true }] })]]);
+    const steward = stewardRunners(states);
+    const scheduler = makeScheduler(makePool(), {}, steward.runners);
+    listing = [pull(40)];
+    set(scheduler, STEWARD_TASK);
+    await looked(scheduler);
+
+    listing = [pull(40), pull(41)];
+    await look(scheduler);
+    await until(() => runs(scheduler.pendingEvents()).length === 1);
+    expect(runs(scheduler.pendingEvents())).toEqual([["simulated", 41]]);
+
+    await look(scheduler);
+    expect(scheduler.pendingEvents().at(-1)).toMatchObject({ outcome: "skipped", pr: { number: 41 }, message: "It is not merged yet: the check “ci” failed." });
+    // Said once a head.
+    await look(scheduler);
+    expect(runs(scheduler.pendingEvents())).toHaveLength(2);
+    expect(steward.merged).toEqual([]);
+
+    states.set(41, pullState("aaaa111"));
+    await look(scheduler);
+    await until(() => runs(scheduler.pendingEvents()).length === 3);
+    expect(steward.merged).toEqual([[41, "aaaa111"]]);
+    expect(runs(scheduler.pendingEvents()).at(-1)).toEqual(["merged", 41]);
+    // The pull request open when it was set up is never looked at, let alone merged.
+    expect(steward.merged.some(([number]) => number === 40)).toBe(false);
+  });
+
+  it("merges nothing while a check runs or with none at all, and resolves conflicts at a head before merging the next", async () => {
+    const states = new Map([[42, pullState("bbbb222", { checks: [{ name: "ci", state: "pending", required: true }] })]]);
+    const steward = stewardRunners(states);
+    const scheduler = makeScheduler(makePool(), {}, steward.runners);
+    set(scheduler, STEWARD_TASK);
+    await looked(scheduler);
+    listing = [pull(42)];
+    await look(scheduler);
+    await until(() => runs(scheduler.pendingEvents()).length === 1);
+    await look(scheduler);
+    // Still running: nothing said, nothing merged.
+    expect(runs(scheduler.pendingEvents())).toHaveLength(1);
+
+    states.set(42, pullState("bbbb222", { mergeable: "CONFLICTING", mergeState: "DIRTY" }));
+    await look(scheduler);
+    await until(() => runs(scheduler.pendingEvents()).length === 2);
+    expect(runs(scheduler.pendingEvents()).at(-1)).toEqual(["resolved", 42]);
+
+    // The push is a new head, with no checks yet: never merged on none.
+    states.set(42, pullState("cccc333", { checks: [] }));
+    await look(scheduler);
+    expect(scheduler.pendingEvents().at(-1)).toMatchObject({ outcome: "skipped", message: "It is not merged yet: it has no checks." });
+    states.set(42, pullState("cccc333"));
+    await look(scheduler);
+    await until(() => steward.merged.length === 1);
+    expect(steward.merged).toEqual([[42, "cccc333"]]);
+    expect(steward.resolved).toEqual([42]);
+  });
+
+  it("never touches an outside contributor's pull request", async () => {
+    const states = new Map([[43, pullState("dddd444")]]);
+    const steward = stewardRunners(states);
+    const scheduler = makeScheduler(makePool(), {}, steward.runners);
+    set(scheduler, STEWARD_TASK);
+    await looked(scheduler);
+    listing = [pull(43, { association: "CONTRIBUTOR", author: "stranger" })];
+    await look(scheduler);
+    await look(scheduler);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(runs(scheduler.pendingEvents())).toEqual([["skipped", 43]]);
+    expect(steward.merged).toEqual([]);
+  });
+
+  it("is the office's one pull request watcher", () => {
+    const scheduler = makeScheduler(makePool());
+    set(scheduler, PR_TASK);
+    set(scheduler, STEWARD_TASK);
+    expect(scheduler.report().map((task) => task.id)).toEqual([PR_TASK.id]);
+    expect(scheduler.pendingEvents()).toEqual([expect.objectContaining({ kind: "standing-refused", taskId: STEWARD_TASK.id })]);
+  });
+});
+
+describe("a task with an agent hired for it", () => {
+  it("runs on that agent's slot alone, which no other task takes, and goes when the agent is fired", async () => {
+    const pool = makePool();
+    const scheduler = makeScheduler(pool, { maxConcurrent: 2 });
+    set(scheduler, { ...SCHEDULE_TASK, agent: "slot-2" });
+    set(scheduler, { ...SCHEDULE_TASK, id: "st-evening1", name: "Evening summary" });
+    expect(scheduler.report()[0]).toMatchObject({ agent: "slot-2" });
+    scheduler.handle({ id: "c-a", kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: SCHEDULE_TASK.id, requestedBy: "Dana" });
+    scheduler.handle({ id: "c-b", kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: "st-evening1", requestedBy: "Dana" });
+    await until(() => runs(scheduler.pendingEvents()).length === 2);
+    const bySlot = Object.fromEntries(
+      scheduler.pendingEvents().flatMap((event) => (event.kind === "standing-run" ? [[event.taskId, event.slotId]] : [])),
+    );
+    expect(bySlot).toEqual({ [SCHEDULE_TASK.id]: "slot-2", "st-evening1": "slot-1" });
+
+    pool.handle({ id: "c-fire", slotId: "slot-2", kind: RUNNER_COMMAND_KIND.fire, requestedBy: "Dana" });
+    scheduler.tick();
+    expect(scheduler.report().map((task) => task.id)).toEqual(["st-evening1"]);
+  });
+
+  it("is refused when its agent is not on the runner", () => {
+    const scheduler = makeScheduler(makePool());
+    set(scheduler, { ...SCHEDULE_TASK, agent: "hired-nobody" });
+    expect(scheduler.report()).toEqual([]);
+    expect(scheduler.pendingEvents()).toEqual([expect.objectContaining({ kind: "standing-refused", message: expect.stringContaining("hired-nobody") })]);
+  });
+});
+
+describe("a new schedule", () => {
+  it("changes how often a task runs, as a new version, and is refused for a kind that does not take it", () => {
+    const scheduler = makeScheduler(makePool());
+    set(scheduler, SCHEDULE_TASK);
+    set(scheduler, STEWARD_TASK);
+    scheduler.handle({ id: "c-r1", kind: RUNNER_COMMAND_KIND.standingReschedule, taskId: SCHEDULE_TASK.id, schedule: { cron: "30 17 * * *" }, requestedBy: "Dana" });
+    scheduler.handle({ id: "c-r2", kind: RUNNER_COMMAND_KIND.standingReschedule, taskId: STEWARD_TASK.id, schedule: { intervalSeconds: 600 }, requestedBy: "Dana" });
+    const [schedule, steward] = scheduler.report();
+    expect(schedule).toMatchObject({ schedule: { cron: "30 17 * * *" }, trigger: "daily 17:30", nextCheckAt: new Date(2026, 9, 19, 17, 30).getTime() });
+    expect(steward).toMatchObject({ schedule: { intervalSeconds: 600 }, trigger: "every 10 min" });
+
+    scheduler.handle({ id: "c-r3", kind: RUNNER_COMMAND_KIND.standingReschedule, taskId: SCHEDULE_TASK.id, schedule: { intervalSeconds: 600 }, requestedBy: "Dana" });
+    expect(scheduler.report()[0]?.schedule).toEqual({ cron: "30 17 * * *" });
+    expect(scheduler.pendingEvents().at(-1)).toMatchObject({ kind: "standing-refused", taskId: SCHEDULE_TASK.id });
+  });
+});
+
+describe("a run's record", () => {
+  it("keeps its summary, result and screen as plain text until a sync delivers it, across a restart", async () => {
+    const scheduler = makeScheduler(makePool());
+    set(scheduler, SCHEDULE_TASK);
+    scheduler.handle({ id: "c-now", kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: SCHEDULE_TASK.id, requestedBy: "Dana" });
+    await until(() => scheduler.pendingRuns().length === 1);
+    const [record] = scheduler.pendingRuns();
+    expect(record).toMatchObject({
+      taskId: SCHEDULE_TASK.id,
+      outcome: "simulated",
+      agent: expect.any(String),
+      summary: "Simulated run of “Morning summary”: nothing was posted or done",
+      result: expect.stringContaining("Summarise what changed."),
+    });
+    expect(record?.log).toContain("● Reading the instruction");
+    expect(record?.log).not.toContain("\u001b");
+    expect(record?.id).not.toBe(scheduler.pendingEvents()[0]?.id);
+
+    const again = makeScheduler(makePool());
+    expect(again.pendingRuns()).toEqual([record]);
+    again.delivered(new Set([record?.id ?? ""]));
+    expect(again.pendingRuns()).toEqual([]);
+    expect(makeScheduler(makePool()).pendingRuns()).toEqual([]);
   });
 });

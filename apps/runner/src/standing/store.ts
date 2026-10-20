@@ -6,7 +6,9 @@
  * what it and all standing tasks together have spent today, so a restarted
  * runner keeps its day: a pull request already reviewed is not reviewed
  * again, a run cut short by the restart is tried again, and a crash loop
- * cannot spend a day's standing budget twice.
+ * cannot spend a day's standing budget twice. Beside them, the records of
+ * runs the server has not been given yet, so a restart loses none of the
+ * wall board's history.
  *
  * Written whole and moved into place, as the worktree records are, so a
  * runner killed mid-write leaves the last good file. Read defensively: a
@@ -20,10 +22,12 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import {
   MAX_STANDING_RECENT,
   MAX_STANDING_TASKS,
+  type StandingRunRecord,
   type StandingRunSummary,
   type StandingTaskSpec,
   asRecord,
   isStandingOutcome,
+  parseStandingRunRecord,
   parseStandingTaskSpec,
 } from "@sim/shared";
 
@@ -45,9 +49,14 @@ export const LEDGER_STATE = {
 export type LedgerState = (typeof LEDGER_STATE)[keyof typeof LEDGER_STATE];
 
 /** Why an event was left alone. */
-export type SkipReason = "draft" | "outside" | "closed" | "missed" | "superseded";
+export type SkipReason = "draft" | "outside" | "closed" | "missed" | "superseded" | "held" | "stale";
 
-/** One event, keyed `pr:<number>` for a pull request, or `at:<epoch ms>` for a schedule's firing. */
+/**
+ * One event, keyed `pr:<number>` for a pull request's review, `at:<epoch ms>`
+ * for a schedule's firing, or, for the steward, `fix:<number>@<head>`,
+ * `merge:<number>@<head>` and `hold:<number>@<head>` for resolving, merging
+ * or holding a pull request at one head commit.
+ */
 export interface LedgerEntry {
   state: LedgerState;
   /** Runs started for it, a preempted one not counted. */
@@ -90,6 +99,8 @@ export interface StoredTask {
   recent: StandingRunSummary[];
   /** The day a refused budget was last said, so it is said once a day. */
   refusedDay?: string | undefined;
+  /** The pull requests open at its last listing, which the steward looks at again on every check. */
+  open: number[];
 }
 
 export interface StandingFile {
@@ -98,11 +109,16 @@ export interface StandingFile {
   /** What every standing task spent on {@link day}, those since removed too. */
   spentTodayUsd: number;
   tasks: StoredTask[];
+  /** Runs the server has not been given yet, oldest first. */
+  unsent: StandingRunRecord[];
 }
 
+/** Records kept for the server while it cannot be reached; the oldest go first. */
+export const MAX_UNSENT_RUNS = 20;
+
 const LEDGER_STATES: ReadonlySet<string> = new Set(Object.values(LEDGER_STATE));
-const SKIP_REASONS: ReadonlySet<string> = new Set(["draft", "outside", "closed", "missed", "superseded"]);
-const LEDGER_KEY = /^(?:pr:\d{1,10}|at:\d{1,16})$/;
+const SKIP_REASONS: ReadonlySet<string> = new Set(["draft", "outside", "closed", "missed", "superseded", "held", "stale"]);
+const LEDGER_KEY = /^(?:pr:\d{1,10}|at:\d{1,16}|(?:fix|merge|hold):\d{1,10}@[0-9a-f]{7,64})$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 function number(raw: unknown): number | undefined {
@@ -182,6 +198,7 @@ function readTask(raw: unknown): StoredTask | string {
     runError: text(task["runError"]) ?? "",
     recent: readRecent(task["recent"]),
     refusedDay: day(task["refusedDay"]),
+    open: Array.isArray(task["open"]) ? task["open"].flatMap((n) => (Number.isSafeInteger(n) && (n as number) > 0 ? [n as number] : [])).slice(0, 100) : [],
   };
 }
 
@@ -201,7 +218,7 @@ export class StandingStore {
   /** What the last run kept, or an empty day when it kept nothing readable. */
   public load(today: string): StandingFile {
     const { file } = this.options;
-    const empty: StandingFile = { day: today, spentTodayUsd: 0, tasks: [] };
+    const empty: StandingFile = { day: today, spentTodayUsd: 0, tasks: [], unsent: [] };
     if (!existsSync(file)) {
       return empty;
     }
@@ -222,7 +239,11 @@ export class StandingStore {
       }
     }
     const day = typeof raw?.["day"] === "string" && DAY.test(raw["day"]) ? raw["day"] : today;
-    return { day, spentTodayUsd: number(raw?.["spentTodayUsd"]) ?? 0, tasks };
+    const unsent = (Array.isArray(raw?.["unsent"]) ? raw["unsent"] : []).flatMap((item: unknown) => {
+      const record = parseStandingRunRecord(item);
+      return record === undefined ? [] : [record];
+    });
+    return { day, spentTodayUsd: number(raw?.["spentTodayUsd"]) ?? 0, tasks, unsent: unsent.slice(-MAX_UNSENT_RUNS) };
   }
 
   /** Written whole and moved into place, readable by the runner's user alone. */

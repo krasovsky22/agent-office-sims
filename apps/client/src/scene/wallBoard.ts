@@ -68,7 +68,7 @@ const TONE_COLOUR: Record<BoardTone, string> = {
 const FONT_STACK = 'ui-sans-serif, system-ui, "Segoe UI", sans-serif';
 
 /** Shortens `text` to fit `maxWidth`, with an ellipsis, a character at a time. */
-function fitText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+export function fitText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string {
   if (context.measureText(text).width <= maxWidth) {
     return text;
   }
@@ -257,7 +257,7 @@ export interface WallBoardView {
 }
 
 /**
- * Hangs a board in the scene.
+ * Hangs the project board in the scene.
  *
  * @param maxAnisotropy the renderer's, so the text stays sharp when the board
  * is seen at an angle across the open floor rather than square on.
@@ -267,9 +267,25 @@ export function buildWallBoard(
   spec: WallBoardSpec,
   maxAnisotropy: number,
 ): WallBoardView {
+  return hangBoard(scene, spec, maxAnisotropy, CANVAS_WIDTH, paintBoard, undefined);
+}
+
+/**
+ * Hangs a framed board in the scene whose face `paint` draws on a canvas, as
+ * the project board's and the recurring tasks' are, and paints it with
+ * `initial` until the caller shows something else.
+ */
+export function hangBoard<T>(
+  scene: THREE.Scene,
+  spec: WallBoardSpec,
+  maxAnisotropy: number,
+  canvasWidth: number,
+  paint: (context: CanvasRenderingContext2D, width: number, height: number, data: T) => void,
+  initial: T,
+): { readonly group: THREE.Group; show(data: T): void } {
   const canvas = document.createElement("canvas");
-  canvas.width = CANVAS_WIDTH;
-  canvas.height = Math.round((CANVAS_WIDTH * spec.height) / spec.width);
+  canvas.width = canvasWidth;
+  canvas.height = Math.round((canvasWidth * spec.height) / spec.width);
   const context = canvas.getContext("2d");
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -299,14 +315,14 @@ export function buildWallBoard(
 
   scene.add(group);
 
-  const show = (snapshot: ProjectBoardSnapshot | undefined) => {
+  const show = (data: T) => {
     if (context === null) {
       return;
     }
-    paintBoard(context, canvas.width, canvas.height, snapshot);
+    paint(context, canvas.width, canvas.height, data);
     texture.needsUpdate = true;
   };
-  show(undefined);
+  show(initial);
 
   return { group, show };
 }
