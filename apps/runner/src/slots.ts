@@ -267,6 +267,8 @@ interface Slot {
   activity: string;
   pr: RunnerPullRequest | undefined;
   run: ActiveRun | undefined;
+  /** Its last run's stop-then-close, which a next run waits for before opening its worktree. */
+  ended: Promise<void>;
   /** A standing task's run, which holds the slot instead of an issue until an issue's start takes it back. */
   standing: StandingOnSlot | undefined;
   /** The desk it is lent to, which holds it instead of an issue until the server closes it or an issue's start takes it back. */
@@ -368,6 +370,7 @@ export class SlotPool {
       activity: "",
       pr: undefined,
       run: undefined,
+      ended: Promise.resolve(),
       standing: undefined,
       desk: undefined,
       screen,
@@ -537,7 +540,7 @@ export class SlotPool {
     const slot = this.slots.find((candidate) => candidate.id === command.slotId);
     if (slot === undefined && command.kind === RUNNER_COMMAND_KIND.stop && command.discard === true && this.firedIds.has(command.slotId)) {
       // The task of an agent fired with it: the work its slot kept goes too.
-      this.discardKept(command.slotId, command.issueNumber);
+      void this.discardKept(command.slotId, command.issueNumber);
       return;
     }
     if (command.kind === RUNNER_COMMAND_KIND.hire) {
@@ -555,16 +558,16 @@ export class SlotPool {
       case RUNNER_COMMAND_KIND.stop:
         if (slot.run === undefined) {
           this.debug(`stop for ${slot.id} ignored: it holds no task`);
-          this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined);
+          slot.ended = slot.ended.then(() => this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined));
           return;
         }
         if (command.issueNumber !== undefined && command.issueNumber !== slot.run.issueNumber) {
           // Meant for work the slot has already left behind, whose kept worktree a cancel still discards.
           this.log(`stop for ${slot.id} on #${command.issueNumber} ignored: it is on #${slot.run.issueNumber}`);
-          this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined);
+          slot.ended = slot.ended.then(() => this.discardKept(slot.id, command.discard === true ? command.issueNumber : undefined));
           return;
         }
-        this.end(
+        void this.end(
           slot,
           RUNNER_EVENT_KIND.failed,
           `Stopped: ${command.reason || "the server asked"}`,
@@ -599,7 +602,7 @@ export class SlotPool {
           return;
         }
         this.log(`${slot.id}'s desk session for ${slot.desk.requestedBy} closed: ${command.reason || "the server asked"}`);
-        this.endDesk(slot, undefined);
+        void this.endDesk(slot, undefined);
         return;
       case RUNNER_COMMAND_KIND.deskResize:
         this.resizeDesk(slot, command);
@@ -645,10 +648,10 @@ export class SlotPool {
   private fire(slot: Slot, command: FireCommand): void {
     const by = command.requestedBy || "the CEO";
     this.log(`${slot.id}, ${slot.profile.name}, fired by ${by}`);
-    this.end(slot, RUNNER_EVENT_KIND.failed, `Fired by ${by}`, undefined, RUNNER_SLOT_STATUS.idle, true);
+    void this.end(slot, RUNNER_EVENT_KIND.failed, `Fired by ${by}`, undefined, RUNNER_SLOT_STATUS.idle, true);
     this.endStanding(slot, STANDING_SLOT_END.preempted);
     if (slot.desk !== undefined) {
-      this.endDesk(slot, `${slot.profile.name} was fired`);
+      void this.endDesk(slot, `${slot.profile.name} was fired`);
     }
     this.slots.splice(this.slots.indexOf(slot), 1);
     this.firedIds.add(slot.id);
@@ -679,17 +682,23 @@ export class SlotPool {
     );
   }
 
-  /** Stops every run, as the runner shuts down. */
-  public stopAll(): void {
+  /**
+   * Stops every run, as the runner shuts down. Resolves once their agents
+   * have exited and their worktrees are given up; a standing run's exit is
+   * its scheduler's to wait for.
+   */
+  public stopAll(): Promise<void> {
+    const stopped: Promise<void>[] = [];
     for (const slot of this.slots) {
       if (slot.run !== undefined) {
-        this.end(slot, RUNNER_EVENT_KIND.failed, "Stopped: the runner shut down");
+        stopped.push(this.end(slot, RUNNER_EVENT_KIND.failed, "Stopped: the runner shut down"));
       }
       this.endStanding(slot, STANDING_SLOT_END.shutdown);
       if (slot.desk !== undefined) {
-        this.endDesk(slot, "The runner shut down");
+        stopped.push(this.endDesk(slot, "The runner shut down"));
       }
     }
+    return Promise.all(stopped).then(() => undefined);
   }
 
   private start(slot: Slot, task: StartCommand): void {
@@ -701,7 +710,7 @@ export class SlotPool {
     if (slot.desk !== undefined) {
       // As for a standing run: the office's issue work comes first.
       this.log(`${slot.id} leaves ${slot.desk.requestedBy}'s desk for #${task.issueNumber}`);
-      this.endDesk(slot, `${slot.profile.name} was taken back for issue #${task.issueNumber}`);
+      void this.endDesk(slot, `${slot.profile.name} was taken back for issue #${task.issueNumber}`);
     }
     if (slot.run !== undefined) {
       if (slot.run.issueNumber === task.issueNumber) {
@@ -728,7 +737,7 @@ export class SlotPool {
     const run: ActiveRun = {
       issueNumber: task.issueNumber,
       task,
-      agentRun: { stop: () => undefined },
+      agentRun: { stop: () => Promise.resolve() },
       timeout: undefined,
       deadline: 0,
       heldMs: undefined,
@@ -786,7 +795,7 @@ export class SlotPool {
     const minutes = Math.round(this.options.taskTimeoutMs / 60_000);
     run.timeout = setTimeout(() => {
       if (slot.run === run) {
-        this.end(slot, RUNNER_EVENT_KIND.failed, `Timed out after ${minutes} ${minutes === 1 ? "minute" : "minutes"}`);
+        void this.end(slot, RUNNER_EVENT_KIND.failed, `Timed out after ${minutes} ${minutes === 1 ? "minute" : "minutes"}`);
       }
     }, ms);
     run.timeout.unref();
@@ -1072,16 +1081,20 @@ export class SlotPool {
     }
     if (refusal !== undefined) {
       this.log(`start for ${slot.id} on #${task.issueNumber} refused by its GitHub check`);
-      this.end(slot, RUNNER_EVENT_KIND.failed, refusal);
+      void this.end(slot, RUNNER_EVENT_KIND.failed, refusal);
       return;
     }
     slot.activity = "Making a worktree";
+    await slot.ended;
+    if (!run.live) {
+      return;
+    }
     let workdir: string;
     try {
       workdir = await this.options.workspaces.open(slot.id, task.issueNumber);
     } catch (error) {
       if (run.live) {
-        this.end(slot, RUNNER_EVENT_KIND.failed, `No worktree: ${(error as Error).message}`);
+        void this.end(slot, RUNNER_EVENT_KIND.failed, `No worktree: ${(error as Error).message}`);
       }
       return;
     }
@@ -1124,13 +1137,13 @@ export class SlotPool {
       },
       failed: (message) => {
         if (run.live) {
-          this.end(slot, RUNNER_EVENT_KIND.failed, message);
+          void this.end(slot, RUNNER_EVENT_KIND.failed, message);
         }
       },
       exited: (message, clean) => {
         if (run.live) {
           const kind = clean ? RUNNER_EVENT_KIND.finished : RUNNER_EVENT_KIND.failed;
-          this.end(slot, kind, message, undefined, RUNNER_SLOT_STATUS.exited);
+          void this.end(slot, kind, message, undefined, RUNNER_SLOT_STATUS.exited);
         }
       },
       // Booked whether or not the work is still live: a stopped agent's last turn is paid for too.
@@ -1157,7 +1170,7 @@ export class SlotPool {
         reporter,
       );
     } catch (error) {
-      this.end(slot, RUNNER_EVENT_KIND.failed, `The agent did not start: ${(error as Error).message}`);
+      void this.end(slot, RUNNER_EVENT_KIND.failed, `The agent did not start: ${(error as Error).message}`);
       return;
     }
     const started = agentRun.process;
@@ -1173,7 +1186,7 @@ export class SlotPool {
       }
     } else {
       // It ended while starting, before its slot had it to stop.
-      agentRun.stop();
+      void agentRun.stop();
     }
   }
 
@@ -1197,7 +1210,7 @@ export class SlotPool {
     const desk: DeskOnSlot = {
       seatId: command.seatId,
       requestedBy: command.requestedBy,
-      agentRun: { stop: () => undefined },
+      agentRun: { stop: () => Promise.resolve() },
       workdir: undefined,
       live: true,
       spentUsd: 0,
@@ -1247,7 +1260,7 @@ export class SlotPool {
       workdir = await desks.open(slot.id);
     } catch (error) {
       if (desk.live) {
-        this.endDesk(slot, `No worktree: ${(error as Error).message}`);
+        void this.endDesk(slot, `No worktree: ${(error as Error).message}`);
       }
       return;
     }
@@ -1286,12 +1299,12 @@ export class SlotPool {
       },
       failed: (message) => {
         if (desk.live) {
-          this.endDesk(slot, message);
+          void this.endDesk(slot, message);
         }
       },
       exited: (message) => {
         if (desk.live) {
-          this.endDesk(slot, message);
+          void this.endDesk(slot, message);
         }
       },
       // Booked whether or not it is still live, as a task's is.
@@ -1308,7 +1321,7 @@ export class SlotPool {
     try {
       agentRun = startSession.call(this.options.agent, session, reporter);
     } catch (error) {
-      this.endDesk(slot, `The agent did not start: ${(error as Error).message}`);
+      void this.endDesk(slot, `The agent did not start: ${(error as Error).message}`);
       return;
     }
     const started = agentRun.process;
@@ -1324,7 +1337,7 @@ export class SlotPool {
         agentRun.resize?.(desk.cols, desk.rows);
       }
     } else {
-      agentRun.stop();
+      void agentRun.stop();
     }
   }
 
@@ -1399,16 +1412,17 @@ export class SlotPool {
 
   /**
    * Ends the slot's desk session, stopping its agent and discarding its
-   * worktree, and leaves the slot idle. `message` says why when the server did
-   * not ask for it, as a `desk-ended` event; `undefined` when it did.
+   * worktree once it has exited, and leaves the slot idle. `message` says why
+   * when the server did not ask for it, as a `desk-ended` event; `undefined`
+   * when it did. Resolves once the worktree is discarded.
    */
-  private endDesk(slot: Slot, message: string | undefined): void {
+  private endDesk(slot: Slot, message: string | undefined): Promise<void> {
     const desk = slot.desk;
     if (desk === undefined) {
-      return;
+      return Promise.resolve();
     }
     desk.live = false;
-    desk.agentRun.stop();
+    const stopped = desk.agentRun.stop();
     slot.desk = undefined;
     slot.status = RUNNER_SLOT_STATUS.idle;
     slot.activity = "";
@@ -1419,9 +1433,8 @@ export class SlotPool {
       this.log(`${slot.id}'s desk session for ${desk.requestedBy} ended: ${this.redactor.redactText(message)}`);
     }
     this.log(`${slot.id} is back from ${desk.requestedBy}'s desk (${formatUsd(desk.spentUsd)} spent)`);
-    if (desk.workdir !== undefined) {
-      void this.options.desks?.close(desk.workdir);
-    }
+    const { workdir } = desk;
+    return workdir === undefined ? stopped : stopped.then(() => this.options.desks?.close(workdir));
   }
 
   private emitDesk(slot: Slot, seatId: string, message: string): void {
@@ -1441,7 +1454,9 @@ export class SlotPool {
    * Ends a slot's run, says how, and leaves the slot free for the next start,
    * `idle` unless its agent `exited`. A `discard`ed run's pull request and
    * pushed branch go on GitHub first, then its worktree and branch, whatever
-   * is in them.
+   * is in them. Its worktree is touched only once its agent has exited, since
+   * one still writing to it could look clean and be removed under it; resolves
+   * once it is given up.
    */
   private end(
     slot: Slot,
@@ -1450,14 +1465,14 @@ export class SlotPool {
     pr?: RunnerPullRequest,
     status: RunnerSlotStatus = RUNNER_SLOT_STATUS.idle,
     discard = false,
-  ): void {
+  ): Promise<void> {
     const run = slot.run;
     if (run === undefined) {
-      return;
+      return Promise.resolve();
     }
     run.live = false;
     clearTimeout(run.timeout);
-    run.agentRun.stop();
+    const stopped = run.agentRun.stop();
     slot.run = undefined;
     slot.status = status;
     slot.issueNumber = undefined;
@@ -1468,11 +1483,10 @@ export class SlotPool {
     // The message can quote the agent's last line, so it is masked as its event's is.
     const said = this.redactor.redactText(message);
     this.log(`${slot.id} ${kind} on #${run.issueNumber}${said === "" ? "" : `: ${said}`} (${formatUsd(run.spentUsd)} spent)`);
-    if (discard) {
-      this.discardKept(slot.id, run.issueNumber);
-    } else {
-      void this.options.workspaces.close(slot.id, run.issueNumber);
-    }
+    slot.ended = Promise.all([slot.ended, stopped]).then(() =>
+      discard ? this.discardKept(slot.id, run.issueNumber) : this.options.workspaces.close(slot.id, run.issueNumber),
+    );
+    return slot.ended;
   }
 
   /**
@@ -1480,11 +1494,11 @@ export class SlotPool {
    * on GitHub, even once its worktree is gone, then its worktree and branch,
    * whatever is in them.
    */
-  private discardKept(slotId: string, issueNumber: number | undefined): void {
+  private discardKept(slotId: string, issueNumber: number | undefined): Promise<void> {
     if (issueNumber === undefined) {
-      return;
+      return Promise.resolve();
     }
-    void this.options.workspaces.close(slotId, issueNumber, async (branch, cwd) => {
+    return this.options.workspaces.close(slotId, issueNumber, async (branch, cwd) => {
       const failed = await this.github.discard(branch, cwd);
       this.log(
         failed === undefined

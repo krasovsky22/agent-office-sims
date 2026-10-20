@@ -311,6 +311,7 @@ export function createMockAgent(options: MockAgentOptions): Agent {
             clearTimeout(timer);
             timer = undefined;
           }
+          return Promise.resolve();
         },
         pause() {
           paused = true;
@@ -388,6 +389,7 @@ function startMockSession(session: AgentSession, reporter: AgentReporter, stepMs
       stopped = true;
       clearTimeout(timer);
       timer = undefined;
+      return Promise.resolve();
     },
   };
 }

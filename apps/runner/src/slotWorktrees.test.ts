@@ -286,6 +286,8 @@ describe("the slot pool and mock agent in task worktrees", () => {
     pool.handle({ ...START, id: "command-2", slotId: "slot-2", issueNumber: 40 });
     await until(() => pool.report()[1]?.status === "working");
     pool.handle({ id: "command-3", slotId: "slot-2", kind: "stop", reason: "" });
+    // Its worktree is closed once its agent has exited, a moment after the stop.
+    await new Promise((resolve) => setImmediate(resolve));
     await workspaces.settled();
     expect(existsSync(join(dataDir, "worktrees", "issue-40-slot-2"))).toBe(false);
     expect(workspaces.current().map((record) => record.issueNumber)).toEqual([39]);

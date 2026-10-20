@@ -61,7 +61,7 @@ function pull(number: number, overrides: Partial<OpenPull> = {}): OpenPull {
 }
 
 /** An agent that starts and does nothing, so an issue's start only holds its slot. */
-const IDLE_AGENT: Agent = { label: "Mock", start: () => ({ stop: () => undefined }) };
+const IDLE_AGENT: Agent = { label: "Mock", start: () => ({ stop: () => Promise.resolve() }) };
 
 let dir: string;
 let clock: number;
@@ -361,6 +361,24 @@ describe("a restarted runner", () => {
     await until(() => runs(second.pendingEvents()).length === 1);
     expect(runs(second.pendingEvents())).toEqual([["simulated", 80]]);
     pool.stopAll();
+  });
+
+  it("waits, as the runner shuts down, for a run under way to end", async () => {
+    const pool = makePool();
+    const scheduler = makeScheduler(pool, {}, createMockStandingRunners({ stepMs: 1000, minPollIntervalMs: 0 }));
+    set(scheduler, PR_TASK);
+    await until(() => polls === 1);
+    listing = [pull(80)];
+    later(scheduler);
+    await until(() => pool.report()[0]?.standing !== undefined);
+    let stopped = false;
+    const stopping = scheduler.stop().then(() => (stopped = true));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(stopped).toBe(false);
+
+    void pool.stopAll();
+    await stopping;
+    expect(stopped).toBe(true);
   });
 });
 

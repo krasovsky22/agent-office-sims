@@ -127,6 +127,8 @@ interface ActiveRun {
   readonly controller: AbortController;
   /** What it has booked against its task so far. */
   bookedUsd: number;
+  /** Settles once the run has ended and been recorded. */
+  done: Promise<void>;
 }
 
 /** Why a task may start nothing now, and whether it is a budget that says so in the office. */
@@ -204,11 +206,16 @@ export class StandingScheduler {
     this.tick();
   }
 
-  /** Stops checking; a run under way is stopped with its slot by the pool, and left `running` to be tried again. */
-  public stop(): void {
+  /**
+   * Stops checking; a run under way is stopped with its slot by the pool, and
+   * left `running` to be tried again. Resolves once every run under way has
+   * ended, its agent exited.
+   */
+  public stop(): Promise<void> {
     clearInterval(this.timer);
     this.timer = undefined;
     this.save();
+    return Promise.all([...this.runs.values()].map((run) => run.done)).then(() => undefined);
   }
 
   /** One look at every task: checks due, firings due, retries due, and runs to start. Exposed for the tests. */
@@ -593,7 +600,7 @@ export class StandingScheduler {
     }
     // Saved before the agent starts, so a restart knows this run was cut short.
     this.save();
-    const run: ActiveRun = { taskId: task.spec.id, key, lease, controller: new AbortController(), bookedUsd: 0 };
+    const run: ActiveRun = { taskId: task.spec.id, key, lease, controller: new AbortController(), bookedUsd: 0, done: Promise.resolve() };
     this.runs.set(task.spec.id, run);
     this.log(
       `${lease.slotName} starts standing task "${task.spec.name}"${pr === undefined ? "" : ` on PR #${pr.number}`}` +
@@ -609,7 +616,7 @@ export class StandingScheduler {
       firedAt: pr === undefined ? entry.at : undefined,
     };
     const work = task.spec.kind === STANDING_KIND.prReview ? this.options.runners.review(job) : this.options.runners.schedule(job);
-    void work
+    run.done = work
       .catch((error: unknown): StandingRunResult => ({ outcome: "failed", costUsd: run.bookedUsd, message: `The run broke: ${(error as Error).message}` }))
       .then((result) => this.finish(task, run, entry, result));
   }

@@ -241,7 +241,7 @@ describe("SlotPool", () => {
       label: "Spy",
       start: (task) => {
         tasks.push(task);
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     const slots = pool("failed", spy);
@@ -345,7 +345,7 @@ describe("SlotPool", () => {
     const log: string[] = [];
     const slots = new SlotPool({
       count: 1,
-      agent: { label: "Spy", start: () => ({ stop: () => undefined }) },
+      agent: { label: "Spy", start: () => ({ stop: () => Promise.resolve() }) },
       workspaces: workspaces(),
       taskTimeoutMs: TIMEOUT_MS,
       redactor: createRedactor(["hunter2-secret-value"]),
@@ -413,6 +413,7 @@ describe("SlotPool", () => {
     slots.handle({ id: "command-4", slotId: "slot-1", kind: "stop", reason: "the work is done", issueNumber: 39 });
     expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined, pr: undefined });
     expect(workEvents(slots).at(-1)).toMatchObject({ kind: "failed", message: "Stopped: the work is done" });
+    await settle();
     expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
   });
 
@@ -473,7 +474,7 @@ describe("SlotPool", () => {
       label: "Claude",
       start: (_task, given) => {
         reporter = given;
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     const slots = pool("failed", agent, workspaces(), { refusal: async () => undefined, pullRequest, pullRequestTitle: async () => "", discard: async () => undefined });
@@ -500,7 +501,7 @@ describe("SlotPool", () => {
       label: "Claude",
       start: (_task, given) => {
         reporter = given;
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     const slots = pool("failed", agent, workspaces(), {
@@ -533,7 +534,7 @@ describe("SlotPool", () => {
       label: "Claude",
       start: (_task, given) => {
         reporter = given;
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     const pullRequestTitle = vi.fn(async () => "Night shift");
@@ -557,7 +558,7 @@ describe("SlotPool", () => {
       label: "Claude",
       start: (_task, given) => {
         reporter = given;
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     let giveTitle: (title: string) => void = () => undefined;
@@ -625,7 +626,7 @@ describe("SlotPool", () => {
   it("discards a cancelled task whose run had already ended, so its kept work does not come back", async () => {
     const discard = vi.fn(async () => undefined);
     const github: TaskGithub = { refusal: async () => undefined, pullRequest: async () => undefined, pullRequestTitle: async () => "", discard };
-    const stalled: Agent = { label: "Stuck", start: () => ({ stop: vi.fn() }) };
+    const stalled: Agent = { label: "Stuck", start: () => ({ stop: vi.fn(() => Promise.resolve()) }) };
     const slots = pool("failed", stalled, workspaces(), github);
     slots.handle(START);
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
@@ -766,7 +767,7 @@ describe("SlotPool", () => {
   });
 
   it("stops work that runs past the task timeout", async () => {
-    const stalled: Agent = { label: "Stuck", start: () => ({ stop: vi.fn() }) };
+    const stalled: Agent = { label: "Stuck", start: () => ({ stop: vi.fn(() => Promise.resolve()) }) };
     const slots = pool("failed", stalled);
     slots.handle(START);
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
@@ -780,7 +781,7 @@ describe("SlotPool", () => {
       label: "Asker",
       start: (_task, given) => {
         reporter = given;
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     const slots = pool("failed", agent);
@@ -814,6 +815,87 @@ describe("SlotPool", () => {
     ]);
   });
 
+  it("gives up a stopped run's worktree only once its agent has exited, and waits for that as it shuts down", async () => {
+    let exit = (): void => undefined;
+    const slow: Agent = {
+      label: "Slow",
+      start: () => ({ stop: () => new Promise<void>((resolve) => (exit = resolve)) }),
+    };
+    const slots = pool("failed", slow);
+    slots.handle(START);
+    await settle();
+    let stopped = false;
+    void slots.stopAll().then(() => (stopped = true));
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39"]);
+    expect(stopped).toBe(false);
+
+    exit();
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
+    expect(stopped).toBe(true);
+  });
+
+  it("opens a restarted run's worktree only once the stopped run on its slot has exited and given its worktree up", async () => {
+    const exits: Array<() => void> = [];
+    const slow: Agent = {
+      label: "Slow",
+      start: () => ({ stop: () => new Promise<void>((resolve) => exits.push(resolve)) }),
+    };
+    const slots = pool("failed", slow);
+    slots.handle(START);
+    await settle();
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "" });
+    slots.handle({ ...START, id: "command-3" });
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39"]);
+
+    exits[0]?.();
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39", "open slot-1 #39"]);
+  });
+
+  it("still waits for the first stopped run's exit when a restart is stopped again before it opens", async () => {
+    const exits: Array<() => void> = [];
+    const slow: Agent = {
+      label: "Slow",
+      start: () => ({ stop: () => new Promise<void>((resolve) => exits.push(resolve)) }),
+    };
+    const slots = pool("failed", slow);
+    slots.handle(START);
+    await settle();
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "" });
+    slots.handle({ ...START, id: "command-3" });
+    await settle();
+    slots.handle({ id: "command-4", slotId: "slot-1", kind: "stop", reason: "" });
+    slots.handle({ ...START, id: "command-5" });
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39"]);
+
+    exits[0]?.();
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39", "close slot-1 #39", "open slot-1 #39"]);
+  });
+
+  it("discards a cancelled task's worktree only once its stopped agent has exited", async () => {
+    const exits: Array<() => void> = [];
+    const slow: Agent = {
+      label: "Slow",
+      start: () => ({ stop: () => new Promise<void>((resolve) => exits.push(resolve)) }),
+    };
+    const slots = pool("failed", slow);
+    slots.handle(START);
+    await settle();
+    slots.handle({ id: "command-2", slotId: "slot-1", kind: "stop", reason: "" });
+    slots.handle({ id: "command-3", slotId: "slot-1", kind: "stop", reason: "", issueNumber: 39, discard: true });
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39"]);
+
+    exits[0]?.();
+    await settle();
+    expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39", "close slot-1 #39 discarding"]);
+  });
+
   it("ignores a command for a slot it does not have, and a prompt for a slot holding no task", () => {
     const slots = pool();
     slots.handle({ ...START, slotId: "slot-9" });
@@ -837,7 +919,7 @@ describe("SlotPool", () => {
         reporter.started();
         reporter.progress("é".repeat(200));
         waiting = () => reporter.needsInput("ü".repeat(200));
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     let waiting: (() => void) | undefined;
@@ -858,7 +940,7 @@ describe("SlotPool", () => {
       label: "Claude",
       start: (_task, given) => {
         reporter = given;
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     const slots = pool("failed", agent);
@@ -884,6 +966,7 @@ describe("SlotPool", () => {
       ["started", ""],
       ["finished", "Claude exited with code 0"],
     ]);
+    await settle();
     expect(asked).toEqual(["open slot-1 #39", "close slot-1 #39"]);
   });
 
@@ -893,7 +976,7 @@ describe("SlotPool", () => {
       label: "Claude",
       start: (_task, given) => {
         reporter = given;
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     const slots = pool("failed", agent);
@@ -918,7 +1001,7 @@ describe("SlotPool", () => {
       label: "Claude",
       start: (_task, given) => {
         reporter = given;
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     const slots = new SlotPool({
@@ -951,7 +1034,7 @@ describe("SlotPool", () => {
           reporter.progress("still here");
           reporter.failed("too late");
         };
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     const slots = pool("failed", agent);
@@ -984,7 +1067,7 @@ describe("SlotPool spend", () => {
       start: (_task, reporter) => {
         reporters.push(reporter);
         reporter.started();
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
   }
@@ -1083,7 +1166,7 @@ describe("SlotPool prompts from the CEO", () => {
       label: "Claude",
       start: (_task, reporter) => {
         handle.reporter = reporter;
-        return takesPrompts ? { stop: () => undefined, prompt: (text) => typed.push(text) } : { stop: () => undefined };
+        return takesPrompts ? { stop: () => Promise.resolve(), prompt: (text) => typed.push(text) } : { stop: () => Promise.resolve() };
       },
     };
     return { agent, typed, handle };
@@ -1227,7 +1310,7 @@ describe("SlotPool during a standup", () => {
       label: "Claude",
       start: (_task, reporter) => {
         handle.reporter = reporter;
-        return { stop: () => undefined, prompt: (text) => typed.push(text) };
+        return { stop: () => Promise.resolve(), prompt: (text) => typed.push(text) };
       },
     };
     return { agent, typed, handle };
@@ -1425,7 +1508,7 @@ describe("SlotPool keys from the CEO", () => {
       label: "Claude",
       start: (_task, reporter) => {
         handle.reporter = reporter;
-        return takesKeys ? { stop: () => undefined, key: (key) => pressed.push(key) } : { stop: () => undefined };
+        return takesKeys ? { stop: () => Promise.resolve(), key: (key) => pressed.push(key) } : { stop: () => Promise.resolve() };
       },
     };
     return { agent, pressed, handle };
@@ -1554,7 +1637,7 @@ describe("SlotPool profiles", () => {
       label: "Spy",
       start: (task) => {
         tasks.push(task);
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     return { agent, tasks };
@@ -1679,7 +1762,7 @@ describe("SlotPool screens", () => {
       start: (_task, reporter) => {
         printer.print = (data) => reporter.output(data);
         reporter.started();
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     return { agent, printer };
@@ -1991,7 +2074,7 @@ describe("SlotPool desk sessions", () => {
   });
 
   it("refuses a desk for an agent that takes no desk sessions", () => {
-    const agent: Agent = { label: "Plain", start: () => ({ stop: () => undefined }) };
+    const agent: Agent = { label: "Plain", start: () => ({ stop: () => Promise.resolve() }) };
     const slots = deskPool({ agent });
     slots.handle(OPEN);
     expect(deskEvents(slots)[0]).toMatchObject({ message: "The Plain agent takes no desk sessions on this runner" });

@@ -947,7 +947,10 @@ Down`). Until someone answers, it waits, the task timeout held, or until a
 `stop`. A `stop` or the timeout sends `SIGTERM` to
 Claude's whole process group, which it leads, and `SIGKILL` five seconds later
 to anything still there; what is left in the group when Claude exits is killed
-too.
+too. Its worktree is closed only once it has exited. The runner shutting down
+(`Ctrl-C`, a deploy's `SIGTERM`, or a crash) stops every agent, standing runs
+included, waits up to ten seconds for them to exit, and kills any process group
+still alive before it exits itself.
 
 Claude runs unattended with `--permission-mode acceptEdits` and a short
 allowlist of commands, `CLAUDE_ALLOWED_COMMANDS` in
@@ -1792,6 +1795,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
 apps/runner/       @sim/runner   the agent runner: slots, agents, their screens, and the sync with the server
   src/config.ts           its RUNNER_* variables, refused at boot when wrong
   src/syncLoop.ts         the sync about once a second: acks, events, backoff
+  src/shutdown.ts         stopping on a signal or a crash: agents waited for up to a grace, then killed
   src/syncClient.ts       one sync over HTTP, and reading back its commands
   src/issueStates.ts      closing and reopening issues for the CEO with gh, and what came of each
   src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it, slots lent to the CEO's desk, and each slot's agent's profile
@@ -1811,6 +1815,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/screensClient.ts    one post of the screens over HTTP
   src/agents/provider.ts  what the PTY agent needs from each agent CLI's adapter
   src/agents/ptyAgent.ts  an agent CLI in a PTY: launch, hooks, progress and first-run screens, stop by process group
+  src/agents/processGroups.ts  every agent process group still alive, for a shutdown to kill
   src/agents/claude.ts    Claude Code's adapter: its command line, hook settings and allowlist, what each hook means
   src/agents/usage.ts     a Claude Code session's cost, read off its transcript and priced per model
   src/agents/hookServer.ts  the loopback server agents' hooks post to, a token per process

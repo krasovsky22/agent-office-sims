@@ -18,6 +18,7 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 
+import { trackGroup } from "../agents/processGroups.js";
 import { usageOfMessage } from "../agents/usage.js";
 
 /** How long a stopped run has to exit before its process group is killed outright. */
@@ -131,6 +132,7 @@ export function runHeadless(options: HeadlessOptions): Promise<HeadlessResult> {
       resolve({ ok: false, text: "", costUsd: 0, why: `the agent did not start: ${(error as Error).message}` });
       return;
     }
+    const untrack = child.pid === undefined ? () => false : trackGroup(child.pid);
 
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     const signalGroup = (name: NodeJS.Signals): void => {
@@ -155,7 +157,6 @@ export function runHeadless(options: HeadlessOptions): Promise<HeadlessResult> {
       stopped = why;
       signalGroup("SIGTERM");
       killTimer = setTimeout(() => signalGroup("SIGKILL"), options.stopGraceMs ?? STOP_GRACE_MS);
-      killTimer.unref();
     };
 
     const minutes = Math.round(options.timeoutMs / 60_000);
@@ -266,6 +267,7 @@ export function runHeadless(options: HeadlessOptions): Promise<HeadlessResult> {
       options.signal.removeEventListener("abort", onAbort);
       // Its work is over: anything it left running in its group goes too.
       signalGroup("SIGKILL");
+      untrack();
       if (buffer.trim() !== "" && !skipping) {
         handle(buffer);
       }

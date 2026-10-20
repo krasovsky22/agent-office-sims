@@ -350,7 +350,7 @@ describe("the mock runner's screens and the server's screen store", () => {
         reporter.output(`$ env\r\nRUNNER_SECRET=${SECRET}\r\n`);
         reporter.output(`\u001b[33m${SECRET.slice(0, 9)}\u001b[1m${SECRET.slice(9)}\u001b[0m\r\n`);
         reporter.output(`${"x".repeat(90)}${SECRET}\r\n`);
-        return { stop: () => undefined };
+        return { stop: () => Promise.resolve() };
       },
     };
     const { loop, screens } = runner("failed", leaky);
