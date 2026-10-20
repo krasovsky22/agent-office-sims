@@ -42,7 +42,7 @@ import { type WorkHost, applyAs } from "../rooms/workHandlers.js";
 import type { PlannedHire } from "./advisor.js";
 import { REFUSAL_TEXT } from "./assign.js";
 import type { OfficeView } from "./officeView.js";
-import { describeWork, resolveWork } from "./resolve.js";
+import { describeWork, resolveWork, titleLengthFor } from "./resolve.js";
 
 /** How long a hired agent has to reach the floor before the manager gives up on it. */
 export const HIRE_ARRIVAL_MS = 60_000;
@@ -142,15 +142,16 @@ export class HireDesk {
    */
   public carryOut(hires: readonly PlannedHire[], context: HireContext): string[] {
     const named = new Set<string>();
-    return hires.map((hire) => this.carryOutOne(hire, context, named));
+    const titleLength = titleLengthFor(hires.length);
+    return hires.map((hire) => this.carryOutOne(hire, context, named, titleLength));
   }
 
-  private carryOutOne(planned: PlannedHire, context: HireContext, named: Set<string>): string {
+  private carryOutOne(planned: PlannedHire, context: HireContext, named: Set<string>, titleLength: number): string {
     const work = resolveWork(planned.work, context.view);
     if (work === undefined) {
       return `✗ ${planned.work}: I can't find that on the project board, so I hired nobody for it.`;
     }
-    const label = describeWork(work);
+    const label = describeWork(work, titleLength);
     if (work.kind === "pull") {
       return `✗ ${label}: a new agent is hired for an issue, not a pull request.`;
     }

@@ -31,7 +31,7 @@ import { type WorkHost, applyAs } from "../rooms/workHandlers.js";
 import type { PlannedWorkMove } from "./advisor.js";
 import { REFUSAL_TEXT } from "./assign.js";
 import type { OfficeView } from "./officeView.js";
-import { describeWork, resolveWork } from "./resolve.js";
+import { describeWork, resolveWork, titleLengthFor } from "./resolve.js";
 
 /** Most moves one plan may make, as for assignments. */
 export const MAX_MOVES_PER_PLAN = 10;
@@ -50,19 +50,20 @@ export interface WorkMoveContext {
  * @returns one line per move saying what happened, for the reply.
  */
 export function carryOutMoves(moves: readonly PlannedWorkMove[], context: WorkMoveContext): string[] {
-  const lines = moves.slice(0, MAX_MOVES_PER_PLAN).map((move) => carryOutMove(move, context));
+  const titleLength = titleLengthFor(moves.length);
+  const lines = moves.slice(0, MAX_MOVES_PER_PLAN).map((move) => carryOutMove(move, context, titleLength));
   if (moves.length > MAX_MOVES_PER_PLAN) {
     lines.push(`I stopped after ${MAX_MOVES_PER_PLAN} changes; ask again for the rest.`);
   }
   return lines;
 }
 
-function carryOutMove(move: PlannedWorkMove, context: WorkMoveContext): string {
+function carryOutMove(move: PlannedWorkMove, context: WorkMoveContext, titleLength: number): string {
   const ref = resolveWork(move.work, context.view);
   if (ref === undefined) {
     return `✗ ${move.work}: I can't find that on the project board.`;
   }
-  const label = describeWork(ref);
+  const label = describeWork(ref, titleLength);
   if (ref.kind === "pull") {
     return `✗ ${label}: the office's work is on issues, and a pull request has none to change.`;
   }

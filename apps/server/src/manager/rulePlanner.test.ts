@@ -354,6 +354,15 @@ describe("planFromRules: the runners' coding agents", () => {
     expect(ask("what is Claude 2 doing?", RUNNER_VIEW).reply).toBe("Claude 2 (coding agent) is idle.");
   });
 
+  it("quotes the whole title when asked about one agent, and clips it in the team list", () => {
+    const long = `Night shift ${"with a very long title that keeps going ".repeat(6)}`.trim();
+    const view = claude2({ status: LIVE_AGENT_STATUS.working }, { title: long });
+    expect(ask("what is Claude 2 doing?", view).reply).toBe(`Claude 2 (coding agent) is working on #39 “${long}”.`);
+    const team = ask("who's free?", view).reply;
+    expect(team).toContain(`Claude 2 (coding agent) is working on #39 “${clip(long, MAX_TITLE_LENGTH)}”.`);
+    expect(team).not.toContain(long);
+  });
+
   it("says what one is doing right now, what it waits on, and the pull request it opened", () => {
     expect(ask("what is Claude 2 doing?", claude2({}, { status: WORK_STATUS.assigned })).reply).toBe(
       "Claude 2 (coding agent) has #39 “Night shift” and hasn't started yet.",

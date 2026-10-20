@@ -50,7 +50,7 @@ import { LIVE_AGENT_STATUS, MAX_TITLE_LENGTH, WORK_STATUS, type WorkStatus, clip
 
 import { ANY_CODING_AGENT, type ManagerPlan, type ManagerRequest, type PlannedStandup, type WorkMoveKind } from "./advisor.js";
 import type { IssueAgentView, IssueView, LiveAgentView, OfficeView, PullRequestView, WorkView } from "./officeView.js";
-import { type WorkRef, findAgents, findIssueByTitle, findUnknownWork, findWork, resolveAgent } from "./resolve.js";
+import { type WorkRef, findAgents, findIssueByTitle, findUnknownWork, findWork, resolveAgent, titleLengthFor } from "./resolve.js";
 import { readStandingInstruction, standingSummary } from "./standingPlan.js";
 
 /** Most items one list in an answer names before saying how many more there are. */
@@ -209,7 +209,7 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
   }
 
   if (work.length > 0) {
-    const titleLength = work.length === 1 ? Infinity : MAX_TITLE_LENGTH;
+    const titleLength = titleLengthFor(work.length);
     const lines = work.slice(0, LIST_LIMIT).map((ref) => describeRef(ref, view, titleLength));
     if (ASKING_ADVICE.test(message)) {
       lines.push(adviceFor(view));
@@ -221,7 +221,8 @@ function answer(message: string, view: OfficeView): Omit<ManagerPlan, "tokensUse
     return { reply: standupSummary(view), assignments: [] };
   }
   if (agents.length > 0) {
-    return { reply: agents.slice(0, LIST_LIMIT).map((agent) => describeAgent(agent, view)).join("\n"), assignments: [] };
+    const titleLength = titleLengthFor(agents.length);
+    return { reply: agents.slice(0, LIST_LIMIT).map((agent) => describeAgent(agent, view, titleLength)).join("\n"), assignments: [] };
   }
   const pulls = PULL_WORDS.test(message);
   const board = BOARD_WORDS.test(message);
@@ -782,13 +783,13 @@ function pullLine(pull: PullRequestView, titleLength: number): string {
 
 type FloorAgent = IssueAgentView | LiveAgentView;
 
-function describeAgent(agent: FloorAgent, view: OfficeView): string {
+function describeAgent(agent: FloorAgent, view: OfficeView, titleLength: number): string {
   const coder = view.issueAgents.find((candidate) => candidate === agent);
-  return coder === undefined ? describeLiveAgent(agent as LiveAgentView) : describeCodingAgent(coder);
+  return coder === undefined ? describeLiveAgent(agent as LiveAgentView, titleLength) : describeCodingAgent(coder, titleLength);
 }
 
 /** A runner's coding agent: what it is doing about the issue it has, and the pull request it opened. */
-function describeCodingAgent(agent: IssueAgentView): string {
+function describeCodingAgent(agent: IssueAgentView, titleLength: number): string {
   const work = agent.issue;
   const activity = agent.activity === "" ? "" : ` (${agent.activity})`;
   const who = `${agent.name} (coding agent)`;
@@ -797,12 +798,12 @@ function describeCodingAgent(agent: IssueAgentView): string {
     const review = /^Review (PR #\d+)(?:: (.*))?$/.exec(task.title);
     return review === null
       ? `${who} is running the standing task “${taskName}”${activity}; an issue handed to it comes first.`
-      : `${who} is reviewing ${review[1]}${review[2] === undefined ? "" : ` “${clip(review[2], MAX_TITLE_LENGTH)}”`} for the standing task “${taskName}”${activity}; an issue handed to it comes first.`;
+      : `${who} is reviewing ${review[1]}${review[2] === undefined ? "" : ` “${clip(review[2], titleLength)}”`} for the standing task “${taskName}”${activity}; an issue handed to it comes first.`;
   }
   if (work === undefined) {
     return `${who} is idle.`;
   }
-  const issue = `#${work.issueNumber} “${clip(work.title, MAX_TITLE_LENGTH)}”`;
+  const issue = `#${work.issueNumber} “${clip(work.title, titleLength)}”`;
   const note = work.note === undefined ? "" : ` Its last word on it: ${work.note}`;
   if (work.status === WORK_STATUS.review) {
     const pull = work.pullRequest;
@@ -833,20 +834,20 @@ function freeAgents(view: OfficeView): string[] {
   ].map((agent) => agent.name);
 }
 
-function describeLiveAgent(agent: LiveAgentView): string {
-  const task = agent.task === undefined ? "something it hasn't named" : linkText(agent.task);
+function describeLiveAgent(agent: LiveAgentView, titleLength: number): string {
+  const task = agent.task === undefined ? "something it hasn't named" : linkText(agent.task, titleLength);
   const doing =
     agent.status === "working"
       ? `working on ${task}`
       : agent.status === "needs-input"
         ? `waiting on you on ${task}${agent.activity === "" ? "" : ` (${agent.activity})`}`
         : "idle";
-  const next = agent.assigned === undefined ? "" : ` Next up: ${linkText(agent.assigned)}.`;
+  const next = agent.assigned === undefined ? "" : ` Next up: ${linkText(agent.assigned, titleLength)}.`;
   return `${agent.name} (live coding agent) is ${doing}.${next}`;
 }
 
-function linkText(link: { readonly title: string; readonly reference: string }): string {
-  const title = clip(link.title, MAX_TITLE_LENGTH);
+function linkText(link: { readonly title: string; readonly reference: string }, titleLength: number): string {
+  const title = clip(link.title, titleLength);
   return link.reference === "" ? `“${title}”` : `${link.reference} “${title}”`;
 }
 
@@ -855,7 +856,7 @@ function teamSummary(view: OfficeView): string {
   if (agents.length === 0) {
     return "Nobody is on the floor right now: there are no agents to report on.";
   }
-  const lines = ["Live coding agents:", ...agents.map((agent) => `- ${describeAgent(agent, view)}`)];
+  const lines = ["Live coding agents:", ...agents.map((agent) => `- ${describeAgent(agent, view, MAX_TITLE_LENGTH)}`)];
   const free = freeAgents(view);
   lines.push(free.length === 0 ? "Nobody is free." : `Free for something new: ${free.join(", ")}.`);
   return lines.join("\n");
