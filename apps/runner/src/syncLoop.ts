@@ -204,12 +204,16 @@ export class SyncLoop {
     if (!this.running) {
       return;
     }
-    await this.syncOnce();
-    if (this.running) {
-      this.timer = setTimeout(() => {
-        this.timer = undefined;
-        void this.loop();
-      }, this.nextDelayMs());
+    try {
+      await this.syncOnce();
+    } finally {
+      // A command that throws still leaves the next sync due; the throw itself is the runner's crash handler's.
+      if (this.running) {
+        this.timer = setTimeout(() => {
+          this.timer = undefined;
+          void this.loop();
+        }, this.nextDelayMs());
+      }
     }
   }
 

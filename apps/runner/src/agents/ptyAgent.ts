@@ -29,6 +29,7 @@ import { type AgentKey, sanitizePromptText } from "@sim/shared";
 import { SCREEN_COLS, SCREEN_ROWS } from "../terminal.js";
 import { childEnv } from "./childEnv.js";
 import { HOOK_ENV, type HookServer } from "./hookServer.js";
+import { trackGroup } from "./processGroups.js";
 import { startPrompt } from "./prompt.js";
 import type { ProviderAdapter, RunHandle, RunStatus } from "./provider.js";
 import { ScreenReader } from "./screen.js";
@@ -248,6 +249,11 @@ function startRun<P>(
     route.dispose();
     throw error;
   }
+  const untrack = trackGroup(proc.pid);
+  let exited = (): void => undefined;
+  const gone = new Promise<void>((resolve) => {
+    exited = resolve;
+  });
 
   /**
    * A first-run or sign-in screen needs a person, until a hook says it moved
@@ -332,6 +338,8 @@ function startRun<P>(
     clearTimeout(keyTimer);
     // Its work is over and its terminal gone: anything it left running in its group goes too.
     signalGroup("SIGKILL");
+    untrack();
+    exited();
     // Whatever its last turn logged is paid for, however its work ended.
     meterSpend();
     if (ended) {
@@ -378,7 +386,7 @@ function startRun<P>(
     },
     stop() {
       if (ended) {
-        return;
+        return gone;
       }
       ended = true;
       clearTimeout(bootHint);
@@ -394,7 +402,7 @@ function startRun<P>(
           proc.kill("SIGKILL");
         }
       }, options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS);
-      killTimer.unref();
+      return gone;
     },
   };
 }

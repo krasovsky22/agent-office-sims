@@ -332,7 +332,7 @@ sleep 30`,
     expect(reporter.seen).toEqual(["needs-input: Waiting on a setup screen (trust / login / API key)"]);
   });
 
-  it("stops its whole process group, and reports nothing after", async () => {
+  it("stops its whole process group, resolving only once it has exited, and reports nothing after", async () => {
     const command = fakeClaude(
       "group.sh",
       `sleep 300 &
@@ -350,9 +350,10 @@ while true; do sleep 1; done`,
     const leader = Number(readFileSync(join(work.workdir, "leader.pid"), "utf8"));
     const child = Number(readFileSync(join(work.workdir, "child.pid"), "utf8"));
     expect(alive(leader) && alive(child)).toBe(true);
-    run.stop();
     // The leader ignores SIGTERM, so it takes the SIGKILL after the grace.
-    await until(() => !alive(leader) && !alive(child));
+    await run.stop();
+    expect(alive(leader)).toBe(false);
+    await until(() => !alive(child));
     expect(reporter.seen).toEqual(["started"]);
   });
 

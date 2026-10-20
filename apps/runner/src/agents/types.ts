@@ -71,8 +71,12 @@ export interface AgentReporter {
 
 /** One agent working one task. */
 export interface AgentRun {
-  /** Ends the work now. The agent reports nothing more; the slot says why it stopped. */
-  stop(): void;
+  /**
+   * Ends the work now. The agent reports nothing more; the slot says why it
+   * stopped. Resolves once its process has exited, so nothing it started is
+   * still writing to its worktree.
+   */
+  stop(): Promise<void>;
   /** Says something to it at its prompt, starting another turn; left out by an agent that takes no prompts. */
   prompt?(text: string): void;
   /**

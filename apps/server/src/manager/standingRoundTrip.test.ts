@@ -96,7 +96,7 @@ beforeAll(async () => {
   const ledger = new SpendLedger({ budgetUsd: undefined });
   const pool = new SlotPool({
     count: 2,
-    agent: { label: "Mock", start: () => ({ stop: () => undefined }) },
+    agent: { label: "Mock", start: () => ({ stop: () => Promise.resolve() }) },
     workspaces: { open: async () => dataDir, close: async () => undefined },
     taskTimeoutMs: 60_000,
     runnerId: "runner-1",

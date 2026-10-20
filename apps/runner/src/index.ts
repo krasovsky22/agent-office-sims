@@ -43,6 +43,7 @@ import { STANDING_OFF, formatUsd, retiredAgentIssueLabelNotice } from "@sim/shar
 import { claudeAdapter } from "./agents/claude.js";
 import { HookServer } from "./agents/hookServer.js";
 import { createMockAgent } from "./agents/mock.js";
+import { killLiveGroups } from "./agents/processGroups.js";
 import { createPtyAgent, findOnPath } from "./agents/ptyAgent.js";
 import type { Agent } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
@@ -57,6 +58,7 @@ import { IssueStateDesk, ghIssueState } from "./issueStates.js";
 import { createRedactor, runnerSecrets } from "./redact.js";
 import { ScreenLoop } from "./screenLoop.js";
 import { createScreensClient } from "./screensClient.js";
+import { createShutdown } from "./shutdown.js";
 import { SlotWorktrees } from "./slotWorktrees.js";
 import { SlotPool } from "./slots.js";
 import { createClaudeStandingRunners } from "./standing/claude.js";
@@ -87,7 +89,7 @@ try {
 /** Every step an agent reports: only with `RUNNER_LOG_LEVEL=debug`. */
 const debug = config.logLevel === "debug" ? (line: string) => log(`debug: ${line}`) : () => undefined;
 
-/** Longest a shutdown waits for worktrees being made or removed to finish. */
+/** Longest a shutdown waits for its agents to exit and worktrees being made or removed to finish. */
 const SHUTDOWN_GRACE_MS = 10_000;
 
 // Private to the runner's user: its clone and its tasks' worktrees live here.
@@ -285,19 +287,26 @@ const screens = new ScreenLoop({
   log,
 });
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
+const shutdown = createShutdown({
+  stop: () => {
     loop.stop();
     screens.stop();
     credentials?.stop();
-    standing.stop();
-    pool.stopAll();
-    // A worktree left half-removed would read as work to keep, so let removals finish.
-    const grace = setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
-    void workspaces.settled().finally(() => {
-      clearTimeout(grace);
-      process.exit(0);
-    });
+    return Promise.all([standing.stop(), pool.stopAll()]);
+  },
+  settled: () => workspaces.settled(),
+  graceMs: SHUTDOWN_GRACE_MS,
+  kill: killLiveGroups,
+  exit: (code) => process.exit(code),
+});
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => shutdown(0));
+}
+// A crash stops the agents too, rather than leaving them to work on unseen.
+for (const crash of ["unhandledRejection", "uncaughtException"] as const) {
+  process.on(crash, (error: unknown) => {
+    log(`crashed, stopping every agent: ${redactor.redactText(error instanceof Error ? (error.stack ?? error.message) : String(error))}`);
+    shutdown(1);
   });
 }
 

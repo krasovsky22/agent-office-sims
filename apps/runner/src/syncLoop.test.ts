@@ -16,7 +16,7 @@ import {
   type RunnerSlotReport,
   type RunnerSync,
 } from "@sim/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { IssueStateDesk } from "./issueStates.js";
 import { SyncError, type SyncReply } from "./syncClient.js";
@@ -35,6 +35,9 @@ function event(id: string): RunnerWorkEvent {
 function stop(id: string): RunnerCommand {
   return { id, slotId: "slot-1", kind: "stop", reason: "" };
 }
+
+/** A command the pool throws on, as a broken handler would. */
+const THROWS = "command-throws";
 
 /** A pool that records what it is handed, and a client that answers from a script. */
 function setup(replies: (SyncReply | Error)[], events: RunnerWorkEvent[] = [], outcomes: RunnerPromptOutcome[] = []) {
@@ -56,6 +59,9 @@ function setup(replies: (SyncReply | Error)[], events: RunnerWorkEvent[] = [], o
         prompts = prompts.filter((candidate) => !ids.has(candidate.commandId));
       },
       handle: (command) => {
+        if (command.id === THROWS) {
+          throw new Error("boom");
+        }
         handled.push(command.id);
       },
       setStandup: (on) => {
@@ -210,6 +216,31 @@ describe("SyncLoop", () => {
     expect(await loop.syncOnce()).toBe(true);
     expect(loop.nextDelayMs()).toBe(1000);
     expect(logged.at(-1)).toBe("synced with the server after 14 failed syncs");
+  });
+
+  it("leaves the next sync due when a command throws, and lets the throw reach the runner's crash handler", async () => {
+    const crashes: unknown[] = [];
+    const theirs = process.listeners("unhandledRejection");
+    process.removeAllListeners("unhandledRejection");
+    process.on("unhandledRejection", (reason) => crashes.push(reason));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { loop, sent } = setup([{ commands: [stop(THROWS)], unreadable: [] }]);
+      loop.start();
+      await vi.advanceTimersByTimeAsync(0);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(crashes).toEqual([new Error("boom")]);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(sent).toHaveLength(2);
+      loop.stop();
+    } finally {
+      vi.useRealTimers();
+      process.removeAllListeners("unhandledRejection");
+      for (const listener of theirs) {
+        process.on("unhandledRejection", listener);
+      }
+    }
   });
 });
 
