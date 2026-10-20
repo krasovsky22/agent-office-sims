@@ -23,6 +23,7 @@ import {
   MAX_CLOSED_ISSUES,
   MAX_ISSUE_BODY_LENGTH,
   MAX_ITEM_LABELS,
+  MAX_ISSUE_TITLE_LENGTH,
   MAX_LABEL_LENGTH,
   type ProjectBoardLists,
   asRecord,
@@ -134,7 +135,8 @@ export function parseIssueItem(raw: unknown): GithubIssueItem | undefined {
   if (state !== "open" && state !== "closed") {
     return undefined;
   }
-  const title = sanitizeTitle(item["title"]);
+  // Whole, for the board's detail pane and the manager; a card clips its own.
+  const title = sanitizeTitle(item["title"], MAX_ISSUE_TITLE_LENGTH);
   if (title === "") {
     return undefined;
   }

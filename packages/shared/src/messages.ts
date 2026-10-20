@@ -38,7 +38,7 @@ import { isTerminalSize } from "./screens.js";
 import { type StandingRejection, type StandingTaskAction, isStandingTaskId } from "./standing.js";
 import type { StandupRejection } from "./standup.js";
 import { ANIMATION_STATE, type ReportedAnimation, type WorkStatus, isWorkStatus } from "./state.js";
-import { asRecord, isIssueNumber, replaceControls, truncate } from "./text.js";
+import { asRecord, clip, isIssueNumber, replaceControls, truncate } from "./text.js";
 import type { WorkAction, WorkRejection } from "./work.js";
 
 /** Matchmaking name of the only room type this milestone defines. */
@@ -524,6 +524,9 @@ export const MAX_NAME_LENGTH = 18;
 /** Long enough for a real summary line, short enough for a board card. */
 export const MAX_TITLE_LENGTH = 90;
 
+/** GitHub's own cap on an issue's title, so the board feed keeps every title whole. */
+export const MAX_ISSUE_TITLE_LENGTH = 256;
+
 /** Rejects an id longer than anything the server itself mints. */
 const MAX_ID_LENGTH = 64;
 
@@ -712,12 +715,13 @@ export function parseJoinOptions(raw: unknown): JoinOptions {
  *
  * Same treatment as a display name, at a card's width: a title is read in a
  * fixed-height row, so a newline in it is a layout bug rather than formatting.
+ * A long one is cut between words and ends in `…`, so it never reads as a stump.
  */
-export function sanitizeTitle(raw: unknown): string {
+export function sanitizeTitle(raw: unknown, maxLength = MAX_TITLE_LENGTH): string {
   if (typeof raw !== "string") {
     return "";
   }
-  return truncate(replaceControls(raw, " ").replace(WHITESPACE_RUN, " ").trim(), MAX_TITLE_LENGTH);
+  return clip(replaceControls(raw, " ").replace(WHITESPACE_RUN, " ").trim(), maxLength);
 }
 
 /** Any of the three line endings a browser might send, normalised to one. */

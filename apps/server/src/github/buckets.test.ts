@@ -205,6 +205,11 @@ describe("parseIssueItem", () => {
     });
   });
 
+  it("keeps a title longer than a card whole, for the detail pane and the manager", () => {
+    const title = `${"word ".repeat(40)}end`;
+    expect(parseIssueItem({ ...raw, title })?.title).toBe(title);
+  });
+
   it("reads a label given as a bare name, with no colour", () => {
     expect(parseIssueItem({ ...raw, labels: ["wave-2"] })?.labels).toEqual([{ name: "wave-2", color: "" }]);
   });

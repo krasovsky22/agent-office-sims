@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MAX_ISSUE_NUMBER, asRecord, hasControls, isIssueNumber, replaceControls, truncate } from "./text.js";
+import { MAX_ISSUE_NUMBER, asRecord, clip, hasControls, isIssueNumber, replaceControls, truncate } from "./text.js";
 
 describe("replaceControls", () => {
   it("replaces C0, DEL, C1 and every bidi mark", () => {
@@ -36,6 +36,20 @@ describe("truncate", () => {
   it("counts code points, so an emoji is kept whole or not at all", () => {
     expect(truncate("ab\u{1f600}\u{1f600}", 3)).toBe("ab\u{1f600}");
     expect(truncate("short", 10)).toBe("short");
+  });
+});
+
+describe("clip", () => {
+  it("cuts between words and ends in an ellipsis, within the length", () => {
+    expect(clip("report progress and blockers, take directions", 30)).toBe("report progress and…");
+    expect(Array.from(clip("report progress and blockers, take directions", 30)).length).toBeLessThanOrEqual(30);
+    expect(clip("short", 5)).toBe("short");
+  });
+
+  it("cuts inside a word only when the last space is too early to lose the rest", () => {
+    expect(clip("a supercalifragilistic", 10)).toBe("a superca…");
+    expect(clip("ab\u{1f600}\u{1f600}", 3)).toBe("ab…");
+    expect(clip("anything", 0)).toBe("");
   });
 });
 

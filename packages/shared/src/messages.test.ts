@@ -104,7 +104,15 @@ describe("the one-line sanitizers", () => {
   it("cut a title between emoji, never inside one", () => {
     const title = sanitizeTitle(`a${"\u{1f600}".repeat(MAX_TITLE_LENGTH)}`);
     expect(Array.from(title)).toHaveLength(MAX_TITLE_LENGTH);
-    expect(title.endsWith("\u{1f600}")).toBe(true);
+    expect(title.endsWith("\u{1f600}…")).toBe(true);
+  });
+
+  it("cut a long title on a word, with an ellipsis, and keep one up to a longer cap whole", () => {
+    const long = `Standup call: ${"report progress ".repeat(10)}and take directions`;
+    const title = sanitizeTitle(long);
+    expect(Array.from(title).length).toBeLessThanOrEqual(MAX_TITLE_LENGTH);
+    expect(title).toMatch(/ (report|progress)…$/);
+    expect(sanitizeTitle(long, 256)).toBe(long);
   });
 });
 
