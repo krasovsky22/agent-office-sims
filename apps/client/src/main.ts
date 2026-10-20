@@ -51,7 +51,7 @@ import { standupAccessFor } from "./standupAccess.js";
 import { boardAccessFor } from "./boardAccess.js";
 import { browserStorage, readDebugEnabled, readPropsEnabled, readServerUrl, requireCanvas, requireHudMount } from "./browserEnv.js";
 import { DayClock } from "./dayClock.js";
-import { helpSeen, markHelpSeen } from "./help.js";
+import { hudActions } from "./hudActions.js";
 import { hudRoomEvents } from "./hudRoomEvents.js";
 import { withOfficeWork } from "./projectBoard.js";
 import { managerAccessFor } from "./managerAccess.js";
@@ -540,82 +540,38 @@ function start(): void {
   createRoot(requireHudMount()).render(
     createElement(Hud, {
       store: hudStore,
-      actions: {
-        sendEmote: (emote) => room.sendEmote(emote),
-        sendChat: (text) => room.sendChat(text),
+      actions: hudActions({
+        room,
+        publish: publishHud,
+        hud: () => hud,
+        browserStorage,
+        serverUrl: readServerUrl,
         toggleCamera: toggleCameraMode,
-        toggleHelp: () => publishHud({ helpOpen: !hud.helpOpen }),
         answer,
-        rejoin: () => {
-          // A refusal is already on the HUD, with the button still by it.
-          void room.rejoin().catch(() => {});
-        },
-        join: (name) => {
+        issueMoves,
+        askedFor: (name) => {
           askedName = name;
-          // A first visit gets the controls once it is in, not over the name card.
-          const firstVisit = !helpSeen(browserStorage());
-          markHelpSeen(browserStorage());
-          publishHud({ nameCard: undefined, helpOpen: hud.helpOpen || firstVisit });
-          void room.connect(readServerUrl(), name).catch(() => {
-            // The status is already on the HUD; the empty office keeps rendering so the
-            // failure is visible rather than a blank page.
-          });
         },
-        rename: (name) => {
-          askedName = name;
-          room.sendRename(name);
+        closePanel: () => {
+          readingBoard = "";
         },
-        projectBoard: {
-          assign: (issueNumber, agentId) => room.sendWorkAssign(issueNumber, agentId),
-          move: (issueNumber, status) => room.sendWorkMove(issueNumber, status),
-          release: (issueNumber) => room.sendWorkRelease(issueNumber),
-          setIssueState: (issueNumber, state) => issueMoves.move(issueNumber, state),
+        closeTerminal: () => {
+          readingBoard = "";
+          answeringAgentId = undefined;
         },
-        manager: {
-          say: (text) => room.sendManagerSay(text),
-          close: () => {
-            readingBoard = "";
-          },
+        savedProfile: (agentId) => {
+          lastProfileAgentId = agentId;
         },
-        standing: {
-          act: (action, taskId) => room.sendStanding(action, taskId),
-        },
-        terminal: {
-          screenOf: (agentId) => room.screenOf(agentId),
-          prompt: (agentId, text) => room.sendAgentPrompt(agentId, text),
-          key: (agentId, key) => room.sendAgentKey(agentId, key),
-          resizeDesk: (cols, rows) => room.sendDeskTerminalSize(cols, rows),
-          close: () => {
-            readingBoard = "";
-            answeringAgentId = undefined;
-          },
-        },
-        profile: {
-          save: (agentId, profile) => {
-            lastProfileAgentId = agentId;
-            return room.sendAgentProfile(agentId, profile);
-          },
+        pressedKey: (agentId) => {
+          lastKeyAgentId = agentId;
         },
         standUp: () => {
           standUpRequested = true;
         },
-        agentMenu: {
-          act: (agentId, action) => {
-            room.sendAgentAction(agentId, action);
-            agentMenuId = undefined;
-          },
+        closeAgentMenu: () => {
+          agentMenuId = undefined;
         },
-        standup: {
-          start: () => room.sendStandupStart(),
-          end: () => room.sendStandupEnd(),
-          direct: (agentId, text) => room.sendStandupDirection(agentId, text),
-          key: (agentId, key) => {
-            lastKeyAgentId = agentId;
-            return room.sendAgentKey(agentId, key);
-          },
-          screenOf: (agentId) => room.screenOf(agentId),
-        },
-      },
+      }),
     }),
   );
 
