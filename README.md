@@ -45,9 +45,10 @@ same. Its open issues are the work the office does, and what an agent is doing
 about each issue — who has it, in progress, handed in for review, done — is
 replicated state with its rules enforced on the server, shown on the board's
 cards. An open issue an agent has sits in In progress, whatever GitHub says,
-until the work is done; handed in, its card reads `Waiting for review`. Two sticker boards facing each other across the lounge show the same
-work as anime-style sticky notes: one note per issue an agent may take on the
-issues board, on the lounge's west wall. An agent starting an issue walks there,
+until the work is done; handed in, its card reads `Waiting for review`. Two
+sticker boards facing each other across the lounge show the same work as
+anime-style sticky notes: one note per issue an agent may take on the issues
+board, on the lounge's west wall. An agent starting an issue walks there,
 takes its note and props it on its desk while it works. Once it hands in a pull
 request it pins the note, now naming the pull request, on the pull requests
 board across the lounge.
@@ -1438,7 +1439,8 @@ Then confirm all twenty-five:
     seconds both tabs show it `In progress`, its card moved from the Open
     column to In progress on the close-up and the wall, `<first>` sits and works it on its
     monitor, lights its `Needs you` beacon and waits in its chair until a
-    prompt answers it, and then the card is `In review` with
+    prompt answers it, and then the card is `Waiting for review`, still in
+    In progress, with
     `Simulated pull request, nothing on GitHub: [mock] <title>` as its
     deliverable, with no link, in both tabs.
     `Send back` puts it `In progress` again and the mock works a rework turn
