@@ -122,18 +122,12 @@ import {
 import { systemPrompt } from "./agents/prompt.js";
 import type { Agent, AgentReporter, AgentRun, AgentSession } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
+import { EventOutbox } from "./eventOutbox.js";
 import { NO_GITHUB, type TaskGithub } from "./github.js";
 import type { SlotIds } from "./slotIds.js";
 import type { AgentProfiles } from "./profiles.js";
 import { type Redactor, createRedactor } from "./redact.js";
 import { SCREEN_COLS, SCREEN_ROWS, ScreenMirror } from "./terminal.js";
-
-/**
- * Events held while the server cannot be reached. Far more than a few slots
- * produce in any outage worth riding out; past it the oldest go, so a runner
- * cut off for days holds what is newest rather than growing without end.
- */
-const MAX_PENDING_EVENTS = 256;
 
 /** A slot's activity once its agent's turn has ended: `idle`, still holding the task. */
 export const TURN_DONE = "Turn done";
@@ -311,8 +305,8 @@ export function fitBytes(value: string, maxBytes: number): string {
 
 export class SlotPool {
   private readonly slots: Slot[];
-  private readonly events: Array<RunnerWorkEvent | RunnerDeskEndedEvent> = [];
-  private readonly promptOutcomes: RunnerPromptOutcome[] = [];
+  private readonly events = new EventOutbox<RunnerWorkEvent | RunnerDeskEndedEvent>();
+  private readonly promptOutcomes = new EventOutbox<RunnerPromptOutcome>();
   private readonly eventId: () => string;
   private readonly log: (line: string) => void;
   private readonly debug: (line: string) => void;
@@ -479,12 +473,12 @@ export class SlotPool {
 
   /** The events not yet delivered, oldest first. */
   public pendingEvents(): ReadonlyArray<RunnerWorkEvent | RunnerDeskEndedEvent> {
-    return this.events;
+    return this.events.pending();
   }
 
   /** What came of the CEO's prompts, not yet delivered, oldest first. */
   public pendingPromptOutcomes(): readonly RunnerPromptOutcome[] {
-    return this.promptOutcomes;
+    return this.promptOutcomes.pending();
   }
 
   /**
@@ -493,19 +487,9 @@ export class SlotPool {
    * direction is reported twice under one id, else every one by its command's id.
    */
   public delivered(ids: ReadonlySet<string>, outcomes?: readonly RunnerPromptOutcome[]): void {
-    for (let index = this.events.length - 1; index >= 0; index -= 1) {
-      const event = this.events[index];
-      if (event !== undefined && ids.has(event.id)) {
-        this.events.splice(index, 1);
-      }
-    }
+    this.events.forget((event) => ids.has(event.id));
     const carried = outcomes === undefined ? undefined : new Set(outcomes);
-    for (let index = this.promptOutcomes.length - 1; index >= 0; index -= 1) {
-      const outcome = this.promptOutcomes[index];
-      if (outcome !== undefined && (carried === undefined ? ids.has(outcome.commandId) : carried.has(outcome))) {
-        this.promptOutcomes.splice(index, 1);
-      }
-    }
+    this.promptOutcomes.forget((outcome) => (carried === undefined ? ids.has(outcome.commandId) : carried.has(outcome)));
   }
 
   /**
@@ -952,9 +936,6 @@ export class SlotPool {
   /** Queues what came of the CEO's prompt or key until a sync carrying it is answered. */
   private reportOutcome(slot: Slot, commandId: string, outcome: RunnerPromptOutcomeKind): void {
     this.promptOutcomes.push({ commandId, slotId: slot.id, outcome });
-    if (this.promptOutcomes.length > MAX_PENDING_EVENTS) {
-      this.promptOutcomes.shift();
-    }
   }
 
   /**
@@ -1445,9 +1426,6 @@ export class SlotPool {
       seatId,
       message: fitBytes(this.redactor.redactText(message), MAX_WORK_NOTE_LENGTH),
     });
-    if (this.events.length > MAX_PENDING_EVENTS) {
-      this.events.shift();
-    }
   }
 
   /**
@@ -1525,8 +1503,5 @@ export class SlotPool {
       message: fitBytes(this.redactor.redactText(message), MAX_WORK_NOTE_LENGTH),
       refusal,
     });
-    if (this.events.length > MAX_PENDING_EVENTS) {
-      this.events.shift();
-    }
   }
 }
