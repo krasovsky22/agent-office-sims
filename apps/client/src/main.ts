@@ -78,13 +78,8 @@ import { loadPropKit, screenFaceOf, screenMaterialOf } from "./scene/propKit.js"
 import { buildProps } from "./scene/props.js";
 import { StickerBoards } from "./scene/stickerBoards.js";
 import { buildStreet, streetReach } from "./scene/street.js";
-import {
-  Hud,
-  type ChatLogEntry,
-  type HudPrompt,
-  type HudSnapshot,
-  createHudStore,
-} from "./ui/Hud.js";
+import { Hud } from "./ui/Hud.js";
+import { type ChatLogEntry, type HudPrompt, type HudSnapshot, createHudStore } from "./ui/hudStore.js";
 
 /**
  * Longest frame the simulation will integrate.

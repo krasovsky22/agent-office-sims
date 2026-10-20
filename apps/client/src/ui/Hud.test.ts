@@ -9,7 +9,9 @@ import { describe, expect, it } from "vitest";
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
 import type { ConnectionStatus } from "../net/room.js";
 
-import { type RosterEntry, assignableAgents, canRejoin, groupRoster, spendLine, statusLine } from "./Hud.js";
+import { canRejoin, statusLine } from "./Hud.js";
+import { type RosterEntry, assignableAgents, groupRoster } from "./hudStore.js";
+import { spendLine } from "./Roster.js";
 
 function person(id: string, isCeo = false): RosterEntry {
   return {
