@@ -41,6 +41,7 @@ import {
   sanitizeWorkNote,
 } from "./messages.js";
 import { isLiveAgentKey } from "./liveAgents.js";
+import { clip } from "./text.js";
 import { type BoardIssue, type ProjectBoardSnapshot, isIssueGone, openBoardIssue } from "./projectBoard.js";
 import {
   IssueWork,
@@ -55,6 +56,20 @@ import {
   isWorkStatus,
   workKey,
 } from "./state.js";
+
+/**
+ * An issue's title as `IssueWork` can carry it. `@colyseus/schema` 3.0.76
+ * writes a 255-byte string's length as `255 % 255`, i.e. 0, and every client
+ * then misreads the rest of the patch, so a title of exactly that size loses
+ * its last word instead. The board feed keeps it whole for the detail pane.
+ */
+export function replicableTitle(title: string): string {
+  let kept = title;
+  for (let length = Array.from(title).length - 1; new TextEncoder().encode(kept).length === 255; length--) {
+    kept = clip(title, length);
+  }
+  return kept;
+}
 
 /**
  * The legal status edges, as adjacency.
@@ -557,7 +572,7 @@ function assignWork(
 
   const created = new IssueWork();
   created.issueNumber = payload.issueNumber;
-  created.title = issue?.title ?? "";
+  created.title = replicableTitle(issue?.title ?? "");
   created.status = WORK_STATUS.assigned;
   created.assigneeId = payload.assigneeId;
   created.assignedAt = context.now;
@@ -715,7 +730,8 @@ export function releaseGoneWork(
       released.push(candidate);
       continue;
     }
-    const title = openBoardIssue(board, candidate.issueNumber)?.title;
+    const boardTitle = openBoardIssue(board, candidate.issueNumber)?.title;
+    const title = boardTitle === undefined ? undefined : replicableTitle(boardTitle);
     if (title !== undefined && title !== candidate.title) {
       candidate.title = title;
     }
