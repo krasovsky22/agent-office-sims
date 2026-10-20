@@ -245,6 +245,17 @@ describe("the office's work on an issue", () => {
     expect(workBadge(work, []).text).toBe("Left the office · In progress");
   });
 
+  it("says on the card why work stopped short of a pull request, highlighted", () => {
+    expect(workBadge({ ...work, note: "Timed out after 60 minutes" }, [ada])).toEqual({
+      text: "Ada Byrne · Stopped: Timed out after 60 minutes",
+      tone: "bad",
+    });
+    expect(workBadge({ ...work, status: WORK_STATUS.assigned, note: "Stopped: the runner shut down" }, [ada]).text).toBe(
+      "Ada Byrne · Stopped: the runner shut down",
+    );
+    expect(workBadge({ ...work, status: WORK_STATUS.review, note: "Old" }, [ada]).tone).toBe("pending");
+  });
+
   it("names each move for what it does to the work", () => {
     const review = { ...work, status: WORK_STATUS.review };
     expect(workMoveLabel({ action: WORK_ACTION.moveStatus, to: WORK_STATUS.done }, review)).toBe("Approve");

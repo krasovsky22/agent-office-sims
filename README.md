@@ -259,6 +259,14 @@ also refuses an issue carrying the restriction label; see
 [From assignment to pull request](#from-assignment-to-pull-request).
 Everyone else sees the same detail with no controls.
 
+Work an agent stopped on short of a pull request (its runner failed, timed
+out or refused the start, or the agent exited) reads `<agent> · Stopped:
+<reason>` on its card, highlighted, and the CEO's card offers `Start again`,
+which gives it to the same agent from scratch, as the detail's start again
+does. An agent that leaves the floor puts down whatever it had not handed in,
+which is free on the board again, and the AI Manager says which issues it left
+unfinished.
+
 The CEO can also drag an issue's card between the close-up's columns. Dropped
 on Closed, an open or in-progress issue is closed on GitHub; a closed one
 dropped on Open is reopened; an open issue nobody has dropped on In progress
@@ -537,7 +545,7 @@ the work, whoever gave it, the board or the manager:
 | assigned to it | `start` |
 | handed on to another slot | `stop` to the one that had it, `start` to the new one |
 | sent back from `review` to `in_progress` | a rework `prompt` (read the review, change, commit, push the same branch), or a `start` with the same words if the slot no longer holds the issue |
-| moved back from `in_progress` to `assigned` | `stop`, then `start`: a fresh start |
+| moved back from `in_progress` to `assigned`, or stopped work given to the same agent again (`Start again`) | `stop`, then `start`: a fresh start |
 | unassigned, approved as `done`, or finished by GitHub closing the issue | `stop` |
 | cancelled by the CEO from the agent's menu | `stop` marked `discard`, and again, still marked, if the slot is seen holding the issue afterwards (its runner missed the first) |
 | none in the office, while the slot still holds the issue (the server restarted, say) | `stop`, checked once a second |
@@ -553,7 +561,8 @@ and as that live agent, so one about work it no longer holds changes nothing:
 | --- | --- |
 | `started` | claimed: `assigned` to `in_progress` |
 | `pr-opened` | the pull request attached as its deliverable, `PR #N: title, url`, and handed in for `review`; a simulated one as `Simulated pull request, nothing on GitHub: title` |
-| `failed` | its note says why, e.g. `#39 is labelled agent-restricted on GitHub, so no agent may work it` |
+| `failed` | its note says why, e.g. `#39 is labelled agent-restricted on GitHub, so no agent may work it`, which marks it stopped |
+| `finished` | on work still `in_progress`, its note says the agent exited without opening a pull request, which marks it stopped |
 
 Any open issue goes to a slot unless it carries the maintainer's restriction
 label: `REAL_AGENT_RESTRICT_LABEL` on the server, `agent-restricted` by
@@ -886,8 +895,8 @@ Once today's spend reaches `RUNNER_DAILY_BUDGET_USD`, the runner refuses every
 new start, reported to the server as a failed start that gives the budget and
 the spend; work already under way runs on. The refusal is noted on the work,
 in its agent's voice, and the AI Manager explains it in its conversation. Nothing
-retries a refused start, so the work stays assigned: once the budget is raised
-or the day turns over, take the work back and assign it again.
+retries a refused start, so the work stays stopped: once the budget is raised
+or the day turns over, press `Start again` on its card.
 
 The HUD shows the agents' spend today against the budget, under the live
 agents, in every tab, and warns once it is spent. With several runners it
@@ -1443,8 +1452,9 @@ Then confirm all twenty-five:
     `<first>`: the spend climbs five cents a step in both tabs, and once the
     pull request is handed in it reads `$0.20 of $0.15 today — budget spent, no
     new starts`, marked as a warning. She assigns another unrestricted issue to
-    `<second>`: it never starts, its card notes the runner's daily budget is
-    spent with the day's figures, the AI Manager's conversation explains it and how
+    `<second>`: it never starts, its card reads `<second> · Stopped:` with the
+    runner's daily budget spent and the day's figures, highlighted, beside a
+    `Start again` button, the AI Manager's conversation explains it and how
     to try again, and the runner's log says the start was refused.
 19. **The CEO prompts a coding agent from its terminal, in both tabs.** Run
     the server with `RUNNER_SECRET` and the runner with

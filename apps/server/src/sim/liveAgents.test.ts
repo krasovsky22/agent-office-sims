@@ -78,6 +78,7 @@ interface Office {
   readonly crew: LiveAgentCrew;
   readonly said: { occupantId: string; text: string; at: number }[];
   readonly waved: { occupantId: string; at: number }[];
+  readonly announced: string[];
   now: number;
 }
 
@@ -93,6 +94,7 @@ function createOffice(seed = 1): Office {
   };
   const said: Office["said"] = [];
   const waved: Office["waved"] = [];
+  const announced: string[] = [];
   const work = new MapSchema<IssueWork>();
   const office: Office = {
     occupants,
@@ -100,6 +102,7 @@ function createOffice(seed = 1): Office {
     work,
     said,
     waved,
+    announced,
     now: 0,
     crew: new LiveAgentCrew({
       layout: OFFICE_LAYOUT,
@@ -112,6 +115,7 @@ function createOffice(seed = 1): Office {
       wave: (occupantId) => {
         waved.push({ occupantId, at: office.now });
       },
+      announce: (text) => announced.push(text),
       random: seeded(seed),
     }),
   };
@@ -612,6 +616,17 @@ describe("issue work", () => {
     workAt(office, 3, WORK_STATUS.review);
     office.crew.sync([], office.now);
     expect([...office.work.keys()]).toEqual(["3"]);
+    expect(office.announced).toEqual([
+      "alpha left the office with #1, #2 unfinished, so nobody is working on them. Hand them to someone else from the board.",
+    ]);
+  });
+
+  it("goes unannounced when its agent leaves with nothing unfinished", () => {
+    const office = createOffice();
+    office.crew.sync([{ ...record("alpha", LIVE_AGENT_STATUS.idle), canTakeIssues: true }], office.now);
+    workAt(office, 3, WORK_STATUS.review);
+    office.crew.sync([], office.now);
+    expect(office.announced).toEqual([]);
   });
 });
 

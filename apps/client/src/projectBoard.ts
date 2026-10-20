@@ -29,6 +29,7 @@ import {
   type WorkData,
   type WorkMove,
   type WorkStatus,
+  isWorkStopped,
   openBoardIssue,
 } from "@sim/shared";
 
@@ -306,8 +307,16 @@ export function workAgentName(work: WorkData, agents: readonly BoardAgent[]): st
   return agents.find((candidate) => candidate.id === work.assigneeId)?.name ?? "Left the office";
 }
 
-/** The line a card carries for an issue an agent has: who, and how far they have got. */
+/**
+ * The line a card carries for an issue an agent has: who, and how far they
+ * have got, or why they stopped, highlighted, for work that will go nowhere
+ * until the CEO starts it again.
+ */
 export function workBadge(work: WorkData, agents: readonly BoardAgent[]): { text: string; tone: BoardTone } {
+  if (isWorkStopped(work)) {
+    // A runner's own stop reasons already open with the word.
+    return { text: `${workAgentName(work, agents)} · Stopped: ${work.note.replace(/^Stopped:\s*/, "")}`, tone: "bad" };
+  }
   const status = workStatusText(work);
   const tone: BoardTone =
     work.status === WORK_STATUS.done ? "good" : work.status === WORK_STATUS.review ? "pending" : "plain";

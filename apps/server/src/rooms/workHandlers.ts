@@ -51,7 +51,7 @@ export interface WorkChange {
   readonly actor: OfficeActor;
   readonly command: WorkCommand;
   /** The work as it was; `undefined` when the command created it. */
-  readonly before: { readonly status: WorkStatus; readonly assigneeId: string } | undefined;
+  readonly before: { readonly status: WorkStatus; readonly assigneeId: string; readonly note: string } | undefined;
   /** The work as it is now; for a release or a cancel, the work that was removed. */
   readonly work: IssueWork;
 }
@@ -87,7 +87,7 @@ function actorFor(state: OfficeState, client: Client): OfficeActor | undefined {
  */
 export function applyAs(host: WorkHost, actor: OfficeActor, command: WorkCommand): WorkCommandResult {
   const current = host.state.work.get(workKey(command.payload.issueNumber));
-  const before = current === undefined ? undefined : { status: current.status, assigneeId: current.assigneeId };
+  const before = current === undefined ? undefined : { status: current.status, assigneeId: current.assigneeId, note: current.note };
   const result = applyWorkCommand(command, {
     work: host.state.work,
     occupants: host.state.occupants,

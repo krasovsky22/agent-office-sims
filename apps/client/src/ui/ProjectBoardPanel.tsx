@@ -45,6 +45,7 @@ import {
   type WorkData,
   type WorkStatus,
   agentLabel,
+  isWorkStopped,
 } from "@sim/shared";
 import { useEffect, useRef, useState } from "react";
 
@@ -399,6 +400,7 @@ export function ProjectBoardPanel({
                           assignable={column.key !== "closed" && access?.mayAssign === true}
                           open={row.issueNumber !== null && row.issueNumber === openIssue}
                           onToggle={(issueNumber) => setOpenIssue(issueNumber === openIssue ? undefined : issueNumber)}
+                          onRestart={actions.assign}
                         />
                       </li>
                     );
@@ -451,7 +453,8 @@ function carried(snapshot: ProjectBoardSnapshot, key: BoardColumnKey): number {
 /**
  * What an issue card says about the office's work on it, and the button that
  * opens its detail: offered when there is work to read, or to the CEO on an
- * open issue nobody has yet.
+ * open issue nobody has yet. Stopped work also offers the CEO "Start again":
+ * the same agent is given it again, which restarts its slot from scratch.
  */
 function RowWork({
   issueNumber,
@@ -460,6 +463,7 @@ function RowWork({
   assignable,
   open,
   onToggle,
+  onRestart,
 }: {
   issueNumber: number | null;
   work: WorkData | undefined;
@@ -467,6 +471,7 @@ function RowWork({
   assignable: boolean;
   open: boolean;
   onToggle: (issueNumber: number) => void;
+  onRestart: (issueNumber: number, agentId: string) => void;
 }) {
   if (issueNumber === null || (work === undefined && !assignable)) {
     return null;
@@ -489,6 +494,18 @@ function RowWork({
       >
         {work === undefined ? "Assign…" : "Work"}
       </button>
+      {work === undefined || !assignable || !isWorkStopped(work) ? null : (
+        <button
+          className="panel__button work__restart"
+          type="button"
+          onClick={(event) => {
+            event.currentTarget.blur();
+            onRestart(issueNumber, work.assigneeId);
+          }}
+        >
+          Start again
+        </button>
+      )}
     </span>
   );
 }

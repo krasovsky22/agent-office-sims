@@ -386,6 +386,7 @@ export class OfficeRoom extends Room<OfficeState> {
       wave: (occupantId) => {
         this.broadcast(SERVER_MESSAGE.emote, { occupantId, emote: EMOTE.wave } satisfies EmoteEvent);
       },
+      announce: (text) => this.manager?.report(text),
       random: Math.random,
     });
     const liveAgents = roomOptions?.liveAgents;
