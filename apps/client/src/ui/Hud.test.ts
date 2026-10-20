@@ -7,8 +7,9 @@ import { MANAGER_STATUS, OCCUPANT_KIND } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
+import type { ConnectionStatus } from "../net/room.js";
 
-import { type RosterEntry, assignableAgents, groupRoster, spendLine, statusLine } from "./Hud.js";
+import { type RosterEntry, assignableAgents, canRejoin, groupRoster, spendLine, statusLine } from "./Hud.js";
 
 function person(id: string, isCeo = false): RosterEntry {
   return {
@@ -118,5 +119,14 @@ describe("statusLine", () => {
     expect(statusLine("failed", "the server refused the connection")).toBe(
       "Could not reach the office server — the server refused the connection",
     );
+  });
+});
+
+describe("canRejoin", () => {
+  it("offers Rejoin only once the connection has stopped trying", () => {
+    const stopped: ConnectionStatus[] = ["disconnected", "failed", "full"];
+    const trying: ConnectionStatus[] = ["connecting", "connected", "reconnecting"];
+    expect(stopped.every(canRejoin)).toBe(true);
+    expect(trying.some(canRejoin)).toBe(false);
   });
 });

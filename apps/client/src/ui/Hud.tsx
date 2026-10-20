@@ -163,7 +163,8 @@ export interface HudPrompt {
 
 export interface HudSnapshot {
   readonly status: ConnectionStatus;
-  readonly detail?: string;
+  /** Spelled out with `undefined`, as `notice` is, so a status without one clears the last. */
+  readonly detail?: string | undefined;
   readonly roster: readonly RosterEntry[];
   readonly chatLog: readonly ChatLogEntry[];
   /**
@@ -241,6 +242,8 @@ export interface HudActions {
   readonly sendChat: (text: string) => void;
   /** Switches between first and third person, as `V` does. */
   readonly toggleCamera: () => void;
+  /** Joins the office afresh, from a connection that has given up. */
+  readonly rejoin: () => void;
   readonly projectBoard: ProjectBoardActions;
   readonly manager: ManagerPanelActions;
   readonly terminal: AgentTerminalActions;
@@ -308,6 +311,11 @@ const STATUS_TEXT: Record<ConnectionStatus, string> = {
 
 export function statusLine(status: ConnectionStatus, detail: string | undefined): string {
   return detail === undefined ? STATUS_TEXT[status] : `${STATUS_TEXT[status]} — ${detail}`;
+}
+
+/** Whether the connection has stopped trying, so the Status panel offers to rejoin. */
+export function canRejoin(status: ConnectionStatus): boolean {
+  return status === "disconnected" || status === "failed" || status === "full";
 }
 
 /** Digit to emote, from the one appearance table. */
@@ -846,6 +854,20 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           <p className={status === "failed" || status === "full" ? "hud__status hud__status--failed" : "hud__status"}>
             {statusLine(status, detail)}
           </p>
+          {canRejoin(status) ? (
+            <p className="hud__hint">
+              <button
+                type="button"
+                className="hud__cameraToggle"
+                onClick={(event) => {
+                  event.currentTarget.blur();
+                  actions.rejoin();
+                }}
+              >
+                Rejoin
+              </button>
+            </p>
+          ) : null}
           {assetNote === undefined ? null : <p className="hud__status">{assetNote}</p>}
           <p className="hud__hint">
             <span className="hud__keys">W A S D</span> to walk,{" "}

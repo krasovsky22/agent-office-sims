@@ -357,8 +357,8 @@
   color: #eef0f4;
 }
 
-/* The camera switch: the one control in the status panel, so the only part of
-   it that takes the pointer; the rest lets a drag through to the office. */
+/* The camera switch and Rejoin: the status panel's only controls, so the only
+   parts of it that take the pointer; the rest lets a drag through to the office. */
 .hud__camera {
   display: flex;
   align-items: center;
