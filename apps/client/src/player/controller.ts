@@ -66,7 +66,7 @@ const CAMERA_TARGET_Y = 1.25;
  * at the height of its head, square on to its monitor and close enough to read
  * it. An avatar's head is wider than the monitor and nearly touches it, so
  * nowhere beside or above it sees the screen; the agent the camera leans in
- * over is hidden while it is there (`main.ts`).
+ * over is hidden while it is there (`gameLoop.ts`).
  */
 const SHOULDER_BACK = 0.1;
 const SHOULDER_HEIGHT = 1.25;

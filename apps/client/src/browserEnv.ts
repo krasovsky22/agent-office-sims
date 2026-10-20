@@ -2,7 +2,7 @@
  * What the client reads from the page it runs in: its mount points, the build's
  * settings, the URL's flags, and the browser's storage.
  *
- * Read in one place so the game loop in `main.ts` asks for a setting rather
+ * Read in one place so the game loop in `gameLoop.ts` asks for a setting rather
  * than knowing where it comes from.
  */
 
@@ -42,7 +42,7 @@ export function readServerUrl(): string {
  * which is what makes the grey-box path something you can actually look at rather
  * than dead code. Either way the office is the same shape and walkable — a failed
  * load lands in the same place, see `furnish` in
- * `main.ts`.
+ * `gameLoop.ts`.
  */
 export function readPropsEnabled(): boolean {
   const requested =

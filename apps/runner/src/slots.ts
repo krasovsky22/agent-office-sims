@@ -129,7 +129,7 @@ import { NO_GITHUB, type TaskGithub } from "./github.js";
 import type { SlotIds } from "./slotIds.js";
 import type { AgentProfiles } from "./profiles.js";
 import { type Redactor, createRedactor } from "./redact.js";
-import { TURN_DONE, bookSpend, promptOutcome, runReporter } from "./slotRuns.js";
+import { TURN_DONE, bookSpend, keyOutcome, promptOutcome, runReporter } from "./slotRuns.js";
 import { ScreenMirror } from "./terminal.js";
 
 /** Why a slot whose agent's turn ended with nothing handed in needs a person. */
@@ -920,20 +920,10 @@ export class SlotPool {
     this.promptOutcomes.push({ commandId, slotId: slot.id, outcome });
   }
 
-  /**
-   * Whether the slot's agent waits on a person, so a key answers it, and if
-   * not, why. A slot that needs a person only because a turn ended with
-   * nothing handed in has its agent at its prompt, where a prompt is the answer.
-   */
+  /** Whether the slot's agent waits on a person, so a key answers it, and if not, why; as a desk session's is. */
   private keyable(slot: Slot): RunnerPromptOutcomeKind {
     const run = slot.run;
-    if (run === undefined || !run.live) {
-      return RUNNER_PROMPT_OUTCOME.unavailable;
-    }
-    if (slot.status !== RUNNER_SLOT_STATUS.needsInput || run.missing) {
-      return RUNNER_PROMPT_OUTCOME.notWaiting;
-    }
-    return run.agentRun.key === undefined ? RUNNER_PROMPT_OUTCOME.unavailable : RUNNER_PROMPT_OUTCOME.delivered;
+    return keyOutcome(slot.status, run?.live === true ? run.agentRun : undefined, run);
   }
 
   /** Whether the slot's agent waits at its prompt with a task in hand, and if not, why. */

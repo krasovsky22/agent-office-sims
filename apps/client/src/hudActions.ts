@@ -2,7 +2,7 @@
  * What the HUD's buttons and fields do: each sends its command to the office,
  * or tells the game loop to close a panel or stand the player up.
  *
- * Kept apart from `main.ts` so a new button is wired here, not in the loop;
+ * Kept apart from `gameLoop.ts` so a new button is wired here, not in the loop;
  * the HUD never touches the socket itself, and the server decides what comes
  * of every command.
  */
