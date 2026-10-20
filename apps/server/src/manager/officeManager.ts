@@ -261,7 +261,7 @@ export class OfficeManager {
     if (hires.length > 0) {
       outcomes.push(
         ...(stillCeo
-          ? this.hires.carryOut(hires, { work: this.host.work, ceo, view, hiring: this.host.hiring })
+          ? this.hires.carryOut(hires, { work: this.host.work, ceo, message: question.text, view, hiring: this.host.hiring })
           : ["✗ You are no longer the CEO, so I hired nobody."]),
       );
     }

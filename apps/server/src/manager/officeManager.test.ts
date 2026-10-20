@@ -193,7 +193,7 @@ describe("OfficeManager", () => {
         agents += 1;
         return { runnerId: "runner-1", slotId: "hired-1", commandId: "command-1" };
       },
-      withdraw: () => false,
+      withdraw: () => undefined,
     };
     const { state, dana, office, published } = setUp(rules(), 20, undefined, undefined, hiring);
     office.instruct(dana, "hire someone for #10");

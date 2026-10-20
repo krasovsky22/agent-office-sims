@@ -44,9 +44,6 @@ import { REFUSAL_TEXT } from "./assign.js";
 import type { OfficeView } from "./officeView.js";
 import { describeWork, resolveWork } from "./resolve.js";
 
-/** The coding agents the office holds when `MAX_CODING_AGENTS` is unset. */
-export const DEFAULT_MAX_CODING_AGENTS = 4;
-
 /** How long a hired agent has to reach the floor before the manager gives up on it. */
 export const HIRE_ARRIVAL_MS = 60_000;
 
@@ -58,8 +55,8 @@ export interface AgentHiring {
   count(): number;
   /** Queues the hire; where the agent will be, or `undefined` when no runner can take one. */
   hire(profile: AgentProfile, requestedBy: string): RunnerHire | undefined;
-  /** Takes back a hire its runner has not taken; whether it was still waiting. */
-  withdraw(runnerId: string, commandId: string): boolean;
+  /** Gives up on a hire whose agent never came: the command taken back if it is still waiting, and the slot forgotten. */
+  withdraw(hire: RunnerHire): void;
 }
 
 /**
@@ -83,17 +80,29 @@ export function hireTitle(issueNumber: number): string {
   return `Specialist for #${issueNumber}`;
 }
 
-/** What a new agent's description is when the plan wrote none: the task it was hired for. */
-export function hireDescription(issueNumber: number, title: string): string {
+/**
+ * What a new agent's description is unless the CEO wrote it: the issue by its
+ * number alone, since its title and body are anyone's words and the
+ * description is the agent's system prompt.
+ */
+export function hireDescription(issueNumber: number): string {
   return sanitizeAgentDescription(
-    `Hired for issue #${issueNumber}, “${title}”: implements and tests that change, and opens a pull request for a person to review.`,
+    `Hired for issue #${issueNumber}: implements and tests that change, and opens a pull request for a person to review.`,
   );
+}
+
+/** Whether the plan's description is the CEO's own words, copied from their message. */
+function fromCeo(description: string, message: string): boolean {
+  const words = (text: string): string => text.replace(/\s+/g, " ").trim().toLowerCase();
+  return words(description) !== "" && words(message).includes(words(description));
 }
 
 export interface HireContext {
   readonly work: WorkHost;
   /** The CEO the manager is acting for, as the room holds them now. */
   readonly ceo: Occupant;
+  /** The CEO's message the plan answers, the only place a description may come from. */
+  readonly message: string;
   readonly view: OfficeView;
   /** Absent when no runner is connected to the server. */
   readonly hiring: AgentHiring | undefined;
@@ -162,7 +171,7 @@ export class HireDesk {
     const profile = parseAgentProfile({
       name: freeName(planned.name, state.occupants.values(), named),
       title: planned.title.trim() === "" ? hireTitle(issue.number) : planned.title,
-      description: planned.description.trim() === "" ? hireDescription(issue.number, issue.title) : planned.description,
+      description: fromCeo(planned.description, context.message) ? planned.description : hireDescription(issue.number),
     });
     if (profile === undefined) {
       return `✗ ${label}: I couldn't write a profile for a new agent.`;
@@ -200,7 +209,7 @@ export class HireDesk {
       }
       this.pending.splice(this.pending.indexOf(hire), 1);
       if (!arrived) {
-        hiring?.withdraw(hire.hire.runnerId, hire.hire.commandId);
+        hiring?.withdraw(hire.hire);
         lines.push(`✗ ${hire.name} never arrived for ${hire.label}: the runner did not take them on. Ask me again?`);
         continue;
       }

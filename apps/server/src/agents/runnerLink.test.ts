@@ -311,6 +311,35 @@ describe("RunnerLink hiring", () => {
     expect(link.current().find((record) => record.id === "runner:runner-1:hired-1")?.hired).toBeUndefined();
   });
 
+  it("forgets a hire given up on, whether or not its runner took the command, but not a slot it reported", () => {
+    const { link, profiles } = hiringSetup();
+    link.sync(sync());
+    const waiting = link.hire(NOVA, "Dana");
+    const taken = link.hire({ ...NOVA, name: "Orla" }, "Dana");
+    if (waiting === undefined || taken === undefined) {
+      throw new Error("expected both hires to be queued");
+    }
+    link.sync(sync({ acked: [taken.commandId] }));
+    link.withdrawHire(waiting);
+    link.withdrawHire(taken);
+    expect(link.pending("runner-1")).toEqual([]);
+    expect(link.agentCount()).toBe(2);
+    expect(profiles.get("runner-1", waiting.slotId)).toBeUndefined();
+    expect(profiles.get("runner-1", taken.slotId)).toBeUndefined();
+
+    const late = { id: taken.slotId, ...NOVA, status: "idle", issueNumber: undefined, activity: "", pr: undefined } as const;
+    link.sync(sync({ slots: [...sync().slots, late] }));
+    expect(link.current().find((record) => record.id === `runner:runner-1:${taken.slotId}`)?.hired).toBeUndefined();
+
+    const reported = link.hire({ ...NOVA, name: "Pia" }, "Dana");
+    if (reported === undefined) {
+      throw new Error("expected the hire to be queued");
+    }
+    link.sync(sync({ acked: [reported.commandId], slots: [...sync().slots, late, { ...late, id: reported.slotId }] }));
+    link.withdrawHire(reported);
+    expect(profiles.get("runner-1", reported.slotId)).toMatchObject({ name: "Pia" });
+  });
+
   it("hires nobody once the floor holds as many slots as it takes, hires on their way included", () => {
     const { link } = hiringSetup();
     link.sync(sync());

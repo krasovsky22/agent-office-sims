@@ -67,7 +67,10 @@ describe("the request", () => {
     expect(await planner(REQUEST, SIGNAL)).toEqual({ reply: "Ada is idle.", assignments: [], hires: [], standing: [], tokensUsed: 1000 });
     const params = sent[0];
     expect(params?.model).toBe("claude-opus-5-5");
-    expect(params?.output_config).toMatchObject({ effort: "low", format: { type: "json_schema" } });
+    expect(params?.output_config).toMatchObject({
+      effort: "low",
+      format: { type: "json_schema", schema: { required: expect.arrayContaining(["hires"]) as unknown } },
+    });
     expect(params?.messages).toHaveLength(1);
     const prompt = JSON.stringify(params?.messages);
     expect(prompt).toContain("Ada Byrne");
@@ -142,7 +145,6 @@ describe("readReply", () => {
     expect(plan.hires).toEqual([
       { work: "#39", name: "Nova", title: "Accessibility Specialist", description: "Makes the HUD work with a screen reader." },
     ]);
-    expect(systemPrompt()).toContain("You can hire a new coding agent for an issue");
   });
 
   it("is asked for a standup field, and told what a standup is", () => {

@@ -181,7 +181,7 @@ server.define(OFFICE_ROOM_NAME, OfficeRoom, {
           cap: runner.maxAgents,
           count: () => runnerLink.agentCount(),
           hire: (profile, requestedBy) => runnerLink.hire(profile, requestedBy),
-          withdraw: (runnerId, commandId) => runnerLink.withdraw(runnerId, commandId),
+          withdraw: (hire) => runnerLink.withdrawHire(hire),
         },
       }),
 } satisfies OfficeRoomOptions);

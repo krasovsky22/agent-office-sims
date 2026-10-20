@@ -608,6 +608,20 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
     return this.runners.get(runnerId)?.outbox.delete(commandId) ?? false;
   }
 
+  /**
+   * Gives up on a hire whose agent never came: its command taken back if the
+   * runner has not taken it, and the slot no longer awaited nor its profile
+   * kept, unless the runner has reported it after all.
+   */
+  public withdrawHire(hire: RunnerHire): void {
+    const runner = this.runners.get(hire.runnerId);
+    runner?.outbox.delete(hire.commandId);
+    runner?.arriving.delete(hire.slotId);
+    if (runner?.slots.some((slot) => slot.id === hire.slotId) !== true) {
+      this.options.profiles?.forget(hire.runnerId, hire.slotId);
+    }
+  }
+
   /** Whether a connected runner closes and reopens issues on GitHub. */
   public canChangeIssues(): boolean {
     return [...this.runners.values()].some((runner) => runner.changesIssues);
