@@ -264,8 +264,17 @@ export interface LiveAgentHost {
   readonly say: (occupantId: string, text: string) => void;
   /** Broadcasts a wave from an occupant. */
   readonly wave: (occupantId: string) => void;
+  /** Says something to the office as the AI Manager; nobody hears it by default. */
+  readonly announce?: (text: string) => void;
   /** In [0, 1). Injected so a test can make the wandering repeatable. */
   readonly random: () => number;
+}
+
+/** What the AI Manager says when an agent leaves the floor with work it had not handed in, now free on the board. */
+export function leftWorkText(agentName: string, issueNumbers: readonly number[]): string {
+  const issues = issueNumbers.map((issueNumber) => `#${issueNumber}`).join(", ");
+  const them = issueNumbers.length === 1 ? "it" : "them";
+  return `${agentName} left the office with ${issues} unfinished, so nobody is working on ${them}. Hand ${them} to someone else from the board.`;
 }
 
 export class LiveAgentCrew {
@@ -562,7 +571,10 @@ export class LiveAgentCrew {
     // body disappears in.
     this.host.interaction.holds.release(body.key);
     this.host.interaction.lastUsedAt.delete(body.key);
-    releaseWorkOf(body.key, this.host.work);
+    const released = releaseWorkOf(body.key, this.host.work);
+    if (released.length > 0) {
+      this.host.announce?.(leftWorkText(body.occupant.name, released));
+    }
     this.host.occupants.delete(body.key);
     this.bodies.delete(id);
   }

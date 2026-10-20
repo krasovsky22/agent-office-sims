@@ -12,6 +12,8 @@
  * - A review sent back is a rework prompt to the slot still holding the
  *   issue, or a start with the same words when it no longer is.
  * - Work sent back to `assigned` starts again from the top: stop, then start.
+ *   So does stopped work given again to the agent who has it, the card's
+ *   "Start again".
  * - Work taken back, approved, or finished by GitHub closing the issue stops
  *   the slot, which settles its worktree.
  * - Work the CEO cancelled stops the slot and has it discard the task: its
@@ -28,7 +30,8 @@
  * applied through the same `applyAs` as the slot's live agent, so the work's
  * rules decide it exactly as they decide anyone's: `started` claims the
  * issue, `pr-opened` attaches the pull request and hands it in for review,
- * and `failed` says why on the work. An event about work the slot no longer
+ * `failed` says why on the work, and so does `finished` short of a pull
+ * request, which marks the work stopped. An event about work the slot no longer
  * holds is refused by those rules and changes nothing. A start the runner
  * refused because its daily budget is spent is also explained to the office,
  * in the AI Manager's voice, since nothing on the board says why the work never
@@ -53,6 +56,7 @@ import {
   actorOf,
   isLiveAgentKey,
   isRunnerWorkEvent,
+  isWorkStopped,
   liveAgentKey,
   simulatedPullRequestArtifact,
   workKey,
@@ -105,8 +109,8 @@ export function reworkPrompt(issueNumber: number): string {
  * What the AI Manager says when a runner refused to start an agent because its
  * daily budget is spent: who could not start on what, the runner's own reason
  * with its numbers, and how to start it once the budget allows. Nothing
- * retries a refused start by itself, so the work stays assigned until the CEO
- * gives it out again.
+ * retries a refused start by itself, so the work stays stopped until the CEO
+ * starts it again.
  */
 export function budgetRefusalText(agentName: string, issueNumber: number, title: string, reason: string): string {
   const issue = title === "" ? `#${issueNumber}` : `#${issueNumber} “${title}”`;
@@ -114,7 +118,7 @@ export function budgetRefusalText(agentName: string, issueNumber: number, title:
   return (
     `${agentName} couldn't start on ${issue}: ${why.replace(/\.$/, "")}. ` +
     "Nothing started, so nothing more was spent. To try again once the runner's RUNNER_DAILY_BUDGET_USD is raised " +
-    "or its day turns over, take the work back and assign it again."
+    "or its day turns over, press Start again on its card."
   );
 }
 
@@ -174,6 +178,9 @@ export class RunnerWork {
           this.start(work, actor, "");
         } else if (before.assigneeId !== work.assigneeId) {
           this.stop(before.assigneeId, work.issueNumber, `#${work.issueNumber} went to ${this.nameOf(work.assigneeId)}`);
+          this.start(work, actor, "");
+        } else if (isWorkStopped(before)) {
+          this.stop(work.assigneeId, work.issueNumber, "the CEO asked for a fresh start");
           this.start(work, actor, "");
         }
         return;
@@ -283,6 +290,13 @@ export class RunnerWork {
           }
           break;
         case RUNNER_EVENT_KIND.finished:
+          // After a hand-in the exit is the work's end; before one, the agent stopped short.
+          if (this.options.host.state.work.get(workKey(issueNumber))?.status === WORK_STATUS.in_progress) {
+            applyAs(this.options.host, agent, {
+              action: WORK_ACTION.note,
+              payload: { issueNumber, text: "The agent exited without opening a pull request." },
+            });
+          }
           break;
       }
     }

@@ -895,7 +895,8 @@
   font-weight: 600;
 }
 
-.work__open {
+.work__open,
+.work__restart {
   padding: 0 8px;
   font-size: 11px;
 }

@@ -121,6 +121,18 @@ export function mayRelease(work: WorkData, isPresent: (occupantId: string) => bo
   );
 }
 
+/**
+ * Whether this work has stopped short of a pull request: not yet handed in,
+ * and carrying a note. Only an agent's stop writes one, with its reason — the
+ * runner failing, timing out or refusing the start, the agent exiting — and
+ * every move that gets the work going again clears it, so the note is the
+ * marker. Such work can be started again by giving it to the same agent; see
+ * {@link applyWorkCommand}.
+ */
+export function isWorkStopped(work: Pick<WorkData, "status" | "note">): boolean {
+  return (work.status === WORK_STATUS.assigned || work.status === WORK_STATUS.in_progress) && work.note !== "";
+}
+
 /** What a command wants to do, for the authority check. */
 export const WORK_ACTION = {
   assign: "assign",
@@ -476,7 +488,9 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
 }
 
 /**
- * Gives an issue to an agent, or hands its work to another.
+ * Gives an issue to an agent, hands its work to another, or starts
+ * {@link isWorkStopped} work again: given to the agent who already has it, it
+ * goes back to `assigned` with its note cleared, as the CEO's fresh start does.
  *
  * A new piece of work needs the issue open on the project board: an issue the
  * board does not show as open is closed, or not one the server knows about,
@@ -522,6 +536,10 @@ function assignWork(
   if (work !== undefined) {
     if (work.assigneeId !== payload.assigneeId) {
       work.assigneeId = payload.assigneeId;
+      work.note = "";
+      work.updatedAt = context.now;
+    } else if (isWorkStopped(work)) {
+      work.status = WORK_STATUS.assigned;
       work.note = "";
       work.updatedAt = context.now;
     }
