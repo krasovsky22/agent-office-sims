@@ -360,7 +360,6 @@ function workMoveShape(
   }
   if (verb === "accept") {
     return byNumber({ move: "approve", work: rest });
-    return { move: "approve", work: rest };
   }
   if (verb === "send" && second === "back") {
     return byNumber({ move: "send-back", work: words.slice(2) });
@@ -504,17 +503,17 @@ function readAgent(words: readonly string[], view: OfficeView): { readonly agent
   return null;
 }
 
+/** Whether the words name work by number: "#39", "issue 39" or "pr 39". */
+function namesNumber(words: readonly string[]): boolean {
+  return words.some((word, at) => /^#\d+$/.test(word) || ((word === "issue" || word === "pr") && NUMBER.test(words[at + 1] ?? "")));
+}
+
 /**
  * The WORK slot, when these words are exactly one: work references joined by
  * "the", "and", commas and possessives such as "Bo's", exactly one issue's
  * full title, or words only one open issue's title has, with no work
  * reference among them. `null` when they are not.
  */
-/** Whether the words name work by number: "#39", "issue 39" or "pr 39". */
-function namesNumber(words: readonly string[]): boolean {
-  return words.some((word, at) => /^#\d+$/.test(word) || ((word === "issue" || word === "pr") && NUMBER.test(words[at + 1] ?? "")));
-}
-
 function readWork(words: readonly string[], view: OfficeView): WorkSlot | null {
   const plain = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const said = plain(words.join(" "));
