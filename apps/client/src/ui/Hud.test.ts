@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
 
-import { type RosterEntry, assignableAgents, groupRoster, spendLine } from "./Hud.js";
+import { type RosterEntry, assignableAgents, groupRoster, spendLine, statusLine } from "./Hud.js";
 
 function person(id: string, isCeo = false): RosterEntry {
   return {
@@ -106,5 +106,17 @@ describe("spendLine", () => {
       text: "Agents' spend: $5.00 of $15.00 today — budget spent, no new starts",
       spent: true,
     });
+  });
+});
+
+describe("statusLine", () => {
+  it("says only that the office is full when a join is turned away", () => {
+    expect(statusLine("full", undefined)).toBe("The office is full (16 people)");
+  });
+
+  it("keeps the unreachable-server wording for any other failure", () => {
+    expect(statusLine("failed", "the server refused the connection")).toBe(
+      "Could not reach the office server — the server refused the connection",
+    );
   });
 });

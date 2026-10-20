@@ -98,6 +98,7 @@ import {
   type ManagerEntry,
   type ManagerHistoryEvent,
   OCCUPANT_KIND,
+  OFFICE_CAPACITY,
   OFFICE_LAYOUT,
   OfficeState,
   RECONNECT_GRACE_SECONDS,
@@ -260,14 +261,15 @@ function graceSecondsOf(options: Partial<OfficeRoomOptions> | undefined): number
 
 /**
  * The first office opened on this server, which stays open with nobody in it
- * so the agents keep working while the CEO is away. An overflow office, opened
- * once it is full, still closes when it empties: left open, its once-a-second
- * check would stop the main office's work on the shared runner link.
+ * so the agents keep working while the CEO is away. The server opens no other
+ * (see `onlyOffice.ts`), but any other office a test opens still closes when it
+ * empties: left open, its once-a-second check would stop the main office's work
+ * on the shared runner link.
  */
 let mainOfficeId: string | undefined;
 
 export class OfficeRoom extends Room<OfficeState> {
-  public override maxClients = 16;
+  public override maxClients = OFFICE_CAPACITY;
 
   /** Server-only per-occupant bookkeeping, keyed by session id. */
   private readonly motions = new Map<string, OccupantMotion>();

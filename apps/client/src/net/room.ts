@@ -115,7 +115,7 @@ import {
   normalizeYaw,
   shortestYawDelta,
 } from "@sim/shared";
-import { Client, type Room, getStateCallbacks } from "colyseus.js";
+import { Client, ErrorCode, MatchMakeError, type Room, getStateCallbacks } from "colyseus.js";
 
 import { type StandingTaskData, copyStandingTask } from "../standingAccess.js";
 import { type TerminalScreen, applyScreenFrame } from "./screens.js";
@@ -125,6 +125,7 @@ export type ConnectionStatus =
   | "connected"
   | "reconnecting"
   | "disconnected"
+  | "full"
   | "failed";
 
 /**
@@ -315,9 +316,13 @@ export class RoomConnection {
     try {
       const client = new Client(serverUrl);
       this.client = client;
-      this.attach(await client.joinOrCreate<OfficeState>(OFFICE_ROOM_NAME, { name }));
+      this.attach(await client.join<OfficeState>(OFFICE_ROOM_NAME, { name }));
     } catch (error) {
-      this.events.onStatusChanged?.("failed", describeError(error));
+      if (isOfficeFull(error)) {
+        this.events.onStatusChanged?.("full");
+      } else {
+        this.events.onStatusChanged?.("failed", describeError(error));
+      }
       throw error;
     }
   }
@@ -1011,13 +1016,18 @@ export class RoomConnection {
   }
 }
 
+/** The server opens one office and lets clients only join it, so a join it cannot seat means the office is full. */
+export function isOfficeFull(error: unknown): boolean {
+  return error instanceof MatchMakeError && error.code === ErrorCode.MATCHMAKE_INVALID_CRITERIA;
+}
+
 /**
  * Turns whatever the socket threw into something worth putting on screen.
  *
  * A refused WebSocket rejects with a bare `Event`, whose default string form is
  * `[object ProgressEvent]` — true, and useless to the reader.
  */
-function describeError(error: unknown): string {
+export function describeError(error: unknown): string {
   if (error instanceof Error && error.message !== "") {
     return error.message;
   }
