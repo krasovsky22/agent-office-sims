@@ -671,6 +671,76 @@ describe("SlotPool", () => {
     expect(restarted.report().map((each) => [each.id, each.name])).toEqual([["slot-2", SECOND]]);
   });
 
+  describe("hiring", () => {
+    const NOVA = { name: "Nova", title: "Accessibility Specialist", description: "Makes the HUD work from the keyboard." };
+    const HIRE = { id: "command-hire", slotId: "hired-1", kind: "hire", ...NOVA, requestedBy: "Dana" } as const;
+
+    function memory() {
+      let ids: ReadonlySet<string> = new Set();
+      let profiles: ReadonlyMap<string, AgentProfile> = new Map();
+      return {
+        hired: { load: () => ids, save: (next: ReadonlySet<string>) => (ids = new Set(next)) },
+        fired: (() => {
+          let fired: ReadonlySet<string> = new Set();
+          return { load: () => fired, save: (next: ReadonlySet<string>) => (fired = new Set(next)) };
+        })(),
+        profiles: { load: () => profiles, save: (next: ReadonlyMap<string, AgentProfile>) => (profiles = new Map(next)) },
+        ids: () => ids,
+      };
+    }
+
+    function hiringPool(stores: ReturnType<typeof memory>, count = 2) {
+      return new SlotPool({
+        count,
+        agent: createMockAgent({ outcome: "failed", stepMs: STEP_MS }),
+        workspaces: workspaces(),
+        taskTimeoutMs: TIMEOUT_MS,
+        hired: stores.hired,
+        fired: stores.fired,
+        profiles: stores.profiles,
+      });
+    }
+
+    it("adds the hired agent's slot with its profile, idle, and takes its task as any slot's", async () => {
+      const stores = memory();
+      const slots = hiringPool(stores);
+      slots.handle(HIRE);
+      expect(slots.report().map((each) => each.id)).toEqual(["slot-1", "slot-2", "hired-1"]);
+      expect(slot(slots, "hired-1")).toMatchObject({ ...NOVA, status: "idle" });
+      expect(stores.ids()).toEqual(new Set(["hired-1"]));
+      slots.handle({ ...START, id: "command-start", slotId: "hired-1" });
+      await settle();
+      expect(asked).toEqual(["open hired-1 #39"]);
+    });
+
+    it("brings hired agents back, with their profiles, when the runner starts again, unless they were fired", () => {
+      const stores = memory();
+      const first = hiringPool(stores);
+      first.handle(HIRE);
+      first.handle({ ...HIRE, id: "command-hire-2", slotId: "hired-2", name: "Orla" });
+      first.handle({ id: "command-fire", slotId: "hired-2", kind: "fire", requestedBy: "Dana" });
+      expect(stores.ids()).toEqual(new Set(["hired-1"]));
+      const restarted = hiringPool(stores);
+      expect(restarted.report().map((each) => [each.id, each.name])).toEqual([
+        ["slot-1", FIRST],
+        ["slot-2", SECOND],
+        ["hired-1", "Nova"],
+      ]);
+      restarted.handle({ ...HIRE, id: "command-hire-3", slotId: "hired-2" });
+      expect(restarted.report()).toHaveLength(3);
+    });
+
+    it("takes no hire past the slots the server takes, nor one for a slot it has", () => {
+      const stores = memory();
+      const slots = hiringPool(stores, 3);
+      slots.handle({ ...HIRE, slotId: "slot-1" });
+      slots.handle(HIRE);
+      slots.handle({ ...HIRE, id: "command-hire-2", slotId: "hired-2" });
+      expect(slots.report().map((each) => each.id)).toEqual(["slot-1", "slot-2", "slot-3", "hired-1"]);
+      expect(slot(slots, "slot-1")?.name).toBe(FIRST);
+    });
+  });
+
   it("fires an idle slot, which had nothing to discard", () => {
     const slots = pool();
     slots.handle({ id: "command-2", slotId: "slot-2", kind: "fire", requestedBy: "Dana" });

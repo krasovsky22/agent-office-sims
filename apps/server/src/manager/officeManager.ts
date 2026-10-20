@@ -22,6 +22,11 @@
  * manager answers by rule instead and says so, so a question about status still
  * gets an answer from the live state.
  *
+ * Asked to hire an agent for an issue, it writes the new agent a profile for
+ * it and has a runner take it on (`./hire.ts`), up to the office's cap on
+ * coding agents, and hands it the issue once it has walked in, as the CEO who
+ * asked; with the office full it says so and suggests firing or reusing one.
+ *
  * Asked to call or end a standup, it does so as the CEO who asked, through
  * the standup's own gate (`../sim/standup.ts`), and adds a line saying how
  * it went, as it does for an assignment.
@@ -56,6 +61,7 @@ import type { WorkHost } from "../rooms/workHandlers.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import { type AdviceResult, type ManagerAdvisor, type ManagerRequest, type PlannedStandup } from "./advisor.js";
 import { carryOut } from "./assign.js";
+import { type AgentHiring, HireDesk } from "./hire.js";
 import { ManagerConversation } from "./conversation.js";
 import type { LiveAssignmentQueue } from "./liveAssignments.js";
 import { type OfficeView, readLiveAgents, readOfficeView } from "./officeView.js";
@@ -85,6 +91,8 @@ export interface ManagerHost {
   readonly floor?: LiveAgentSource | undefined;
   /** Where GitHub work for live agents is queued; absent with no orchestrator. */
   readonly assignments: LiveAssignmentQueue | undefined;
+  /** Where new agents are hired, with the office's cap on them; absent with no runner. */
+  readonly hiring?: AgentHiring | undefined;
   /** The office's one gate for standing tasks; absent with no runner. */
   readonly standing?: StandingControl | undefined;
   /** This room, as the assignment queue knows it. */
@@ -116,6 +124,7 @@ export class OfficeManager {
   private wake: (() => void) | undefined;
   private updateTimer: ReturnType<typeof setInterval> | undefined;
   private lastLook: Observation | undefined;
+  private readonly hires = new HireDesk();
 
   public constructor(private readonly host: ManagerHost) {
     this.conversation = new ManagerConversation(host.work.now);
@@ -248,6 +257,14 @@ export class OfficeManager {
             note: question.text,
           });
     }
+    const hires = plan.hires ?? [];
+    if (hires.length > 0) {
+      outcomes.push(
+        ...(stillCeo
+          ? this.hires.carryOut(hires, { work: this.host.work, ceo, view, hiring: this.host.hiring })
+          : ["✗ You are no longer the CEO, so I hired nobody."]),
+      );
+    }
     if (plan.standup !== undefined && this.host.standup !== undefined) {
       outcomes.push(stillCeo ? this.host.standup(plan.standup, ceo) : "✗ You are no longer the CEO, so I didn't.");
     }
@@ -286,7 +303,10 @@ export class OfficeManager {
         this.host.assignments?.madeBy(this.host.origin) ?? [],
         this.host.floor === undefined ? view.liveAgents : readLiveAgents(this.host.floor.current()),
       );
-      const lines = describeChanges(this.lastLook ?? { ...look, waiting: new Map() }, look);
+      const lines = [
+        ...this.hires.settle(this.host.work, this.host.hiring),
+        ...describeChanges(this.lastLook ?? { ...look, waiting: new Map() }, look),
+      ];
       this.lastLook = look;
       if (lines.length > 0) {
         this.say(MANAGER_ENTRY_KIND.update, MANAGER_NAME, lines.join("\n"));
@@ -297,11 +317,13 @@ export class OfficeManager {
   }
 
   private look(): OfficeView {
-    return readOfficeView({
+    const view = readOfficeView({
       state: this.host.work.state,
       project: this.host.work.board(),
       liveAgents: this.host.liveAgents?.current(),
     });
+    const { hiring } = this.host;
+    return hiring === undefined ? view : { ...view, hiring: { cap: hiring.cap, agents: hiring.count() } };
   }
 
   private say(kind: ManagerEntryKind, authorName: string, text: string): ManagerEntry | undefined {

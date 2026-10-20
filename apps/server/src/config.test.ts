@@ -225,7 +225,7 @@ describe("readDataDir", () => {
 
 describe("readRunnerConfig", () => {
   it("leaves the sync route off without a secret", () => {
-    expect(readRunnerConfig({})).toEqual({ secret: undefined, restrictLabel: "agent-restricted" });
+    expect(readRunnerConfig({})).toEqual({ secret: undefined, restrictLabel: "agent-restricted", maxAgents: 4 });
     expect(readRunnerConfig({ RUNNER_SECRET: "  " }).secret).toBeUndefined();
   });
 
@@ -233,7 +233,16 @@ describe("readRunnerConfig", () => {
     expect(readRunnerConfig({ RUNNER_SECRET: " 0123456789abcdef " })).toEqual({
       secret: "0123456789abcdef",
       restrictLabel: "agent-restricted",
+      maxAgents: 4,
     });
+  });
+
+  it("reads the most coding agents the AI Manager may hire up to, refusing more than the floor takes", () => {
+    expect(readRunnerConfig({ MAX_CODING_AGENTS: " 2 " }).maxAgents).toBe(2);
+    expect(readRunnerConfig({ MAX_CODING_AGENTS: "" }).maxAgents).toBe(4);
+    for (const raw of ["0", "5", "2.5", "two"]) {
+      expect(() => readRunnerConfig({ MAX_CODING_AGENTS: raw })).toThrow(/MAX_CODING_AGENTS must be a whole number from 1 to 4/);
+    }
   });
 
   it("reads the label that keeps an issue from a runner's agent", () => {

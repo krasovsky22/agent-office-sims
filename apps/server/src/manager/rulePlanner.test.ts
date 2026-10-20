@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ManagerRequest } from "./advisor.js";
 import { type IssueAgentView, type IssueColumn, type IssueView, NO_STANDUP_VIEW, type OfficeView, type WorkView } from "./officeView.js";
-import { HELP_TEXT, REPHRASE_TEXT, planFromRules } from "./rulePlanner.js";
+import { HELP_TEXT, HIRE_REPHRASE_TEXT, REPHRASE_TEXT, planFromRules } from "./rulePlanner.js";
 
 function work(overrides: Partial<WorkView> & Pick<WorkView, "issueNumber" | "title" | "status">): WorkView {
   return {
@@ -571,5 +571,32 @@ describe("planFromRules: standups", () => {
 
   it("lists standups among what it can do", () => {
     expect(ask("help").reply).toContain("“Call a standup” or “End the standup”");
+  });
+});
+
+describe("planFromRules: hiring", () => {
+  const hire = (work: string, title = "") => ({ work, name: "", title, description: "" });
+
+  it.each([
+    ["hire someone for #39", [hire("issue #39")]],
+    ["Please hire a new agent to work on #39 and #15", [hire("issue #39"), hire("issue #15")]],
+    ["hire for the night shift ticket", [hire("issue #39")]],
+    ["recruit a frontend specialist to handle #39", [hire("issue #39", "Frontend Specialist")]],
+    ["hire an accessibility expert on #15", [hire("issue #15", "Accessibility Expert")]],
+  ])("plans a new agent for each issue an instruction names: %j", (message, hires) => {
+    expect(ask(message)).toEqual({ reply: "Here's how that went:", assignments: [], hires, tokensUsed: 0 });
+  });
+
+  it("asks again rather than guess, and says which work it cannot find", () => {
+    expect(ask("hire someone")).toEqual({ reply: HIRE_REPHRASE_TEXT, assignments: [], tokensUsed: 0 });
+    expect(ask("hire someone for #99").reply).toBe("I can't find #99 on the project board.");
+  });
+
+  it("hires nobody for a question about hiring", () => {
+    expect(ask("should I hire someone for #39?").hires).toBeUndefined();
+  });
+
+  it("lists hiring among what it can do", () => {
+    expect(ask("help").reply).toContain("“Hire someone for #39”");
   });
 });

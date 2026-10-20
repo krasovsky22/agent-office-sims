@@ -50,10 +50,12 @@ import { HoldRegistry, type InteractionHost } from "./interaction.js";
 import {
   CONVERSATIONS,
   FIRED_LINES,
+  HELLO_LINE,
   LINE_GAP_MS,
   LiveAgentCrew,
   MEET_DISTANCE,
   NOTE_HANDLING_MS,
+  WAVE_MS,
 } from "./liveAgents.js";
 
 const STEP_SECONDS = TICK_INTERVAL_MS / 1000;
@@ -75,6 +77,7 @@ interface Office {
   readonly work: MapSchema<IssueWork>;
   readonly crew: LiveAgentCrew;
   readonly said: { occupantId: string; text: string; at: number }[];
+  readonly waved: { occupantId: string; at: number }[];
   now: number;
 }
 
@@ -89,12 +92,14 @@ function createOffice(seed = 1): Office {
     cups: new CoffeeCups(),
   };
   const said: Office["said"] = [];
+  const waved: Office["waved"] = [];
   const work = new MapSchema<IssueWork>();
   const office: Office = {
     occupants,
     interaction,
     work,
     said,
+    waved,
     now: 0,
     crew: new LiveAgentCrew({
       layout: OFFICE_LAYOUT,
@@ -103,6 +108,9 @@ function createOffice(seed = 1): Office {
       work,
       say: (occupantId, text) => {
         said.push({ occupantId, text, at: office.now });
+      },
+      wave: (occupantId) => {
+        waved.push({ occupantId, at: office.now });
       },
       random: seeded(seed),
     }),
@@ -543,6 +551,37 @@ describe("an agent the CEO fires", () => {
     office.crew.gather(standupSpots(OFFICE_LAYOUT), office.now);
     office.crew.fire(liveAgentKey("alpha"), office.now);
     expect(runUntil(office, 90, () => !office.occupants.has(liveAgentKey("alpha")))).toBeDefined();
+  });
+});
+
+describe("an agent the AI Manager hires", () => {
+  it("walks in off the pavement to the open floor, waves and says hello to everyone, and only then sits down to work", () => {
+    const office = createOffice();
+    office.crew.sync([{ ...record("nova", LIVE_AGENT_STATUS.working, "Live agents"), hired: true }], office.now);
+    const nova = agent(office, "nova");
+    expect(roomAt(OFFICE_LAYOUT, nova)?.id).toBe(SIDEWALK_ROOM_ID);
+
+    // From the front door through the lobby to the nearest open-floor doorway is a walk of seconds, not a tour.
+    expect(runUntil(office, 60, () => office.waved.length > 0)).toBeLessThan(12);
+    expect(office.waved).toEqual([{ occupantId: nova.id, at: office.now }]);
+    expect(office.said).toEqual([{ occupantId: nova.id, text: `nova here, ${HELLO_LINE}`, at: office.now }]);
+    expect(roomAt(OFFICE_LAYOUT, nova)?.id).not.toBe(SIDEWALK_ROOM_ID);
+    expect(nova.interactableId).toBe("");
+
+    const wavedAt = office.now;
+    expect(runUntil(office, 30, () => nova.interactableId !== "")).toBeDefined();
+    expect(office.now - wavedAt).toBeGreaterThanOrEqual(WAVE_MS);
+    expect(SEATS.map((seat) => seat.id)).toContain(nova.interactableId);
+  });
+
+  it("makes its entrance once: a later sync of it is not news, and an agent that was not hired walks in from the doorway", () => {
+    const office = createOffice();
+    office.crew.sync([{ ...record("nova", LIVE_AGENT_STATUS.idle), hired: true }, record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    expect(roomAt(OFFICE_LAYOUT, agent(office, "alpha"))?.id).not.toBe(SIDEWALK_ROOM_ID);
+    runUntil(office, 60, () => office.waved.length > 0);
+    office.crew.sync([record("nova", LIVE_AGENT_STATUS.idle), record("alpha", LIVE_AGENT_STATUS.idle)], office.now);
+    runUntil(office, 20, () => false);
+    expect(office.waved.map((wave) => wave.occupantId)).toEqual([liveAgentKey("nova")]);
   });
 });
 

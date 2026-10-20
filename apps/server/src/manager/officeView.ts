@@ -203,6 +203,11 @@ export interface OfficeView {
   readonly liveAgents: readonly LiveAgentView[];
   readonly issueAgents: readonly IssueAgentView[];
   /**
+   * How many coding agents the office may hire up to, and has now, on the
+   * floor or on their way; absent with no runner connected, when it can hire none.
+   */
+  readonly hiring?: { readonly cap: number; readonly agents: number };
+  /**
    * Every piece of work in the office, by status then issue number, including
    * finished work on an issue the board no longer lists.
    */

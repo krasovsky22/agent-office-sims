@@ -55,6 +55,20 @@ export type PlannedStanding =
   | { readonly action: "schedule"; readonly cron: string; readonly instruction: string }
   | { readonly action: "pause" | "resume" | "remove" | "check-now"; readonly task: string };
 
+/**
+ * A new coding agent the manager wants hired for one issue, with the profile
+ * it wrote for it. As the planner wrote it, and resolved and checked against
+ * the live office when the plan is carried out (`./hire.ts`): `work` as an
+ * assignment's is, and an empty name, title or description is left to the
+ * office to fill.
+ */
+export interface PlannedHire {
+  readonly work: string;
+  readonly name: string;
+  readonly title: string;
+  readonly description: string;
+}
+
 /** What a plan asks of the standup: call one, or end the one that is on. */
 export type PlannedStandup = "start" | "end";
 
@@ -62,6 +76,8 @@ export interface ManagerPlan {
   /** What the manager says, before the outcome of any assignment is added. */
   readonly reply: string;
   readonly assignments: readonly PlannedAssignment[];
+  /** New agents to hire, each for one issue; none when left out. */
+  readonly hires?: readonly PlannedHire[];
   /** Standing tasks to set up, pause, resume, remove or check; none when left out. */
   readonly standing?: readonly PlannedStanding[];
   /** Absent for a plan that leaves the standup alone. */
