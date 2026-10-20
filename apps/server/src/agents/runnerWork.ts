@@ -162,6 +162,9 @@ export class RunnerWork {
   /** Slots whose work the CEO cancelled, as `runner:slot#issue`, so a later stop for it discards too. */
   private readonly cancelled = new Set<string>();
 
+  /** Slots stopped for a fresh start while holding the issue, as `runner:slot#issue`, whose old run's `failed` is no failure. */
+  private readonly restarting = new Set<string>();
+
   public constructor(private readonly options: RunnerWorkOptions) {
     this.log = options.log ?? (() => undefined);
   }
@@ -180,8 +183,7 @@ export class RunnerWork {
           this.stop(before.assigneeId, work.issueNumber, `#${work.issueNumber} went to ${this.nameOf(work.assigneeId)}`);
           this.start(work, actor, "");
         } else if (isWorkStopped(before)) {
-          this.stop(work.assigneeId, work.issueNumber, "the CEO asked for a fresh start");
-          this.start(work, actor, "");
+          this.restart(work, actor);
         }
         return;
       case WORK_ACTION.release:
@@ -204,8 +206,7 @@ export class RunnerWork {
         } else if (before.status === WORK_STATUS.review && work.status === WORK_STATUS.in_progress) {
           this.rework(work, actor);
         } else if (before.status === WORK_STATUS.in_progress && work.status === WORK_STATUS.assigned) {
-          this.stop(work.assigneeId, work.issueNumber, "the CEO asked for a fresh start");
-          this.start(work, actor, "");
+          this.restart(work, actor);
         }
         return;
       default:
@@ -280,6 +281,9 @@ export class RunnerWork {
           break;
         }
         case RUNNER_EVENT_KIND.failed:
+          if (this.restarting.delete(heldKey(runnerId, event.slotId, issueNumber))) {
+            break;
+          }
           applyAs(this.options.host, agent, {
             action: WORK_ACTION.note,
             payload: { issueNumber, text: event.message === "" ? "The agent stopped working on it." : event.message },
@@ -314,6 +318,17 @@ export class RunnerWork {
       return;
     }
     this.send(work, slot, { kind: RUNNER_COMMAND_KIND.prompt, slotId: slot.slotId, text, requestedBy: this.nameOf(actor.id) });
+  }
+
+  /** Stops the slot on the issue and starts it again from the top. */
+  private restart(work: IssueWork, actor: OfficeActor): void {
+    const slot = slotOf(work.assigneeId);
+    // A slot holding nothing reports nothing for the stop, so only one still on the issue is remembered.
+    if (slot !== undefined && this.options.runner.slotIssue(slot.runnerId, slot.slotId) === work.issueNumber) {
+      this.restarting.add(heldKey(slot.runnerId, slot.slotId, work.issueNumber));
+    }
+    this.stop(work.assigneeId, work.issueNumber, "the CEO asked for a fresh start");
+    this.start(work, actor, "");
   }
 
   private start(work: IssueWork, actor: OfficeActor, note: string): void {

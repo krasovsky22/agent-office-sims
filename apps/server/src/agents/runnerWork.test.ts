@@ -265,6 +265,36 @@ describe("RunnerWork outward: the CEO's word to the slots", () => {
     expect(pending()).toEqual([]);
   });
 
+  it("does not mark work stopped for the old run its own fresh start ended, only for a genuine failure", () => {
+    const { ceoDoes, state, syncSlots, pending, ack, runnerWork } = setup();
+    const freshStartEnded = () =>
+      runnerWork.receive([{ runnerId: "box", event: event("failed", 39, { message: "Stopped: the CEO asked for a fresh start" }) }]);
+    ceoDoes(assign(39));
+    ack();
+    syncSlots({ "slot-1": 39 });
+    runnerWork.receive([{ runnerId: "box", event: event("started", 39) }]);
+
+    ceoDoes({ action: WORK_ACTION.moveStatus, payload: { issueNumber: 39, status: WORK_STATUS.assigned } });
+    expect(pending().map((command) => command.kind)).toEqual(["stop", "start"]);
+    freshStartEnded();
+    expect(state.work.get(workKey(39))?.note).toBe("");
+    ack();
+
+    // Start again on a slot still holding the issue.
+    syncSlots({ "slot-1": 39 });
+    runnerWork.receive([{ runnerId: "box", event: event("started", 39) }]);
+    runnerWork.receive([{ runnerId: "box", event: event("finished", 39) }]);
+    expect(state.work.get(workKey(39))?.note).not.toBe("");
+    expect(ceoDoes(assign(39)).ok).toBe(true);
+    expect(pending().map((command) => command.kind)).toEqual(["stop", "start"]);
+    freshStartEnded();
+    expect(state.work.get(workKey(39))?.note).toBe("");
+    ack();
+
+    runnerWork.receive([{ runnerId: "box", event: event("failed", 39, { message: "Timed out after 60 minutes" }) }]);
+    expect(state.work.get(workKey(39))?.note).toBe("Timed out after 60 minutes");
+  });
+
   it("stops a slot whose work GitHub finished, shipped or closed", () => {
     const { ceoDoes, state, pending, ack, runnerWork, setBoard } = setup();
     ceoDoes(assign(39));
