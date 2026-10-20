@@ -33,6 +33,7 @@ import {
   type StandingRunView,
   type StandingTaskAction,
   actorOf,
+  asRecord,
   isIssueAssignee,
   isLiveAgent,
   isStandingTaskId,
@@ -56,15 +57,23 @@ export interface StandingHandlerHost {
   readonly history: (taskId: string) => readonly StandingRunView[];
 }
 
-/**
- * A reschedule the parser dropped only for its cron, too frequent or no cron
- * at all, so the board can be told why rather than nothing.
- */
-function refusedCron(raw: unknown): { readonly taskId: string; readonly reason: string } | undefined {
-  const { taskId, schedule } = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
-  const cron = typeof schedule === "object" && schedule !== null ? (schedule as Record<string, unknown>)["cron"] : undefined;
+/** Why a cron the parser dropped is refused, too frequent or no cron at all, so the board can be told why rather than nothing. */
+function cronRefusal(cron: unknown): string | undefined {
   const why = typeof cron === "string" ? scheduleRefusal(cron) : undefined;
-  return isStandingTaskId(taskId) && why !== undefined ? { taskId, reason: `I can't schedule that: ${why}.` } : undefined;
+  return why === undefined ? undefined : `I can't schedule that: ${why}.`;
+}
+
+/** A reschedule the parser dropped only for its cron. */
+function refusedCron(raw: unknown): { readonly taskId: string; readonly reason: string } | undefined {
+  const { taskId, schedule } = asRecord(raw) ?? {};
+  const reason = cronRefusal(asRecord(schedule)?.["cron"]);
+  return isStandingTaskId(taskId) && reason !== undefined ? { taskId, reason } : undefined;
+}
+
+/** A scheduled job's creation the parser dropped only for its cron. */
+function refusedCreate(raw: unknown): string | undefined {
+  const { kind, cron } = asRecord(raw) ?? {};
+  return kind === STANDING_KIND.schedule ? cronRefusal(cron) : undefined;
 }
 
 const ACTIONS: ReadonlyArray<readonly [StandingClientMessage, StandingTaskAction]> = [
@@ -132,19 +141,25 @@ export function registerStandingHandlers(room: Pick<Room<OfficeState>, "onMessag
 
   room.onMessage(CLIENT_MESSAGE.standingCreate, (client, raw: unknown) => {
     const message = parseStandingCreateMessage(raw);
+    const refused = message === undefined ? refusedCreate(raw) : undefined;
     const sender = host.state.occupants.get(client.sessionId);
-    if (message === undefined || sender === undefined) {
+    if ((message === undefined && refused === undefined) || sender === undefined) {
       return;
     }
     const actor = actorOf(sender);
-    const refuse = (rejection: StandingRejectedEvent["rejection"]): void => {
-      client.send(SERVER_MESSAGE.standingRejected, { action: STANDING_ACTION.create, taskId: "", rejection } satisfies StandingRejectedEvent);
+    const refuse = (rejection: StandingRejectedEvent["rejection"], reason?: string): void => {
+      const event: StandingRejectedEvent = { action: STANDING_ACTION.create, taskId: "", rejection, ...(reason === undefined ? {} : { reason }) };
+      client.send(SERVER_MESSAGE.standingRejected, event);
     };
     if (!mayManageStandingTasks(actor)) {
       refuse(STANDING_REJECTION.forbidden);
       return;
     }
     if (!host.allow(client, CLIENT_MESSAGE.standingCreate)) {
+      return;
+    }
+    if (message === undefined) {
+      refuse(STANDING_REJECTION.invalid, refused);
       return;
     }
     let placement: StandingPlacement | undefined;

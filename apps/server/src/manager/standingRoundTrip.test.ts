@@ -260,6 +260,15 @@ describe("a standing task from the AI Manager to the mock runner and back", () =
       reason: "I can't schedule that: it would fire more often than every 5 minutes.",
     });
     await new Promise((resolve) => setTimeout(resolve, 5_200));
+    dana.room.send(CLIENT_MESSAGE.standingCreate, { ...create, cron: "* * * * *" });
+    await settled(() => dana.standingRejected.length === 2);
+    expect(dana.standingRejected[1]).toEqual({
+      action: "create",
+      taskId: "",
+      rejection: STANDING_REJECTION.invalid,
+      reason: "I can't schedule that: it would fire more often than every 5 minutes.",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5_200));
 
     dana.room.send(CLIENT_MESSAGE.standingPause, { taskId });
     await settled(() => row(eve)?.status === "paused");
