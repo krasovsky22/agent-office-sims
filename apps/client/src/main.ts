@@ -56,7 +56,7 @@ import { deskForbiddenText, deskPanelFor, deskScreenKey, sameDeskPanel } from ".
 import { standupAccessFor, standupRejectionText } from "./standupAccess.js";
 import { boardAccessFor, issueStateRejectionText, rejectionText } from "./boardAccess.js";
 import { DayClock } from "./dayClock.js";
-import { hasIssueMoveLanded } from "./projectBoard.js";
+import { hasIssueMoveLanded, withOfficeWork } from "./projectBoard.js";
 import { managerAccessFor, managerRejectionText } from "./managerAccess.js";
 import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
 import { standingAccessFor, standingRejectionText } from "./standingAccess.js";
@@ -486,6 +486,22 @@ function start(): void {
     );
   };
 
+  // The wall shows the office's work placed as the close-up does, and repaints
+  // for a work patch only when it moves a card, so notes ticking by cost nothing.
+  let wallBoardShown: { snapshot: ProjectBoardSnapshot; inProgress: string } | undefined;
+  const showWallBoard = () => {
+    if (boardSnapshot === undefined) {
+      return;
+    }
+    const shown = withOfficeWork(boardSnapshot, officeWork);
+    const inProgress = shown.inProgress.map((issue) => issue.number).join(",");
+    if (wallBoardShown?.snapshot === boardSnapshot && wallBoardShown.inProgress === inProgress) {
+      return;
+    }
+    wallBoardShown = { snapshot: boardSnapshot, inProgress };
+    wallBoard?.show(shown);
+  };
+
   const room: RoomConnection = new RoomConnection({
     onStatusChanged: (status, detail) => {
       publishHud({ status, detail });
@@ -702,9 +718,9 @@ function start(): void {
           move.freshSince += 1;
         }
       }
-      wallBoard?.show(snapshot);
       publishHud({ projectBoard: snapshot });
       boardSnapshot = snapshot;
+      showWallBoard();
       refreshStickerNotes();
     },
 
@@ -716,6 +732,7 @@ function start(): void {
     onWorkChanged: (work) => {
       publishHud({ work });
       officeWork = work;
+      showWallBoard();
       refreshStickerNotes();
     },
 
