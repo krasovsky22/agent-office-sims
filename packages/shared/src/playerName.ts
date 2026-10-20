@@ -4,8 +4,8 @@
  * Names carry the game — the concierge's welcome, "Only the CEO, Dana, can…",
  * `Dana → Maya: …` — so two players both called Dana, or a player called
  * "AI Manager" whose chat reads like the manager's, would be misleading. The
- * server asks {@link nameRefusal} when a player renames and
- * {@link arrivalName} when one joins; names are compared ignoring case, since
+ * server asks {@link nameRefusal} when a player renames or the CEO renames an
+ * agent, and {@link arrivalName} when a player joins; names are compared ignoring case, since
  * "dana" and "Dana" read as the same person.
  */
 

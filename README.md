@@ -866,7 +866,9 @@ its card, everyone sees its title and description there, and the CEO's has
 `Edit profile`, a form for the name (18 bytes at most), the title (40) and the
 description (400, lines kept), checked by `agentProfileRefusal`, the same rule
 as handing an agent work. Anyone else's card says only the CEO can edit it, and
-the server refuses their edits with that reason. Edits are limited to four in a
+the server refuses their edits with that reason. A new name someone else in
+the office already has is refused too, by the rule players' names follow
+(`nameRefusal`). Edits are limited to four in a
 burst, one more every five seconds. An edit goes to the agent's runner as a
 `profile` command; the runner keeps it in `<RUNNER_DATA_DIR>/profiles.json`,
 private to its user, and reports it on its next sync, which is when the floor
@@ -1777,7 +1779,7 @@ thing the page talks to is the WebSocket.
   `POST /agents/runner/screens` when `RUNNER_SECRET` is set, the only HTTP the
   server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same twenty-five things.
+  [The two-tab check](#the-two-tab-check), and confirm the same twenty-seven things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
