@@ -23,6 +23,8 @@
  * A doorway is wall up to the ceiling but for the opening itself: a lintel
  * fills the gap from the top of the door frame to the top of the wall, so no
  * slot is left over a door. The doors hung in the frames are `doors.ts`'s.
+ * Each lintel carries a sign on both faces, naming the room through the door,
+ * so a newcomer can find their way from the room names the layout already has.
  *
  * Carpet runners lie along the open floor's walkways, a hair above the floor
  * and receiving the same shadows it does.
@@ -40,10 +42,13 @@ import {
   type LiftSpec,
   type OfficeLayout,
   type WallSpec,
+  SIDEWALK_ROOM_ID,
   doorwayGaps,
   interactables,
 } from "@sim/shared";
 import * as THREE from "three";
+
+import { textTexture } from "./street.js";
 
 const FLOOR_COLOUR = 0x4a4a50;
 const WALL_COLOUR = 0x8e8e95;
@@ -247,6 +252,65 @@ function addLintel(parent: THREE.Object3D, gap: DoorwayGap, material: THREE.Mate
     depth: alongX ? gap.depth : gap.width,
   };
   addSlab(parent, `lintel-${gap.id}`, footprint, gap.frameHeight, gap.wallHeight, material);
+}
+
+/** How tall a room sign over a door is, and how far it stands off the lintel's face. */
+const ROOM_SIGN_HEIGHT = 0.3;
+const ROOM_SIGN_STANDOFF = 0.01;
+
+/** A sign on one face of a doorway's lintel, naming the room through it. */
+export interface RoomSign {
+  readonly text: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** Turns the sign's face, +Z at rest, towards the room it is read from. */
+  readonly yaw: number;
+  readonly width: number;
+}
+
+/**
+ * Where every room sign goes: one on each side of every doorway with a lintel,
+ * naming the room on the other side. The way in from the street is skipped, as
+ * its canopy already carries the office's name.
+ */
+export function roomSigns(layout: OfficeLayout): RoomSign[] {
+  const rooms = new Map(layout.rooms.map((room) => [room.id, room]));
+  const gaps = doorwayGaps(layout);
+  const signs: RoomSign[] = [];
+  for (const doorway of layout.doorways) {
+    const gap = gaps.find((candidate) => Math.hypot(candidate.x - doorway.centre.x, candidate.z - doorway.centre.z) < 0.05);
+    if (gap === undefined || gap.wallHeight <= gap.frameHeight || doorway.connects.includes(SIDEWALK_ROOM_ID)) {
+      continue;
+    }
+    const y = gap.frameHeight + (gap.wallHeight - gap.frameHeight) / 2;
+    const offset = gap.depth / 2 + ROOM_SIGN_STANDOFF;
+    for (const [readFrom, through] of [doorway.connects, [doorway.connects[1], doorway.connects[0]]] as const) {
+      const near = rooms.get(readFrom);
+      const far = rooms.get(through);
+      if (near === undefined || far === undefined) {
+        continue;
+      }
+      const side = centreOf(near.bounds);
+      if (doorway.axis === "x") {
+        const toward = Math.sign(side.z - doorway.centre.z);
+        signs.push({ text: far.name, x: doorway.centre.x, y, z: doorway.centre.z + toward * offset, yaw: toward > 0 ? 0 : Math.PI, width: gap.width });
+      } else {
+        const toward = Math.sign(side.x - doorway.centre.x);
+        signs.push({ text: far.name, x: doorway.centre.x + toward * offset, y, z: doorway.centre.z, yaw: toward * (Math.PI / 2), width: gap.width });
+      }
+    }
+  }
+  return signs;
+}
+
+function addRoomSign(parent: THREE.Object3D, sign: RoomSign): void {
+  const material = new THREE.MeshLambertMaterial({ map: textTexture(sign.text, "#1b1f27", "#f2f2f2") });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(sign.width, ROOM_SIGN_HEIGHT), material);
+  mesh.position.set(sign.x, sign.y, sign.z);
+  mesh.rotation.y = sign.yaw;
+  mesh.name = `room-sign-${sign.text}`;
+  parent.add(mesh);
 }
 
 /** A flat rectangle lying on the floor at `y`, receiving shadows as the floor does. */
@@ -475,6 +539,9 @@ export function buildOffice(scene: THREE.Scene, layout: OfficeLayout): OfficeVie
   addUprights(office, "railing-posts", posts, materials.railing);
   for (const gap of doorwayGaps(layout)) {
     addLintel(office, gap, wallMaterial);
+  }
+  for (const sign of roomSigns(layout)) {
+    addRoomSign(office, sign);
   }
 
   const carpetMaterials = {

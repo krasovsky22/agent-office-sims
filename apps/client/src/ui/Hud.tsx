@@ -65,6 +65,7 @@ import { AgentMenu, type AgentMenuActions } from "./AgentMenu.js";
 import { type AgentProfileActions, AgentProfileCard, type AgentProfileNotice } from "./AgentProfileCard.js";
 import { type AgentPromptRefusal, type AgentTerminalActions, AgentTerminalPanel } from "./AgentTerminalPanel.js";
 import { type ManagerPanelActions, ManagerPanel } from "./ManagerPanel.js";
+import { HelpOverlay } from "./HelpOverlay.js";
 import { NameCard, RenameField } from "./NameCard.js";
 import { type ProjectBoardActions, ProjectBoardPanel } from "./ProjectBoardPanel.js";
 import { type StandupActions, StandupPanel } from "./StandupPanel.js";
@@ -233,6 +234,8 @@ export interface HudSnapshot {
   readonly agentMenu?: AgentMenuView | undefined;
   /** The name the arrival card is prefilled with while it is up, before joining; `undefined` once the player entered. */
   readonly nameCard?: string | undefined;
+  /** Whether the list of controls is over the office. */
+  readonly helpOpen: boolean;
 }
 
 /** What the standing tasks' buttons do; the server decides whether it happens. */
@@ -246,6 +249,8 @@ export interface HudActions {
   readonly sendChat: (text: string) => void;
   /** Switches between first and third person, as `V` does. */
   readonly toggleCamera: () => void;
+  /** Opens or closes the list of controls, as `H` does. */
+  readonly toggleHelp: () => void;
   /** Joins the office afresh, from a connection that has given up. */
   readonly rejoin: () => void;
   /** Enters the office under the name typed on the arrival card; the server sanitizes it and decides. */
@@ -287,6 +292,7 @@ const INITIAL: HudSnapshot = {
   standingTasks: [],
   standup: NO_STANDUP,
   cameraMode: CAMERA_MODE.thirdPerson,
+  helpOpen: false,
 };
 
 export function createHudStore(): HudStore {
@@ -890,6 +896,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     agentProfileNotice,
     cameraMode,
     nameCard,
+    helpOpen,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
@@ -906,6 +913,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       </div>
 
       {nameCard === undefined ? null : <NameCard initial={nameCard} join={actions.join} />}
+
+      <HelpOverlay open={helpOpen} toggle={actions.toggleHelp} />
 
       <div className="hud__column">
         <Roster
@@ -947,8 +956,10 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           <p className="hud__hint">
             <span className="hud__keys">W A S D</span> to walk,{" "}
             <span className="hud__keys">Space</span> to jump,{" "}
-            <span className="hud__keys">E</span> to use what you are standing by, drag to look
-            around, <span className="hud__keys">Enter</span> to chat.
+            <span className="hud__keys">E</span> to use what you are standing by,{" "}
+            <span className="hud__keys">Enter</span> to chat. Click the office to look around with the mouse;{" "}
+            <span className="hud__keys">Esc</span> frees it to click the HUD. <span className="hud__keys">H</span> for
+            every control.
           </p>
           <p className="hud__hint hud__camera">
             <button

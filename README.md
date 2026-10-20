@@ -146,6 +146,13 @@ coffee goes with you: the cup steams in your hand and is sipped every few
 seconds, ten sips in all, then it is gone; idle agents now and then go for one
 too, and everyone in the office sees the same cup and the same sips.
 
+`H` opens a list of every control over the office, and closes it again, as do
+`Esc` and its button; it opens by itself once, on a browser's first visit,
+after the name card (`apps/client/src/help.ts`). Over every inner door a sign
+on each side names the room through it, from the room names in the layout:
+`Open Floor` from the lobby, then the CEO's and the AI Manager's offices, the
+Conference Room and the Kitchen from the open floor.
+
 Facing a runner's coding agent close up, idle and wandering or at work at
 its desk, the prompt adds `Hold E` `Cancel task or fire Maya`. A press of `E`
 there does what it always did; held for half a second it opens the agent's
@@ -1901,6 +1908,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/propKit.ts   the asset registry: one model per prop kind
   src/scene/props.ts     those props, drawn as instanced meshes
   src/scene/doors.ts     the doors in every doorway, swinging open for whoever comes near; decor, never collided with
+  src/scene/office.ts    the shell from the layout: floor, walls, lintels and the room signs over the doors, ceiling, lifts
   src/scene/wallDecor.ts  the wall decor from shared decor.ts, hung as instanced boxes, the clocks kept to the office's time
   src/scene/wallArt.ts    the decor's artwork, painted on canvases: pictures, posters, clock faces, whiteboards, the TV's slide
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
@@ -1918,6 +1926,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/ui/AgentProfileCard.tsx  an agent's profile under its roster line: read by everyone, edited by the CEO
   src/playerName.ts       the name card's prefill from `?name=` or the browser's storage, and why a name was refused
   src/ui/NameCard.tsx     the arrival card where a player chooses their name, and renaming from their roster line
+  src/help.ts             every control the help overlay lists, and whether this browser has been shown it
+  src/ui/HelpOverlay.tsx  the help overlay: `H` opens and closes it, and it opens by itself on a first visit
   src/agentMenu.ts        the agent the local player faces, and what its long-press `E` menu offers, and why not
   src/ui/AgentMenu.tsx    the long-press `E` menu: cancel the agent's task, or fire it
   src/ui/ManagerPanel.tsx the conversation with the manager, opened at its desk

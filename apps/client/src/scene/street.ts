@@ -454,7 +454,8 @@ function addSignals(group: THREE.Group, street: StreetSpec): SignalLamps {
   return lamps;
 }
 
-function textTexture(text: string, background: string, foreground: string): THREE.CanvasTexture {
+/** A line of text on a plain background, for a sign. */
+export function textTexture(text: string, background: string, foreground: string): THREE.CanvasTexture {
   const element = document.createElement("canvas");
   element.width = 512;
   element.height = 128;
