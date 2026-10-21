@@ -586,7 +586,7 @@ describe("a pull request steward", () => {
     const resolved: string[] = [];
     const runners: StandingRunners = {
       ...steward.runners,
-      resolve: async (job) => {
+      resolve: async () => {
         const baseSha = states.get(44)?.baseSha ?? "";
         resolved.push(baseSha);
         return baseSha === "base000" ? { outcome: "failed", costUsd: 0, message: "Resolving the conflicts stopped: timed out" } : { outcome: "resolved", costUsd: 0, message: "Pushed." };
