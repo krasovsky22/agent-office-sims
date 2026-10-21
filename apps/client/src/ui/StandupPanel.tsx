@@ -29,7 +29,8 @@ import { useEffect, useRef, useState } from "react";
 
 import type { TerminalScreen } from "../net/screens.js";
 import { type StandupAccess, directionStatusText, standupPhaseText } from "../standupAccess.js";
-import { type AgentPromptRefusal, KeyPad, useTerminalCanvas } from "./AgentTerminalPanel.js";
+import { type AgentPromptRefusal, KeyPad } from "./AgentTerminalPanel.js";
+import { useTerminalCanvas } from "./terminalCanvas.js";
 import type { RosterEntry } from "./hudStore.js";
 import { MicButton } from "./MicButton.js";
 
