@@ -317,8 +317,8 @@ channels, and everyone sees the same one. Standing at the foot of the table,
   open for it, or its agent has handed it in) and Done. There is no sprint of
   its own to set up; it is read off the project board.
 - **Tickets board**: the project board, as the open floor's wall shows it.
-- **Status board**: whether the server connection, the runners and the GitHub
-  feed are up, and each coding agent's state, task and spend today.
+- **Status board**: whether the server connection and the runners are up, and
+  each coding agent's state, task and spend today.
 - **YouTube**: a video or playlist link pasted into the panel, apart from the
   radio's. The server checks it with YouTube as it does the radio's; the TV
   then shows its still and title, and it plays with sound from the TV,

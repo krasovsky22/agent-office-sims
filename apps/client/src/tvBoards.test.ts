@@ -124,7 +124,7 @@ describe("dailyBoard", () => {
 });
 
 describe("statusBoard", () => {
-  it("says whether the server, runners and GitHub are up, and each agent's state, task and spend", () => {
+  it("says whether the server and runners are up, and each agent's state, task and spend", () => {
     const board = statusBoard(
       [
         { name: "Nadia", agentStatus: LIVE_AGENT_STATUS.working, caption: "#4 Lifts · Bash: pnpm test", agentSpentUsd: 1.25, fired: false },
@@ -132,21 +132,18 @@ describe("statusBoard", () => {
       ],
       "connected",
       { runners: 1, spentUsd: 1.25, budgetUsd: 10, budgetSpent: false },
-      snapshot({}),
-      time,
     );
     expect(board.health.map((card) => [card.label, card.tone])).toEqual([
       ["Server", "good"],
       ["Runners", "good"],
-      ["GitHub", "good"],
     ]);
     expect(board.health[1]?.title).toBe("1 runner connected");
     expect(board.agents).toEqual([{ label: "Nadia", title: "#4 Lifts · Bash: pnpm test", detail: "$1.25 today", tone: "pending" }]);
   });
 
-  it("flags a lost connection, no runner, and a board GitHub has not filled", () => {
-    const board = statusBoard([], "reconnecting", undefined, undefined, time);
-    expect(board.health.map((card) => card.tone)).toEqual(["bad", "bad", "bad"]);
+  it("flags a lost connection and no runner", () => {
+    const board = statusBoard([], "reconnecting", undefined);
+    expect(board.health.map((card) => card.tone)).toEqual(["bad", "bad"]);
     expect(board.health[1]?.title).toBe("No agent runner connected");
   });
 });

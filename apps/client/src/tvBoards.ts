@@ -21,7 +21,7 @@ import {
 } from "@sim/shared";
 
 import type { ConnectionStatus } from "./net/room.js";
-import { type BoardTone, type TimeFormatter, boardStatus, withOfficeWork } from "./projectBoard.js";
+import { type BoardTone, type TimeFormatter, withOfficeWork } from "./projectBoard.js";
 import type { StandingTaskData } from "./standingAccess.js";
 import { recurringRow } from "./standingAccess.js";
 import { spendLine } from "./ui/spend.js";
@@ -183,11 +183,8 @@ export function statusBoard(
   agents: readonly StatusAgent[],
   connection: ConnectionStatus,
   spend: RunnerSpendTotal | undefined,
-  board: ProjectBoardSnapshot | undefined,
-  formatTime: TimeFormatter,
 ): StatusBoard {
   const runners = spend?.runners ?? 0;
-  const feed = boardStatus(board, formatTime);
   const books = spend === undefined || runners === 0 ? undefined : spendLine(spend);
   return {
     health: [
@@ -198,7 +195,6 @@ export function statusBoard(
         detail: books?.text ?? "",
         tone: runners === 0 ? "bad" : books?.spent === true ? "bad" : "good",
       },
-      { label: "GitHub", title: feed.text, detail: "", tone: feed.stale || board === undefined ? "bad" : "good" },
     ],
     agents: agents
       .filter((agent) => agent.agentStatus !== undefined)

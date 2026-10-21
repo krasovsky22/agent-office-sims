@@ -1068,7 +1068,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
       case TV_CHANNEL.status:
         return {
           channel: TV_CHANNEL.status,
-          board: statusBoard(hud.roster, hud.status, hud.runnerSpend, hud.projectBoard, formatClockTime),
+          board: statusBoard(hud.roster, hud.status, hud.runnerSpend),
         };
       case TV_CHANNEL.youtube: {
         const { videoId } = hud.tv;
