@@ -230,7 +230,7 @@ gives it the issue again, from the board or the AI Manager.
 Behind the chair of an open-floor desk where a live agent is working, the
 prompt reads `Watch the agent's terminal` and `E` opens its terminal at full
 size, with its name, what it is doing, and links to its issue and pull
-request. The terminal is drawn in small text with its scrollback above the
+request. The terminal's text is scaled to fill the panel, its scrollback above the
 screen: the mouse wheel or a trackpad scrolls back through it, as do `PageUp`
 and `PageDown`, and `Home` and `End` outside the prompt box. Scrolled back, it
 stays on what it shows as new output arrives; at the bottom, it follows the
@@ -2152,7 +2152,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/deskTerminalAccess.ts  what the local player's desk shows them: the CEO's terminal, why there is none yet, or why it is the CEO's alone
   src/standupAccess.ts    what the local player may do at a standup, and how its refusals, phase and directions read
   src/ui/StandupPanel.tsx the standup while one is on: the updates in turn, terminals and key pads, directions, and ending it
-  src/terminalView.ts     the panel's terminal: scrollback and screen in small text, and scrolling it
+  src/terminalView.ts     the panel's terminal: scrollback and screen scaled to fill it, and scrolling it
   src/assets/office-kit/ the vendored models, and their licence
 ```
 

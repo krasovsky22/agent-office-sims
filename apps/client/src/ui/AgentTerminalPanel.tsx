@@ -3,7 +3,7 @@
  *
  * The desk's monitor shows the same terminal, but a monitor is too small to
  * read from across the room. This panel paints the agent's terminal onto a 2D
- * canvas in small text, its scrollback above its screen (`terminalView.ts`),
+ * canvas, its text scaled to fill it, its scrollback above its screen (`terminalView.ts`),
  * and keeps painting as frames arrive. The mouse wheel or a trackpad scrolls
  * it back, as do `PageUp` and `PageDown`, and `Home` and `End` outside the
  * prompt box; at the bottom it follows the agent live. The terminal is

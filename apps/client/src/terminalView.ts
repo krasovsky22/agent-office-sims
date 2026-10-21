@@ -1,12 +1,13 @@
 /**
  * An agent's terminal as its panel shows it: the scrollback and the screen
- * as one column of rows, at a small fixed size, scrolled back as far as the
+ * as one column of rows, scaled to the panel, scrolled back as far as the
  * CEO has wheeled it.
  *
  * A desk's monitor zooms in on the screen's busy rows so they read from
- * across the room. The panel is read up close, so it does the opposite: the
- * smallest text that still reads well, and as many rows of it as the panel
- * has room for, the newest at the bottom. Scrolled back, the view stays on
+ * across the room. The panel is read up close, so it shows them all: the
+ * text grows until the terminal's width or its screen's rows fill the panel,
+ * since an issue's agent keeps the runner's size, which every tab shares, and
+ * as many rows as the panel has room for, the newest at the bottom. Scrolled back, the view stays on
  * the rows it shows as new ones arrive under it, the way a terminal's does;
  * scrolled to the bottom, it follows the agent live.
  */
@@ -23,8 +24,11 @@ import {
 import type { TerminalScreen } from "./net/screens.js";
 import { CHAR_WIDTH, LINE_HEIGHT, type ScreenContext, TERM_THEME, paintRow } from "./scene/agentScreen.js";
 
-/** The panel's text size, in CSS pixels: small, to show more, and still easy to read. */
+/** The panel's smallest comfortable text size, in CSS pixels, and the one a desk's terminal is sized to. */
 export const TERMINAL_FONT_PX = 11;
+
+/** Largest text a big panel grows to, past which a line reads as a poster. */
+const MAX_FONT_PX = 24;
 
 /** Smallest text a narrow panel shrinks to so the terminal's full width still fits. */
 const MIN_FONT_PX = 7;
@@ -183,8 +187,9 @@ export interface TerminalLayout {
  * a CSS pixel, from row `top` down, counted as the screen's `historyAdded`
  * counts, or its newest rows for `undefined`.
  *
- * The text is {@link TERMINAL_FONT_PX}, smaller only if the terminal's full
- * width would not fit otherwise. While there is more than fits, a scrollbar
+ * The text grows from {@link TERMINAL_FONT_PX} until the terminal's full width
+ * or its screen's rows fill the canvas, up to {@link MAX_FONT_PX}, and is
+ * smaller only if the full width would not fit otherwise. While there is more than fits, a scrollbar
  * says where the view is; scrolled back, a note at the bottom says how far.
  */
 export function paintTerminal(
@@ -200,7 +205,9 @@ export function paintTerminal(
   const pad = PAD_PX * scale;
   const bar = SCROLLBAR_PX * scale;
   const fitWidth = (w - pad * 2 - bar) / (screen.cols * CHAR_WIDTH);
-  const fontSize = Math.max(MIN_FONT_PX * scale, Math.min(TERMINAL_FONT_PX * scale, fitWidth));
+  const fitHeight = (h - pad * 2) / (screen.rows * LINE_HEIGHT);
+  const grown = Math.max(TERMINAL_FONT_PX * scale, Math.min(MAX_FONT_PX * scale, fitWidth, fitHeight));
+  const fontSize = Math.max(MIN_FONT_PX * scale, Math.min(grown, fitWidth));
   const lineH = fontSize * LINE_HEIGHT;
   const visibleRows = Math.max(1, Math.floor((h - pad * 2) / lineH));
   const total = screen.history.length + screenRowsShown(screen);
