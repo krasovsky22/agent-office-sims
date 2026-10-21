@@ -233,8 +233,7 @@ export function createClaudeStandingRunners(options: ClaudeStandingOptions): Sta
       args: [
         ...args,
         ...(job.lease.systemPrompt === "" ? [] : ["--append-system-prompt", job.lease.systemPrompt]),
-        "--max-budget-usd",
-        job.spec.caps.perRunUsd.toFixed(2),
+        ...(job.spec.caps.perRunUsd === undefined ? [] : ["--max-budget-usd", job.spec.caps.perRunUsd.toFixed(2)]),
         "--",
         prompt,
       ],
@@ -242,7 +241,7 @@ export function createClaudeStandingRunners(options: ClaudeStandingOptions): Sta
       env,
       signal: job.signal,
       timeoutMs: job.spec.caps.runMinutes * 60_000,
-      maxUsd: job.spec.caps.perRunUsd,
+      ...(job.spec.caps.perRunUsd === undefined ? {} : { maxUsd: job.spec.caps.perRunUsd }),
       output: job.lease.output,
       activity: job.lease.activity,
       spent: job.lease.spent,

@@ -296,17 +296,34 @@ describe("a pull request watch", () => {
     expect(report?.spentTodayUsd).toBeGreaterThan(0);
   });
 
-  it("starts nothing more that day once it reaches its runs an hour", async () => {
+  it("starts nothing more once it reaches the runs an hour it was set, until that hour has passed", async () => {
     const scheduler = makeScheduler(makePool());
     set(scheduler, { ...PR_TASK, caps: { ...DEFAULT_STANDING_CAPS, maxRunsPerHour: 1 } });
     await until(() => polls === 1);
     listing = [pull(50), pull(51)];
     later(scheduler);
     await until(() => runs(scheduler.pendingEvents()).length === 1);
-    clock += 2 * 60 * 60_000;
+    clock += 30 * 60_000;
     scheduler.tick();
     // A run limit, not a budget: it says so, with money left.
     expect(scheduler.report()[0]).toMatchObject({ status: "run-limit", nextCheckAt: undefined });
+    clock += 31 * 60_000;
+    scheduler.tick();
+    await until(() => runs(scheduler.pendingEvents()).length === 2);
+    expect(runs(scheduler.pendingEvents())).toEqual([
+      ["simulated", 50],
+      ["simulated", 51],
+    ]);
+  });
+
+  it("starts as many runs an hour as it is asked for when it was set no limit", async () => {
+    const scheduler = makeScheduler(makePool());
+    set(scheduler, PR_TASK);
+    await until(() => polls === 1);
+    listing = Array.from({ length: 8 }, (_, at) => pull(60 + at));
+    later(scheduler);
+    await until(() => runs(scheduler.pendingEvents()).length === 8);
+    expect(scheduler.report()[0]?.status).not.toBe("run-limit");
   });
 
   it("refuses a second watch, a fifth task, and pauses, resumes, checks and removes", async () => {
@@ -430,6 +447,30 @@ describe("a schedule", () => {
     scheduler.handle({ id: "c-now3", kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: SCHEDULE_TASK.id, requestedBy: "Dana" });
     expect(scheduler.report()[0]).toMatchObject({ status: "over-budget", dailyUsd: 0.1 });
     expect(runs(scheduler.pendingEvents()).map(([outcome]) => outcome)).toEqual(["simulated"]);
+  });
+
+  it("caps a run of a task with no dollars of its own at what is left of the standing budget, and not at all without one", async () => {
+    for (const [budgetUsd, expected] of [
+      [2, [undefined, undefined, 2, 1.25]],
+      [undefined, [undefined, undefined, undefined, undefined]],
+    ] as const) {
+      const seen: Array<number | undefined> = [];
+      const runners: StandingRunners = {
+        ...createMockStandingRunners({ stepMs: 2, minPollIntervalMs: 0 }),
+        schedule: async (job) => {
+          seen.push(job.spec.caps.perRunUsd);
+          return { outcome: "simulated", costUsd: 0.75, message: "Done." };
+        },
+      };
+      const scheduler = makeScheduler(makePool(), { budgetUsd }, runners);
+      set(scheduler, SCHEDULE_TASK);
+      for (const n of [1, 2]) {
+        scheduler.handle({ id: `c-now${n}`, kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: SCHEDULE_TASK.id, requestedBy: "Dana" });
+        await until(() => runs(scheduler.pendingEvents()).length === n);
+      }
+      expect([SCHEDULE_TASK.caps.perRunUsd, new StandingStore({ file: join(dir, "standing.json") }).load("").tasks[0]?.spec.caps.perRunUsd, ...seen]).toEqual(expected);
+      rmSync(join(dir, "standing.json"), { force: true });
+    }
   });
 });
 

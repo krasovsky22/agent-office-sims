@@ -30,11 +30,12 @@
  * last.
  *
  * Every run is held to its task's caps by the runner itself, whatever the
- * server sent: its own `perRunUsd`, `runMinutes` and `maxRunsPerHour`
- * (reached within an hour, it starts nothing more that day, so a burst cannot
- * run up the day), `RUNNER_STANDING_DAILY_BUDGET_USD` for every standing task
+ * server sent: its own `runMinutes`, and `perRunUsd` and `maxRunsPerHour`
+ * where the definition sets them (reached, it starts nothing more until an
+ * hour has passed since the run that reached it, so a burst cannot run up
+ * the day), `RUNNER_STANDING_DAILY_BUDGET_USD` for every standing task
  * together, and the runner's own daily budget, in whose ledger standing spend
- * is booked too. Either budget unset caps nothing: spend is still counted. A run is saved as `running` before its agent starts, so a restart
+ * is booked too. A cap or budget unset caps nothing: spend is still counted. A run is saved as `running` before its agent starts, so a restart
  * tries it again; a review's marker on the pull request (`./review.ts`) keeps
  * that from ever posting twice.
  *
@@ -445,7 +446,8 @@ export class StandingScheduler {
       });
       this.log(
         `standing task "${held.name}" (${held.id}) added by ${requestedBy}: ${this.trigger(held)}, ` +
-          `${formatUsd(held.caps.perRunUsd)} and ${held.caps.runMinutes} min a run, ${held.caps.maxRunsPerHour} runs an hour` +
+          `${held.caps.perRunUsd === undefined ? "" : `${formatUsd(held.caps.perRunUsd)} and `}${held.caps.runMinutes} min a run` +
+          (held.caps.maxRunsPerHour === undefined ? "" : `, ${held.caps.maxRunsPerHour} runs an hour`) +
           (this.options.runners.simulated ? "; simulated runs, nothing is posted or spent for real" : ""),
       );
     }
@@ -453,10 +455,10 @@ export class StandingScheduler {
     this.tick();
   }
 
-  /** A definition held to what the runner allows: no run may spend more than every standing task together may in a day. */
+  /** A definition held to what the runner allows: no task's own cap may exceed what every standing task together may spend in a day. */
   private held(spec: StandingTaskSpec): StandingTaskSpec {
     const budget = this.options.budgetUsd;
-    if (budget === undefined) {
+    if (budget === undefined || spec.caps.perRunUsd === undefined) {
       return spec;
     }
     const caps: StandingCaps = { ...spec.caps, perRunUsd: Math.min(spec.caps.perRunUsd, budget) };
@@ -713,8 +715,9 @@ export class StandingScheduler {
 
   /** Why a task may start nothing now, or `undefined` while every cap has room. */
   private block(task: StoredTask): Block | undefined {
-    if (task.hourCapDay === this.today()) {
-      return { reason: `it reached ${task.spec.caps.maxRunsPerHour} runs within an hour today, so it starts nothing more until tomorrow`, budget: false };
+    const { maxRunsPerHour } = task.spec.caps;
+    if (maxRunsPerHour !== undefined && task.runStarts.filter((at) => at > this.now() - HOUR_MS).length >= maxRunsPerHour) {
+      return { reason: `it started ${maxRunsPerHour} runs within the last hour, so it starts its next once that hour has passed`, budget: false };
     }
     const budget = this.options.budgetUsd;
     if (budget !== undefined && this.data.spentTodayUsd >= budget) {
@@ -744,9 +747,6 @@ export class StandingScheduler {
     entry.state = LEDGER_STATE.running;
     entry.attempts += 1;
     task.runStarts = [...task.runStarts.filter((at) => at > now - HOUR_MS), now];
-    if (task.runStarts.length >= task.spec.caps.maxRunsPerHour) {
-      task.hourCapDay = this.today();
-    }
     // Saved before the agent starts, so a restart knows this run was cut short.
     this.save();
     const run: ActiveRun = {
@@ -765,8 +765,13 @@ export class StandingScheduler {
         ` (attempt ${entry.attempts} of ${MAX_ATTEMPTS})` +
         (this.options.runners.simulated ? ": a simulated run, nothing is posted" : ""),
     );
+    const budget = this.options.budgetUsd;
     const job = {
-      spec: task.spec,
+      // A task with no cap of its own may spend only what is left of the day's standing budget, so the budget holds mid-run too.
+      spec:
+        budget === undefined || task.spec.caps.perRunUsd !== undefined
+          ? task.spec
+          : { ...task.spec, caps: { ...task.spec.caps, perRunUsd: budget - this.data.spentTodayUsd } },
       step,
       requestedBy: task.requestedBy,
       lease: this.booking(task, run),
@@ -837,9 +842,6 @@ export class StandingScheduler {
       entry.state = LEDGER_STATE.queued;
       entry.attempts = Math.max(entry.attempts - 1, 0);
       task.runStarts = task.runStarts.slice(0, -1);
-      if (task.runStarts.length < task.spec.caps.maxRunsPerHour && task.hourCapDay === this.today()) {
-        task.hourCapDay = undefined;
-      }
       this.record(task, STANDING_OUTCOME.preempted, pr?.number);
       this.emitRun(task, run.lease.slotId, pr, STANDING_OUTCOME.preempted, cost, "Issue work took the slot; it runs again on a free one.", false, undefined, run);
       this.log(`${on} gave way to issue work; queued again (${formatUsd(cost)} spent)`);

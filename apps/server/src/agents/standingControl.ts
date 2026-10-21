@@ -115,10 +115,11 @@ export function scheduleText(schedule: StandingSchedule): string {
   return Number.isInteger(minutes) ? `every ${minutes} min` : `every ${schedule.intervalSeconds} s`;
 }
 
-/** The caps of a run, in words: `at most $0.50 and 10 minutes a run`. */
+/** The caps of a run, in words: `at most 10 minutes a run`, `at most $0.50 and 10 minutes a run, 6 runs an hour`. */
 function capsText(spec: StandingTaskSpec): string {
   const { caps } = spec;
-  return `at most ${formatUsd(caps.perRunUsd)} and ${caps.runMinutes} minutes a run`;
+  const usd = caps.perRunUsd === undefined ? "" : `${formatUsd(caps.perRunUsd)} and `;
+  return `at most ${usd}${caps.runMinutes} minutes a run${caps.maxRunsPerHour === undefined ? "" : `, ${caps.maxRunsPerHour} runs an hour`}`;
 }
 
 export class StandingControl {

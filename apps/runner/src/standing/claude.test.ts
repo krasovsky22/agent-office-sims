@@ -182,13 +182,21 @@ describe("a review", () => {
     expect(args).toContain("--strict-mcp-config");
     expect(flag(args, "--tools")).toBe("Read,Grep,Glob");
     expect(flag(args, "--permission-mode")).toBe("dontAsk");
-    expect(flag(args, "--max-budget-usd")).toBe("0.50");
+    // No dollar cap was set, so none is passed: its minutes still stop it.
+    expect(args).not.toContain("--max-budget-usd");
+    expect(run?.maxUsd).toBeUndefined();
     expect(args).not.toContain("bypassPermissions");
     // Its slot's profile, appended to Claude Code's own system prompt.
     expect(flag(args, "--append-system-prompt")).toBe("In this office your name is Leo and your title is Software Developer.");
     expect(run?.timeoutMs).toBe(10 * 60_000);
     // No token, no gh config, nothing of the runner's own but what Claude needs.
     expect(run?.env).toEqual({ PATH: "/usr/bin", HOME: "/home/runner", ANTHROPIC_API_KEY: "sk-key" });
+  });
+
+  it("is held to a dollar cap the task sets", async () => {
+    await runners(github(undefined)).review(job({ ...REVIEW, caps: { ...REVIEW.caps, perRunUsd: 0.5 } }));
+    expect(flag(launched[0]?.args ?? [], "--max-budget-usd")).toBe("0.50");
+    expect(launched[0]?.maxUsd).toBe(0.5);
   });
 
   it("posts one comment with its marker and attribution, its mentions neutralised", async () => {

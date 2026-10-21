@@ -80,12 +80,14 @@ describe("StandingControl", () => {
     link.sync(sync("box"));
     const created = control.create(CEO, "Dana", { kind: "pr-review" }, "");
     expect(created).toMatchObject({ ok: true, taskId: "st-task1", text: expect.stringContaining("“Watch for new pull requests” is set up on box") });
+    // No cap on its dollars or runs an hour was asked for, so none is said.
+    expect(created).toMatchObject({ text: expect.stringContaining("gets one read-only review comment, at most 10 minutes a run.") });
     expect(link.pending("box")).toEqual([
       {
         id: "c1",
         kind: "standing-set",
         requestedBy: "Dana",
-        spec: expect.objectContaining({ id: "st-task1", kind: "pr-review", intervalSeconds: 120, authors: "collaborators", caps: { perRunUsd: 0.5, runMinutes: 10, maxRunsPerHour: 6 } }),
+        spec: expect.objectContaining({ id: "st-task1", kind: "pr-review", intervalSeconds: 120, authors: "collaborators", caps: { runMinutes: 10 } }),
       },
     ]);
     // Asked for again before the runner has even reported it: still the one watch.

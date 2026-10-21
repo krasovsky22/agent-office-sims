@@ -86,8 +86,6 @@ export interface StoredTask {
   handledToday: number;
   /** When its runs started, epoch ms, the last hour's. */
   runStarts: number[];
-  /** The day it reached its runs an hour, after which it starts nothing more that day. */
-  hourCapDay?: string | undefined;
   lastCheckAt?: number | undefined;
   nextCheckAt?: number | undefined;
   /** The pull request listing's ETag, so an unchanged repository costs nothing. */
@@ -167,13 +165,25 @@ function readRecent(raw: unknown): StandingRunSummary[] {
   });
 }
 
+/**
+ * A task stored before caps were optional carries the caps the server always
+ * sent then, $0.50 (or the standing budget, if less), 10 minutes and 6 runs an
+ * hour, the CEO never having chosen them: read as the unset caps they stood for.
+ * shortcut: caps set to exactly these values are read as unset too; nothing sets caps yet, so give the store a version once something does.
+ */
+function unforced(spec: StandingTaskSpec): StandingTaskSpec {
+  const { perRunUsd, runMinutes, maxRunsPerHour } = spec.caps;
+  return perRunUsd !== undefined && perRunUsd <= 0.5 && runMinutes === 10 && maxRunsPerHour === 6 ? { ...spec, caps: { runMinutes } } : spec;
+}
+
 /** One task as stored, or `undefined` with why for one that cannot be kept. */
 function readTask(raw: unknown): StoredTask | string {
   const task = asRecord(raw);
-  const spec = parseStandingTaskSpec(task?.["spec"]);
-  if (task === undefined || spec === undefined) {
+  const parsed = parseStandingTaskSpec(task?.["spec"]);
+  if (task === undefined || parsed === undefined) {
     return "its definition is not one this runner takes";
   }
+  const spec = unforced(parsed);
   const ledger: Record<string, LedgerEntry> = {};
   for (const [key, value] of Object.entries(asRecord(task["ledger"]) ?? {})) {
     const entry = readEntry(value);
@@ -190,7 +200,6 @@ function readTask(raw: unknown): StoredTask | string {
     spentTodayUsd: number(task["spentTodayUsd"]) ?? 0,
     handledToday: Math.floor(number(task["handledToday"]) ?? 0),
     runStarts: Array.isArray(task["runStarts"]) ? task["runStarts"].flatMap((at) => (number(at) === undefined ? [] : [at as number])) : [],
-    hourCapDay: day(task["hourCapDay"]),
     lastCheckAt: number(task["lastCheckAt"]),
     nextCheckAt: number(task["nextCheckAt"]),
     etag: text(task["etag"]),
