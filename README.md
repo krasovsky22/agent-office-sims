@@ -388,8 +388,7 @@ above it.
 ### Floors and the lift
 
 Each floor of the building is one repository's office, in a room of its own on
-the server: its own project board, sticker boards, people, CEO, AI Manager and
-conversation. Floor 1 is the ground floor, with the street, the lobby and
+the server: its own project board, sticker boards, people and CEO. Floor 1 is the ground floor, with the street, the lobby and
 reception, and is always `PROJECT_BOARD_REPO`'s. `FLOOR_REPOS` adds floors above
 it, one `owner/name` per floor from floor 2 up, comma-separated, at most seven:
 
