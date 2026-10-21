@@ -12,8 +12,11 @@
  * the same code.
  */
 
-/** Matches the server's own default port, so `pnpm dev` needs no configuration. */
-const DEV_SERVER_URL = "ws://localhost:2567";
+/**
+ * Where `vite.config.ts` proxies the game server in dev, so the page reaches it
+ * on its own origin and a single tunnel to the dev server carries both.
+ */
+export const DEV_SERVER_PATH = "/colyseus";
 
 /**
  * Hosts that may be reached over an unencrypted socket.
@@ -24,9 +27,18 @@ const DEV_SERVER_URL = "ws://localhost:2567";
  */
 const LOCAL_HOSTNAMES: readonly string[] = ["localhost", "127.0.0.1", "[::1]", "::1"];
 
-/** The URL the running client should dial, given what the build baked in. */
-export function resolveServerUrl(configured: string | undefined): string {
-  return configured === undefined || configured === "" ? DEV_SERVER_URL : configured;
+/**
+ * The URL the running client should dial, given what the build baked in and
+ * the page it was loaded from.
+ */
+export function resolveServerUrl(
+  configured: string | undefined,
+  page: { readonly protocol: string; readonly host: string },
+): string {
+  if (configured !== undefined && configured !== "") {
+    return configured;
+  }
+  return `${page.protocol === "https:" ? "wss" : "ws"}://${page.host}${DEV_SERVER_PATH}`;
 }
 
 /**

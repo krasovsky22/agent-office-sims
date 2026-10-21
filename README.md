@@ -116,6 +116,16 @@ set in the shell wins over the file. The client is Vite, which reads its own
 `.env` files from `apps/client`. The `start` scripts and the Docker image do
 not read `.env`.
 
+### Sharing via ngrok
+
+With `pnpm dev` running, `pnpm tunnel` (`ngrok http 5173`; needs the ngrok
+agent and its authtoken) shares the office at the printed `https://` URL. One
+tunnel is enough: in dev the client dials the game server on the page's own
+origin under `/colyseus`, which Vite proxies to `localhost:2567`. Vite admits
+any ngrok host, and the server accepts an `https:` page asking its own host,
+so no `ALLOWED_ORIGINS` entry is needed. Leave `VITE_SERVER_URL` unset in
+`apps/client/.env` for this, since a set one is dialled instead.
+
 The server polls GitHub for the project board as soon as it starts, anonymously
 unless `PROJECT_BOARD_TOKEN` is set.
 
