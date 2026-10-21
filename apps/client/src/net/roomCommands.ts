@@ -190,6 +190,11 @@ export abstract class RoomCommands {
     this.room?.send(CLIENT_MESSAGE.deskTerminalSize, { cols, rows } satisfies DeskTerminalSizeMessage);
   }
 
+  /** Turns the CEO's desk's computer off, ending its session. */
+  public sendDeskTerminalOff(): void {
+    this.room?.send(CLIENT_MESSAGE.deskTerminalOff);
+  }
+
   /**
    * Asks for a coding agent's profile to be edited. The state patch, once its
    * runner has it, is the reply, or a rejection to this client alone.

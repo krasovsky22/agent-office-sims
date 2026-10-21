@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   type DeskReading,
   deskForbiddenText,
+  deskOnElsewhere,
   deskPanelFor,
   deskPhaseText,
   deskPrompts,
@@ -84,6 +85,19 @@ describe("deskPhaseText", () => {
       "The session ended: Claude exited with code 1. Stand up and sit down again for a fresh one.",
     );
     expect(deskPhaseText(DESK_TERMINAL_PHASE.ended, "")).toBe("The session ended. Stand up and sit down again for a fresh one.");
+  });
+});
+
+describe("deskOnElsewhere", () => {
+  it("tells the CEO sitting at another computer that theirs is still on, only once an agent is lent", () => {
+    const OTHER = "seat-desk-north-2-1";
+    expect(deskOnElsewhere(OPEN, "me", OTHER)).toBe(true);
+    expect(deskOnElsewhere({ ...OPEN, agentId: "", phase: DESK_TERMINAL_PHASE.starting }, "me", OTHER)).toBe(true);
+    expect(deskOnElsewhere(OPEN, "me", SEAT)).toBe(false);
+    expect(deskOnElsewhere(OPEN, "someone", OTHER)).toBe(false);
+    expect(deskOnElsewhere({ ...OPEN, agentId: "", phase: DESK_TERMINAL_PHASE.waiting }, "me", OTHER)).toBe(false);
+    expect(deskOnElsewhere({ ...OPEN, seatId: "", phase: DESK_TERMINAL_PHASE.off }, "me", OTHER)).toBe(false);
+    expect(deskOnElsewhere(undefined, "me", OTHER)).toBe(false);
   });
 });
 

@@ -72,7 +72,7 @@
  *
  * Nor is the CEO's desk terminal, beyond its step on the tick: the CEO
  * sitting at a desk with a computer is lent a runner's slot to prompt there,
- * and given it back on standing up, by `agents/deskTerminal.ts`.
+ * and given it back once the CEO turns it off, by `agents/deskTerminal.ts`.
  *
  * Nor are the runner slots' terminal screens, beyond passing them on: the
  * store in `agents/screens.ts` hands the room each batch of frames it accepts,
@@ -495,7 +495,7 @@ export class OfficeRoom extends Room<OfficeState> {
       this.runners.standingAnnouncer?.receive(events);
       this.runners.deskTerminal.receive(events);
     }
-    // Every tick, so standing up hands the desk's agent back at once.
+    // Every tick, so a CEO leaving hands the desk's agent back at once.
     this.runners.deskTerminal.step();
     const standing = this.runners.standing;
     if (standing !== undefined && standing.standingVersion() !== this.standingVersion) {

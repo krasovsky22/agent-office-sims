@@ -210,6 +210,9 @@ export function wireRunners(
       deskTerminal.resize(client.sessionId, size.cols, size.rows);
     }
   });
+  room.onMessage(CLIENT_MESSAGE.deskTerminalOff, (client) => {
+    deskTerminal.turnOff(client.sessionId);
+  });
 
   return {
     workHost,

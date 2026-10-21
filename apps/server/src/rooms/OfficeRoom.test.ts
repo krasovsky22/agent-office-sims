@@ -533,7 +533,7 @@ describe("the runners' books", () => {
     await dana.room.leave();
   });
 
-  it("tells every tab the CEO's desk has no coding agent while no runner is connected, and forgets it on standing up", async () => {
+  it("tells every tab the CEO's desk has no coding agent while no runner is connected, forgets it on standing up, and turns it off on the CEO's word", async () => {
     const dana = await openOffice("Dana");
     const milo = await joinOffice(dana, "Milo");
     const seated = serverRoom(dana).state.occupants.get(dana.room.sessionId);
@@ -548,6 +548,17 @@ describe("the runners' books", () => {
     }
     seated.interactableId = "";
     await settled(() => milo.room.state.desk?.phase === DESK_TERMINAL_PHASE.off);
+    expect(milo.room.state.desk.seatId).toBe("");
+
+    // Turned off on her word alone, and kept off while she still sits there.
+    seated.interactableId = "seat-desk-north-1-1";
+    await settled(() => milo.room.state.desk?.phase === DESK_TERMINAL_PHASE.noRunner);
+    milo.room.send(CLIENT_MESSAGE.deskTerminalOff);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(milo.room.state.desk.phase).toBe(DESK_TERMINAL_PHASE.noRunner);
+    dana.room.send(CLIENT_MESSAGE.deskTerminalOff);
+    await settled(() => milo.room.state.desk?.phase === DESK_TERMINAL_PHASE.off);
+    await new Promise((resolve) => setTimeout(resolve, 100));
     expect(milo.room.state.desk.seatId).toBe("");
 
     await milo.room.leave();

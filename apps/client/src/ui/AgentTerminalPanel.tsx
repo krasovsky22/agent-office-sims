@@ -47,7 +47,7 @@
  * rather than with `E`: it reads as the desk's computer, says why while there
  * is no terminal to prompt yet, takes its key pad's cue from the session
  * rather than the agent's body on the floor, and its close button stands the
- * CEO up, which ends the session.
+ * CEO up, leaving the session running; its `Turn off` button ends it.
  */
 
 import { AGENT_KEY_LABEL, type AgentKey, MAX_AGENT_PROMPT_LENGTH, MAX_SCREEN_ROWS, type AgentPromptEntry } from "@sim/shared";
@@ -74,6 +74,8 @@ export interface AgentTerminalActions {
   readonly key: (agentId: string, key: AgentKey) => boolean;
   /** Says how many cells the desk's computer has room for, so its session's terminal is sized to fill it. */
   readonly resizeDesk: (cols: number, rows: number) => void;
+  /** Turns the desk's computer off, ending its session, and stands the CEO up. */
+  readonly turnOffDesk: () => void;
   /** Closes the panel; the caller unmounts it. */
   readonly close: () => void;
 }
@@ -101,7 +103,7 @@ interface AgentTerminalPanelProps {
   /** The latest of the local player's prompts that was not typed, for any agent. */
   readonly refusal: AgentPromptRefusal | undefined;
   readonly actions: AgentTerminalActions;
-  /** Set when this is the CEO's own desk's computer, whose `close` stands the CEO up. */
+  /** Set when this is the CEO's own desk's computer, whose `close` stands the CEO up and leaves it on. */
   readonly desk?: DeskPanelView | undefined;
 }
 
@@ -342,7 +344,7 @@ function useDeskTerminalSize(
 }
 
 /** What the panel says of the local player's access at their own desk's computer. */
-const DESK_ACCESS = "You are the CEO: this desk's computer is a coding agent of your own while you sit here. What you send is typed into it once it waits at its prompt; it runs on the runner's machine, and standing up ends the session.";
+const DESK_ACCESS = "You are the CEO: this desk's computer is a coding agent of your own. What you send is typed into it once it waits at its prompt; it runs on the runner's machine, and keeps running when you stand up, until you turn it off.";
 
 export function AgentTerminalPanel({ agentId, agent, links, prompts, access, localId, refusal, actions, desk }: AgentTerminalPanelProps) {
   const { canvasRef, onWheel } = useTerminalCanvas(agentId, actions.screenOf);
@@ -443,6 +445,18 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
         >
           {desk === undefined ? "Close" : "Stand up"}
         </button>
+        {desk === undefined ? null : (
+          <button
+            className="panel__button"
+            type="button"
+            onClick={(event) => {
+              event.currentTarget.blur();
+              actions.turnOffDesk();
+            }}
+          >
+            Turn off
+          </button>
+        )}
       </header>
 
       {desk === undefined || desk.message === "" ? null : (
@@ -560,7 +574,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
           </>
         ) : (
           <>
-            Step away with <span className="hud__keys">W A S D</span> or use Stand up to end the session
+            Step away with <span className="hud__keys">W A S D</span> or use Stand up and it keeps running; Turn off ends the session
           </>
         )}
         ; scroll the terminal

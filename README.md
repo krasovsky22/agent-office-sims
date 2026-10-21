@@ -490,12 +490,22 @@ prompting a coding agent, which is the CEO's alone
 sitting at a computer gets no terminal, and is told
 `Only the CEO, Dana, can use a desk's computer`.
 
-The session lasts while the CEO sits there. Standing up (a step, or the panel's
-`Stand up`), leaving, or handing the CEO role on ends it: its agent is
-stopped and its worktree discarded, whatever is in it, and the slot goes back
-to the floor for issue work. Nothing carries over to the next sitting, which
-starts a fresh session; what the CEO wants kept, the CEO has the agent commit
-on a branch and push before standing up.
+The computer stays on until the CEO turns it off. Standing up (a step, or the
+panel's `Stand up`) leaves the session running, its terminal still on the
+desk's monitor in every tab, and sitting at that desk again reopens the panel
+on the same session, with the prompts typed since it was turned on. The panel's
+`Turn off` ends it, and stands the CEO up: its agent is stopped and its
+worktree discarded, whatever is in it, and the slot goes back to the floor for
+issue work; the next sitting starts a fresh session. What the CEO wants kept,
+the CEO has the agent commit on a branch and push before turning it off.
+The session is the CEO's who turned it on, so it is turned off for them when
+they leave the office for good or hand the CEO role on, since nobody else may
+use it; a dropped connection inside the reconnection grace period keeps it, but
+reloading the tab leaves the office, so it ends. A sitting with nothing running
+yet (every agent busy, no runner, or the session ended) is given up on standing
+up, so no agent is lent to an empty chair. One desk's computer is on at a time:
+sitting at another while it is on lends nothing there and says
+`Your desk's computer is still on at another desk`.
 
 Which slot is lent is the server's call (`apps/server/src/agents/deskTerminal.ts`),
 made on the tick: the first slot of any runner that is idle, holds no issue,
@@ -507,7 +517,8 @@ needs-you beacon stays off, since the CEO is the one at its screen. An issue's
 start for it anyway takes it back, as it does a standing run's slot, while a
 slot on a standing run refuses a desk session. It has no task
 timeout and does not pause for a standup. What it spends is booked against the
-runner's daily budget like any agent's, and a desk is not lent past it.
+runner's daily budget like any agent's, and a desk is not lent past it; a
+session left running while the CEO is away is held to that same budget.
 
 The panel says why while there is no terminal to prompt:
 `Starting a coding agent at this desk…` while the runner starts it, the
@@ -515,7 +526,7 @@ monitor lit with `connecting…`; `Every coding agent is busy`, until one is fre
 `No agent runner is connected`, when none is, or the server has no
 `RUNNER_SECRET`; and `The session ended: <why>` when the runner refused it or
 its agent exited, the budget spent, say, until the CEO stands up and sits down
-again. Where it stands is replicated state (`DeskTerminal` in
+again, or turns it off. Where it stands is replicated state (`DeskTerminal` in
 `packages/shared/src/state.ts`), so every tab draws the same desk.
 
 ### The runner link
@@ -1788,9 +1799,11 @@ Then confirm all twenty-seven:
     `Thinking: List the routes.`, then answers on both monitors and in her
     panel. Milo sits at another desk: no terminal, and the notice
     `Only the CEO, Dana, can use a desk's computer`. Dana stands up: the panel
-    closes, her desk's monitor goes dark in both tabs, and the mock is back in
-    the board's `Assign…` list. Stop the runner and Dana sits again: the panel
-    says `No agent runner is connected`. `apps/server/src/agents/deskTerminal.test.ts`
+    closes, but her desk's monitor keeps showing the mock's terminal in both
+    tabs; she sits again and the panel reopens on the same session, her prompt
+    still listed. She presses `Turn off`: she stands, her desk's monitor goes
+    dark in both tabs, and the mock is back in the board's `Assign…` list. Stop
+    the runner and Dana sits again: the panel says `No agent runner is connected`. `apps/server/src/agents/deskTerminal.test.ts`
     checks the lending, the hand-back and the gate against a real runner link,
     and `apps/runner/src/slotsDesks.test.ts` the session on the runner's side.
 26. **Nobody can borrow a name.** Open a third tab at
