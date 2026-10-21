@@ -25,13 +25,12 @@
  * chat by `./Chat.tsx`.
  */
 
-import { MANAGER_STATUS, OFFICE_CAPACITY, STANDING_ACTION } from "@sim/shared";
+import { MANAGER_STATUS, STANDING_ACTION } from "@sim/shared";
 import { useSyncExternalStore } from "react";
 
 import { NO_LINKS, terminalLinks } from "../agentTerminal.js";
 import { nowPlaying } from "../radio.js";
 import { deskPrompts } from "../deskTerminalAccess.js";
-import type { ConnectionStatus } from "../net/room.js";
 import { CAMERA_MODE } from "../player/cameraMode.js";
 import { AgentMenu } from "./AgentMenu.js";
 import { AgentTerminalPanel } from "./AgentTerminalPanel.js";
@@ -45,26 +44,9 @@ import { StandupPanel } from "./StandupPanel.js";
 import { ChatComposer, ChatLog, EmoteBar } from "./Chat.js";
 import { type AssetState, type HudActions, type HudStore, assignableAgents, groupRoster } from "./hudStore.js";
 import { Roster } from "./Roster.js";
+import { canRejoin, statusLine } from "./status.js";
 
 import "./hud.css";
-
-const STATUS_TEXT: Record<ConnectionStatus, string> = {
-  connecting: "Connecting to the office…",
-  connected: "Connected",
-  reconnecting: "Connection lost — reconnecting…",
-  disconnected: "Disconnected",
-  full: `The office is full (${OFFICE_CAPACITY} people)`,
-  failed: "Could not reach the office server",
-};
-
-export function statusLine(status: ConnectionStatus, detail: string | undefined): string {
-  return detail === undefined ? STATUS_TEXT[status] : `${STATUS_TEXT[status]} — ${detail}`;
-}
-
-/** Whether the connection has stopped trying, so the Status panel offers to rejoin. */
-export function canRejoin(status: ConnectionStatus): boolean {
-  return status === "disconnected" || status === "failed" || status === "full";
-}
 
 /**
  * What the status panel says about the furniture, when there is anything to say.

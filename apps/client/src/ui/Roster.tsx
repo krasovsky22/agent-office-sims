@@ -9,7 +9,6 @@ import {
   type RunnerSpendTotal,
   STANDING_ACTION,
   type StandingTaskAction,
-  spendSummary,
 } from "@sim/shared";
 import { useState } from "react";
 
@@ -18,6 +17,7 @@ import type { BoardAccess } from "../boardAccess.js";
 import { MANAGER_STATUS_APPEARANCE } from "../managerStatus.js";
 import { notificationsSupported } from "../needsYou.js";
 import { type StandingAccess, type StandingTaskData, standingRow } from "../standingAccess.js";
+import { spendLine } from "./spend.js";
 import type { StandupAccess } from "../standupAccess.js";
 import { type AgentProfileActions, AgentProfileCard, type AgentProfileNotice } from "./AgentProfileCard.js";
 import { RenameField } from "./NameCard.js";
@@ -165,18 +165,6 @@ function ManagerRow({ entry, unread }: { entry: RosterEntry; unread: number }) {
       </span>
     </li>
   );
-}
-
-/**
- * The runners' books, under the live agents: today's spend against the
- * budget, and once that is spent, that no new work will start. Real money,
- * so it is shown plainly in every tab.
- */
-export function spendLine(spend: RunnerSpendTotal): { readonly text: string; readonly spent: boolean } {
-  return {
-    text: `Agents' spend: ${spendSummary(spend)}${spend.budgetSpent ? " — budget spent, no new starts" : ""}`,
-    spent: spend.budgetSpent,
-  };
 }
 
 function SpendLine({ spend }: { spend: RunnerSpendTotal }) {
