@@ -99,10 +99,10 @@ const LOOK_PITCH_DEFAULT = 0.12;
 /**
  * How far behind the eyes the first-person camera sits, in metres.
  *
- * The robot's arms are short and hang from well below its visor, so seen from
- * the visor itself even raised hands sit under the bottom of the view. Drawn
- * back this far, still inside the hidden head and the body's own collision
- * radius, they come up into the lower part of it.
+ * The arms hang from below the head, so seen from the eyes themselves even
+ * raised hands sit under the bottom of the view. Drawn back this far, just
+ * behind the hidden head and still inside the body's own collision radius,
+ * they come up into the lower part of it.
  */
 const EYE_PULLBACK = 0.25;
 

@@ -76,7 +76,7 @@ import { CAMERA_MODE, type CameraMode, otherCameraMode, readCameraMode, writeCam
 import { type CameraFocus, PlayerController, shoulderView } from "./player/controller.js";
 import { AgentScreens } from "./scene/agentScreen.js";
 import { Avatar } from "./scene/avatar.js";
-import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
+import { createAvatarModel } from "./scene/avatarModel.js";
 import { buildRecurringBoard } from "./scene/recurringBoard.js";
 import { buildWallBoard } from "./scene/wallBoard.js";
 import { buildWallDecor } from "./scene/wallDecor.js";
@@ -282,10 +282,8 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
   const avatars = new Map<string, Avatar>();
   const remotePose: RemotePose = { x: 0, z: 0, yaw: 0, animation: ANIMATION_STATE.idle };
 
-  // Undefined until the humanoid model has downloaded, and for the rest of the
-  // session if it never does. Avatars built in the meantime stand as capsules
-  // and are upgraded in place below.
-  let avatarModel: AvatarModel | undefined;
+  // Built once: every avatar is a clone of it, sharing its geometry and clips.
+  const avatarModel = createAvatarModel();
 
   host.publish({ cameraMode: controller.mode });
 
@@ -990,18 +988,6 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
   };
 
   requestAnimationFrame(frame);
-
-  void loadAvatarModel(import.meta.env.BASE_URL)
-    .then((model) => {
-      avatarModel = model;
-      for (const avatar of avatars.values()) {
-        avatar.useModel(model);
-      }
-    })
-    .catch(() => {
-      // Every avatar stays the capsule it was built as, which is a body you can
-      // see and walk rather than an invisible player.
-    });
 
   return {
     events,

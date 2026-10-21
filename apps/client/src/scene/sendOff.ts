@@ -13,31 +13,30 @@
 import { OCCUPANT_HEIGHT, OCCUPANT_RADIUS } from "@sim/shared";
 import * as THREE from "three";
 
+import { EYE_ABOVE_HEAD } from "./avatarModel.js";
+
 /**
- * Where the box is held, in the body's own frame (forward is -Z): at the
- * hands, out in front of the robot's wide head so what is packed in it shows
- * under the visor rather than behind it.
+ * Where the box is held, in the body's own frame (forward is -Z): between the
+ * raised hands, under the chin and clear of the chest, so what is packed in it
+ * shows in front of the face.
  */
-const BOX_OFFSET = new THREE.Vector3(0, OCCUPANT_HEIGHT * 0.42, -(OCCUPANT_RADIUS + 0.35));
+const BOX_OFFSET = new THREE.Vector3(0, OCCUPANT_HEIGHT * 0.58, -(OCCUPANT_RADIUS + 0.13));
 const BOX_WIDTH = 0.46;
 const BOX_HEIGHT = 0.26;
 const BOX_DEPTH = 0.32;
 
-/** Where the eyes are when the body has no head to read them off: a little under the crown. */
-const CAPSULE_EYES = new THREE.Vector3(0, OCCUPANT_HEIGHT - 0.25, -OCCUPANT_RADIUS * 0.8);
 /**
- * From the middle of the visor to each eye, and out to the front of the head
- * so the tears run down its face rather than inside it: the robot's head is
- * about a metre across.
+ * From the middle of the head, level with the eyes, to each eye, and out to
+ * just proud of the face so the tears run down it rather than inside the head.
  */
-const EYE_SPREAD = 0.25;
-const EYE_FORWARD = 0.47;
-const EYE_DROP = 0.08;
+const EYE_SPREAD = 0.08;
+const EYE_FORWARD = 0.23;
+const EYE_DROP = 0.03;
 
 /** Tears: a few drops per eye running down on a loop, out of step with each other. */
 const TEARS_PER_EYE = 2;
 const TEAR_PERIOD_MS = 900;
-const TEAR_FALL = 0.32;
+const TEAR_FALL = 0.2;
 
 const BOX_GEOMETRY = new THREE.BoxGeometry(BOX_WIDTH, BOX_HEIGHT, BOX_DEPTH);
 const FLAP_GEOMETRY = new THREE.BoxGeometry(BOX_WIDTH, 0.01, BOX_DEPTH * 0.45);
@@ -138,21 +137,16 @@ export class SendOff {
   /**
    * Shows the box and runs the tears this frame, or hides both.
    *
-   * @param eyes where the body sees from, in world space, or `undefined` for a
-   * body with no head, whose eyes are taken to be under its crown.
+   * @param head the head pivot, at the neck: the eyes are read off it, so the
+   * tears stay on the face as it bows.
    */
-  public update(fired: boolean, nowMs: number, eyes: THREE.Vector3 | undefined): void {
+  public update(fired: boolean, nowMs: number, head: THREE.Object3D): void {
     this.group.visible = fired;
     if (!fired) {
       return;
     }
-    if (eyes === undefined) {
-      this.eyes.copy(CAPSULE_EYES);
-    } else {
-      this.group.worldToLocal(this.eyes.copy(eyes));
-      this.eyes.z -= EYE_FORWARD;
-      this.eyes.y -= EYE_DROP;
-    }
+    head.updateWorldMatrix(true, false);
+    this.group.worldToLocal(head.localToWorld(this.eyes.set(0, EYE_ABOVE_HEAD - EYE_DROP, -EYE_FORWARD)));
     this.tears.forEach((tear, index) => {
       const side = index % 2 === 0 ? -1 : 1;
       const fall = tearFall(nowMs, Math.floor(index / 2) / TEARS_PER_EYE + (side > 0 ? 0.25 : 0));

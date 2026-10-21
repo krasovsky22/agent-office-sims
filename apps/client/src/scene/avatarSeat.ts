@@ -1,10 +1,11 @@
 /**
  * Putting the seated humanoid on the chair rather than on the floor.
  *
- * The asset's `Sitting` clip is authored for a body sitting at the height of its
- * own short legs, with the root left on the floor: played as shipped, the thighs
- * end up a fifth of a metre inside the office chair's cushion and the back
- * straddles its backrest. Two facts fix that, and neither is written down here:
+ * The rig's `Sitting` clip bends the legs at the hips and knees and leaves the
+ * hips where they stood: played as built, the thighs rest at the height of the
+ * body's own legs rather than on the office chair's cushion, and the back is
+ * wherever the seat's spot puts it. Two facts fix that, and neither is written
+ * down here:
  *
  * - **Where the chair is** comes from {@link ChairSpec}, the shared record the
  *   chair prop is fitted to.
@@ -13,14 +14,14 @@
  *   model's bounds instead of trusting a number.
  *
  * The difference is baked into the clip as a track on the skeleton's root bone,
- * which no clip in the asset drives, together with a slight lean in toward the
- * desk that keeps the asset's oversized head clear of the backrest. Being part of the clip is what makes it
+ * which none of the rig's clips drives, together with a slight lean in toward the
+ * desk that keeps the deep head clear of the backrest. Being part of the clip is what makes it
  * free of pops: the animator cross-fades it in with the rest of the seated pose
  * as the occupant sits down and out again as they stand, and the typing clip,
  * derived from the seated pose, inherits it.
  *
  * The clip and bone names below are, like those in `avatarClips.ts`, facts about
- * the specific asset; see `public/models/ATTRIBUTION.md`.
+ * the rig in `avatarModel.ts`.
  */
 
 import type { ChairSpec } from "@sim/shared";
@@ -38,8 +39,8 @@ const SEAT_BONES: readonly string[] = ["UpperLegL", "UpperLegR", "Body"];
  * How far the seated pose leans in toward the desk, in radians, and the bones
  * that lean.
  *
- * The asset's head is nearly a metre deep and hangs well behind the torso, so
- * sat bolt upright with its back to the backrest the head would bury the top of
+ * The head is twice as deep as the torso and overhangs its back, so sat bolt
+ * upright with its back to the backrest the head would bury the top of
  * the chair. Leaning the body in brings the head forward of the backrest while
  * the small of the back stays against it — the posture of someone working at a
  * screen. The torso, arms and head all hang from `Body`; the thighs hang from it
@@ -64,13 +65,13 @@ export interface SeatPlacement {
 }
 
 /**
- * Measures how far the asset's seated pose has to move to sit on `chair`, once
+ * Measures how far the rig's seated pose has to move to sit on `chair`, once
  * it is leaning in the way {@link placeOnSeat} leans it.
  *
  * @param model the avatar body in its bind pose, scaled to an occupant's height
  * and turned to face -Z; it is cloned, never posed itself. Distances are in the
  * frame it is placed in, which is the avatar's.
- * @param seated the asset's clip that ends in the seated pose.
+ * @param seated the rig's clip that ends in the seated pose.
  */
 export function measureSeatPlacement(
   model: THREE.Object3D,
@@ -132,8 +133,7 @@ export function placeOnSeat(
   }
 
   // The offset is measured in the avatar's frame; the track is written in the
-  // root bone's parent frame, which in this asset is a Z-up armature scaled by
-  // a hundred.
+  // root bone's parent frame, which need not be the avatar's.
   model.updateMatrixWorld(true);
   const toParent = new THREE.Matrix3().setFromMatrix4(root.parent.matrixWorld).invert();
   const avatarToWorld = new THREE.Matrix3().setFromMatrix4(avatarFrame(model));
@@ -272,8 +272,7 @@ function avatarFrame(model: THREE.Object3D): THREE.Matrix4 {
  * with the bone that carries it.
  *
  * A rigid mesh is carried by the nearest bone above it; a skinned vertex by the
- * joint that weighs on it most. The asset uses both: its limbs are rigid meshes
- * hung off bones and its hands are skinned.
+ * joint that weighs on it most.
  */
 function forEachVertex(
   model: THREE.Object3D,

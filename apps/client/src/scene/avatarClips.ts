@@ -2,22 +2,21 @@
  * The avatar's animation clips: one per replicated animation state, all of them
  * blendable against each other.
  *
- * The shipped model's clips were authored independently, which costs two pieces
- * of work before they can be cross-faded:
+ * The rig's own clips (`avatarModel.ts`) are built one pose at a time, which
+ * costs two pieces of work before they can be cross-faded:
  *
- * - **A clip per state.** The asset has no typing clip, so one is derived here
+ * - **A clip per state.** There is no typing clip, so one is derived here
  *   from the seated pose. `sitting` is therefore a hard requirement of the
- *   asset and `typing` is not. The seated pose is moved onto the office chair
+ *   rig's clips and `typing` is not. The seated pose is moved onto the office chair
  *   first (see `avatarSeat.ts`), so typing happens in the chair too.
- * - **A common track set.** `Idle` drives nine channels and `Walking`
- *   twenty-two. A cross-fade only moves the channels the incoming clip actually
+ * - **A common track set.** `Idle` drives only the arms and `Walking` the
+ *   legs too. A cross-fade only moves the channels the incoming clip actually
  *   drives, so a bone the outgoing clip animated and the incoming one does not
  *   is abandoned wherever the fade left it — arms frozen mid-stride the moment a
  *   player stops walking. Every clip is padded with a constant track, holding
  *   the model's bind-pose value, for each channel any other clip drives.
  *
- * The clip and bone names below are the only two facts about the specific asset
- * that reach the code; see `public/models/ATTRIBUTION.md`.
+ * The clip and bone names below are the rig's, from `avatarModel.ts`.
  */
 
 import { ANIMATION_STATE, type AnimationState } from "@sim/shared";
@@ -28,7 +27,7 @@ import { type SeatPlacement, placeOnSeat } from "./avatarSeat.js";
 /** A clip for every state the replicated `animation` field can carry. */
 export type AvatarClips = Readonly<Record<AnimationState, THREE.AnimationClip>>;
 
-/** Which clip in the asset each state plays, where the asset has one. */
+/** Which of the rig's clips each state plays, where it has one. */
 const CLIP_FOR_STATE = {
   [ANIMATION_STATE.idle]: "Idle",
   [ANIMATION_STATE.walking]: "Walking",
@@ -62,9 +61,8 @@ const TYPING_ELBOW_TRAVEL = 0.07;
 /**
  * Bone-local axis the elbow bends about.
  *
- * Found by measurement, not convention: rotating a forearm bone about its local
- * X is the only one of the three axes that moves the hand, and it moves it
- * upward.
+ * The rig's elbows bend forward about their local X, which lifts a hanging
+ * forearm's hand forward and up.
  */
 const ELBOW_AXIS = new THREE.Vector3(1, 0, 0);
 
@@ -88,10 +86,10 @@ type KeyframeTrackConstructor = new (
 ) => THREE.KeyframeTrack;
 
 /**
- * The asset's own clip that ends in the seated pose, before anything here
+ * The rig's own clip that ends in the seated pose, before anything here
  * changes it.
  *
- * @throws if the asset has none.
+ * @throws if there is none.
  */
 export function sourceSeatedClip(source: readonly THREE.AnimationClip[]): THREE.AnimationClip {
   return requireClip(
@@ -105,10 +103,10 @@ export function sourceSeatedClip(source: readonly THREE.AnimationClip[]): THREE.
  *
  * @param model the loaded model, in its bind pose, read for the values padded
  * tracks hold.
- * @param source every clip the asset carries.
+ * @param source every clip the rig comes with.
  * @param seat how far the seated pose is moved onto a chair, or `undefined` to
- * play it where the asset authored it.
- * @throws if the asset is missing a clip that cannot be derived from another.
+ * play it where the rig's clip leaves it.
+ * @throws if the rig is missing a clip that cannot be derived from another.
  */
 export function buildAvatarClips(
   model: THREE.Object3D,
@@ -241,7 +239,7 @@ function bindPoseValue(model: THREE.Object3D, track: THREE.KeyframeTrack): reado
     }
   }
   // Morph target influences and anything else unrecognised rest at zero, which
-  // for this model's three facial expressions is the neutral face.
+  // for a morph target is its neutral shape.
   return new Array<number>(track.getValueSize()).fill(0);
 }
 
