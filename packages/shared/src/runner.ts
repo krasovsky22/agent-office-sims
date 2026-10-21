@@ -238,6 +238,16 @@ export const RUNNER_PROMPT_OUTCOME = {
    * same command `delivered`. The one outcome that is not the last word.
    */
   queued: "queued",
+  /**
+   * A standup's direction, for an agent with no session to type it into: it
+   * answers in a short run of its own instead, reported `answered` with what
+   * it said or `not-answered` with why. Not the last word, as `queued` is not.
+   */
+  answering: "answering",
+  /** The idle agent's answer to a standup's direction, in the outcome's `text`. */
+  answered: "answered",
+  /** The idle agent could not answer a standup's direction; the outcome's `text` says why. */
+  notAnswered: "not-answered",
 } as const;
 
 export type RunnerPromptOutcomeKind = (typeof RUNNER_PROMPT_OUTCOME)[keyof typeof RUNNER_PROMPT_OUTCOME];
@@ -437,6 +447,8 @@ export interface RunnerPromptOutcome {
   readonly commandId: string;
   readonly slotId: string;
   readonly outcome: RunnerPromptOutcomeKind;
+  /** The answer, for `answered`, or why there is none, for `not-answered`; left out otherwise. */
+  readonly text?: string;
 }
 
 /**
@@ -549,7 +561,9 @@ export interface RunnerHireCommand extends AgentProfile {
  * gave at a standup is marked `queue` too: rather than refused, it is kept
  * and typed the next time the agent waits at its prompt with the standup over,
  * reported `queued` and then `delivered`, or `unavailable` should its work end
- * first.
+ * first. One for an agent with no session at all is answered instead, by a
+ * short run of its own that reads `context`, reported `answering` and then
+ * `answered` or `not-answered`.
  */
 export interface RunnerPromptCommand {
   readonly id: string;
@@ -559,6 +573,8 @@ export interface RunnerPromptCommand {
   readonly requestedBy: string;
   readonly fromCeo?: boolean;
   readonly queue?: boolean;
+  /** A direction's agent's status as the office sees it, for an answer from one with no session. */
+  readonly context?: string;
 }
 
 /**
@@ -760,6 +776,12 @@ export const MAX_RUNNER_ACKS = 32;
 
 /** Longest prompt the server will send; it is the one multi-line string here. */
 export const MAX_RUNNER_PROMPT_LENGTH = MAX_AGENT_PROMPT_LENGTH;
+
+/** Longest status a direction carries for an idle agent's answer. */
+export const MAX_RUNNER_CONTEXT_LENGTH = 2000;
+
+/** Longest answer, or reason for none, a prompt outcome carries: a few sentences. */
+export const MAX_RUNNER_ANSWER_BYTES = 800;
 
 /** Most prompt outcomes one sync may carry. */
 export const MAX_RUNNER_PROMPT_OUTCOMES = 8;
@@ -1216,7 +1238,14 @@ function parsePromptOutcome(raw: unknown): RunnerPromptOutcome | undefined {
     return undefined;
   }
   const { commandId, slotId, outcome } = candidate;
-  return isItemId(commandId) && isRunnerName(slotId) && isPromptOutcome(outcome) ? { commandId, slotId, outcome } : undefined;
+  if (!isItemId(commandId) || !isRunnerName(slotId) || !isPromptOutcome(outcome)) {
+    return undefined;
+  }
+  if (outcome !== RUNNER_PROMPT_OUTCOME.answered && outcome !== RUNNER_PROMPT_OUTCOME.notAnswered) {
+    return { commandId, slotId, outcome };
+  }
+  const text = parseText(candidate["text"], MAX_RUNNER_ANSWER_BYTES, sanitizeStandingMessage);
+  return text === undefined || (outcome === RUNNER_PROMPT_OUTCOME.answered && text === "") ? undefined : { commandId, slotId, outcome, text };
 }
 
 function parseIssueStateOutcome(raw: unknown): RunnerIssueStateOutcome | undefined {
@@ -1371,7 +1400,11 @@ function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCom
       if (draft.fromCeo !== true) {
         return prompt;
       }
-      return draft.queue === true ? { ...prompt, fromCeo: true, queue: true } : { ...prompt, fromCeo: true };
+      if (draft.queue !== true) {
+        return { ...prompt, fromCeo: true };
+      }
+      const context = sanitizePromptText((draft.context ?? "").slice(0, MAX_RUNNER_CONTEXT_LENGTH));
+      return context === "" ? { ...prompt, fromCeo: true, queue: true } : { ...prompt, fromCeo: true, queue: true, context };
     }
     case RUNNER_COMMAND_KIND.key:
       return isAgentKey(draft.key)

@@ -18,6 +18,7 @@ import {
   STANDUP_DIRECTION_STATUS,
   STANDUP_EVERYONE,
   STANDUP_REJECTION,
+  StandingTask,
   WORK_STATUS,
   type WorkStatus,
   liveAgentKey,
@@ -28,7 +29,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { runnerSlotAgentId } from "../agents/runnerLink.js";
-import { GATHER_TIMEOUT_MS, StandupMeeting, UPDATE_GAP_MS, standupSpokenLine, standupUpdateOf } from "./standup.js";
+import { GATHER_TIMEOUT_MS, StandupMeeting, UPDATE_GAP_MS, directionContext, standupSpokenLine, standupUpdateOf } from "./standup.js";
 
 const CLAUDE_1 = liveAgentKey(runnerSlotAgentId("runner-1", "slot-1"));
 const CLAUDE_2 = liveAgentKey(runnerSlotAgentId("runner-1", "slot-2"));
@@ -73,6 +74,8 @@ interface Setup {
   readonly gathered: Set<string>;
   readonly crewCalls: string[];
   readonly directions: Array<{ senderId: string; agentId: string; text: string }>;
+  /** The status each direction carried, for an answer from an agent with no session. */
+  readonly contexts: string[];
   now: number;
   /** What the next direction is answered with: a command id, or a refusal. */
   answer: string | typeof AGENT_PROMPT_REJECTION.offline;
@@ -95,6 +98,7 @@ function setup(agents: readonly LiveAgent[] = [liveAgent(CLAUDE_1, "Claude 1", L
   const gathered = new Set<string>();
   const crewCalls: string[] = [];
   const directions: Setup["directions"] = [];
+  const contexts: string[] = [];
   const meeting = new StandupMeeting({
     state,
     layout: OFFICE_LAYOUT,
@@ -110,8 +114,9 @@ function setup(agents: readonly LiveAgent[] = [liveAgent(CLAUDE_1, "Claude 1", L
     now: () => holder.s?.now ?? 0,
     clock: () => 0,
     prompts: {
-      submitDirection: (senderId, agentId, text) => {
+      submitDirection: (senderId, agentId, text, context = "") => {
         directions.push({ senderId, agentId, text });
+        contexts.push(context);
         const answer = holder.s?.answer ?? "command";
         if (answer === AGENT_PROMPT_REJECTION.offline) {
           return answer;
@@ -130,7 +135,7 @@ function setup(agents: readonly LiveAgent[] = [liveAgent(CLAUDE_1, "Claude 1", L
       holds.push(on);
     },
   });
-  holder.s = { state, meeting, dana, milo, said, reported, holds, gathered, crewCalls, directions, now: 1_000, answer: "command" };
+  holder.s = { state, meeting, dana, milo, said, reported, holds, gathered, crewCalls, directions, contexts, now: 1_000, answer: "command" };
   return holder.s;
 }
 
@@ -363,6 +368,39 @@ describe("directions", () => {
     expect(second?.status).toBe(STANDUP_DIRECTION_STATUS.delivered);
   });
 
+  it("are answered by an agent with no session, from its status, on the record, in its bubble and in the conversation", () => {
+    const s = setup([liveAgent(CLAUDE_1, "Lena", LIVE_AGENT_STATUS.idle)]);
+    s.state.work.set(workKey(38), work(38, CLAUDE_1, WORK_STATUS.done, { outputArtifact: "PR #91: Fix it, https://github.com/o/r/pull/91" }));
+    s.meeting.start(s.dana);
+    s.meeting.direct(s.dana, { agentId: STANDUP_EVERYONE, text: "what the status" });
+    expect(s.contexts[0]).toContain("Your update at this standup: No issue in hand, free for one. No blockers.");
+    expect(s.contexts[0]).toContain("#38 “Issue 38”: done; PR #91: Fix it, https://github.com/o/r/pull/91");
+
+    const direction = s.state.standup.directions.at(0);
+    s.meeting.settle("command-1", { kind: "answering" });
+    expect(direction?.status).toBe(STANDUP_DIRECTION_STATUS.answering);
+    const reply = `Free for one: I last fixed #38 in https://github.com/o/r/pull/91.\n${"More detail. ".repeat(20)}`;
+    s.meeting.settle("command-1", { kind: "answered", reply });
+    expect(direction).toMatchObject({ status: STANDUP_DIRECTION_STATUS.answered, reply });
+    expect(s.reported.at(-1)).toBe(`Lena: ${reply}`);
+    const bubble = s.said.at(-1);
+    expect(bubble?.occupantId).toBe(CLAUDE_1);
+    expect(bubble?.text.startsWith("Free for one: I last fixed #38 in More detail.")).toBe(true);
+    expect(Array.from(bubble?.text ?? "").length).toBeLessThanOrEqual(MAX_CHAT_LENGTH);
+  });
+
+  it("say why an agent with no session could not answer", () => {
+    const s = started();
+    s.meeting.direct(s.dana, { agentId: CLAUDE_1, text: "what the status" });
+    s.meeting.settle("command-1", { kind: "answering" });
+    s.meeting.settle("command-1", { kind: "unanswered", why: "it ran past its 1 minute" });
+    expect(s.state.standup.directions.at(0)).toMatchObject({
+      status: STANDUP_DIRECTION_STATUS.unanswered,
+      reason: "it ran past its 1 minute",
+      reply: "",
+    });
+  });
+
   it("say why one was not typed", () => {
     const s = started();
     s.answer = AGENT_PROMPT_REJECTION.offline;
@@ -376,6 +414,29 @@ describe("directions", () => {
     s.meeting.direct(s.dana, { agentId: CLAUDE_1, text: "Go." });
     s.meeting.settle("command-1", { kind: "failed", rejection: AGENT_PROMPT_REJECTION.unanswered });
     expect(s.state.standup.directions.at(1)).toMatchObject({ status: STANDUP_DIRECTION_STATUS.failed });
+  });
+});
+
+describe("directionContext", () => {
+  it("tells an idle agent its update, its latest issues newest first, and how its standing tasks went", () => {
+    const agent = liveAgent(CLAUDE_1, "Lena", LIVE_AGENT_STATUS.idle);
+    const entries = [
+      work(37, CLAUDE_1, WORK_STATUS.done, { updatedAt: 1 }),
+      work(38, CLAUDE_1, WORK_STATUS.review, { updatedAt: 3, outputArtifact: "PR #91: Fix, https://github.com/o/r/pull/91" }),
+      work(40, CLAUDE_2, WORK_STATUS.in_progress, { updatedAt: 5 }),
+    ];
+    const task = new StandingTask();
+    Object.assign(task, { name: "Watch PRs", trigger: "every 2 min", agentId: CLAUDE_1, lastRunAt: 9, lastOutcome: "reviewed" });
+    const never = new StandingTask();
+    Object.assign(never, { name: "Never ran", agentId: CLAUDE_1 });
+    expect(directionContext(agent, entries, [task, never]).split("\n")).toEqual([
+      "Your update at this standup: #38 “Issue 38”, opened PR #91 https://github.com/o/r/pull/91. Blocker: waiting on your review.",
+      "Issues you worked on lately, newest first:",
+      "- #38 “Issue 38”: review; PR #91: Fix, https://github.com/o/r/pull/91",
+      "- #37 “Issue 37”: done",
+      "Standing tasks you run, and how the last run went:",
+      "- “Watch PRs” (every 2 min): reviewed",
+    ]);
   });
 });
 

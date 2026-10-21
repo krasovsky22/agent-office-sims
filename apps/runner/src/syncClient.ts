@@ -181,7 +181,11 @@ function readDraft(raw: Record<string, unknown>, slotId: string): RunnerCommandD
       if (raw["fromCeo"] !== true) {
         return { kind, slotId, text, requestedBy };
       }
-      return raw["queue"] === true ? { kind, slotId, text, requestedBy, fromCeo: true, queue: true } : { kind, slotId, text, requestedBy, fromCeo: true };
+      if (raw["queue"] !== true) {
+        return { kind, slotId, text, requestedBy, fromCeo: true };
+      }
+      const { context } = raw;
+      return { kind, slotId, text, requestedBy, fromCeo: true, queue: true, ...(typeof context === "string" ? { context } : {}) };
     }
     case RUNNER_COMMAND_KIND.key: {
       const { key, requestedBy } = raw;

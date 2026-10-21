@@ -581,8 +581,10 @@ export class StandupDirection extends Schema {
   declare public text: string;
   declare public everyone: boolean;
   declare public status: string;
-  /** Why it was not typed, for a direction that failed; `""` otherwise. */
+  /** Why it was not typed, or not answered; `""` otherwise. */
   declare public reason: string;
+  /** What an agent with no session answered it; `""` otherwise. */
+  declare public reply: string;
   /** Epoch milliseconds. */
   declare public at: number;
 
@@ -596,6 +598,7 @@ export class StandupDirection extends Schema {
     this.everyone = false;
     this.status = "";
     this.reason = "";
+    this.reply = "";
     this.at = 0;
   }
 }
@@ -609,6 +612,7 @@ defineTypes(StandupDirection, {
   everyone: "boolean",
   status: "string",
   reason: "string",
+  reply: "string",
   at: "number",
 });
 

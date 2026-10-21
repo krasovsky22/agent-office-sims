@@ -29,7 +29,11 @@
  *   person is marked resolved once the agent carries on. A direction, to one
  *   agent or every one, goes to a runner's coding agent as a prompt
  *   (`../agents/agentPrompts.ts`), typed at once if it waits at its prompt and
- *   otherwise kept by its runner until it next does with the standup over; an
+ *   otherwise kept by its runner until it next does with the standup over. An
+ *   agent with no session to type it into, free between tasks, answers it
+ *   instead: its runner gives it a short read-only run with its status as the
+ *   office sees it ({@link directionContext}), and the answer is on the
+ *   direction's record, in its speech bubble and in the conversation. An
  *   orchestrator's agent takes no prompts from the office, so its direction is
  *   on the record only.
  * - **Finish.** The CEO ends it: the bodies walk back to the desks they left,
@@ -42,6 +46,7 @@
 import {
   type IssueWork,
   LIVE_AGENT_STATUS,
+  MAX_RUNNER_CONTEXT_LENGTH,
   type LiveAgent,
   MAX_CHAT_LENGTH,
   MAX_STANDUP_DIRECTIONS,
@@ -55,6 +60,7 @@ import {
   type StandupDirectMessage,
   type StandupDirectionStatus,
   type StandupRejection,
+  type StandingTask,
   StandupUpdate,
   WORK_STATUS,
   type AgentPromptRejection,
@@ -176,6 +182,44 @@ function spokenLine(word: StandupWord): string {
 export function standupSpokenLine(agent: LiveAgent, work: readonly IssueWork[]): string {
   const rest = Array.from(spokenLine(standupUpdateOf(agent, work, 0))).length;
   return sanitizeChatText(spokenLine(standupUpdateOf(agent, work, Math.max(MAX_CHAT_LENGTH - rest, 1))));
+}
+
+/** Issues an idle agent's answer is told it worked on lately, newest first. */
+const RECENT_WORK = 5;
+
+/**
+ * What an agent with no session is told of itself to answer a direction: its
+ * update as it would give it now, the issues it worked on lately with their
+ * pull requests, and how the standing tasks it runs last went. Every line is
+ * the office's own record, never an issue's body.
+ */
+export function directionContext(agent: LiveAgent, work: Iterable<IssueWork>, standing: Iterable<StandingTask> = []): string {
+  const entries = [...work];
+  const lines = [`Your update at this standup: ${updateLine(standupUpdateOf(agent, entries))}`];
+  const mine = entries
+    .filter((entry) => entry.assigneeId === agent.id)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, RECENT_WORK);
+  if (mine.length > 0) {
+    lines.push("Issues you worked on lately, newest first:");
+    for (const entry of mine) {
+      const handedIn = entry.outputArtifact === "" ? "" : `; ${entry.outputArtifact}`;
+      lines.push(`- #${entry.issueNumber} “${entry.title}”: ${entry.status.replace("_", " ")}${handedIn}`);
+    }
+  }
+  const tasks = [...standing].filter((task) => (task.agentId === agent.id || task.runningAgentId === agent.id) && task.lastRunAt > 0);
+  if (tasks.length > 0) {
+    lines.push("Standing tasks you run, and how the last run went:");
+    for (const task of tasks) {
+      lines.push(`- “${task.name}” (${task.trigger}): ${task.lastOutcome}${task.lastError === "" ? "" : `, ${task.lastError}`}`);
+    }
+  }
+  return clip(lines.join("\n"), MAX_RUNNER_CONTEXT_LENGTH);
+}
+
+/** An idle agent's answer as it fits its speech bubble: one line, clipped as the chat is. */
+function spokenAnswer(reply: string): string {
+  return sanitizeChatText(clip(reply.replace(/\s+/g, " ").replace(/\s?https:\/\/\S+/g, "").trim(), MAX_CHAT_LENGTH));
 }
 
 /** Why a direction was not typed, in words for its record. */
@@ -360,6 +404,21 @@ export class StandupMeeting {
           direction.status === STANDUP_DIRECTION_STATUS.queued ? STANDUP_DIRECTION_STATUS.delivered : STANDUP_DIRECTION_STATUS.typed,
         );
         return;
+      case "answering":
+        this.mark(direction, STANDUP_DIRECTION_STATUS.answering);
+        return;
+      case "answered":
+        this.sent.delete(commandId);
+        direction.reply = outcome.reply;
+        this.mark(direction, STANDUP_DIRECTION_STATUS.answered);
+        this.host.say(direction.agentId, spokenAnswer(outcome.reply));
+        this.host.report(`${direction.agentName}: ${outcome.reply}`);
+        return;
+      case "unanswered":
+        this.sent.delete(commandId);
+        direction.reason = outcome.why === "" ? "it could not answer" : outcome.why;
+        this.mark(direction, STANDUP_DIRECTION_STATUS.unanswered);
+        return;
       case "failed":
         this.sent.delete(commandId);
         direction.reason = failureReason(outcome.rejection);
@@ -465,7 +524,12 @@ export class StandupMeeting {
       direction.status = STANDUP_DIRECTION_STATUS.noted;
       return;
     }
-    const sent = this.host.prompts.submitDirection(sender.id, direction.agentId, direction.text);
+    const agent = this.host.state.occupants.get(direction.agentId);
+    const context =
+      agent !== undefined && isLiveAgent(agent)
+        ? directionContext(agent, this.host.state.work.values(), this.host.state.standing.values())
+        : "";
+    const sent = this.host.prompts.submitDirection(sender.id, direction.agentId, direction.text, context);
     if (typeof sent === "string") {
       direction.status = STANDUP_DIRECTION_STATUS.failed;
       direction.reason = failureReason(sent);

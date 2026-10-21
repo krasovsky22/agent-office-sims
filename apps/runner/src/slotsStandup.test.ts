@@ -4,12 +4,15 @@
  * an agent can take them.
  */
 
-import type { RunnerSlotCommand } from "@sim/shared";
+import type { RunnerPromptCommand } from "@sim/shared";
 import { describe, expect, it, vi } from "vitest";
 
+import type { AnswerRequest, AnswerResult, Answerer } from "./agents/answer.js";
 import { MOCK_PERMISSION, MOCK_PERMISSION_GRANTED } from "./agents/mock.js";
 import type { Agent, AgentReporter } from "./agents/types.js";
+import { SpendLedger } from "./budget.js";
 import { TURN_DONE } from "./slotRuns.js";
+import { SlotPool } from "./slots.js";
 import {
   FROM_ANSWER_MS,
   START,
@@ -21,13 +24,14 @@ import {
   slot,
   useSlotFixture,
   workEvents,
+  workspaces,
 } from "./slotPoolFixture.js";
 
 describe("SlotPool during a standup", () => {
   useSlotFixture();
 
   let nextCommand = 100;
-  function direction(text: string): RunnerSlotCommand {
+  function direction(text: string): RunnerPromptCommand {
     nextCommand += 1;
     return { id: `command-${nextCommand}`, slotId: "slot-1", kind: "prompt", text, requestedBy: "Dana", fromCeo: true, queue: true };
   }
@@ -209,5 +213,84 @@ describe("SlotPool during a standup", () => {
 
     slots.delivered(new Set(carried.map((outcome) => outcome.commandId)), carried);
     expect(slots.pendingPromptOutcomes().map((outcome) => outcome.outcome)).toEqual(["delivered"]);
+  });
+
+  describe("a direction for an agent with no session", () => {
+    /** An answerer the test settles, recording what it was asked. */
+    function answerer() {
+      const asked: AnswerRequest[] = [];
+      const finish: { answer?: (result: AnswerResult) => void } = {};
+      const answers: Answerer = {
+        answer: (request) => {
+          asked.push(request);
+          return new Promise((resolve) => {
+            finish.answer = resolve;
+          });
+        },
+      };
+      return { answers, asked, finish };
+    }
+
+    function answering(answers: Answerer, budgetUsd?: number) {
+      const ledger = new SpendLedger({ budgetUsd });
+      const slots = new SlotPool({ count: 2, agent: realAgent().agent, workspaces: workspaces(), taskTimeoutMs: TIMEOUT_MS, ledger, answerer: answers });
+      return { slots, ledger };
+    }
+
+    const outcomes = (slots: SlotPool) => slots.pendingPromptOutcomes().map(({ outcome, text }) => (text === undefined ? outcome : `${outcome}: ${text}`));
+
+    it("is answered by its agent from its status, as itself, and what it spent is booked", async () => {
+      const { answers, asked, finish } = answerer();
+      const { slots, ledger } = answering(answers);
+      slots.setStandup(true);
+      slots.handle({ ...direction("What's the status?"), context: "Your update at this standup: No issue in hand, free for one. No blockers." });
+      expect(outcomes(slots)).toEqual(["answering"]);
+      expect(asked).toMatchObject([
+        { question: "What's the status?", askedBy: "Dana", context: "Your update at this standup: No issue in hand, free for one. No blockers." },
+      ]);
+      expect(asked[0]?.systemPrompt).toContain(`your name is ${slot(slots)?.name}`);
+
+      asked[0]?.spent(0.02);
+      finish.answer?.({ ok: true, text: "I'm free and ready for an issue.", why: "" });
+      await settle();
+      expect(outcomes(slots)).toEqual(["answering", "answered: I'm free and ready for an issue."]);
+      expect(ledger.report().spentUsd).toBeCloseTo(0.02);
+      // Nothing about the slot changed: it is still free.
+      expect(slot(slots)).toMatchObject({ status: "idle", issueNumber: undefined });
+    });
+
+    it("says why it could not answer", async () => {
+      const { answers, finish } = answerer();
+      const { slots } = answering(answers);
+      slots.handle(direction("What's the status?"));
+      finish.answer?.({ ok: false, text: "", why: "it ran past its 1 minute" });
+      await settle();
+      expect(outcomes(slots)).toEqual(["answering", "not-answered: it ran past its 1 minute"]);
+    });
+
+    it("is not answered once the day's budget is spent", async () => {
+      const { answers, asked } = answerer();
+      const { slots, ledger } = answering(answers, 1);
+      ledger.add(1);
+      slots.handle(direction("What's the status?"));
+      await settle();
+      expect(asked).toEqual([]);
+      expect(outcomes(slots)[0]).toMatch(/^not-answered: /);
+    });
+
+    it("leaves an agent with a session as it was: typed at its prompt, never answered", async () => {
+      const { answers, asked } = answerer();
+      const { agent, typed, handle } = realAgent();
+      const slots = new SlotPool({ count: 2, agent, workspaces: workspaces(), taskTimeoutMs: TIMEOUT_MS, answerer: answers });
+      slots.handle(START);
+      await settle();
+      handle.reporter?.turnDone();
+      await settle();
+      slots.setStandup(true);
+      slots.handle(direction("Open the PR."));
+      expect(typed).toEqual(["Open the PR."]);
+      expect(asked).toEqual([]);
+      expect(outcomes(slots)).toEqual(["delivered"]);
+    });
   });
 });

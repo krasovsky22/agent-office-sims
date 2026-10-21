@@ -12,6 +12,7 @@ import { OCCUPANT_KIND } from "./state.js";
 import {
   MAX_RUNNER_ACKS,
   MAX_RUNNER_EVENTS,
+  MAX_RUNNER_ANSWER_BYTES,
   MAX_RUNNER_PROMPT_OUTCOMES,
   MAX_RUNNER_SLOTS,
   MAX_RUNNER_ISSUE_STATE_OUTCOMES,
@@ -436,7 +437,7 @@ describe("standing state on a sync", () => {
         })),
         events: Array.from({ length: MAX_RUNNER_EVENTS }, () => event),
         spend: { spentUsd: usd, budgetUsd: usd },
-        prompts: Array.from({ length: MAX_RUNNER_PROMPT_OUTCOMES }, () => ({ commandId: id64, slotId: slot32, outcome: "needs-input" })),
+        prompts: Array.from({ length: MAX_RUNNER_PROMPT_OUTCOMES }, () => ({ commandId: id64, slotId: slot32, outcome: "answered", text: bytes(MAX_RUNNER_ANSWER_BYTES) })),
         standing: tasks,
         standingOff: "no-budget",
         changesIssues: true,

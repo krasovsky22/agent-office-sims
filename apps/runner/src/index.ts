@@ -39,6 +39,7 @@ import { join } from "node:path";
 
 import { formatUsd, retiredAgentIssueLabelNotice } from "@sim/shared";
 
+import { type Answerer, createClaudeAnswerer, createMockAnswerer } from "./agents/answer.js";
 import { claudeAdapter } from "./agents/claude.js";
 import { HookServer } from "./agents/hookServer.js";
 import { createMockAgent } from "./agents/mock.js";
@@ -217,7 +218,21 @@ function createStandingRunners(runnerConfig: RunnerConfig): StandingRunners {
   });
 }
 
-// One set of books for issue work and standing tasks alike.
+/** How an idle agent answers a standup's direction: the mock reads its status back; Claude Code answers in a short read-only run. */
+function createAnswerer(runnerConfig: RunnerConfig): Answerer {
+  if (runnerConfig.agent === "mock") {
+    return createMockAnswerer();
+  }
+  const command = findOnPath("claude");
+  if (command === undefined) {
+    throw new Error("claude is not on PATH; install it or put it there");
+  }
+  const cwd = join(runnerConfig.dataDir, "answers");
+  mkdirSync(cwd, { recursive: true, mode: 0o700 });
+  return createClaudeAnswerer({ command, cwd, model: runnerConfig.model, scrub: GITHUB_TOKEN_ENV });
+}
+
+// One set of books for issue work, answers and standing tasks alike.
 const ledger = new SpendLedger({ budgetUsd: config.dailyBudgetUsd });
 const pool = new SlotPool({
   count: config.maxAgents,
@@ -232,6 +247,7 @@ const pool = new SlotPool({
   github,
   redactor,
   ledger,
+  answerer: createAnswerer(config),
   log,
   debug,
 });

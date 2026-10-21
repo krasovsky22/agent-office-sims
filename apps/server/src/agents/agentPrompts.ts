@@ -24,7 +24,11 @@
  * agent does with the standup over, reporting it `delivered` then. Whatever
  * comes of one goes to the standup rather than to the CEO's terminal panel, so
  * a refusal is shown on the standup's record and not as a refused prompt. A
- * queued one is waited on for as long as its agent is on the floor.
+ * queued one is waited on for as long as its agent is on the floor. One for
+ * an agent with no session at all is answered rather than typed: the runner
+ * reports it `answering`, waited on as a queued one is, and then `answered`
+ * with what the agent said, or `not-answered` with why, for the standup's
+ * record; the status it reads comes with the direction, as `context`.
  *
  * The command reaches the runner exactly once, by the runner link's ids; the
  * runner's report of it is taken once here, by the same id, and forgotten.
@@ -71,12 +75,19 @@ const REFUSAL: Readonly<Record<Exclude<RunnerPromptOutcomeKind, "delivered" | "q
   [RUNNER_PROMPT_OUTCOME.needsInput]: AGENT_PROMPT_REJECTION.needsInput,
   [RUNNER_PROMPT_OUTCOME.unavailable]: AGENT_PROMPT_REJECTION.unavailable,
   [RUNNER_PROMPT_OUTCOME.notWaiting]: AGENT_PROMPT_REJECTION.notWaiting,
+  // Only a direction is ever answered; any other prompt reported so was not typed.
+  [RUNNER_PROMPT_OUTCOME.answering]: AGENT_PROMPT_REJECTION.unavailable,
+  [RUNNER_PROMPT_OUTCOME.answered]: AGENT_PROMPT_REJECTION.unavailable,
+  [RUNNER_PROMPT_OUTCOME.notAnswered]: AGENT_PROMPT_REJECTION.unavailable,
 };
 
-/** What came of a standup's direction: typed, kept for later, or why it never will be. */
+/** What came of a standup's direction: typed, kept for later, answered by an idle agent, or why it never will be. */
 export type DirectionOutcome =
   | { readonly kind: "typed" }
   | { readonly kind: "queued" }
+  | { readonly kind: "answering" }
+  | { readonly kind: "answered"; readonly reply: string }
+  | { readonly kind: "unanswered"; readonly why: string }
   | { readonly kind: "failed"; readonly rejection: AgentPromptRejection };
 
 export interface AgentPromptsOptions {
@@ -170,11 +181,17 @@ export class AgentPrompts {
 
   /**
    * Queues a standup's direction the gate has let through for the agent's
-   * runner, typed now or kept for after the standup; see the module comment.
+   * runner, typed now, kept for after the standup, or answered by an agent
+   * with no session from `context`, its status; see the module comment.
    *
    * @returns the command's id once it is on its way, else why it cannot be.
    */
-  public submitDirection(senderId: string, agentId: string, text: string): { readonly commandId: string } | AgentPromptRejection {
+  public submitDirection(
+    senderId: string,
+    agentId: string,
+    text: string,
+    context = "",
+  ): { readonly commandId: string } | AgentPromptRejection {
     const target = this.target(senderId, agentId);
     if (typeof target === "string") {
       return target;
@@ -186,6 +203,7 @@ export class AgentPrompts {
       requestedBy: target.senderName,
       fromCeo: true,
       queue: true,
+      context,
     });
     this.options.log?.(command === undefined ? "standup-direction-refused" : "standup-direction", { agent: agentId, by: target.senderName });
     if (command === undefined || command.kind !== RUNNER_COMMAND_KIND.prompt) {
@@ -269,16 +287,26 @@ export class AgentPrompts {
       if (prompt === undefined || prompt.runnerId !== runnerId || prompt.slotId !== outcome.slotId) {
         continue;
       }
-      if (outcome.outcome === RUNNER_PROMPT_OUTCOME.queued) {
-        // Not the last word, and only a direction is ever kept.
-        if (prompt.direction === true && prompt.queued !== true) {
+      const waits = outcome.outcome === RUNNER_PROMPT_OUTCOME.queued || outcome.outcome === RUNNER_PROMPT_OUTCOME.answering;
+      if (waits && prompt.direction === true) {
+        // Not the last word, and only a direction is ever kept or answered.
+        if (prompt.queued !== true) {
           prompt.queued = true;
-          this.options.directed?.(outcome.commandId, { kind: "queued" });
+          this.options.directed?.(outcome.commandId, { kind: outcome.outcome === RUNNER_PROMPT_OUTCOME.queued ? "queued" : "answering" });
         }
         continue;
       }
+      if (outcome.outcome === RUNNER_PROMPT_OUTCOME.queued) {
+        continue;
+      }
       this.pending.delete(outcome.commandId);
-      if (outcome.outcome === RUNNER_PROMPT_OUTCOME.delivered) {
+      if (prompt.direction === true && outcome.outcome === RUNNER_PROMPT_OUTCOME.answered) {
+        this.options.log?.("standup-direction-answered", { agent: prompt.agentId });
+        this.options.directed?.(outcome.commandId, { kind: "answered", reply: outcome.text ?? "" });
+      } else if (prompt.direction === true && outcome.outcome === RUNNER_PROMPT_OUTCOME.notAnswered) {
+        this.options.log?.("standup-direction-not-answered", { agent: prompt.agentId });
+        this.options.directed?.(outcome.commandId, { kind: "unanswered", why: outcome.text ?? "" });
+      } else if (outcome.outcome === RUNNER_PROMPT_OUTCOME.delivered) {
         this.delivered(prompt);
         if (prompt.direction === true) {
           this.options.directed?.(outcome.commandId, { kind: "typed" });
