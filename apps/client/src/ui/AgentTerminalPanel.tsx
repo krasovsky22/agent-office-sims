@@ -533,7 +533,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
           ref={inputRef}
           className="hud__input terminal__prompt"
           name="agent-prompt"
-          rows={2}
+          rows={1}
           value={draft}
           maxLength={MAX_AGENT_PROMPT_LENGTH}
           placeholder={

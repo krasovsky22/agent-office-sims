@@ -259,7 +259,7 @@ export function StandupPanel({ standup, roster, access, refusal, notice, actions
           ref={inputRef}
           className="hud__input terminal__prompt"
           name="standup-direction"
-          rows={2}
+          rows={1}
           value={draft}
           maxLength={MAX_AGENT_PROMPT_LENGTH}
           placeholder={mayRun ? "Answer a blocker, or tell them what to do next" : "Only the CEO gives directions"}

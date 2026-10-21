@@ -503,6 +503,11 @@
   display: flex;
 }
 
+/* The emoji glyph would otherwise stand taller than a line of the prompt beside it. */
+.hud__micButton {
+  line-height: 1.35;
+}
+
 .hud__micButton:disabled {
   opacity: 0.45;
   cursor: default;
@@ -1122,10 +1127,14 @@
   max-height: 9.5em;
 }
 
+/* Rests at one line so the text sits level with the mic and Send buttons, and
+   grows with Shift+Enter lines up to a cap, then scrolls. */
 .terminal__prompt {
   resize: none;
   font: inherit;
   line-height: 1.35;
+  field-sizing: content;
+  max-height: calc(5lh + 12px);
 }
 
 .terminal__prompt:disabled {
