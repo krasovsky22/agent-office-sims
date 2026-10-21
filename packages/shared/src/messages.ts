@@ -118,6 +118,8 @@ export const CLIENT_MESSAGE = {
   deskTerminalOff: "desk:off",
   /** Tune the office radio to a station or a YouTube link, from beside it; anyone may. See `radio.ts`. */
   radioTune: "radio:tune",
+  /** Have the project board fetch GitHub's issues and pull requests now, not at its next poll; anyone may. */
+  boardRefresh: "board:refresh",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -233,6 +235,12 @@ export const SERVER_MESSAGE = {
    * reply but the next patch.
    */
   radioRejected: "radio:rejected",
+  /**
+   * Sent only to the client that asked for the board to be refreshed, once the
+   * fetch is done or refused. Carries a {@link BoardRefreshResultEvent}; the
+   * fresh board itself arrives as a `projectBoard` broadcast first.
+   */
+  boardRefreshResult: "board:refresh-result",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];
@@ -396,6 +404,20 @@ export interface ManagerHistoryEvent {
 /** The manager did not take one of this client's messages, and why. */
 export interface ManagerRejectedEvent {
   readonly rejection: ManagerRejection;
+}
+
+/** A request to refresh the project board; it carries nothing, since there is nothing to choose. */
+export type BoardRefreshMessage = Readonly<Record<string, never>>;
+
+/** What came of this client's refresh of the project board. */
+export interface BoardRefreshResultEvent {
+  /**
+   * `null` once the fetch is done, whatever GitHub said: the board's own status
+   * tells whether it is fresh or stale. Otherwise the refresh was refused, as
+   * one was done too recently or GitHub's rate limit is spent, and this is how
+   * many milliseconds until the board may be asked again.
+   */
+  readonly retryAfterMs: number | null;
 }
 
 /** Something the sending client wants to tell the AI manager. */
@@ -729,6 +751,11 @@ export function parseChatMessage(raw: unknown): ChatMessage | undefined {
   }
   const text = sanitizeChatText((raw as { text?: unknown }).text);
   return text === "" ? undefined : { text };
+}
+
+/** Validates a raw `board:refresh` payload: an object, whose fields are ignored. */
+export function parseBoardRefreshMessage(raw: unknown): BoardRefreshMessage | undefined {
+  return asRecord(raw) === undefined ? undefined : {};
 }
 
 /**

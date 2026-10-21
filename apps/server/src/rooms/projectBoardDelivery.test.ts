@@ -7,11 +7,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_BOARD_LISTS, type ProjectBoardSnapshot, SERVER_MESSAGE } from "@sim/shared";
+import { type BoardRefreshResultEvent, EMPTY_BOARD_LISTS, type ProjectBoardSnapshot, SERVER_MESSAGE } from "@sim/shared";
 
 import type { BoardLoader } from "../github/client.js";
 import { ProjectFeed } from "../github/feed.js";
-import { relayProjectBoard, sendProjectBoard } from "./projectBoardDelivery.js";
+import { answerBoardRefresh, relayProjectBoard, sendProjectBoard } from "./projectBoardDelivery.js";
 
 const REPO = "krasovsky22/agent-office-sims";
 
@@ -103,5 +103,48 @@ describe("project board delivery", () => {
     stop();
     await feed.poll();
     expect(client.received).toEqual([]);
+  });
+
+  it("answers a player's refresh once the feed's poll is done, after the board went out", async () => {
+    const order: string[] = [];
+    const answers: BoardRefreshResultEvent[] = [];
+    const source = {
+      current: () => undefined,
+      subscribe: () => () => undefined,
+      refreshNow: async () => {
+        order.push("polled");
+        return null;
+      },
+    };
+    const client = {
+      send(type: string, message: BoardRefreshResultEvent) {
+        expect(type).toBe(SERVER_MESSAGE.boardRefreshResult);
+        order.push("answered");
+        answers.push(message);
+      },
+    };
+
+    await answerBoardRefresh(client, {}, source);
+    expect(order).toEqual(["polled", "answered"]);
+    expect(answers).toEqual([{ retryAfterMs: null }]);
+  });
+
+  it("passes on how long a refused refresh has to wait, and ignores a malformed one", async () => {
+    let asked = 0;
+    const answers: BoardRefreshResultEvent[] = [];
+    const source = {
+      current: () => undefined,
+      subscribe: () => () => undefined,
+      refreshNow: async () => {
+        asked += 1;
+        return 6_000;
+      },
+    };
+    const client = { send: (_type: string, message: BoardRefreshResultEvent) => answers.push(message) };
+
+    await answerBoardRefresh(client, "now", source);
+    expect(asked).toBe(0);
+    await answerBoardRefresh(client, {}, source);
+    expect(answers).toEqual([{ retryAfterMs: 6_000 }]);
   });
 });

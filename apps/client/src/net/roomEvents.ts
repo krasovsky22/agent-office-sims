@@ -14,6 +14,7 @@ import {
   type AgentPromptEntry,
   type AgentPromptHistoryEvent,
   type AgentPromptRejectedEvent,
+  type BoardRefreshResultEvent,
   type CeoChangedEvent,
   type ChatEvent,
   type EmoteEvent,
@@ -57,6 +58,8 @@ export interface RoomConnectionEvents {
   onThrottled?: (event: ThrottledEvent) => void;
   /** The project board's snapshot, on joining and whenever the server's feed replaces it. */
   onProjectBoard?: (snapshot: ProjectBoardSnapshot) => void;
+  /** The server fetched the board, or refused to yet, for the local client's own Refresh. */
+  onBoardRefreshResult?: (event: BoardRefreshResultEvent) => void;
   /** The in-game clock moved on a minute, which is several times a second. */
   onClockChanged?: (minuteOfDay: number) => void;
   /** What the runners' real agents have spent today, or their budgets, changed. */
@@ -108,6 +111,7 @@ const FORWARDED = {
   [SERVER_MESSAGE.chat]: "onChat",
   [SERVER_MESSAGE.throttled]: "onThrottled",
   [SERVER_MESSAGE.projectBoard]: "onProjectBoard",
+  [SERVER_MESSAGE.boardRefreshResult]: "onBoardRefreshResult",
   [SERVER_MESSAGE.workRejected]: "onWorkRejected",
   [SERVER_MESSAGE.issueStateResult]: "onIssueStateResult",
   [SERVER_MESSAGE.ceoChanged]: "onCeoChanged",

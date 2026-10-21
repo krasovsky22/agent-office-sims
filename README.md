@@ -320,6 +320,16 @@ restriction label; see
 [From assignment to pull request](#from-assignment-to-pull-request).
 Everyone else sees the same detail with no controls.
 
+The close-up's `Refresh` button, beside the board's `Updated` time, has the
+server fetch the issues and pull requests from GitHub now rather than at the
+next poll; anyone may press it. It reads `Refreshing…` until GitHub has
+answered, and the fresh board, with a new `Updated` time, reaches the wall
+board and every tab as any poll's does. Every player shares one allowance of
+these, one fetch every 10 seconds, and a press while a fetch is running waits
+for that fetch rather than starting another; a press too soon, or while a
+spent GitHub rate limit holds the polls, does nothing and the board says when
+it can be pressed again.
+
 Work an agent stopped on short of a pull request (its runner failed, timed
 out or refused the start, or the agent exited) reads `<agent> · Stopped:
 <reason>` on its card, highlighted, and the CEO's card offers `Start again`,

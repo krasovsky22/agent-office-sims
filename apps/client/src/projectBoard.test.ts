@@ -16,6 +16,7 @@ import {
   boardDrop,
   boardIssue,
   boardLabels,
+  boardRefreshRefusal,
   boardStatus,
   filterBoardColumns,
   githubItemUrl,
@@ -427,5 +428,13 @@ describe("withOfficeWork", () => {
   it("leaves done work, and work on issues not open, where GitHub has them", () => {
     expect(withOfficeWork(board, [work(31, WORK_STATUS.done)])).toBe(board);
     expect(withOfficeWork(board, [work(2, WORK_STATUS.in_progress), work(32, WORK_STATUS.review)])).toBe(board);
+  });
+});
+
+describe("boardRefreshRefusal", () => {
+  it("says when the board may be refreshed again, in seconds or, for a rate limit, minutes", () => {
+    expect(boardRefreshRefusal(6_200)).toBe("The board can't be refreshed again yet — try again in 7 s.");
+    expect(boardRefreshRefusal(0)).toBe("The board can't be refreshed again yet — try again in 1 s.");
+    expect(boardRefreshRefusal(9 * 60_000 + 1)).toBe("The board can't be refreshed again yet — try again in 10 min.");
   });
 });

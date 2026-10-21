@@ -64,8 +64,9 @@ export function hudRoomEvents(host: HudRoomEventsHost): RoomConnectionEvents {
   };
 
   return {
+    // A refresh asked for before the connection changed will not be answered on the new one.
     onStatusChanged: (status, detail) => {
-      host.publish({ status, detail });
+      host.publish({ status, detail, boardRefreshing: false });
     },
 
     onThrottled: (event) => {

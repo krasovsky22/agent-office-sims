@@ -659,6 +659,10 @@
   color: #9aa0aa;
 }
 
+.board__refresh {
+  flex: none;
+}
+
 .board__status--stale {
   color: #f0a35a;
   font-weight: 600;

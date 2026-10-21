@@ -16,6 +16,7 @@ import {
   type AgentProfileMessage,
   type AgentPromptMessage,
   ANIMATION_STATE,
+  type BoardRefreshMessage,
   type ChatMessage,
   CLIENT_MESSAGE,
   type DeskTerminalSizeMessage,
@@ -267,6 +268,20 @@ export abstract class RoomCommands {
   /** Tunes the office radio to a station id or a raw link; the next patch is the reply, or a rejection to this client alone. */
   public sendRadioTune(source: string): void {
     this.room?.send(CLIENT_MESSAGE.radioTune, { source } satisfies Record<keyof RadioTuneMessage, string>);
+  }
+
+  /**
+   * Has the server fetch the project board from GitHub now; it answers this
+   * client alone once done or refused.
+   *
+   * @returns whether it went out at all.
+   */
+  public sendBoardRefresh(): boolean {
+    if (this.room === undefined) {
+      return false;
+    }
+    this.room.send(CLIENT_MESSAGE.boardRefresh, {} satisfies BoardRefreshMessage);
+    return true;
   }
 
   /** Says something out loud. Echoed back by the server, like an emote. */
