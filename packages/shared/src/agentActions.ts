@@ -92,7 +92,7 @@ export function agentActionTarget(
   return { runnerAgent: agent.profileEditable, fired: agent.fired, issueNumber: heldIssue(agent.id, work) };
 }
 
-/** The issue an agent has in hand and has not finished, or `undefined`: what a cancel takes off it. */
+/** The issue an agent has in hand and has not finished, or `undefined`: what a cancel takes off it, and what keeps a second one from it. */
 export function heldIssue(agentId: string, work: Iterable<Pick<WorkData, "issueNumber" | "status" | "assigneeId">>): number | undefined {
   for (const entry of work) {
     if (entry.assigneeId === agentId && entry.status !== WORK_STATUS.done) {
