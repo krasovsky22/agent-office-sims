@@ -1346,7 +1346,9 @@ either is spent a task shows `over budget` and starts nothing more that day.
 With the standing budget set, a task's row reads `$0.20 of $2.00 today`
 against it; unset, `$0.20 today`, its spend still counted. With neither set,
 nothing caps what standing tasks spend in a day. The runner holds a run's
-cap to the standing budget whatever the server sent, and holds at most four
+cap to the standing budget whatever the server sent, and with the standing
+budget set a run whose task has no dollars a run of its own is capped at what
+is left of that budget when it starts, so the budget holds mid-run too. It holds at most four
 tasks, one of them a pull request watch.
 
 **Issue work comes first.** A standing run only takes a slot holding no run

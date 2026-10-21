@@ -455,11 +455,10 @@ export class StandingScheduler {
     this.tick();
   }
 
-  /** A definition held to what the runner allows: no run may spend more than every standing task together may in a day. */
+  /** A definition held to what the runner allows: no task's own cap may exceed what every standing task together may spend in a day. */
   private held(spec: StandingTaskSpec): StandingTaskSpec {
     const budget = this.options.budgetUsd;
     if (budget === undefined || spec.caps.perRunUsd === undefined) {
-      // An uncapped run is stopped by no dollar figure of its own; the budget still refuses the next once it is spent.
       return spec;
     }
     const caps: StandingCaps = { ...spec.caps, perRunUsd: Math.min(spec.caps.perRunUsd, budget) };
@@ -766,8 +765,13 @@ export class StandingScheduler {
         ` (attempt ${entry.attempts} of ${MAX_ATTEMPTS})` +
         (this.options.runners.simulated ? ": a simulated run, nothing is posted" : ""),
     );
+    const budget = this.options.budgetUsd;
     const job = {
-      spec: task.spec,
+      // A task with no cap of its own may spend only what is left of the day's standing budget, so the budget holds mid-run too.
+      spec:
+        budget === undefined || task.spec.caps.perRunUsd !== undefined
+          ? task.spec
+          : { ...task.spec, caps: { ...task.spec.caps, perRunUsd: budget - this.data.spentTodayUsd } },
       step,
       requestedBy: task.requestedBy,
       lease: this.booking(task, run),

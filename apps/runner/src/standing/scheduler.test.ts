@@ -448,6 +448,30 @@ describe("a schedule", () => {
     expect(scheduler.report()[0]).toMatchObject({ status: "over-budget", dailyUsd: 0.1 });
     expect(runs(scheduler.pendingEvents()).map(([outcome]) => outcome)).toEqual(["simulated"]);
   });
+
+  it("caps a run of a task with no dollars of its own at what is left of the standing budget, and not at all without one", async () => {
+    for (const [budgetUsd, expected] of [
+      [2, [undefined, undefined, 2, 1.25]],
+      [undefined, [undefined, undefined, undefined, undefined]],
+    ] as const) {
+      const seen: Array<number | undefined> = [];
+      const runners: StandingRunners = {
+        ...createMockStandingRunners({ stepMs: 2, minPollIntervalMs: 0 }),
+        schedule: async (job) => {
+          seen.push(job.spec.caps.perRunUsd);
+          return { outcome: "simulated", costUsd: 0.75, message: "Done." };
+        },
+      };
+      const scheduler = makeScheduler(makePool(), { budgetUsd }, runners);
+      set(scheduler, SCHEDULE_TASK);
+      for (const n of [1, 2]) {
+        scheduler.handle({ id: `c-now${n}`, kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: SCHEDULE_TASK.id, requestedBy: "Dana" });
+        await until(() => runs(scheduler.pendingEvents()).length === n);
+      }
+      expect([SCHEDULE_TASK.caps.perRunUsd, new StandingStore({ file: join(dir, "standing.json") }).load("").tasks[0]?.spec.caps.perRunUsd, ...seen]).toEqual(expected);
+      rmSync(join(dir, "standing.json"), { force: true });
+    }
+  });
 });
 
 describe("a pull request steward", () => {
