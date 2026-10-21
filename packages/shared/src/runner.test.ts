@@ -94,6 +94,22 @@ describe("parseRunnerSync", () => {
     });
   });
 
+  it("reads an idle agent's answer, or why there is none, and refuses an answer with nothing in it", () => {
+    const answered = { commandId: "command-8", slotId: "slot-1", outcome: "answered", text: "Free for one.\nNo blockers." };
+    const notAnswered = { commandId: "command-9", slotId: "slot-1", outcome: "not-answered", text: "it ran past its 1 minute" };
+    expect(parseRunnerSync({ ...SYNC, prompts: [answered, notAnswered, { commandId: "command-10", slotId: "slot-1", outcome: "answering" }] })?.prompts).toEqual([
+      answered,
+      notAnswered,
+      { commandId: "command-10", slotId: "slot-1", outcome: "answering" },
+    ]);
+    expect(parseRunnerSync({ ...SYNC, prompts: [{ ...answered, text: "  " }] })).toBeUndefined();
+    expect(parseRunnerSync({ ...SYNC, prompts: [{ ...answered, text: "x".repeat(900) }] })).toBeUndefined();
+    // Only an answer carries words.
+    expect(parseRunnerSync({ ...SYNC, prompts: [{ commandId: "command-7", slotId: "slot-1", outcome: "busy", text: "hi" }] })?.prompts).toEqual([
+      { commandId: "command-7", slotId: "slot-1", outcome: "busy" },
+    ]);
+  });
+
   it("reads the day's spend and a start refused for the budget", () => {
     const parsed = parseRunnerSync({
       ...SYNC,
@@ -321,6 +337,14 @@ describe("toRunnerCommand", () => {
     const draft = { kind: "prompt", slotId: "slot-1", text: "Open the PR.", requestedBy: "Dana", queue: true } as const;
     expect(toRunnerCommand("command-8", { ...draft, fromCeo: true })).toMatchObject({ fromCeo: true, queue: true });
     expect(toRunnerCommand("command-9", draft)).not.toHaveProperty("queue");
+  });
+
+  it("carries a direction's status for an idle agent's answer, printable and capped, and only with the direction", () => {
+    const draft = { kind: "prompt", slotId: "slot-1", text: "Status?", requestedBy: "Dana", fromCeo: true, queue: true } as const;
+    expect(toRunnerCommand("command-10", { ...draft, context: "Free.\n\u001b[31mNo blockers." })).toMatchObject({ context: "Free.\n[31mNo blockers." });
+    expect(toRunnerCommand("command-11", { ...draft, context: "x".repeat(5000) })).toMatchObject({ context: "x".repeat(2000) });
+    expect(toRunnerCommand("command-12", { ...draft, context: "" })).not.toHaveProperty("context");
+    expect(toRunnerCommand("command-13", { ...draft, queue: false, context: "Free." })).not.toHaveProperty("context");
   });
 
   it("builds a key command for a key the CEO may press", () => {

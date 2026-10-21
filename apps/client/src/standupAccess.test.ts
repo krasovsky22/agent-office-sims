@@ -56,6 +56,7 @@ describe("directionStatusText", () => {
     everyone: false,
     status,
     reason,
+    reply: "",
     at: 0,
   });
 
@@ -68,6 +69,10 @@ describe("directionStatusText", () => {
     expect(directionStatusText(direction(STANDUP_DIRECTION_STATUS.noted))).toMatch(/^noted/);
     expect(directionStatusText(direction(STANDUP_DIRECTION_STATUS.failed, "its runner could not be reached"))).toBe(
       "not typed: its runner could not be reached",
+    );
+    expect(directionStatusText(direction(STANDUP_DIRECTION_STATUS.answered))).toBe("answered");
+    expect(directionStatusText(direction(STANDUP_DIRECTION_STATUS.unanswered, "it ran past its 1 minute"))).toBe(
+      "could not answer: it ran past its 1 minute",
     );
   });
 });

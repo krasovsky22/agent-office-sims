@@ -218,6 +218,11 @@ export function StandupPanel({ standup, roster, access, refusal, notice, actions
                 <time className="manager__time">{timeOf(direction.at)}</time>
               </span>
               <span className="manager__text">{direction.text}</span>
+              {direction.reply === "" ? null : (
+                <span className="manager__text standup__reply">
+                  <span className="manager__author">{direction.agentName}:</span> {direction.reply}
+                </span>
+              )}
             </li>
           ))}
         </ol>

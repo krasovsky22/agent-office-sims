@@ -468,11 +468,23 @@ standup go?" with what each agent said at the last one.
   at once; one in the middle of a turn, or at a choice screen, has its runner
   keep it and type it the next time the agent waits at its prompt with the
   standup over, one at a time; and a mock waiting on its permission takes it as
-  the answer, as it does any prompt. An orchestrator's agent takes no prompts
-  from the office, so its direction is only noted. Each direction's record
-  says which: `typed into its terminal`, `kept for when it is next at its
-  prompt, after the standup`, then `typed after the standup`, or why it was
-  not typed, its agent's work having ended first, say.
+  the answer, as it does any prompt. A runner's agent with no session at all,
+  free between tasks, answers instead: the server sends its status with the
+  direction (its update, its latest issues with their pull requests, how its
+  standing tasks last went), and its runner has Claude Code answer once, as
+  that agent (its profile is the system prompt), with no tools, no GitHub
+  identity, `--restricted` and no MCP servers, capped at $0.25 and a minute
+  (`apps/runner/src/agents/answer.ts`; the mock reads its status back). What
+  it spends is booked in the runner's daily budget, which refuses an answer
+  once it is spent, as it refuses a start. The answer is on the direction's
+  record, said in the agent's speech bubble (one chat line, links left out)
+  and posted to the AI Manager's conversation. An orchestrator's agent takes
+  no prompts from the office, so its direction is only noted. Each
+  direction's record says which: `typed into its terminal`, `kept for when it
+  is next at its prompt, after the standup`, then `typed after the standup`,
+  `answered` with the answer under it, or why it was not typed or answered,
+  its agent's work having ended first, or its answer running past its minute,
+  say.
 - **Finish.** Ending it walks every working agent back to the chair it got up
   from, or the nearest free one if someone has taken it meanwhile, and sends
   idle ones wandering again; the runner lets its agents carry on from where
@@ -577,7 +589,9 @@ that ended, or was refused, without the server asking; `prompts` says what came 
 `commandId`, its `slotId` and an `outcome`, `delivered`, `busy`, `needs-input`,
 `unavailable` or, for a key, `not-waiting`, or, for a standup's direction the
 runner keeps for later, `queued` and then `delivered` under the same command
-once it is typed; `acked` holds at most 32 ids. A `pr` with `"simulated":true`
+once it is typed, or, for one its agent with no session answers, `answering`
+and then `answered` or `not-answered` with the answer or why in `text`, at most
+800 bytes; `acked` holds at most 32 ids. A `pr` with `"simulated":true`
 is the mock agent's stand-in, with no `url`: nothing was opened on GitHub, and
 the office never links it or shows its number. Strings are measured in bytes: the
 UTF-8 of the string as `JSON.stringify` writes it, escapes included and quotes
@@ -661,7 +675,8 @@ cancelled, whose worktree, branch and pull request go whatever is in them) or `p
 types only while its agent waits at its prompt and reports in `prompts`;
 `queue: true` as well on a direction the CEO gave at a standup, which the
 runner keeps, rather than refuses, until its agent is next at its prompt with
-the standup over; the office's own rework prompt is given whatever the agent
+the standup over, and has its agent answer from `context`, its status as the
+office sees it, at most 2,000 characters, when it has no session at all; the office's own rework prompt is given whatever the agent
 is doing) or `key`
 (`key`, one of `up`, `down`, `enter`, `escape` or `1`–`9`, and `requestedBy`:
 a key the CEO pressed in the terminal panel, which the runner presses only

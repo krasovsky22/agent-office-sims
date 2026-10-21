@@ -276,6 +276,26 @@ describe("AgentPrompts", () => {
       expect(refused).toEqual([]);
     });
 
+    it("carries its agent's status, and is answered by an agent with no session, waited on while it answers", () => {
+      const { prompts, sync, report, tick, directed, refused } = setup();
+      sync();
+      prompts.submitDirection(CEO, SLOT_1, "What's the status?", "Your update at this standup: free.");
+      expect(sync()).toEqual([expect.objectContaining({ id: "command-1", queue: true, context: "Your update at this standup: free." })]);
+
+      sync([report("command-1", RUNNER_PROMPT_OUTCOME.answering)], ["command-1"]);
+      tick(60_000);
+      prompts.expire();
+      expect(directed).toEqual([{ commandId: "command-1", outcome: { kind: "answering" } }]);
+
+      sync([{ ...report("command-1", RUNNER_PROMPT_OUTCOME.answered), text: "I'm free for an issue." }]);
+      expect(directed.at(-1)).toEqual({ commandId: "command-1", outcome: { kind: "answered", reply: "I'm free for an issue." } });
+
+      prompts.submitDirection(CEO, SLOT_1, "And next?");
+      sync([{ ...report("command-2", RUNNER_PROMPT_OUTCOME.notAnswered), text: "it ran past its 1 minute" }], ["command-2"]);
+      expect(directed.at(-1)).toEqual({ commandId: "command-2", outcome: { kind: "unanswered", why: "it ran past its 1 minute" } });
+      expect(refused).toEqual([]);
+    });
+
     it("says why one was not typed to the standup alone", () => {
       const { prompts, sync, report, refused, directed } = setup();
       sync();

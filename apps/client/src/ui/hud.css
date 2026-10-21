@@ -1283,7 +1283,14 @@
 
 .standup__directions {
   flex: none;
-  max-height: 8em;
+  max-height: 14em;
+}
+
+/* An idle agent's answer, under the direction it answers. */
+.standup__reply {
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid rgba(255, 255, 255, 0.25);
 }
 
 .standup__composer {

@@ -43,8 +43,10 @@ export type StandupRejection = (typeof STANDUP_REJECTION)[keyof typeof STANDUP_R
  *
  * A runner's coding agent at its prompt has the direction typed at once; one
  * in the middle of a turn, or waiting on a choice screen, keeps it until it is
- * next at its prompt with the standup over. An orchestrator's agent takes no
- * prompts from the office, so its direction is only on the record.
+ * next at its prompt with the standup over. One with no session at all, free
+ * between tasks, answers it in a short run of its own, and its answer is on
+ * the record. An orchestrator's agent takes no prompts from the office, so its
+ * direction is only on the record.
  */
 export const STANDUP_DIRECTION_STATUS = {
   /** On its way to the agent's runner. */
@@ -59,6 +61,12 @@ export const STANDUP_DIRECTION_STATUS = {
   noted: "noted",
   /** Not typed, and will not be; `reason` says why. */
   failed: "failed",
+  /** For an agent with no session: it is working out an answer. */
+  answering: "answering",
+  /** It answered; `reply` is what it said. */
+  answered: "answered",
+  /** It could not answer; `reason` says why. */
+  unanswered: "unanswered",
 } as const;
 
 export type StandupDirectionStatus = (typeof STANDUP_DIRECTION_STATUS)[keyof typeof STANDUP_DIRECTION_STATUS];
@@ -163,6 +171,7 @@ export interface StandupDirectionData {
   readonly everyone: boolean;
   readonly status: string;
   readonly reason: string;
+  readonly reply: string;
   readonly at: number;
 }
 

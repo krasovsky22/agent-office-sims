@@ -80,6 +80,12 @@ export function directionStatusText(direction: StandupDirectionData): string {
       return "noted; this agent takes no prompts from the office";
     case STANDUP_DIRECTION_STATUS.failed:
       return direction.reason === "" ? "not typed" : `not typed: ${direction.reason}`;
+    case STANDUP_DIRECTION_STATUS.answering:
+      return "no session to type it into, so it is answering…";
+    case STANDUP_DIRECTION_STATUS.answered:
+      return "answered";
+    case STANDUP_DIRECTION_STATUS.unanswered:
+      return direction.reason === "" ? "could not answer" : `could not answer: ${direction.reason}`;
     default:
       return direction.status;
   }

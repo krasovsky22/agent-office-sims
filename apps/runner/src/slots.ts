@@ -54,7 +54,11 @@
  * the agent waits at its prompt; otherwise the slot keeps it, reports it
  * `queued`, and types it the next time the agent is at its prompt with the
  * standup over, reporting it `delivered`, or `unavailable` if the work ends
- * first.
+ * first. A slot with no session to type it into, its agent free between
+ * tasks, has its agent answer it instead ({@link SlotPoolOptions.answerer},
+ * `./agents/answer.ts`): reported `answering`, then `answered` with what it
+ * said or `not-answered` with why, its spend booked as any run's is and the
+ * day's budget refusing it as it refuses a start.
  *
  * Each slot's agent has a profile, a name, title and description
  * (`@sim/shared`'s `agentProfile.ts`): its default until the CEO edits it
@@ -95,6 +99,7 @@ import {
   AGENT_KEY_LABEL,
   type AgentProfile,
   MAX_NAME_LENGTH,
+  MAX_RUNNER_ANSWER_BYTES,
   MAX_RUNNER_SLOTS,
   MAX_TITLE_LENGTH,
   MAX_WORK_NOTE_LENGTH,
@@ -106,6 +111,7 @@ import {
   type RunnerSlotCommand,
   defaultAgentProfile,
   fitJsonBytes,
+  sanitizeStandingMessage,
   type RunnerSlotStanding,
   type RunnerDeskEndedEvent,
   type RunnerWorkEventKind,
@@ -120,6 +126,7 @@ import {
   formatUsd,
 } from "@sim/shared";
 
+import type { Answerer } from "./agents/answer.js";
 import { systemPrompt } from "./agents/prompt.js";
 import type { Agent, AgentRun } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
@@ -214,6 +221,8 @@ export interface SlotPoolOptions {
   readonly redactor?: Redactor;
   /** What the agents spend is booked in, and what refuses a start once the day's budget is spent; no budget by default. */
   readonly ledger?: SpendLedger;
+  /** How an agent with no session answers a standup's direction; without it, such a direction is refused as unavailable. */
+  readonly answerer?: Answerer;
   /** Event ids. Injected so a test can name the events it expects. */
   readonly eventId?: () => string;
   readonly log?: (line: string) => void;
@@ -293,6 +302,8 @@ export class SlotPool {
   /** The slots the AI Manager hired agents into, by id, in the order they were hired. */
   private readonly hiredIds: Set<string>;
   private readonly deskSessions: DeskSessions;
+  /** Answers to standup directions under way, each stopped should the runner shut down. */
+  private readonly answering = new Set<AbortController>();
 
   public constructor(private readonly options: SlotPoolOptions) {
     this.redactor = options.redactor ?? createRedactor([]);
@@ -654,6 +665,9 @@ export class SlotPool {
    * its scheduler's to wait for.
    */
   public stopAll(): Promise<void> {
+    for (const answer of this.answering) {
+      answer.abort();
+    }
     const stopped: Promise<void>[] = [];
     for (const slot of this.slots) {
       if (slot.run !== undefined) {
@@ -862,10 +876,57 @@ export class SlotPool {
       this.log(`direction for ${slot.id} from ${command.requestedBy} kept for when its agent is next at its prompt: ${outcome}`);
       this.reportOutcome(slot, command.id, RUNNER_PROMPT_OUTCOME.queued);
       return;
+    } else if (command.queue === true && outcome === RUNNER_PROMPT_OUTCOME.unavailable && this.options.answerer !== undefined) {
+      void this.answer(slot, command, this.options.answerer);
+      return;
     } else {
       this.log(`prompt for ${slot.id} from ${command.requestedBy} not typed: ${outcome}`);
     }
     this.reportOutcome(slot, command.id, outcome);
+  }
+
+  /**
+   * Has the agent of a slot with no session answer a standup's direction in
+   * a short run of its own, and reports what it said, or why it said nothing.
+   */
+  private async answer(slot: Slot, command: PromptCommand, answerer: Answerer): Promise<void> {
+    const refused = this.ledger.refusal();
+    if (refused !== undefined) {
+      this.log(`direction for ${slot.id} from ${command.requestedBy} not answered: ${refused}`);
+      this.reportOutcome(slot, command.id, RUNNER_PROMPT_OUTCOME.notAnswered, refused);
+      return;
+    }
+    this.log(`${slot.id} answers the direction ${command.requestedBy} gave at the standup`);
+    this.reportOutcome(slot, command.id, RUNNER_PROMPT_OUTCOME.answering);
+    const controller = new AbortController();
+    this.answering.add(controller);
+    const held = { spentUsd: 0 };
+    let result;
+    try {
+      result = await answerer.answer({
+        systemPrompt: systemPrompt(slot.profile),
+        context: command.context ?? "",
+        question: command.text,
+        askedBy: command.requestedBy,
+        signal: controller.signal,
+        spent: (totalUsd) => {
+          if (bookSpend(this.ledger, held, totalUsd)) {
+            this.debug(`${slot.id}'s answer has spent ${formatUsd(totalUsd)}`);
+          }
+        },
+      });
+    } catch (error) {
+      result = { ok: false, text: "", why: (error as Error).message };
+    } finally {
+      this.answering.delete(controller);
+    }
+    if (result.ok) {
+      this.log(`${slot.id} answered ${command.requestedBy}'s direction`);
+      this.reportOutcome(slot, command.id, RUNNER_PROMPT_OUTCOME.answered, result.text);
+    } else {
+      this.log(`${slot.id} could not answer ${command.requestedBy}'s direction: ${result.why}`);
+      this.reportOutcome(slot, command.id, RUNNER_PROMPT_OUTCOME.notAnswered, result.why);
+    }
   }
 
   /**
@@ -916,8 +977,14 @@ export class SlotPool {
   }
 
   /** Queues what came of the CEO's prompt or key until a sync carrying it is answered. */
-  private reportOutcome(slot: Slot, commandId: string, outcome: RunnerPromptOutcomeKind): void {
-    this.promptOutcomes.push({ commandId, slotId: slot.id, outcome });
+  private reportOutcome(slot: Slot, commandId: string, outcome: RunnerPromptOutcomeKind, text?: string): void {
+    if (text === undefined) {
+      this.promptOutcomes.push({ commandId, slotId: slot.id, outcome });
+      return;
+    }
+    // Masked, as everything an agent says is, and cut to the contract's budget.
+    const said = fitBytes(sanitizeStandingMessage(this.redactor.redactText(text)), MAX_RUNNER_ANSWER_BYTES);
+    this.promptOutcomes.push({ commandId, slotId: slot.id, outcome, text: said === "" ? "it said nothing" : said });
   }
 
   /** Whether the slot's agent waits on a person, so a key answers it, and if not, why; as a desk session's is. */
