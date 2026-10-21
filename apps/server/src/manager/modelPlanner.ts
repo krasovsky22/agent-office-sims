@@ -70,7 +70,8 @@ const MAX_TOKENS = 8_000;
 /** Lines of the conversation the model is shown, newest last. */
 const HISTORY_LINES = 12;
 
-const OUTPUT_SCHEMA = {
+/** The answer's shape, shared with `./cliPlanner.ts`, which asks the `claude` CLI for the same. */
+export const OUTPUT_SCHEMA = {
   type: "object",
   properties: {
     reply: {
@@ -340,6 +341,11 @@ export function readReply(message: ModelMessage): ManagerPlan {
   } catch {
     throw new PlannerError("the model's reply was not the expected JSON", { retryable: false, tokensUsed });
   }
+  return planFrom(parsed, tokensUsed);
+}
+
+/** Turns the model's parsed answer into a plan, or says why it is not one, however the answer arrived. */
+export function planFrom(parsed: unknown, tokensUsed: number): ManagerPlan {
   const { reply, assignments, moves, hires, standing, standup } = (parsed ?? {}) as {
     reply?: unknown;
     assignments?: unknown;

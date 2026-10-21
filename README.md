@@ -131,8 +131,12 @@ unless `PROJECT_BOARD_TOKEN` is set.
 
 The AI manager answers by rule from live state by default (`MOCK_MANAGER` is
 on), so nothing in development calls a model or spends anything.
-`MOCK_MANAGER=off` with `ANTHROPIC_API_KEY` set gives it a real model, on a call
-budget.
+`MOCK_MANAGER=off` gives it a real model, on a call budget: with
+`ANTHROPIC_API_KEY` set it calls the Anthropic API, billed per call; without
+it, it plans through the `claude` CLI on the server's host, on whatever login
+that CLI has, the same as the runner's coding agents. Sign it in once with
+`claude` and `/login` (a Claude subscription works) and the whole office runs
+on that one login.
 
 The office opens on a name card: type what everyone should call you and
 press `Enter`. It is prefilled from `?name=` in the URL, or else from the
@@ -1895,8 +1899,8 @@ public.
 | `PROJECT_BOARD_REPO` | server | runtime | No. The `owner/name` the project board shows. Defaults to this repository. |
 | `PROJECT_BOARD_TOKEN` | server | runtime | No, but recommended. A read-only GitHub token; see below. |
 | `PROJECT_BOARD_POLL_SECONDS` | server | runtime | No. Seconds between polls, at least 15. Defaults to 180, or 60 with a token. |
-| `MOCK_MANAGER` | server | runtime | No. `on` (the default) for the AI manager to answer by rule from live state, `off` for a real model, which needs `ANTHROPIC_API_KEY`. |
-| `ANTHROPIC_API_KEY` | server | runtime | Only with `MOCK_MANAGER=off`, when the server refuses to start without it. A secret. |
+| `MOCK_MANAGER` | server | runtime | No. `on` (the default) for the AI manager to answer by rule from live state, `off` for a real model: through the API with `ANTHROPIC_API_KEY`, else through the server host's signed-in `claude` CLI. |
+| `ANTHROPIC_API_KEY` | server | runtime | Only with `MOCK_MANAGER=off` on a host without a signed-in `claude` CLI, such as the Docker image. A secret. |
 | `MANAGER_MODEL` | server | runtime | No. The model the manager uses. Defaults to `claude-opus-5-5`. |
 | `MANAGER_CALLS_PER_DAY` / `MANAGER_CALLS_PER_RUN` | server | runtime | No. The manager's model call ceilings per UTC day and per server process. Default 150 and 1000. |
 | `LIVE_AGENTS_SECRET` | server | runtime | No. The shared secret an agent orchestrator reports with and collects the manager's assignments with, at least 16 characters; without it no live agents appear. |
@@ -1936,6 +1940,14 @@ against the `MANAGER_CALLS_*` ceilings, retries included; once those are spent,
 or the model fails, the manager answers by rule from live state and says so. The
 counters live in memory, so a restart resets them. The key is sent only to the
 model API.
+
+Without `ANTHROPIC_API_KEY`, each of those calls is one `claude -p` on the
+server's host, with structured output and none of that host's tools, settings
+or MCP servers, so it needs `claude` installed and signed in there (`claude`,
+then `/login`). It runs on the server's host rather than through the runner, so
+the manager still answers while no runner is connected; the Docker image has no
+`claude`, so a deployment built from it keeps the API key. A CLI that is not
+signed in, or not installed, is reported in the manager's failure notice.
 
 `LIVE_AGENTS_SECRET` is the other secret, and is set the same way. It is compared
 against the report route's `Authorization` header in constant time and never

@@ -157,30 +157,38 @@ const DEFAULT_MANAGER_MODEL = "claude-opus-5-5";
 const DEFAULT_MANAGER_CALLS_PER_DAY = 150;
 const DEFAULT_MANAGER_CALLS_PER_RUN = 1000;
 
+/** What a model mode's calls are allowed, whichever way they go. */
+interface ManagerModelConfig {
+  readonly model: string;
+  readonly callsPerDay: number;
+  readonly callsPerRun: number;
+}
+
 /**
- * How the AI manager answers: from live state by rule, for free, or through a
- * real model that costs money.
+ * How the AI manager answers: from live state by rule, for free; through the
+ * Anthropic API, billed per call; or through the `claude` CLI signed in on the
+ * server's host, on that login's plan.
  */
 export type ManagerConfig =
   | { readonly mode: "mock" }
-  | {
+  | (ManagerModelConfig & {
       readonly mode: "model";
       /**
        * Server-side only: read here, handed to the model client, and never
        * logged or sent to a browser.
        */
       readonly apiKey: string;
-      readonly model: string;
-      readonly callsPerDay: number;
-      readonly callsPerRun: number;
-    };
+    })
+  | (ManagerModelConfig & { readonly mode: "cli" });
 
 /**
  * Reads how the AI manager answers.
  *
  * - `MOCK_MANAGER`: `on` (the default) or `off`. On, the manager answers from
  *   the office's live state by rule and makes no network call.
- * - `ANTHROPIC_API_KEY`: required when `MOCK_MANAGER` is off.
+ * - `ANTHROPIC_API_KEY`: with `MOCK_MANAGER` off, the manager calls the API
+ *   with it; without it, it plans through the `claude` CLI on the server's
+ *   host, which must be signed in.
  * - `MANAGER_MODEL`: optional, defaulting to {@link DEFAULT_MANAGER_MODEL}.
  * - `MANAGER_CALLS_PER_DAY`, `MANAGER_CALLS_PER_RUN`: optional call budgets.
  */
@@ -189,22 +197,14 @@ export function readManagerConfig(env: NodeJS.ProcessEnv = process.env): Manager
     return { mode: "mock" };
   }
 
-  const apiKey = env["ANTHROPIC_API_KEY"]?.trim() ?? "";
-  if (apiKey === "") {
-    throw new Error(
-      "MOCK_MANAGER is off but ANTHROPIC_API_KEY is not set: set the key as a platform secret, " +
-        "or leave MOCK_MANAGER on to have the manager answer without a model",
-    );
-  }
-
   const rawModel = env["MANAGER_MODEL"]?.trim() ?? "";
-  return {
-    mode: "model",
-    apiKey,
+  const calls: ManagerModelConfig = {
     model: rawModel === "" ? DEFAULT_MANAGER_MODEL : rawModel,
     callsPerDay: readWholeNumber(env, "MANAGER_CALLS_PER_DAY", { fallback: DEFAULT_MANAGER_CALLS_PER_DAY, min: 0, means: "of calls" }),
     callsPerRun: readWholeNumber(env, "MANAGER_CALLS_PER_RUN", { fallback: DEFAULT_MANAGER_CALLS_PER_RUN, min: 0, means: "of calls" }),
   };
+  const apiKey = env["ANTHROPIC_API_KEY"]?.trim() ?? "";
+  return apiKey === "" ? { mode: "cli", ...calls } : { mode: "model", apiKey, ...calls };
 }
 
 /**

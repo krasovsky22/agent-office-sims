@@ -6,8 +6,7 @@
  * wrong rather than polling a repository nobody meant, or about the live
  * agents' `LIVE_AGENTS_*`, which refuse a secret too short to be one, as
  * `RUNNER_SECRET` does. The AI manager's `MOCK_MANAGER` and `MANAGER_*`
- * follow the same rule: a model mode with no key stops the boot, not a
- * question.
+ * follow the same rule: a bad setting stops the boot, not a question.
  */
 
 import { describe, expect, it } from "vitest";
@@ -168,9 +167,16 @@ describe("readManagerConfig", () => {
     ).toMatchObject({ model: "claude-sonnet-5-5", callsPerDay: 5, callsPerRun: 0 });
   });
 
+  it("plans through the signed-in claude CLI when mock is off and no key is set", () => {
+    const cli = { mode: "cli", model: "claude-opus-5-5", callsPerDay: 150, callsPerRun: 1000 };
+    expect(readManagerConfig({ MOCK_MANAGER: "off" })).toEqual(cli);
+    expect(readManagerConfig({ MOCK_MANAGER: "off", ANTHROPIC_API_KEY: "  " })).toEqual(cli);
+    expect(readManagerConfig({ MOCK_MANAGER: "off", MANAGER_MODEL: "claude-sonnet-5-5" })).toMatchObject({ mode: "cli", model: "claude-sonnet-5-5" });
+  });
+
   it.each([
-    [{ MOCK_MANAGER: "off" }, /ANTHROPIC_API_KEY.*MOCK_MANAGER on/],
     [{ MOCK_MANAGER: "sometimes" }, /MOCK_MANAGER/],
+    [{ MOCK_MANAGER: "off", MANAGER_CALLS_PER_DAY: "-1" }, /MANAGER_CALLS_PER_DAY/],
     [{ MOCK_MANAGER: "off", ANTHROPIC_API_KEY: "k", MANAGER_CALLS_PER_DAY: "1.5" }, /MANAGER_CALLS_PER_DAY/],
   ])("rejects %j", (env, pattern) => {
     expect(() => readManagerConfig(env)).toThrow(pattern);

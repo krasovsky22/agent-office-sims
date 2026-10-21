@@ -17,7 +17,7 @@
  * agents' registry is made here for the same reason, and its report route is
  * only attached when a secret is configured.
  *
- * How the AI manager answers is read here too, so a model mode with no API key
+ * How the AI manager answers is read here too, so a bad manager setting
  * stops the server at boot rather than failing the CEO's first question. The
  * manager's queue of work for the live agents is made beside the registry it
  * wraps, and its collection route is attached with the report route. The runner link is made
