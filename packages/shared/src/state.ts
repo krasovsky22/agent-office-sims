@@ -463,6 +463,7 @@ export class StandingTask extends Schema {
   declare public queued: number;
   declare public handledToday: number;
   declare public spentTodayUsd: number;
+  /** The standing budget it is held to today, `0` for none (a budget of `0` reads as none, and is over budget anyway). */
   declare public dailyUsd: number;
   /** `""` when its last check and run went well. */
   declare public lastError: string;

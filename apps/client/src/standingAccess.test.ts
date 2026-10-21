@@ -54,6 +54,10 @@ describe("standingRow", () => {
     });
   });
 
+  it("shows the spend alone with no standing budget", () => {
+    expect(standingRow({ ...WATCH, dailyUsd: 0 }, NOW).lines).toContain("$0.20 today");
+  });
+
   it("says what waits, what went wrong, and when it is over budget or paused", () => {
     const row = standingRow({ ...WATCH, status: "over-budget", queued: 2, lastError: "Could not list pull requests", lastOutcome: "", lastCheckAt: 0 }, NOW);
     expect(row).toEqual({
@@ -63,6 +67,7 @@ describe("standingRow", () => {
       alert: true,
     });
     expect(standingRow({ ...WATCH, status: "paused" }, NOW).paused).toBe(true);
+    expect(standingRow({ ...WATCH, status: "run-limit" }, NOW)).toMatchObject({ title: "Watch for new pull requests · run limit reached", alert: true });
     expect(standingRow({ ...WATCH, kind: "schedule", trigger: "weekdays 09:00", lastRunPr: 0, lastOutcome: "completed" }, NOW).lines.slice(0, 2)).toEqual([
       "weekdays 09:00 · fired 3 min ago",
       "Last: done",

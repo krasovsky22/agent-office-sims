@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { budgetRefusal, formatUsd, isBudgetSpent, spendSummary } from "./spend.js";
+import { budgetRefusal, formatUsd, isBudgetSpent, spendSummary, standingSpendText } from "./spend.js";
 
 describe("formatUsd", () => {
   it("shows dollars and cents, and nothing negative or not a number", () => {
@@ -29,6 +29,13 @@ describe("budgetRefusal", () => {
   it("never refuses with no budget, and always with a budget of nothing", () => {
     expect(budgetRefusal(1000, undefined)).toBeUndefined();
     expect(budgetRefusal(0, 0)).toBeDefined();
+  });
+});
+
+describe("standingSpendText", () => {
+  it("says the spend against the standing budget, or alone without one", () => {
+    expect(standingSpendText(0.11, 2)).toBe("$0.11 of $2.00 today");
+    expect(standingSpendText(0.11, undefined)).toBe("$0.11 today");
   });
 });
 

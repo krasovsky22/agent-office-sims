@@ -1138,7 +1138,8 @@ function parseStandingReport(raw: unknown): StandingTaskReport | undefined {
   if (candidate === undefined) {
     return undefined;
   }
-  const { id, kind, status, queued, handledToday, spentTodayUsd, dailyUsd } = candidate;
+  const { id, kind, status, queued, handledToday, spentTodayUsd } = candidate;
+  const dailyUsd = candidate["dailyUsd"] ?? undefined;
   const lastCheckAt = candidate["lastCheckAt"] ?? undefined;
   const nextCheckAt = candidate["nextCheckAt"] ?? undefined;
   if (
@@ -1148,7 +1149,7 @@ function parseStandingReport(raw: unknown): StandingTaskReport | undefined {
     !isCount(queued) ||
     !isCount(handledToday) ||
     !isUsd(spentTodayUsd) ||
-    !isUsd(dailyUsd) ||
+    (dailyUsd !== undefined && !isUsd(dailyUsd)) ||
     (lastCheckAt !== undefined && !isTimestamp(lastCheckAt)) ||
     (nextCheckAt !== undefined && !isTimestamp(nextCheckAt))
   ) {
@@ -1187,7 +1188,7 @@ function parseStandingReport(raw: unknown): StandingTaskReport | undefined {
     queued,
     handledToday,
     spentTodayUsd,
-    dailyUsd,
+    dailyUsd: isUsd(dailyUsd) ? dailyUsd : undefined,
     lastError,
     recent,
   };

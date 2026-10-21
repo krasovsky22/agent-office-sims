@@ -30,11 +30,11 @@
  * last.
  *
  * Every run is held to its task's caps by the runner itself, whatever the
- * server sent: its own `dailyUsd` and `maxRunsPerHour` (reached within an
- * hour, it starts nothing more that day, so a burst cannot run up the day),
- * `RUNNER_STANDING_DAILY_BUDGET_USD` for every standing task together, and
- * the runner's own daily budget, in whose ledger standing spend is booked
- * too. A run is saved as `running` before its agent starts, so a restart
+ * server sent: its own `perRunUsd`, `runMinutes` and `maxRunsPerHour`
+ * (reached within an hour, it starts nothing more that day, so a burst cannot
+ * run up the day), `RUNNER_STANDING_DAILY_BUDGET_USD` for every standing task
+ * together, and the runner's own daily budget, in whose ledger standing spend
+ * is booked too. Either budget unset caps nothing: spend is still counted. A run is saved as `running` before its agent starts, so a restart
  * tries it again; a review's marker on the pull request (`./review.ts`) keeps
  * that from ever posting twice.
  *
@@ -66,12 +66,10 @@ import {
   type RunnerEvent,
   type RunnerStandingCommand,
   STANDING_KIND,
-  STANDING_OFF,
   STANDING_OUTCOME,
   STANDING_OUTCOME_TEXT,
   STANDING_STATUS,
   type StandingCaps,
-  type StandingOff,
   type StandingOutcome,
   type StandingRunRecord,
   type StandingSchedule,
@@ -138,10 +136,8 @@ export interface StandingSchedulerOptions {
   readonly pulls: PullSource;
   /** The runner's books, which standing spend is booked in and refused by too. */
   readonly ledger: SpendLedger;
-  /** `RUNNER_STANDING_DAILY_BUDGET_USD`; `undefined` for none. */
+  /** `RUNNER_STANDING_DAILY_BUDGET_USD`; `undefined` for none: spend is counted, and nothing is refused for it. */
   readonly budgetUsd: number | undefined;
-  /** Why the runner takes no standing tasks at all, such as a real agent with no standing budget. */
-  readonly off?: StandingOff | undefined;
   readonly maxConcurrent: number;
   readonly redactor?: Redactor;
   readonly now?: () => number;
@@ -254,10 +250,6 @@ export class StandingScheduler {
     return this.data.tasks.map((task) => this.reportOf(task));
   }
 
-  public off(): StandingOff | undefined {
-    return this.options.off;
-  }
-
   /** What all standing tasks have spent today, those since removed too. */
   public spentTodayUsd(): number {
     this.rollOver();
@@ -309,10 +301,6 @@ export class StandingScheduler {
   /** One look at every task: checks due, firings due, retries due, and runs to start. Exposed for the tests. */
   public tick(): void {
     this.rollOver();
-    // A task kept in standing.json from before the runner was turned off checks and runs nothing.
-    if (this.offReason() !== undefined) {
-      return;
-    }
     const now = this.now();
     for (const task of [...this.data.tasks]) {
       const agent = task.spec.agent;
@@ -355,11 +343,6 @@ export class StandingScheduler {
       return;
     }
     const name = `"${task.spec.name}" (${task.spec.id})`;
-    const off = this.offReason();
-    if (off !== undefined && (command.kind === RUNNER_COMMAND_KIND.standingResume || command.kind === RUNNER_COMMAND_KIND.standingCheckNow)) {
-      this.log(`${command.kind} for standing task ${name} from ${command.requestedBy} refused: ${off}`);
-      return;
-    }
     switch (command.kind) {
       case RUNNER_COMMAND_KIND.standingPause:
         if (!task.spec.paused) {
@@ -420,11 +403,6 @@ export class StandingScheduler {
       this.log(`standing task "${spec.name}" (${spec.id}) from ${requestedBy} refused: ${why}`);
       this.emit({ id: this.eventId(), kind: RUNNER_EVENT_KIND.standingRefused, taskId: spec.id, name: short(spec.name, MAX_STANDING_NAME_BYTES), message: short(why, MAX_WORK_NOTE_LENGTH) });
     };
-    const off = this.offReason();
-    if (off !== undefined) {
-      refuse(off);
-      return;
-    }
     if (existing !== undefined) {
       if (spec.version <= existing.spec.version) {
         this.debug(`standing task ${spec.id} restated at version ${spec.version}; it already has ${existing.spec.version}`);
@@ -467,8 +445,7 @@ export class StandingScheduler {
       });
       this.log(
         `standing task "${held.name}" (${held.id}) added by ${requestedBy}: ${this.trigger(held)}, ` +
-          `${formatUsd(held.caps.perRunUsd)} and ${held.caps.runMinutes} min a run, ${formatUsd(held.caps.dailyUsd)} and ` +
-          `${held.caps.maxRunsPerHour} runs an hour a day` +
+          `${formatUsd(held.caps.perRunUsd)} and ${held.caps.runMinutes} min a run, ${held.caps.maxRunsPerHour} runs an hour` +
           (this.options.runners.simulated ? "; simulated runs, nothing is posted or spent for real" : ""),
       );
     }
@@ -476,23 +453,13 @@ export class StandingScheduler {
     this.tick();
   }
 
-  private offReason(): string | undefined {
-    return this.options.off === STANDING_OFF.noBudget
-      ? "this runner's agents are real, and its operator has not set RUNNER_STANDING_DAILY_BUDGET_USD, so it takes no standing tasks"
-      : undefined;
-  }
-
-  /** A definition held to what the runner allows: no task may spend more in a day, or a run, than every standing task together may. */
+  /** A definition held to what the runner allows: no run may spend more than every standing task together may in a day. */
   private held(spec: StandingTaskSpec): StandingTaskSpec {
     const budget = this.options.budgetUsd;
     if (budget === undefined) {
       return spec;
     }
-    const caps: StandingCaps = {
-      ...spec.caps,
-      perRunUsd: Math.min(spec.caps.perRunUsd, budget),
-      dailyUsd: Math.min(spec.caps.dailyUsd, budget),
-    };
+    const caps: StandingCaps = { ...spec.caps, perRunUsd: Math.min(spec.caps.perRunUsd, budget) };
     return { ...spec, caps };
   }
 
@@ -746,12 +713,8 @@ export class StandingScheduler {
 
   /** Why a task may start nothing now, or `undefined` while every cap has room. */
   private block(task: StoredTask): Block | undefined {
-    const { caps } = task.spec;
-    if (task.spentTodayUsd >= caps.dailyUsd) {
-      return { reason: `it has spent its ${formatUsd(caps.dailyUsd)} for today`, budget: false };
-    }
     if (task.hourCapDay === this.today()) {
-      return { reason: `it reached ${caps.maxRunsPerHour} runs within an hour today, so it starts nothing more until tomorrow`, budget: false };
+      return { reason: `it reached ${task.spec.caps.maxRunsPerHour} runs within an hour today, so it starts nothing more until tomorrow`, budget: false };
     }
     const budget = this.options.budgetUsd;
     if (budget !== undefined && this.data.spentTodayUsd >= budget) {
@@ -972,22 +935,21 @@ export class StandingScheduler {
   private reportOf(task: StoredTask): StandingTaskReport {
     const queued = Object.values(task.ledger).filter((entry) => entry.state === LEDGER_STATE.queued).length;
     const block = this.block(task);
-    const off = this.offReason();
     return {
       id: task.spec.id,
       kind: task.spec.kind,
       name: fitBytes(task.spec.name, MAX_STANDING_NAME_BYTES),
-      status: off === undefined ? this.statusOf(task, queued, block) : STANDING_STATUS.error,
+      status: this.statusOf(task, queued, block),
       trigger: fitBytes(this.trigger(task.spec), MAX_STANDING_TRIGGER_BYTES),
       schedule: task.spec.kind === STANDING_KIND.schedule ? { cron: task.spec.cron } : { intervalSeconds: task.spec.intervalSeconds },
       agent: task.spec.agent,
       lastCheckAt: task.lastCheckAt,
-      nextCheckAt: task.spec.paused || block !== undefined || off !== undefined ? undefined : task.nextCheckAt,
+      nextCheckAt: task.spec.paused || block !== undefined ? undefined : task.nextCheckAt,
       queued,
       handledToday: task.handledToday,
       spentTodayUsd: task.spentTodayUsd,
-      dailyUsd: task.spec.caps.dailyUsd,
-      lastError: fitBytes(off === undefined ? task.checkError || task.runError : "Off: RUNNER_STANDING_DAILY_BUDGET_USD is not set", MAX_STANDING_ERROR_BYTES),
+      dailyUsd: this.options.budgetUsd,
+      lastError: fitBytes(task.checkError || task.runError, MAX_STANDING_ERROR_BYTES),
       recent: task.recent,
     };
   }
@@ -1000,7 +962,8 @@ export class StandingScheduler {
       return STANDING_STATUS.running;
     }
     if (block !== undefined) {
-      return STANDING_STATUS.overBudget;
+      // Its runs an hour are no budget: say so, rather than "over budget" with money left.
+      return block.budget ? STANDING_STATUS.overBudget : STANDING_STATUS.runLimit;
     }
     if (queued > 0) {
       return STANDING_STATUS.waitingSlot;

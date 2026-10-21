@@ -78,8 +78,10 @@ export const STANDING_STATUS = {
   /** It has something to do and no slot is free for it. */
   waitingSlot: "waiting-slot",
   running: "running",
-  /** Its own daily spend or hourly runs, or the runner's standing budget, are used up. */
+  /** The runner's standing budget, or its own daily budget, is spent. */
   overBudget: "over-budget",
+  /** It started its runs an hour, so it starts nothing more today. */
+  runLimit: "run-limit",
   /** Its last check or run went wrong. */
   error: "error",
 } as const;
@@ -111,7 +113,8 @@ export type StandingOutcome = (typeof STANDING_OUTCOME)[keyof typeof STANDING_OU
 
 /**
  * Why a runner takes no standing tasks at all, as it says on every sync, so
- * the office can say so before it asks.
+ * the office can say so before it asks. Only a runner from before an unset
+ * `RUNNER_STANDING_DAILY_BUDGET_USD` meant no cap still says it.
  */
 export const STANDING_OFF = {
   /** A real agent's runner whose operator has not set `RUNNER_STANDING_DAILY_BUDGET_USD`. */
@@ -140,22 +143,24 @@ export const DEFAULT_STANDING_INTERVAL_SECONDS = 120;
 export const MIN_STANDING_INTERVAL_SECONDS = 60;
 export const MAX_STANDING_INTERVAL_SECONDS = 24 * 60 * 60;
 
-/** What one task may spend and take, per run and per day. */
+/**
+ * What one run of a task may spend and take, and how often it may run. A
+ * task has no daily spend of its own: standing tasks together are held to
+ * `RUNNER_STANDING_DAILY_BUDGET_USD`, and only while it is set.
+ */
 export interface StandingCaps {
   /** US dollars one run may spend before it is stopped. */
   readonly perRunUsd: number;
   /** Minutes one run may take before it is stopped. */
   readonly runMinutes: number;
-  /** US dollars the task may spend in a day before it starts nothing more that day. */
-  readonly dailyUsd: number;
   /** Runs the task may start in any hour. */
   readonly maxRunsPerHour: number;
 }
 
-export const DEFAULT_STANDING_CAPS: StandingCaps = { perRunUsd: 0.5, runMinutes: 10, dailyUsd: 2, maxRunsPerHour: 6 };
+export const DEFAULT_STANDING_CAPS: StandingCaps = { perRunUsd: 0.5, runMinutes: 10, maxRunsPerHour: 6 };
 
 /** The most a definition may ask for; the runner may hold a task to less. */
-export const MAX_STANDING_CAPS: StandingCaps = { perRunUsd: 5, runMinutes: 30, dailyUsd: 50, maxRunsPerHour: 12 };
+export const MAX_STANDING_CAPS: StandingCaps = { perRunUsd: 5, runMinutes: 30, maxRunsPerHour: 12 };
 
 export interface StandingSpecBase {
   /** The server's id for it, {@link isStandingTaskId}: in the posted comment's marker, so never reused. */
@@ -237,16 +242,15 @@ export function parseStandingCaps(raw: unknown): StandingCaps | undefined {
   if (caps === undefined) {
     return undefined;
   }
-  const { perRunUsd, runMinutes, dailyUsd, maxRunsPerHour } = caps;
+  const { perRunUsd, runMinutes, maxRunsPerHour } = caps;
   if (
     !inRange(perRunUsd, 0.01, MAX_STANDING_CAPS.perRunUsd) ||
     !isWhole(runMinutes, 1, MAX_STANDING_CAPS.runMinutes) ||
-    !inRange(dailyUsd, 0.01, MAX_STANDING_CAPS.dailyUsd) ||
     !isWhole(maxRunsPerHour, 1, MAX_STANDING_CAPS.maxRunsPerHour)
   ) {
     return undefined;
   }
-  return { perRunUsd, runMinutes, dailyUsd, maxRunsPerHour };
+  return { perRunUsd, runMinutes, maxRunsPerHour };
 }
 
 /**
@@ -542,14 +546,15 @@ export interface StandingTaskReport {
   readonly agent: string | undefined;
   /** Epoch ms of its last check of GitHub or firing; `undefined` before the first. */
   readonly lastCheckAt: number | undefined;
-  /** Epoch ms of its next; `undefined` while paused or over budget. */
+  /** Epoch ms of its next; `undefined` while paused, over budget or at its run limit. */
   readonly nextCheckAt: number | undefined;
   /** Events waiting for a slot. */
   readonly queued: number;
   /** Runs that ended today. */
   readonly handledToday: number;
   readonly spentTodayUsd: number;
-  readonly dailyUsd: number;
+  /** The runner's standing budget it is held to today; `undefined` for none, when nothing caps what it spends. */
+  readonly dailyUsd: number | undefined;
   /** Its last error, short; `""` when there is none. */
   readonly lastError: string;
   /** Newest first, at most {@link MAX_STANDING_RECENT}. */
@@ -607,5 +612,6 @@ export const STANDING_STATUS_TEXT: Readonly<Record<StandingStatus, string>> = {
   [STANDING_STATUS.waitingSlot]: "waiting for a slot",
   [STANDING_STATUS.running]: "running",
   [STANDING_STATUS.overBudget]: "over budget",
+  [STANDING_STATUS.runLimit]: "run limit reached",
   [STANDING_STATUS.error]: "error",
 };

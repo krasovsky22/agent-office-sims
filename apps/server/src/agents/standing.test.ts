@@ -85,7 +85,7 @@ describe("StandingControl", () => {
         id: "c1",
         kind: "standing-set",
         requestedBy: "Dana",
-        spec: expect.objectContaining({ id: "st-task1", kind: "pr-review", intervalSeconds: 120, authors: "collaborators", caps: { perRunUsd: 0.5, runMinutes: 10, dailyUsd: 2, maxRunsPerHour: 6 } }),
+        spec: expect.objectContaining({ id: "st-task1", kind: "pr-review", intervalSeconds: 120, authors: "collaborators", caps: { perRunUsd: 0.5, runMinutes: 10, maxRunsPerHour: 6 } }),
       },
     ]);
     // Asked for again before the runner has even reported it: still the one watch.

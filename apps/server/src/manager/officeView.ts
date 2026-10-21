@@ -97,7 +97,7 @@ export interface StandingTaskView {
   /** `pr-review`, `pr-steward` or `schedule`. */
   readonly kind: string;
   readonly name: string;
-  /** `active`, `paused`, `waiting-slot`, `running`, `over-budget` or `error`. */
+  /** `active`, `paused`, `waiting-slot`, `running`, `over-budget`, `run-limit` or `error`. */
   readonly status: string;
   /** Its trigger in a few words: `every 2 min`, `weekdays 09:00`. */
   readonly trigger: string;
@@ -108,7 +108,8 @@ export interface StandingTaskView {
   /** Events waiting for a free coding agent. */
   readonly queued: number;
   readonly spentTodayUsd: number;
-  readonly dailyUsd: number;
+  /** The standing budget it is held to; `undefined` for none. */
+  readonly dailyUsd: number | undefined;
   readonly lastError: string | undefined;
   /** The coding agent running it now, by name. */
   readonly runningOn: string | undefined;
@@ -300,7 +301,7 @@ export function readOfficeView(sources: OfficeViewSources): OfficeView {
     lastRunPr: task.lastRunPr === 0 ? undefined : task.lastRunPr,
     queued: task.queued,
     spentTodayUsd: task.spentTodayUsd,
-    dailyUsd: task.dailyUsd,
+    dailyUsd: task.dailyUsd === 0 ? undefined : task.dailyUsd,
     lastError: task.lastError === "" ? undefined : task.lastError,
     runningOn: task.runningAgentId === "" ? undefined : state.occupants.get(task.runningAgentId)?.name,
     agent: task.agentId === "" ? undefined : state.occupants.get(task.agentId)?.name,

@@ -39,7 +39,6 @@ import {
   type RunnerEvent,
   type RunnerStandingCommand,
   type RunnerSync,
-  type StandingOff,
   type StandingRunRecord,
   type StandingTaskReport,
   isRunnerSlotCommand,
@@ -52,8 +51,6 @@ import type { SyncClient } from "./syncClient.js";
 /** What the sync needs of the runner's standing tasks. */
 export interface StandingSyncSource {
   report(): StandingTaskReport[];
-  /** Why the runner takes no standing tasks, or `undefined` when it does. */
-  off(): StandingOff | undefined;
   pendingEvents(): readonly RunnerEvent[];
   /** Runs' records not yet delivered, oldest first; settled by {@link delivered} with the events. */
   pendingRuns(): readonly StandingRunRecord[];
@@ -137,7 +134,7 @@ export class SyncLoop {
       events,
       spend: pool.spend(),
       prompts,
-      ...(standing === undefined ? {} : { standing: standing.report(), standingOff: standing.off(), standingRuns }),
+      ...(standing === undefined ? {} : { standing: standing.report(), standingRuns }),
       changesIssues: issues !== undefined,
       issueStates,
     };
