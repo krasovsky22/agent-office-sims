@@ -17,6 +17,7 @@ import { hudActions } from "./hudActions.js";
 import { hudRoomEvents } from "./hudRoomEvents.js";
 import { PendingIssueMoves } from "./pendingIssueMoves.js";
 import { keepAcceptedName, readPlayerName } from "./playerName.js";
+import { readRadioSettings } from "./radio.js";
 import { timedNotice } from "./timedNotice.js";
 import { RoomConnection } from "./net/room.js";
 import { Hud } from "./ui/Hud.js";
@@ -45,6 +46,7 @@ function start(): void {
     hud = { ...hud, ...next };
     hudStore.publish(hud);
   };
+  publishHud({ radioSettings: readRadioSettings(browserStorage()) });
 
   let nextChatId = 1;
   // The agent whose key pad in the standup panel was last pressed, for a key the limiter dropped.
@@ -58,6 +60,9 @@ function start(): void {
   const showBoardNotice = timedNotice((boardNotice) => publishHud({ boardNotice }), BOARD_NOTICE_DURATION_MS);
   /** Shows a line in the standup panel, to this player only, and takes it down again shortly. */
   const showStandupNotice = timedNotice((standupNotice) => publishHud({ standupNotice }), NOTICE_DURATION_MS);
+  const showRadioPanelNotice = timedNotice((radioNotice) => publishHud({ radioNotice }), BOARD_NOTICE_DURATION_MS);
+  /** Shows a line about the radio in its panel, or as a notice while the panel is closed. */
+  const showRadioNotice = (text: string) => (hud.radioOpen ? showRadioPanelNotice(text) : showNotice(text));
 
   const issueMoves = new PendingIssueMoves({
     publish: (moves) => publishHud({ issueMoves: moves }),
@@ -73,6 +78,7 @@ function start(): void {
     publish: publishHud,
     hud: () => hud,
     notice: showNotice,
+    radioNotice: showRadioNotice,
     room: () => room,
   });
   const scene = loop.events;
@@ -86,6 +92,7 @@ function start(): void {
       hud: () => hud,
       notice: showNotice,
       standupNotice: showStandupNotice,
+      radioNotice: showRadioNotice,
       nameOf: (id) => room.occupantName(id),
       localId: () => room.sessionId,
       restrictLabel: () => room.agentRestrictLabel(),
@@ -162,6 +169,7 @@ function start(): void {
         },
         standUp: loop.standUp,
         closeAgentMenu: loop.closeAgentMenu,
+        radioNotice: showRadioNotice,
       }),
     }),
   );

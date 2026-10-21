@@ -8,6 +8,7 @@
 
 import {
   type AgentPromptEntry,
+  DEFAULT_RADIO_STATION_ID,
   type Emote,
   NO_STANDUP,
   type ManagerEntry,
@@ -33,12 +34,14 @@ import type { IssueMove } from "../projectBoard.js";
 import type { StandingAccess, StandingTaskData } from "../standingAccess.js";
 import type { ConnectionStatus, OccupantHudFields } from "../net/room.js";
 import { CAMERA_MODE, type CameraMode } from "../player/cameraMode.js";
+import { DEFAULT_RADIO_SETTINGS, type RadioSettings, type RadioView } from "../radio.js";
 import type { StandupAccess } from "../standupAccess.js";
 import type { AgentMenuActions } from "./AgentMenu.js";
 import type { AgentProfileActions, AgentProfileNotice } from "./AgentProfileCard.js";
 import type { AgentPromptRefusal, AgentTerminalActions } from "./AgentTerminalPanel.js";
 import type { ManagerPanelActions } from "./ManagerPanel.js";
 import type { ProjectBoardActions } from "./ProjectBoardPanel.js";
+import type { RadioActions } from "./RadioPanel.js";
 import type { StandupActions } from "./StandupPanel.js";
 
 /** One occupant on the roster: its {@link OccupantHudFields}, and what the HUD makes of them. */
@@ -193,6 +196,14 @@ export interface HudSnapshot {
   readonly nameCard?: string | undefined;
   /** Whether the list of controls is over the office. */
   readonly helpOpen: boolean;
+  /** Whether the local player opened the radio with `E` beside it. */
+  readonly radioOpen: boolean;
+  /** What the office radio plays, as last replicated. */
+  readonly radio: RadioView;
+  /** The local player's own volume and mute for it. */
+  readonly radioSettings: RadioSettings;
+  /** Why the local player's latest tune was not taken, or why this tab is not playing it. */
+  readonly radioNotice?: string | undefined;
 }
 
 /** What the standing tasks' buttons do; the server decides whether it happens. */
@@ -231,6 +242,7 @@ export interface HudActions {
   readonly standup: StandupActions & { readonly start: () => void };
   readonly profile: AgentProfileActions;
   readonly agentMenu: AgentMenuActions;
+  readonly radio: RadioActions;
 }
 
 export interface HudStore {
@@ -258,6 +270,9 @@ const INITIAL: HudSnapshot = {
   standup: NO_STANDUP,
   cameraMode: CAMERA_MODE.thirdPerson,
   helpOpen: false,
+  radioOpen: false,
+  radio: { stationId: DEFAULT_RADIO_STATION_ID, videoId: "", listId: "", title: "", startedAt: 0, tunedBy: "" },
+  radioSettings: DEFAULT_RADIO_SETTINGS,
 };
 
 export function createHudStore(): HudStore {

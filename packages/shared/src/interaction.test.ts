@@ -252,7 +252,7 @@ describe("nearestInteractable", () => {
   });
 
   it("finds nothing in the middle of the floor", () => {
-    expect(nearestInteractable(OFFICE_LAYOUT, { x: -9.2, z: -3.7 }, INTERACT_RANGE, NOBODY)).toBeUndefined();
+    expect(nearestInteractable(OFFICE_LAYOUT, { x: -9.2, z: -3.4 }, INTERACT_RANGE, NOBODY)).toBeUndefined();
   });
 
   it("prefers the closer of two interactables", () => {

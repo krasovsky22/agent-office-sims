@@ -63,6 +63,7 @@ describe("the shipped office's props", () => {
       "microwave",
       "monitor",
       "plant",
+      "radio",
       "reception",
       "sideboard",
       "sofa",

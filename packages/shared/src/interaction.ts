@@ -50,6 +50,7 @@ const HOLDS_ANCHOR: Record<InteractionKind, boolean> = {
   [INTERACTION_KIND.board]: false,
   [INTERACTION_KIND.manager]: false,
   [INTERACTION_KIND.screen]: false,
+  [INTERACTION_KIND.radio]: false,
 };
 
 /** How long a hold lasts on its own; `0` means until the occupant releases it. */
@@ -59,6 +60,7 @@ const HOLD_MS: Record<InteractionKind, number> = {
   [INTERACTION_KIND.board]: 0,
   [INTERACTION_KIND.manager]: 0,
   [INTERACTION_KIND.screen]: 0,
+  [INTERACTION_KIND.radio]: 0,
 };
 
 /**
@@ -75,6 +77,7 @@ const HELD_ANIMATION: Record<InteractionKind, AnimationState> = {
   [INTERACTION_KIND.board]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.manager]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.screen]: ANIMATION_STATE.idle,
+  [INTERACTION_KIND.radio]: ANIMATION_STATE.idle,
 };
 
 /** What the proximity prompt reads. Names the action, not the object. */
@@ -84,6 +87,7 @@ const PROMPT: Record<InteractionKind, string> = {
   [INTERACTION_KIND.board]: "Read the project board",
   [INTERACTION_KIND.manager]: "Talk to the manager",
   [INTERACTION_KIND.screen]: "Watch the agent's terminal",
+  [INTERACTION_KIND.radio]: "Change the radio",
 };
 
 export function holdsAnchor(spec: InteractableSpec): boolean {

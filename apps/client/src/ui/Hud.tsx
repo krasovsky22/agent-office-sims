@@ -29,6 +29,7 @@ import { MANAGER_STATUS, OFFICE_CAPACITY, STANDING_ACTION } from "@sim/shared";
 import { useSyncExternalStore } from "react";
 
 import { NO_LINKS, terminalLinks } from "../agentTerminal.js";
+import { nowPlaying } from "../radio.js";
 import { deskPrompts } from "../deskTerminalAccess.js";
 import type { ConnectionStatus } from "../net/room.js";
 import { CAMERA_MODE } from "../player/cameraMode.js";
@@ -38,6 +39,7 @@ import { ManagerPanel } from "./ManagerPanel.js";
 import { HelpOverlay } from "./HelpOverlay.js";
 import { NameCard } from "./NameCard.js";
 import { ProjectBoardPanel } from "./ProjectBoardPanel.js";
+import { RadioControls, RadioPanel } from "./RadioPanel.js";
 import { RecurringTasksPanel } from "./RecurringTasksPanel.js";
 import { StandupPanel } from "./StandupPanel.js";
 import { ChatComposer, ChatLog, EmoteBar } from "./Chat.js";
@@ -113,6 +115,10 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     cameraMode,
     nameCard,
     helpOpen,
+    radioOpen,
+    radio,
+    radioSettings,
+    radioNotice,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const assetNote = ASSET_TEXT[assets];
   const terminalAgent = roster.find((entry) => entry.id === terminalAgentId);
@@ -194,6 +200,10 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
               {cameraMode === CAMERA_MODE.thirdPerson ? ", scroll to zoom" : ""}
             </span>
           </p>
+          <p className="hud__hint radio__status">
+            <span className="radio__now">Radio: {nowPlaying(radio)}</span>
+            <RadioControls settings={radioSettings} actions={actions.radio} />
+          </p>
           {debug === undefined ? null : (
             <p className="hud__hint">
               <span className="hud__keys">{debug.drawCalls}</span> draw calls ·{" "}
@@ -239,6 +249,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           actions={actions.manager}
         />
       ) : null}
+
+      {radioOpen ? <RadioPanel radio={radio} settings={radioSettings} notice={radioNotice} actions={actions.radio} /> : null}
 
       {terminalAgentId === undefined ? null : (
         <AgentTerminalPanel

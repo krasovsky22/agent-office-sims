@@ -29,6 +29,7 @@ import {
   POSE_SEND_INTERVAL_MS,
   type PoseMessage,
   type RenameMessage,
+  type RadioTuneMessage,
   type ReportedAnimation,
   STANDING_ACTION,
   type StandingClientMessage,
@@ -261,6 +262,11 @@ export abstract class RoomCommands {
   /** Asks for a new display name. The state patch is the reply, or a rejection to this client alone. */
   public sendRename(name: string): void {
     this.room?.send(CLIENT_MESSAGE.rename, { name } satisfies RenameMessage);
+  }
+
+  /** Tunes the office radio to a station id or a raw link; the next patch is the reply, or a rejection to this client alone. */
+  public sendRadioTune(source: string): void {
+    this.room?.send(CLIENT_MESSAGE.radioTune, { source } satisfies Record<keyof RadioTuneMessage, string>);
   }
 
   /** Says something out loud. Echoed back by the server, like an emote. */

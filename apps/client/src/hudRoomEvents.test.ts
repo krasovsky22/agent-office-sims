@@ -1,6 +1,6 @@
 /** The room's events the HUD alone hears of, each said where this player will look for it. */
 
-import { AGENT_PROMPT_REJECTION, CLIENT_MESSAGE, MANAGER_ENTRY_KIND, type ManagerEntry } from "@sim/shared";
+import { AGENT_PROMPT_REJECTION, CLIENT_MESSAGE, MANAGER_ENTRY_KIND, type ManagerEntry, RADIO_REJECTION } from "@sim/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { type HudRoomEventsHost, hudRoomEvents } from "./hudRoomEvents.js";
@@ -24,6 +24,7 @@ describe("hudRoomEvents", () => {
       hud: () => hud,
       notice: (text) => notices.push(text),
       standupNotice: (text) => notices.push(`standup: ${text}`),
+      radioNotice: (text) => notices.push(`radio: ${text}`),
       nameOf: (id) => (id === "agent-1" ? "Maya" : undefined),
       localId: () => "me",
       restrictLabel: () => "no-agents",
@@ -58,5 +59,12 @@ describe("hudRoomEvents", () => {
     hud = { ...hud, terminalAgentId: undefined };
     events.onAgentPromptRejected?.({ agentId: "agent-1", rejection: AGENT_PROMPT_REJECTION.forbidden });
     expect(notices).toHaveLength(1);
+  });
+
+  it("says why the radio did not take a tune, and a dropped one, where the radio is changed", () => {
+    events.onRadioRejected?.({ rejection: RADIO_REJECTION.unplayable });
+    events.onThrottled?.({ command: CLIENT_MESSAGE.radioTune });
+    expect(notices).toHaveLength(2);
+    expect(notices.every((text) => text.startsWith("radio: "))).toBe(true);
   });
 });
