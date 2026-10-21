@@ -217,4 +217,17 @@ describe("paintTerminal", () => {
     expect(size).toBeLessThan(TERMINAL_FONT_PX);
     expect(size * 0.6 * 100).toBeLessThanOrEqual(500 - 16 - 5);
   });
+
+  it("grows the text to fill a big panel with the whole screen, to a cap", () => {
+    const fontOf = (w: number, h: number) => {
+      const ctx = fakeContext();
+      paintTerminal(ctx, w, h, 1, screen, undefined);
+      return Number(/ ([\d.]+)px/.exec(ctx.font)?.[1]);
+    };
+    // Tall: the full width fills it.
+    expect(fontOf(1300, 2000)).toBeCloseTo((1300 - 16 - 5) / (100 * 0.6));
+    // Wide: the screen's thirty rows fill it.
+    expect(fontOf(3000, 700)).toBeCloseTo((700 - 16) / (30 * 1.25));
+    expect(fontOf(10_000, 10_000)).toBe(24);
+  });
 });
