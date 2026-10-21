@@ -159,8 +159,8 @@ const FIRST_PERSON_ARMS: readonly { readonly bone: string; readonly axis: THREE.
   { bone: "LowerArmL", axis: new THREE.Vector3(1, 0, 0), angle: 0.9 },
 ];
 
-/** How far a fired agent's head hangs, in radians about the head bone's local X. */
-const FIRED_HEAD_BOW = 0.25;
+/** How far a fired agent's head hangs, in radians about the head pivot's local X: negative tips the upright head forward, toward -Z. */
+const FIRED_HEAD_BOW = -0.25;
 
 /** What hangs over a fired agent's head for as long as it is on its way out. */
 const FIRED_GLYPH = "😢";
@@ -296,9 +296,9 @@ interface AvatarBody {
    */
   readonly seatedHeadDrop: number;
   /** The pivot a carried cup sits in. */
-  readonly hand: THREE.Object3D | undefined;
+  readonly hand: THREE.Object3D;
   /** The pivot a first-person camera sits above. */
-  readonly head: THREE.Object3D | undefined;
+  readonly head: THREE.Object3D;
   /** Repaints the body for a new name. */
   setIdentity: (identity: string) => void;
   dispose: () => void;
@@ -394,8 +394,8 @@ function createBody(
     root: instance.root,
     animator,
     seatedHeadDrop: instance.seatedHeadDrop,
-    hand: instance.root.getObjectByName(HAND_BONE),
-    head: instance.root.getObjectByName(HEAD_BONE),
+    hand: requirePivot(instance.root, HAND_BONE),
+    head: requirePivot(instance.root, HEAD_BONE),
     setIdentity: instance.setIdentity,
     dispose: () => {
       animator.dispose();
@@ -421,9 +421,8 @@ export class Avatar {
   private readonly sendOff = new SendOff();
   /** Fired, and on its way out with its box: arms up to carry it, head bowed. */
   private fired = false;
-  /** The head bone and its pose before the bow, on a body that has one. */
-  private bowedHead: RaisedArm | undefined;
-  private readonly eyes = new THREE.Vector3();
+  /** The head bone and its pose before the bow. */
+  private readonly bowedHead: RaisedArm;
   /** Kept across a change of body, so a body swapped in while hidden stays hidden. */
   private bodyHidden = false;
   private firstPerson = false;
@@ -663,9 +662,7 @@ export class Avatar {
     for (const arm of this.raisedArms) {
       arm.bone.quaternion.copy(arm.clip);
     }
-    if (this.bowedHead !== undefined) {
-      this.bowedHead.bone.quaternion.copy(this.bowedHead.clip);
-    }
+    this.bowedHead.bone.quaternion.copy(this.bowedHead.clip);
     this.body.animator.setSpeed(this.speed);
     this.body.animator.update(deltaSeconds);
     this.raiseArms(deltaSeconds);
@@ -690,11 +687,7 @@ export class Avatar {
    * so it follows the head down into a chair.
    */
   public eyePosition(target: THREE.Vector3): THREE.Vector3 {
-    const head = this.body.head;
-    if (head === undefined) {
-      return target.set(this.group.position.x, this.lift + this.headAnchor.position.y, this.group.position.z);
-    }
-    head.getWorldPosition(target);
+    this.body.head.getWorldPosition(target);
     target.y += EYE_ABOVE_HEAD;
     return target;
   }
@@ -748,7 +741,7 @@ export class Avatar {
    * be written, and the loop is already running.
    */
   public updateExpressions(nowMs: number): void {
-    this.sendOff.update(this.fired && !this.bodyHidden, nowMs, this.fired && this.body.head !== undefined ? this.eyePosition(this.eyes) : undefined);
+    this.sendOff.update(this.fired && !this.bodyHidden, nowMs, this.body.head);
     if (this.emoteBillboard.visible && nowMs >= this.emoteExpiresAt) {
       this.emoteBillboard.hide();
       this.emoteExpiresAt = NOT_SHOWING;
@@ -864,7 +857,7 @@ export class Avatar {
       // A box is carried steady; in first person the hands still swing with the walk.
       this.raisePart(arm, this.fired);
     }
-    if (this.fired && this.bowedHead !== undefined) {
+    if (this.fired) {
       this.raisePart(this.bowedHead, false);
     }
   }
@@ -904,10 +897,19 @@ function armsOf(body: AvatarBody): RaisedArm[] {
   });
 }
 
-/** The head bone, bowed for a fired agent, on a body that has one. */
-function headOf(body: AvatarBody): RaisedArm | undefined {
+/** The head bone, bowed for a fired agent. */
+function headOf(body: AvatarBody): RaisedArm {
   const bone = body.head;
-  return bone === undefined ? undefined : { bone, clip: bone.quaternion.clone(), axis: new THREE.Vector3(1, 0, 0), angle: FIRED_HEAD_BOW };
+  return { bone, clip: bone.quaternion.clone(), axis: new THREE.Vector3(1, 0, 0), angle: FIRED_HEAD_BOW };
+}
+
+/** A pivot every rig has, by name. */
+function requirePivot(root: THREE.Object3D, name: string): THREE.Object3D {
+  const pivot = root.getObjectByName(name);
+  if (pivot === undefined) {
+    throw new Error(`the avatar rig has no "${name}" pivot`);
+  }
+  return pivot;
 }
 
 /** Whether a mesh is part of an arm: it, or a bone it hangs from below `root`, is named as one. */
