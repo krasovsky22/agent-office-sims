@@ -7,7 +7,7 @@
  * desk prompts as any agent is prompted. The pool in `./slots.ts` decides
  * which slot and when; this is what a session on one does, from its start to
  * its end. It has no task timeout and does not pause for a standup: the CEO
- * sitting there is what bounds it. Ending, however it ends, stops its agent
+ * turning the desk's computer off is what bounds it. Ending, however it ends, stops its agent
  * and discards its worktree; a session that ends without the server asking
  * says so with a `desk-ended` event.
  */

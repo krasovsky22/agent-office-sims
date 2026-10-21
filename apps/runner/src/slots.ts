@@ -69,8 +69,8 @@
  * that the CEO sitting at that desk prompts as any agent is prompted. A slot
  * on a standing run is refused it, and it gives the slot up to an issue's
  * start, since work the office assigned comes first. It has no
- * task timeout and does not pause for a standup: the CEO sitting there is what
- * bounds it, and the server closes it the moment the CEO stands up. Ending,
+ * task timeout and does not pause for a standup: the CEO turning the desk's
+ * computer off is what bounds it, and the server closes it then. Ending,
  * however it ends, stops its agent and discards its worktree; a session that
  * ends without the server asking says so with a `desk-ended` event; see
  * `./deskSessions.ts`.

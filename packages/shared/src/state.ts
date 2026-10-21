@@ -659,16 +659,16 @@ defineTypes(Standup, {
 });
 
 /**
- * The CEO's desk terminal (`./deskTerminal.ts`): the desk the CEO sits at,
+ * The CEO's desk terminal (`./deskTerminal.ts`): the desk whose computer the CEO turned on,
  * the coding agent lent to it, and how its session stands. State rather than
  * a broadcast, so every tab draws the session's terminal on that desk's
  * monitor, and the CEO's own tab opens the panel, from the same record. Only
- * the CEO has one, so there is one, empty while the CEO sits at no computer.
+ * the CEO has one, so there is one, empty while the CEO's desk's computer is off.
  */
 export class DeskTerminal extends Schema {
   /** The seat's interactable id; `""` while there is no session. */
   declare public seatId: string;
-  /** The CEO sitting there, by occupant id. */
+  /** The CEO who turned it on, by occupant id. */
   declare public ownerId: string;
   /** The lent agent's occupant key, whose screen the desk shows; `""` until one is lent. */
   declare public agentId: string;
