@@ -4,7 +4,7 @@
  * who it listens to, what it says, what it does, and that it writes nothing
  * once stopped.
  *
- * The answers themselves are `rulePlanner.test.ts`'s and the assignments
+ * The answers themselves are the model's, stood in for here, and the assignments
  * `assign.test.ts`'s; what only the manager can show is the order of things —
  * the instruction recorded and the badge raised at once, the answer later,
  * judged against the office as it is then — and its updates.
@@ -43,7 +43,7 @@ import { LiveAssignmentQueue } from "./liveAssignments.js";
 import type { AgentHiring } from "./hire.js";
 import { MAX_WAITING_MESSAGES, OfficeManager } from "./officeManager.js";
 import { ADVICE_FAILURE } from "./plannerError.js";
-import { planFromRules } from "./rulePlanner.js";
+import { scriptedAdvisor } from "./plannerFixture.js";
 
 function player(id: string, name: string, ceo: boolean): HumanPlayer {
   const occupant = new HumanPlayer();
@@ -146,11 +146,18 @@ async function until(check: () => boolean, timeoutMs = 2000): Promise<void> {
   }
 }
 
-const rules = () => createManagerAdvisor({ planner: async (request) => planFromRules(request), mode: "rules" });
+/** What the model would plan for the instructions these tests give. */
+const scripted = () =>
+  scriptedAdvisor({
+    "put Crewmate on #10": { assignments: [{ work: "#10", agent: "crew-1" }] },
+    "approve #10": { moves: [{ move: "approve", work: "#10", note: "" }] },
+    "hire someone for #10": { hires: [{ work: "#10", name: "", title: "", description: "" }] },
+    "hire someone for #11": { hires: [{ work: "#11", name: "", title: "", description: "" }] },
+  });
 
 describe("OfficeManager", () => {
   it("takes instructions from the CEO alone, and records nothing from anyone else", () => {
-    const { milo, office, published } = setUp(rules());
+    const { milo, office, published } = setUp(scripted());
     expect(office.instruct(milo, "put Crewmate on #10")).toBe(MANAGER_REJECTION.forbidden);
     expect(published).toEqual([]);
     expect(office.history()).toEqual([]);
@@ -158,7 +165,7 @@ describe("OfficeManager", () => {
 
   it("records the CEO's message and shows it thinking at once, then answers from the live board", async () => {
     const held = heldPlanner();
-    const { dana, office, published, status } = setUp(createManagerAdvisor({ planner: held.planner, mode: "model" }));
+    const { dana, office, published, status } = setUp(createManagerAdvisor({ planner: held.planner }));
 
     expect(office.instruct(dana, "what's the status of #10?")).toBeUndefined();
     expect(published).toEqual([
@@ -175,7 +182,7 @@ describe("OfficeManager", () => {
   });
 
   it("carries out the assignments in its plan, and says how each went", async () => {
-    const { dana, queue, office, published } = setUp(rules());
+    const { dana, queue, office, published } = setUp(scripted());
     office.instruct(dana, "put Crewmate on #10");
     await until(() => published.length === 2);
     expect(published[1]?.text).toBe(
@@ -191,7 +198,7 @@ describe("OfficeManager", () => {
     entry.status = WORK_STATUS.review;
     entry.assigneeId = "crew-1";
     entry.outputArtifact = "PR #50";
-    const { state, dana, office, published } = setUp(rules(), 60_000, undefined, (office) => office.work.set(workKey(10), entry));
+    const { state, dana, office, published } = setUp(scripted(), 60_000, undefined, (office) => office.work.set(workKey(10), entry));
     office.instruct(dana, "approve #10");
     await until(() => published.length === 2);
     expect(published[1]?.text).toBe(
@@ -211,7 +218,7 @@ describe("OfficeManager", () => {
       },
       withdraw: () => undefined,
     };
-    const { state, dana, office, published } = setUp(rules(), 20, undefined, undefined, hiring);
+    const { state, dana, office, published } = setUp(scripted(), 20, undefined, undefined, hiring);
     office.instruct(dana, "hire someone for #10");
     await until(() => published.length === 2);
     expect(published[1]?.text).toMatch(/^Here's how that went:\n✓ Hired \w+, Specialist for #10, for #10 “Fix the login redirect loop”; on the way in\.$/);
@@ -230,7 +237,7 @@ describe("OfficeManager", () => {
 
   it("hands nothing out for a CEO who lost the role while it was thinking", async () => {
     const held = heldPlanner();
-    const { dana, milo, queue, office, published } = setUp(createManagerAdvisor({ planner: held.planner, mode: "model" }));
+    const { dana, milo, queue, office, published } = setUp(createManagerAdvisor({ planner: held.planner }));
     office.instruct(dana, "put Crewmate on #10");
     await until(() => held.waiting.length === 1);
     dana.role = PLAYER_ROLE.exec;
@@ -243,7 +250,7 @@ describe("OfficeManager", () => {
 
   it("holds a few messages while it answers one, and turns away more", async () => {
     const held = heldPlanner();
-    const { dana, office } = setUp(createManagerAdvisor({ planner: held.planner, mode: "model" }));
+    const { dana, office } = setUp(createManagerAdvisor({ planner: held.planner }));
     office.instruct(dana, "first");
     await until(() => held.waiting.length === 1);
     for (let index = 0; index < MAX_WAITING_MESSAGES; index += 1) {
@@ -252,18 +259,14 @@ describe("OfficeManager", () => {
     expect(office.instruct(dana, "one too many")).toBe(MANAGER_REJECTION.busy);
   });
 
-  it("answers by rule, and says so, when its model fails", async () => {
+  it("changes nothing and shows its model's error when its model fails", async () => {
     const advisor: ManagerAdvisor = {
-      mode: "model",
       advise: async () => ({ ok: false, reason: ADVICE_FAILURE.timeout, message: "no answer within 60s", attempts: 2, tokensUsed: 0 }),
     };
     const { dana, office, published } = setUp(advisor);
     office.instruct(dana, "status of #11?");
     await until(() => published.length === 2);
-    expect(published[1]?.text).toBe(
-      "(I couldn't reach my model — no answer within 60s — so this is my quick answer from the board.)\n" +
-        "#11 “Write the onboarding email” is open. Nobody in the office is on it yet.",
-    );
+    expect(published[1]?.text).toBe("✗ My model couldn't answer, so I haven't done anything: no answer within 60s.");
   });
 
   it("posts an update when work is handed in, but not about what it found on arrival", async () => {
@@ -272,7 +275,7 @@ describe("OfficeManager", () => {
     entry.title = "Fix the login redirect loop";
     entry.status = WORK_STATUS.in_progress;
     entry.assigneeId = "crew-1";
-    const { published } = setUp(rules(), 10, undefined, (state) => state.work.set(workKey(10), entry));
+    const { published } = setUp(scripted(), 10, undefined, (state) => state.work.set(workKey(10), entry));
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(published).toEqual([]);
 
@@ -294,7 +297,7 @@ describe("OfficeManager", () => {
     });
     let records: readonly LiveAgentRecord[] = [];
     const floor: LiveAgentSource = { current: () => records, subscribe: () => () => undefined };
-    const { published } = setUp(rules(), 10, floor);
+    const { published } = setUp(scripted(), 10, floor);
     await new Promise((resolve) => setTimeout(resolve, 40));
     records = [slot("idle", "")];
     await new Promise((resolve) => setTimeout(resolve, 40));
@@ -330,7 +333,7 @@ describe("OfficeManager", () => {
       },
     ];
     const floor: LiveAgentSource = { current: () => records, subscribe: () => () => undefined };
-    const { published } = setUp(rules(), 10, floor);
+    const { published } = setUp(scripted(), 10, floor);
     await until(() => published.length === 1);
     expect(published[0]?.text).toBe("Claude 1 needs you on #39: Permission: Bash pnpm test");
     await new Promise((resolve) => setTimeout(resolve, 40));
@@ -338,7 +341,7 @@ describe("OfficeManager", () => {
   });
 
   it("posts news it is told as an update, and nothing once stopped", () => {
-    const { office, published } = setUp(rules());
+    const { office, published } = setUp(scripted());
     office.report("Mock 1 couldn't start on #39: the runner's daily budget of $5.00 is spent.");
     expect(published).toEqual([
       expect.objectContaining({
@@ -353,7 +356,7 @@ describe("OfficeManager", () => {
 
   it("aborts the call in flight when stopped, and writes nothing after", async () => {
     const held = heldPlanner();
-    const { dana, office, published } = setUp(createManagerAdvisor({ planner: held.planner, mode: "model" }));
+    const { dana, office, published } = setUp(createManagerAdvisor({ planner: held.planner }));
     office.instruct(dana, "anything");
     await until(() => held.waiting.length === 1);
     office.stop();

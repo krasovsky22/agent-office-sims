@@ -35,7 +35,7 @@ import { Client, type Room } from "colyseus.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createManagerAdvisor } from "../manager/advisor.js";
-import { createRulePlanner } from "../manager/fromConfig.js";
+import { scriptedAdvisor } from "../manager/plannerFixture.js";
 import { OfficeRoom, officeRoom } from "./OfficeRoom.js";
 
 /** The project board the manager answers about and hands out from. */
@@ -58,12 +58,17 @@ const pondering: AbortSignal[] = [];
 beforeAll(async () => {
   server = new Server({ transport: new WebSocketTransport(), greet: false });
   server.define(OFFICE_ROOM_NAME, officeRoom({
-    manager: createManagerAdvisor({ planner: createRulePlanner(0), mode: "rules" }),
+    // What the model would answer each thing the CEO says here.
+    manager: scriptedAdvisor({
+      "what's the status of #1?": { reply: "#1 “Fix the login redirect loop” is open. Nobody in the office is on it yet." },
+      "what is everyone working on?": { reply: "Nobody is on the floor right now: there are no agents to report on." },
+      "what's open?": { reply: "Open: #1 “Fix the login redirect loop”." },
+      "put someone on #1": { assignments: [{ work: "#1", agent: "" }] },
+    }),
     projectBoard: { current: () => BOARD, subscribe: () => () => undefined },
   }));
   server.define(PONDERING_ROOM, officeRoom({
     manager: createManagerAdvisor({
-      mode: "model",
       planner: (_request, signal) => {
         pondering.push(signal);
         return new Promise(() => undefined);
@@ -148,7 +153,7 @@ describe("the AI manager in a live room", () => {
     await dana.room.leave();
   });
 
-  it("answers the CEO's questions from live state, in every tab, and hands a joiner the conversation", async () => {
+  it("answers the CEO's questions in every tab, and hands a joiner the conversation", async () => {
     const { dana, milo } = await openOffice();
     say(dana, "what's the status of #1?");
     await settled(() => replies(milo).length === 1);

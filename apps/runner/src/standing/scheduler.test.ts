@@ -612,6 +612,22 @@ describe("a new schedule", () => {
   });
 });
 
+describe("a new agent for a task", () => {
+  it("runs the task on that slot alone, as a new version, and is refused for a slot the runner lacks", () => {
+    const pool = makePool();
+    const scheduler = makeScheduler(pool);
+    set(scheduler, STEWARD_TASK);
+    const [slot] = pool.freeForStanding();
+    scheduler.handle({ id: "c-a1", kind: RUNNER_COMMAND_KIND.standingAssign, taskId: STEWARD_TASK.id, agent: slot ?? "", requestedBy: "Dana" });
+    expect(scheduler.report()[0]?.agent).toBe(slot);
+
+    scheduler.handle({ id: "c-a2", kind: RUNNER_COMMAND_KIND.standingAssign, taskId: STEWARD_TASK.id, agent: "hired-nobody", requestedBy: "Dana" });
+    // Kept on the slot it had: a slot the runner lacks would have the tick drop the task.
+    expect(scheduler.report()[0]?.agent).toBe(slot);
+    expect(scheduler.pendingEvents().at(-1)).toMatchObject({ kind: "standing-refused", taskId: STEWARD_TASK.id, message: expect.stringContaining("hired-nobody") });
+  });
+});
+
 describe("a run's record", () => {
   it("keeps its summary, result and screen as plain text until a sync delivers it, across a restart", async () => {
     const scheduler = makeScheduler(makePool());

@@ -90,9 +90,9 @@ export function hireDescription(issueNumber: number): string {
   );
 }
 
-/** Whether the plan's title or description is the CEO's own words, copied from their message. */
-function fromCeo(description: string, message: string): boolean {
-  // Read as the rule planner reads the message, so a title it took from the CEO's words matches them.
+/** Whether a plan's words, such as a hire's title or description, are the CEO's own, copied from their message. */
+export function fromCeo(description: string, message: string): boolean {
+  // Case, a closing stop and comma spacing aside, so a copy that differs only there matches.
   const words = (text: string): string =>
     text
       .toLowerCase()

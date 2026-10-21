@@ -43,7 +43,6 @@ function result(fields: Record<string, unknown>, code = 0): ClaudeRun {
 
 function advisorWith(run: RunClaude, timeoutMs?: number) {
   return createManagerAdvisor({
-    mode: "model",
     planner: createCliPlanner({ model: "claude-opus-5-5", run }),
     maxAttempts: 2,
     sleep: async () => undefined,
@@ -75,6 +74,34 @@ describe("the CLI planner", () => {
     expect(args.join(" ")).not.toContain("what is Ada doing?");
     expect(input).toContain("<ceo_message>\nDana: what is Ada doing?");
     expect(input).toContain("Ada Byrne");
+  });
+
+  it("plans the captain's free-form instruction as the model answers it: the existing watch, on Marcus alone, and words to pass on", async () => {
+    let input = "";
+    const run: RunClaude = async (_args, stdin) => {
+      input = stdin;
+      return result({
+        result: "",
+        structured_output: {
+          reply: "Putting Marcus on the pull request steward.",
+          assignments: [],
+          moves: [],
+          hires: [],
+          standing: [{ action: "assign", task: "st-steward", agent: "agent:runner:runner-1:slot-1", cron: "", instruction: "" }],
+          messages: [{ agent: "agent:runner:runner-1:slot-1", text: "review prs" }],
+          standup: "none",
+        },
+      });
+    };
+    const outcome = await advisorWith(run).advise({ ...REQUEST, message: "Assign Marcus to review prs", history: [] });
+    expect(outcome).toMatchObject({
+      ok: true,
+      plan: {
+        standing: [{ action: "assign", task: "st-steward", agent: "agent:runner:runner-1:slot-1" }],
+        messages: [{ agent: "agent:runner:runner-1:slot-1", text: "review prs" }],
+      },
+    });
+    expect(input).toContain("<ceo_message>\nDana: Assign Marcus to review prs");
   });
 
   it.each([

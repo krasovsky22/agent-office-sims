@@ -1,9 +1,8 @@
 /**
  * What the AI manager can see: the office's live state, read into plain data.
  *
- * Both ways the manager answers — by rule (`./rulePlanner.ts`) and through a
- * model (`./modelPlanner.ts`) — read the same view, so a mock answer and a
- * model's answer are about the same office. It covers what the CEO asks about:
+ * The model the manager plans with (`./modelPlanner.ts`) is handed this view,
+ * and the manager carries the plan out against it. It covers what the CEO asks about:
  * the orchestrator's live coding agents and their tasks, the runners' coding
  * agents on the floor that can be given an issue, each with what it is doing,
  * the issue it has and the pull request it opened, the standing tasks they

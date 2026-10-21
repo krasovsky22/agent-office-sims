@@ -48,8 +48,7 @@ import { createRunnerEndpoint } from "../agents/runnerEndpoint.js";
 import { RunnerLink, runnerSlotAgentId } from "../agents/runnerLink.js";
 import { createHealthServer } from "../http.js";
 import { OfficeRoom, officeRoom } from "../rooms/OfficeRoom.js";
-import { createManagerAdvisor } from "./advisor.js";
-import { createRulePlanner } from "./fromConfig.js";
+import { scriptedAdvisor } from "./plannerFixture.js";
 
 const REPO = "acme/office";
 const SECRET = "a-runner-secret-long-enough";
@@ -101,7 +100,12 @@ beforeAll(async () => {
   server = new Server({ transport: new WebSocketTransport(), greet: false });
   server.define(OFFICE_ROOM_NAME, officeRoom({
     projectBoard: { current: () => BOARD, subscribe: () => () => undefined },
-    manager: createManagerAdvisor({ planner: createRulePlanner(0), mode: "rules" }),
+    // What the model would plan for each thing the CEO says here.
+    manager: scriptedAdvisor({
+      "put someone on #40": { assignments: [{ work: "#40", agent: "" }] },
+      "assign the night shift ticket": { assignments: [{ work: "#39", agent: "" }] },
+      [`have ${SECOND} do #41`]: { assignments: [{ work: "#41", agent: SECOND }] },
+    }),
     liveAgents: link,
     runnerEvents: link,
     runnerCommands: link,
@@ -221,11 +225,6 @@ describe("the AI Manager and the mock runner's coding agents", () => {
     // Both stop to wait on the CEO, and wait for as long as nobody answers.
     const waiting = (name: string, number: number) => `${name} needs you on #${number}: Permission: Bash pnpm test`;
     await settled(() => updatesAbout(dana, FIRST).includes(waiting(FIRST, 39)) && updatesAbout(dana, SECOND).includes(waiting(SECOND, 41)), 20_000);
-    // Twenty of its steps, long enough too for the CEO's message allowance to refill.
-    await new Promise((resolve) => setTimeout(resolve, STEP_MS * 20));
-    expect(await ask(dana, `what is ${FIRST} doing?`)).toBe(
-      `${FIRST} (coding agent) is waiting on you on #39 “Night shift” (Permission: Bash pnpm test).`,
-    );
     expect(serverRoom(dana).state.work.get("39")?.status).toBe("in_progress");
 
     // The CEO answers each from its terminal panel, and that carries it on.
@@ -253,15 +252,10 @@ describe("the AI Manager and the mock runner's coding agents", () => {
       failed,
     ]);
 
-    expect(await ask(dana, `what is ${FIRST} doing?`)).toBe(
-      `${FIRST} (coding agent) handed in #39 “Night shift” as a simulated pull request, with nothing on GitHub; it is waiting for your review.`,
-    );
     expect(serverRoom(dana).state.work.get("39")?.outputArtifact).toBe("Simulated pull request, nothing on GitHub: [mock] Night shift");
     // Nowhere does the office name or link a pull request that does not exist.
     expect(JSON.stringify(dana.entries)).not.toMatch(/1000039|\/pull\//);
-    expect(await ask(dana, `what is ${SECOND} doing?`)).toBe(
-      `${SECOND} (coding agent) has #41 “Draft the roadmap” in progress but isn't running. Its last word on it: The mock agent always fails; set RUNNER_MOCK_OUTCOME=pr-opened for a simulated pull request.`,
-    );
+    expect(serverRoom(dana).state.work.get("41")?.status).toBe("in_progress");
     await room.leave();
   });
 });

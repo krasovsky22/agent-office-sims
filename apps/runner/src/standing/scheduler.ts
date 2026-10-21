@@ -343,6 +343,10 @@ export class StandingScheduler {
       this.reschedule(task, command.schedule, command.requestedBy);
       return;
     }
+    if (command.kind === RUNNER_COMMAND_KIND.standingAssign) {
+      this.assign(task, command.agent, command.requestedBy);
+      return;
+    }
     const name = `"${task.spec.name}" (${task.spec.id})`;
     switch (command.kind) {
       case RUNNER_COMMAND_KIND.standingPause:
@@ -376,6 +380,21 @@ export class StandingScheduler {
         this.log(`standing task ${name} checked now by ${command.requestedBy}`);
         break;
     }
+    this.save();
+    this.tick();
+  }
+
+  /** A task's own slot, as a new version of its definition; a slot this runner lacks is refused, since the tick would drop the task for it. */
+  private assign(task: StoredTask, agent: string, requestedBy: string): void {
+    const name = `"${task.spec.name}" (${task.spec.id})`;
+    if (!this.options.pool.hasSlot(agent)) {
+      const why = `its agent, ${agent}, is not on this runner`;
+      this.log(`new agent for standing task ${name} from ${requestedBy} refused: ${why}`);
+      this.emit({ id: this.eventId(), kind: RUNNER_EVENT_KIND.standingRefused, taskId: task.spec.id, name: short(task.spec.name, MAX_STANDING_NAME_BYTES), message: why });
+      return;
+    }
+    task.spec = { ...task.spec, agent, version: task.spec.version + 1 };
+    this.log(`standing task ${name} now runs on ${agent} alone, as ${requestedBy} asked`);
     this.save();
     this.tick();
   }

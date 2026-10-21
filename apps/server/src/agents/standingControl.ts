@@ -52,6 +52,7 @@ import {
   watchesPullRequests,
 } from "@sim/shared";
 
+import { slotOf } from "./runnerWork.js";
 import { StandingMirror, type StandingTaskRecord } from "./standingMirror.js";
 
 /** What the control needs of the mirror. */
@@ -239,6 +240,46 @@ export class StandingControl {
       return refuse(STANDING_REJECTION.unreachable);
     }
     return { ok: true, taskId, text: `✓ “${record.report.name}” now runs ${scheduleText(schedule)}.` };
+  }
+
+  /**
+   * Has one of a runner's coding agents run a task alone, as a standing hire
+   * runs the task it was hired for, for the CEO. The agent must be on the
+   * task's runner, since a task never moves between runners.
+   *
+   * @param agentId the agent's occupant id; `agentName` is how the reply names it.
+   */
+  public assign(actor: OfficeActor, requestedBy: string, taskId: string, agentId: string, agentName: string): StandingResult {
+    if (!mayManageStandingTasks(actor)) {
+      return refuse(STANDING_REJECTION.forbidden);
+    }
+    const record = this.tasks().find((candidate) => candidate.report.id === taskId);
+    if (record === undefined) {
+      return refuse(STANDING_REJECTION.unknownTask);
+    }
+    const slot = slotOf(agentId);
+    if (slot === undefined) {
+      return refuse(STANDING_REJECTION.invalid, `${agentName} isn't one of the runners' coding agents, so it can't run a standing task.`);
+    }
+    const name = `“${record.report.name}”`;
+    if (slot.runnerId !== record.runnerId) {
+      return refuse(
+        STANDING_REJECTION.invalid,
+        `${agentName} works on ${slot.runnerId} and ${name} runs on ${record.runnerId}; a task stays on its runner, so remove it and set it up again for ${agentName}.`,
+      );
+    }
+    if (record.report.agent === slot.slotId) {
+      return { ok: true, taskId, text: `✓ ${agentName} already runs ${name}.` };
+    }
+    const command = this.options.commands.enqueue(record.runnerId, { kind: RUNNER_COMMAND_KIND.standingAssign, taskId, agent: slot.slotId, requestedBy });
+    if (command === undefined) {
+      return refuse(STANDING_REJECTION.unreachable);
+    }
+    return {
+      ok: true,
+      taskId,
+      text: `✓ ${agentName} now runs ${name} alone, between issues; an issue handed to it still comes first. If ${agentName} is fired, the task goes with it.`,
+    };
   }
 
   /** Pauses, resumes, removes or checks one task, for the CEO. */

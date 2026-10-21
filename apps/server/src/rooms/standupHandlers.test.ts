@@ -31,8 +31,7 @@ import { Client, type Room } from "colyseus.js";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { RunnerLink, runnerSlotAgentId } from "../agents/runnerLink.js";
-import { createManagerAdvisor } from "../manager/advisor.js";
-import { createRulePlanner } from "../manager/fromConfig.js";
+import { scriptedAdvisor } from "../manager/plannerFixture.js";
 import { officeRoom } from "./OfficeRoom.js";
 
 const REPO = "acme/office";
@@ -75,7 +74,11 @@ beforeAll(async () => {
     runnerEvents: link,
     runnerCommands: link,
     runnerStandup: link,
-    manager: createManagerAdvisor({ planner: createRulePlanner(0), mode: "rules" }),
+    manager: scriptedAdvisor({
+      "Call a standup": { reply: "Calling a standup: everyone to the conference room, and each of them gives an update in turn.", standup: "start" },
+      "end the standup": { reply: "Ending the standup.", standup: "end" },
+      "The standup's over": { reply: "Ending the standup.", standup: "end" },
+    }),
   }));
   await server.listen(0);
   const address = server.transport.server?.address();

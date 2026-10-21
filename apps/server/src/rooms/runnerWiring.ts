@@ -33,6 +33,7 @@ import type { ScreenSource } from "../agents/screens.js";
 import { StandingAnnouncer } from "../agents/standingAnnouncer.js";
 import { StandingControl } from "../agents/standingControl.js";
 import type { StandingMirror } from "../agents/standingMirror.js";
+import { AgentMessages } from "../manager/agentMessages.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import type { LiveAgentCrew } from "../sim/liveAgents.js";
 import { StandupMeeting } from "../sim/standup.js";
@@ -79,6 +80,8 @@ export interface RunnerWiring {
   readonly standingAnnouncer: StandingAnnouncer | undefined;
   /** The CEO's prompts to the runners' agents. */
   readonly agentPrompts: AgentPrompts;
+  /** The CEO's words the AI Manager passes to the runners' agents. */
+  readonly agentMessages: AgentMessages;
   readonly standup: StandupMeeting;
   readonly deskTerminal: DeskTerminal;
   /** Lets go of the runners when the room closes. */
@@ -158,8 +161,10 @@ export function wireRunners(
     log: recordOfficeEvent,
     directed: (commandId, outcome) => {
       standup.settle(commandId, outcome);
+      agentMessages.settle(commandId, outcome);
     },
   });
+  const agentMessages = new AgentMessages({ state, prompts: runnerCommands === undefined ? undefined : agentPrompts, report: host.announce });
   registerAgentPromptHandlers(room, {
     state,
     prompts: agentPrompts,
@@ -229,6 +234,7 @@ export function wireRunners(
     standingControl,
     standingAnnouncer,
     agentPrompts,
+    agentMessages,
     standup,
     deskTerminal,
     dispose: () => {
