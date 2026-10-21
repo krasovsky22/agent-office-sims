@@ -31,6 +31,7 @@ import type { TerminalScreen } from "../net/screens.js";
 import { type StandupAccess, directionStatusText, standupPhaseText } from "../standupAccess.js";
 import { type AgentPromptRefusal, KeyPad, useTerminalCanvas } from "./AgentTerminalPanel.js";
 import type { RosterEntry } from "./hudStore.js";
+import { MicButton } from "./MicButton.js";
 
 export interface StandupActions {
   readonly end: () => void;
@@ -272,6 +273,7 @@ export function StandupPanel({ standup, roster, access, refusal, notice, actions
             }
           }}
         />
+        <MicButton inputRef={inputRef} setDraft={setDraft} maxLength={MAX_AGENT_PROMPT_LENGTH} disabled={!mayRun} />
         <button className="hud__send" type="submit" disabled={!mayRun || draft.trim() === ""}>
           Send
         </button>

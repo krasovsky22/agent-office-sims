@@ -61,6 +61,7 @@ import type { TerminalScreen } from "../net/screens.js";
 import { SCREEN_PLACEHOLDER, paintScreen } from "../scene/agentScreen.js";
 import { TERMINAL_FONT_PX, type TerminalScroll, paintTerminal, scrollTerminal, terminalCells, wheelRows } from "../terminalView.js";
 import type { RosterEntry } from "./hudStore.js";
+import { MicButton } from "./MicButton.js";
 
 export interface AgentTerminalActions {
   /** The agent's terminal as of the latest frame, read on every repaint. */
@@ -557,6 +558,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
             }
           }}
         />
+        <MicButton inputRef={inputRef} setDraft={setDraft} maxLength={MAX_AGENT_PROMPT_LENGTH} disabled={!mayPrompt} />
         <button className="hud__send" type="submit" disabled={!mayPrompt || draft.trim() === "" || sending !== undefined}>
           {sending === undefined ? "Send" : "Sending…"}
         </button>

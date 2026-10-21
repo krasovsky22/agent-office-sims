@@ -25,6 +25,8 @@ import { useEffect, useRef, useState } from "react";
 import { KEYBOARD_OWNER_ATTRIBUTE } from "../keys.js";
 import type { ManagerAccess } from "../managerAccess.js";
 
+import { MicButton } from "./MicButton.js";
+
 export interface ManagerPanelActions {
   /** Called with the raw text; the server sanitizes it and decides whether to listen. */
   readonly say: (text: string) => void;
@@ -151,6 +153,7 @@ export function ManagerPanel({ entries, access, thinking, actions }: ManagerPane
             autoComplete="off"
             onChange={(event) => setDraft(event.target.value)}
           />
+          <MicButton inputRef={inputRef} setDraft={setDraft} maxLength={MAX_MANAGER_MESSAGE_LENGTH} />
           <button className="hud__send" type="submit" disabled={draft.trim() === ""}>
             Send
           </button>
