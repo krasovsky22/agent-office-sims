@@ -228,6 +228,7 @@ describe("the steward's next step", () => {
     headSha: "abc1234",
     headRef: "feature",
     baseRef: "main",
+    baseSha: "base000",
     crossRepository: false,
     mergeable: "MERGEABLE",
     mergeState: "CLEAN",

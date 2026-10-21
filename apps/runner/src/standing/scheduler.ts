@@ -15,8 +15,9 @@
  * `stewardStep` in `@sim/shared` what next: a run that merges the base in and
  * resolves the conflicts, a merge once every required check is green, a
  * reason it is not merged, said once a head commit, or nothing yet. Each is
- * keyed by the head commit it was for, so a push starts it over, and the
- * merge run asks the gate again, on a fresh look, before it merges.
+ * keyed by the head commit it was for, a resolve by its base's too, so a
+ * push starts it over, and the merge run asks the gate again, on a fresh
+ * look, before it merges.
  *
  * A queued event starts a run on a slot holding no run of any kind, at most
  * `RUNNER_STANDING_MAX_CONCURRENT` at once and one per task: on the task's own
@@ -27,7 +28,7 @@
  * slot back (`../slots.ts`), and the run's event is queued again without
  * counting an attempt. A failed run is tried again after a backoff, up to
  * {@link MAX_ATTEMPTS} in all; its failure is final, and said so, after the
- * last.
+ * last, or at once for a run that says no second try would get past it.
  *
  * Every run is held to its task's caps by the runner itself, whatever the
  * server sent: its own `runMinutes`, and `perRunUsd` and `maxRunsPerHour`
@@ -634,8 +635,16 @@ export class StandingScheduler {
       const now = this.now();
       const base = { attempts: 0, at: now, title: review.title, headSha: state.headSha, seenAt: now };
       if (step.kind === "merge" || step.kind === "resolve") {
-        const key = `${step.kind === "merge" ? "merge" : "fix"}:${at}`;
+        // A resolve is for its base too: one that failed for good is tried again once either moves, never on every check.
+        const key = step.kind === "merge" ? `merge:${at}` : `fix:${at}+${state.baseSha}`;
         if (task.ledger[key] === undefined) {
+          if (step.kind === "resolve") {
+            for (const [other, entry] of Object.entries(task.ledger)) {
+              if (other.startsWith(`fix:${number}@`) && (entry.state === LEDGER_STATE.queued || (entry.state === LEDGER_STATE.failed && entry.retryAt !== undefined))) {
+                this.skip(entry, "superseded");
+              }
+            }
+          }
           task.ledger[key] = { ...base, state: LEDGER_STATE.queued };
           this.log(`standing task "${task.spec.name}" queues PR #${number} at ${state.headSha.slice(0, 7)} to ${step.kind === "merge" ? "merge: every required check is green" : "merge its base in and resolve its conflicts"}`);
         }
@@ -865,7 +874,7 @@ export class StandingScheduler {
       this.emitRun(task, run.lease.slotId, pr, STANDING_OUTCOME.preempted, cost, "Issue work took the slot; it runs again on a free one.", false, undefined, run);
       this.log(`${on} gave way to issue work; queued again (${formatUsd(cost)} spent)`);
     } else if (result.outcome === "failed") {
-      const final = entry.attempts >= MAX_ATTEMPTS;
+      const final = result.final === true || entry.attempts >= MAX_ATTEMPTS;
       entry.state = LEDGER_STATE.failed;
       entry.retryAt = final ? undefined : now + (RETRY_BACKOFF_MS[entry.attempts - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1] ?? 60_000);
       task.runError = short(this.redactor.redactText(result.message), MAX_STANDING_ERROR_BYTES);

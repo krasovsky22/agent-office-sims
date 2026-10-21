@@ -19,7 +19,7 @@ import type { StandingSlotLease } from "../slots.js";
 import { createClaudeStandingRunners, reviewPrompt } from "./claude.js";
 import type { HeadlessOptions, HeadlessResult } from "./headless.js";
 import { type ReviewGithub, createReviewGithub, headPath, neutraliseReview, reviewBody, reviewMarker } from "./review.js";
-import type { StewardGithub } from "./steward.js";
+import { type StewardGithub, StewardRefusal } from "./steward.js";
 import type { StandingJob, StandingStep } from "./types.js";
 
 const REVIEW: StandingTaskSpec = {
@@ -52,6 +52,7 @@ const GREEN: PullState = {
   headSha: "abc1234",
   headRef: "feature",
   baseRef: "main",
+  baseSha: "base000",
   crossRepository: false,
   mergeable: "MERGEABLE",
   mergeState: "CLEAN",
@@ -105,8 +106,8 @@ function job(spec: StandingTaskSpec, step: StandingStep = "review"): StandingJob
   return { spec, step, requestedBy: "Dana", lease: held, signal: held.signal, pr: { number: 112, title: "Add a lift", headSha: "abc1234" } };
 }
 
-/** The steward's GitHub, answering with `state` and keeping what it was asked to merge and push. */
-function steward(state: PullState, conflicts: readonly string[] = []) {
+/** The steward's GitHub, answering with `state`, refusing each finish with the next of `refusals`, and keeping what it was asked to merge and push. */
+function steward(state: PullState, conflicts: readonly string[] = [], refusals: Error[] = []) {
   const merged: Array<readonly [number, string]> = [];
   const pushed: Array<readonly string[]> = [];
   const fake: StewardGithub = {
@@ -117,6 +118,10 @@ function steward(state: PullState, conflicts: readonly string[] = []) {
     },
     startMerge: async () => ({ conflicts, upToDate: false, gitDir: "/scratch/.git" }),
     finishMerge: async (_dir, _gitDir, _state, files) => {
+      const refusal = refusals.shift();
+      if (refusal !== undefined) {
+        throw refusal;
+      }
       pushed.push(files);
       return "def5678";
     },
@@ -312,6 +317,45 @@ describe("the steward's conflicts", () => {
     expect(result.outcome).toBe("resolved");
     expect(launched).toEqual([]);
     expect(repo.pushed).toEqual([[]]);
+  });
+
+  it("show the agent why the runner refused what it left, and push once a later pass puts it right", async () => {
+    const repo = steward(conflicting, ["apps/client/vite.config.ts"], [new StewardRefusal("apps/client/vite.config.ts still has conflict markers", "agent")]);
+    const result = await runners(github(undefined), "allowlist", repo.fake).resolve(job(STEWARD, "resolve"));
+    expect(result.outcome).toBe("resolved");
+    expect(result.message).toContain("Pass 1 of 3 was refused: apps/client/vite.config.ts still has conflict markers.");
+    expect(repo.pushed).toEqual([["apps/client/vite.config.ts"]]);
+    expect(launched).toHaveLength(2);
+    expect(launched[0]?.args.at(-1)).not.toContain("refused");
+    expect(launched[1]?.args.at(-1)).toContain("- apps/client/vite.config.ts still has conflict markers");
+  });
+
+  it("give up for good after the last pass, and share the run's minutes and dollars between passes", async () => {
+    const markers = () => new StewardRefusal("src/a.ts still has conflict markers", "agent");
+    const repo = steward(conflicting, ["src/a.ts"], [markers(), markers(), markers()]);
+    answer = { ok: true, text: "Done.", costUsd: 0.1, why: "" };
+    const result = await runners(github(undefined), "allowlist", repo.fake).resolve(job({ ...STEWARD, caps: { ...STEWARD.caps, perRunUsd: 1 } }, "resolve"));
+    expect(result).toMatchObject({ outcome: "failed", final: true });
+    expect(result.message).toContain("Pass 3 of 3 was refused");
+    expect(result.message).toContain("Nothing was pushed: it had all 3 passes.");
+    expect(result.costUsd).toBeCloseTo(0.3);
+    expect(repo.pushed).toEqual([]);
+    expect(launched.map((run) => run.maxUsd)).toEqual([1, 0.9, 0.8]);
+    expect(launched.every((run) => run.timeoutMs <= 10 * 60_000)).toBe(true);
+  });
+
+  it("never give another pass to a refusal that is not the agent's, and skip a pull request that moved", async () => {
+    const denied = steward(conflicting, ["src/a.ts"], [new StewardRefusal("the push was refused: Permission to o/r.git denied", "never")]);
+    const result = await runners(github(undefined), "allowlist", denied.fake).resolve(job(STEWARD, "resolve"));
+    expect(result).toMatchObject({ outcome: "failed", final: true, message: "the push was refused: Permission to o/r.git denied" });
+    expect(launched).toHaveLength(1);
+
+    const moved = steward(conflicting, ["src/a.ts"], [new StewardRefusal("the push was refused: feature moved since it was looked at", "moved")]);
+    expect(await runners(github(undefined), "allowlist", moved.fake).resolve(job(STEWARD, "resolve"))).toMatchObject({
+      outcome: "skipped",
+      message: "the push was refused: feature moved since it was looked at; the next check looks at it again.",
+    });
+    expect(launched).toHaveLength(2);
   });
 
   it("push nothing when the agent stops short, or the pull request no longer needs it", async () => {

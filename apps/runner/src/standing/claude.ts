@@ -30,7 +30,9 @@
  *   restrictions plus `Edit` and `Write`: no shell, no network, no GitHub
  *   identity, the project's settings and MCP servers ignored. The runner then
  *   commits only those files, refusing any left with a conflict marker, and
- *   pushes, never forced.
+ *   pushes, never forced. A refusal of what the agent left is shown to it for
+ *   another pass, up to {@link MAX_RESOLVE_PASSES} in the run's minutes and
+ *   dollars; one that is not the agent's to put right ends the run.
  * - **Merging**: no agent at all. The runner looks at the pull request again,
  *   asks `stewardStep` (every required check green, none failing), and merges
  *   it in a method the repository allows with `--match-head-commit`, so only the commit whose checks it read can
@@ -52,7 +54,7 @@ import type { AgentGithubEnv } from "../agents/ptyAgent.js";
 import type { RunnerAgentPermissions } from "../config.js";
 import { type HeadlessOptions, type HeadlessResult, runHeadless } from "./headless.js";
 import { REVIEW_DIR, type ReviewGithub, reviewBody, reviewMarker } from "./review.js";
-import { type StewardGithub, describeChecks } from "./steward.js";
+import { type StewardGithub, StewardRefusal, deniedForGood, describeChecks } from "./steward.js";
 import type { StandingJob, StandingRunResult, StandingRunners } from "./types.js";
 
 /** The tools a review has: reading the checkout and the pull request's files, nothing else. */
@@ -85,6 +87,12 @@ const REVIEW_DENIED = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "Web
 
 /** Tools resolving conflicts may not have: no shell and no network, whatever the pull request's code asks. */
 const RESOLVE_DENIED = ["Bash", "NotebookEdit", "WebFetch", "WebSearch"];
+
+/** Most passes the agent resolving conflicts has in one run, each after the first shown why the runner refused the last. */
+export const MAX_RESOLVE_PASSES = 3;
+
+/** Least of a run's minutes worth starting another pass with. */
+const MIN_PASS_MS = 60_000;
 
 export interface ClaudeStandingOptions {
   /** Claude Code's absolute path. */
@@ -127,8 +135,19 @@ export function reviewPrompt(number: number, title: string, note: string): strin
   return lines.join("\n");
 }
 
-/** The first message of a steward's run resolving a pull request's conflicts. */
-export function resolvePrompt(number: number, title: string, baseRef: string, headRef: string, files: readonly string[], note: string): string {
+/**
+ * The first message of a steward's run resolving a pull request's conflicts;
+ * for a later pass, with why the runner refused each before it.
+ */
+export function resolvePrompt(
+  number: number,
+  title: string,
+  baseRef: string,
+  headRef: string,
+  files: readonly string[],
+  note: string,
+  refused: readonly string[] = [],
+): string {
   const lines = [
     `Resolve the merge conflicts in GitHub pull request #${number}: "${title}".`,
     "",
@@ -142,6 +161,16 @@ export function resolvePrompt(number: number, title: string, baseRef: string, he
     "",
     "When you are done, write as your final message a few lines saying how you resolved each file.",
   ];
+  if (refused.length > 0) {
+    lines.push(
+      "",
+      "An earlier pass already edited these files, but the runner refused to commit what it left:",
+      "",
+      ...refused.map((why) => `- ${why}`),
+      "",
+      "Read each file as it is now and put exactly that right. The runner refuses any line that starts with seven `<` or seven `>`, or is exactly seven `=`, even one meant as content.",
+    );
+  }
   const said = note.trim();
   if (said !== "") {
     lines.push("", "The CEO added this note when setting the task up:", "", `> ${said}`);
@@ -217,7 +246,12 @@ export function createClaudeStandingRunners(options: ClaudeStandingOptions): Sta
       await options.worktrees.createScratch(dir);
       return await work(dir);
     } catch (error) {
-      return { outcome: "failed", costUsd: 0, message: (error as Error).message };
+      const message = (error as Error).message;
+      if (error instanceof StewardRefusal && error.kind === "moved") {
+        return { outcome: "skipped", costUsd: 0, message: `${message}; the next check looks at it again.` };
+      }
+      // The steward's other refusals are ones no second try gets past.
+      return { outcome: "failed", costUsd: 0, message, ...(error instanceof StewardRefusal ? { final: true } : {}) };
     } finally {
       const failed = await options.worktrees.removeScratch(dir);
       if (failed !== undefined) {
@@ -226,26 +260,36 @@ export function createClaudeStandingRunners(options: ClaudeStandingOptions): Sta
     }
   };
 
-  const run = (job: StandingJob, dir: string, args: string[], prompt: string, env: Record<string, string>): Promise<HeadlessResult> =>
-    headless({
+  /** One agent run for `job`, held to what is left of its minutes, `ms`, and of its dollars, `spentUsd` of them spent already. */
+  const run = (
+    job: StandingJob,
+    dir: string,
+    args: string[],
+    prompt: string,
+    env: Record<string, string>,
+    left: { readonly ms: number; readonly spentUsd: number } = { ms: job.spec.caps.runMinutes * 60_000, spentUsd: 0 },
+  ): Promise<HeadlessResult> => {
+    const maxUsd = job.spec.caps.perRunUsd === undefined ? undefined : job.spec.caps.perRunUsd - left.spentUsd;
+    return headless({
       command: options.command,
       // `--` so a prompt can never be read as an option.
       args: [
         ...args,
         ...(job.lease.systemPrompt === "" ? [] : ["--append-system-prompt", job.lease.systemPrompt]),
-        ...(job.spec.caps.perRunUsd === undefined ? [] : ["--max-budget-usd", job.spec.caps.perRunUsd.toFixed(2)]),
+        ...(maxUsd === undefined ? [] : ["--max-budget-usd", maxUsd.toFixed(2)]),
         "--",
         prompt,
       ],
       cwd: dir,
       env,
       signal: job.signal,
-      timeoutMs: job.spec.caps.runMinutes * 60_000,
-      ...(job.spec.caps.perRunUsd === undefined ? {} : { maxUsd: job.spec.caps.perRunUsd }),
+      timeoutMs: left.ms,
+      ...(maxUsd === undefined ? {} : { maxUsd }),
       output: job.lease.output,
       activity: job.lease.activity,
-      spent: job.lease.spent,
+      spent: (totalUsd) => job.lease.spent(left.spentUsd + totalUsd),
     });
+  };
 
   return {
     simulated: false,
@@ -323,6 +367,8 @@ export function createClaudeStandingRunners(options: ClaudeStandingOptions): Sta
         return { outcome: "skipped", costUsd: 0, message: "It no longer needs its base merged in." };
       }
       const found = state;
+      // Every pass shares the run's minutes.
+      const deadline = Date.now() + job.spec.caps.runMinutes * 60_000;
       return inScratch(job, `fix${pr.number}`, async (dir) => {
         job.lease.output(`\u001b[1mresolve\u001b[0m of PR #${pr.number}: merging ${found.baseRef} into ${found.headRef}\r\n`);
         job.lease.activity(`Merging ${found.baseRef} into PR #${pr.number}`);
@@ -330,36 +376,65 @@ export function createClaudeStandingRunners(options: ClaudeStandingOptions): Sta
         if (merged.upToDate) {
           return { outcome: "skipped", costUsd: 0, message: `Its branch already has everything on ${found.baseRef}.` };
         }
+        const resolved = merged.conflicts.length === 0 ? "" : `, its conflicts in ${merged.conflicts.join(", ")} resolved by ${job.lease.slotName}`;
+        const commitMessage = `Merge ${found.baseRef} into ${found.headRef}\n\nBy the office's agent runner for the standing task “${job.spec.name}”${resolved}.`;
+        // No GitHub identity at all: the runner commits and pushes for it.
+        const env = childEnv({ credentials: CLAUDE_CREDENTIAL_ENV, scrub }, source);
+        const args = [...common(), "--settings", resolveSettings, "--restricted", "--tools", RESOLVE_TOOLS, "--permission-mode", "dontAsk"];
+        const perRunUsd = job.spec.caps.perRunUsd;
         let costUsd = 0;
         let said = "";
+        // Why the runner refused each pass so far: shown to the next, and kept in the run's result.
+        const refused: string[] = [];
+        const tried = (): string[] => refused.map((why, at) => `Pass ${at + 1} of ${MAX_RESOLVE_PASSES} was refused: ${why}.`);
         if (merged.conflicts.length > 0) {
           job.lease.output(`conflicts in ${merged.conflicts.join(", ")}\r\n`);
-          // No GitHub identity at all: the runner commits and pushes for it.
-          const env = childEnv({ credentials: CLAUDE_CREDENTIAL_ENV, scrub }, source);
-          const args = [...common(), "--settings", resolveSettings, "--restricted", "--tools", RESOLVE_TOOLS, "--permission-mode", "dontAsk"];
-          const prompt = resolvePrompt(pr.number, pr.title, found.baseRef, found.headRef, merged.conflicts, job.spec.note);
-          const result = await run(job, dir, args, prompt, env);
-          costUsd = result.costUsd;
-          if (!result.ok) {
-            return { outcome: "failed", costUsd, message: `Resolving the conflicts stopped: ${result.why}.` };
-          }
-          said = result.text.trim();
         }
-        job.lease.activity(`Pushing PR #${pr.number}`);
-        const resolved = merged.conflicts.length === 0 ? "" : `, its conflicts in ${merged.conflicts.join(", ")} resolved by ${job.lease.slotName}`;
-        const head = await options.steward.finishMerge(
-          dir,
-          merged.gitDir,
-          found,
-          merged.conflicts,
-          `Merge ${found.baseRef} into ${found.headRef}\n\nBy the office's agent runner for the standing task “${job.spec.name}”${resolved}.`,
-        );
-        job.lease.output(`pushed ${head.slice(0, 7)} to ${found.headRef}\r\n`);
-        return {
-          outcome: "resolved",
-          costUsd,
-          message: [`Merged ${found.baseRef} into ${found.headRef} and pushed ${head.slice(0, 7)}${resolved}.`, said].filter((line) => line !== "").join("\n\n"),
-        };
+        for (;;) {
+          if (merged.conflicts.length > 0) {
+            if (refused.length > 0) {
+              job.lease.output(`pass ${refused.length + 1} of ${MAX_RESOLVE_PASSES}: shown why the runner refused the last\r\n`);
+            }
+            const prompt = resolvePrompt(pr.number, pr.title, found.baseRef, found.headRef, merged.conflicts, job.spec.note, refused);
+            const result = await run(job, dir, args, prompt, env, { ms: deadline - Date.now(), spentUsd: costUsd });
+            costUsd += result.costUsd;
+            if (!result.ok) {
+              return { outcome: "failed", costUsd, message: [...tried(), `Resolving the conflicts stopped: ${result.why}.`].join("\n") };
+            }
+            said = result.text.trim();
+          }
+          job.lease.activity(`Pushing PR #${pr.number}`);
+          try {
+            const head = await options.steward.finishMerge(dir, merged.gitDir, found, merged.conflicts, commitMessage);
+            job.lease.output(`pushed ${head.slice(0, 7)} to ${found.headRef}\r\n`);
+            return {
+              outcome: "resolved",
+              costUsd,
+              message: [`Merged ${found.baseRef} into ${found.headRef} and pushed ${head.slice(0, 7)}${resolved}.`, tried().join("\n"), said]
+                .filter((line) => line !== "")
+                .join("\n\n"),
+            };
+          } catch (error) {
+            // Only what the agent left wrong is worth another pass; with no agent, there is none to have.
+            if (!(error instanceof StewardRefusal) || error.kind !== "agent" || merged.conflicts.length === 0) {
+              throw error;
+            }
+            refused.push(error.message);
+            job.lease.output(`\u001b[31m✗\u001b[0m the runner refused pass ${refused.length}: ${error.message}\r\n`);
+            const out =
+              refused.length >= MAX_RESOLVE_PASSES
+                ? `it had all ${MAX_RESOLVE_PASSES} passes`
+                : deadline - Date.now() < MIN_PASS_MS
+                  ? "its minutes ran out"
+                  : perRunUsd !== undefined && costUsd >= perRunUsd
+                    ? "its dollars ran out"
+                    : undefined;
+            if (out !== undefined) {
+              // Tried for good: the steward tries it again only once its head or its base moves.
+              return { outcome: "failed", costUsd, final: true, message: [...tried(), `Nothing was pushed: ${out}.`].join("\n") };
+            }
+          }
+        }
       });
     },
 
@@ -389,7 +464,8 @@ export function createClaudeStandingRunners(options: ClaudeStandingOptions): Sta
       try {
         method = await options.steward.merge(pr.number, state.headSha);
       } catch (error) {
-        return { outcome: "failed", costUsd: 0, message: `The merge was refused on GitHub: ${(error as Error).message}` };
+        const why = (error as Error).message;
+        return { outcome: "failed", costUsd: 0, message: `The merge was refused on GitHub: ${why}`, ...(deniedForGood(why) ? { final: true } : {}) };
       }
       job.lease.output(`merged PR #${pr.number}\r\n`);
       return { outcome: "merged", costUsd: 0, message: `Every required check was green at ${state.headSha.slice(0, 7)}, so it was ${method === "squash" ? "squash-merged" : method === "rebase" ? "rebased and merged" : "merged"}.` };

@@ -33,7 +33,7 @@ const MAX_CHECKS = 100;
 const PULL_STATE_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      state isDraft mergeable mergeStateStatus headRefOid headRefName baseRefName isCrossRepository
+      state isDraft mergeable mergeStateStatus headRefOid headRefName baseRefName baseRefOid isCrossRepository
       commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: ${MAX_CHECKS}) {
         pageInfo { hasNextPage }
         nodes {
@@ -109,6 +109,7 @@ export function readPullState(raw: unknown, number: number): PullState {
     headSha: text(pull["headRefOid"]).toLowerCase(),
     headRef: text(pull["headRefName"]),
     baseRef: text(pull["baseRefName"]),
+    baseSha: text(pull["baseRefOid"]).toLowerCase(),
     crossRepository: pull["isCrossRepository"] !== false,
     mergeable: text(pull["mergeable"]),
     mergeState: text(pull["mergeStateStatus"]),
@@ -128,6 +129,31 @@ const BRANCH = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,200}$/;
 
 /** Lines that only a conflict leaves: git's markers, at the start of a line. */
 const CONFLICT_MARKER = /^(?:<{7}|>{7})(?: |$)|^={7}$/m;
+
+/**
+ * Why the runner would not go on with a pull request: `agent` for what the
+ * agent resolving it left wrong, which it is shown and can put right;
+ * `moved` for a pull request that changed under it, which its new head
+ * starts over; `never` for what no second try changes.
+ */
+export class StewardRefusal extends Error {
+  public constructor(
+    message: string,
+    public readonly kind: "agent" | "moved" | "never",
+  ) {
+    super(message);
+  }
+}
+
+/** What git and GitHub say when the runner's identity may not do it: trying again changes nothing. */
+const PERMISSION_DENIED = /permission|denied|forbidden|not authorized|\b403\b|resource not accessible/i;
+/** GitHub answers a rate limit with a 403 too, but that one passes. */
+const RATE_LIMITED = /rate limit|secondary|abuse/i;
+
+/** Whether a refusal is one no second try gets past. */
+export function deniedForGood(message: string): boolean {
+  return PERMISSION_DENIED.test(message) && !RATE_LIMITED.test(message);
+}
 
 export interface StewardGithub {
   /** Rejects with why when GitHub could not be asked. */
@@ -155,7 +181,8 @@ export interface StewardGithub {
   /**
    * Commits the merge with `files` as they are now, refusing any that still
    * carry a conflict marker, and pushes it to the pull request's branch,
-   * with git told `gitDir`, the one `startMerge` read, outright.
+   * with git told `gitDir`, the one `startMerge` read, outright. Its
+   * refusals are {@link StewardRefusal}s, saying whose they are to fix.
    *
    * @returns the new head commit.
    */
@@ -202,7 +229,7 @@ export function createStewardGithub(options: StewardGithubOptions): StewardGithu
 
     async startMerge(dir, number, state) {
       if (state.crossRepository || !BRANCH.test(state.headRef) || !BRANCH.test(state.baseRef)) {
-        throw new Error(`PR #${number}'s branches are not ones the runner pushes to`);
+        throw new StewardRefusal(`PR #${number}'s branches are not ones the runner pushes to`, "never");
       }
       const gitDir = await git(dir, ["rev-parse", "--absolute-git-dir"]);
       await git(dir, ["fetch", "--no-tags", "origin", `refs/heads/${state.baseRef}`]);
@@ -210,7 +237,7 @@ export function createStewardGithub(options: StewardGithubOptions): StewardGithu
       await git(dir, ["fetch", "--no-tags", "origin", `refs/pull/${number}/head`]);
       const head = (await git(dir, ["rev-parse", "FETCH_HEAD"])).toLowerCase();
       if (head !== state.headSha) {
-        throw new Error(`PR #${number} moved to ${head.slice(0, 7)} while it was being looked at`);
+        throw new StewardRefusal(`PR #${number} moved to ${head.slice(0, 7)} while it was being looked at`, "moved");
       }
       await git(dir, ["checkout", "--quiet", "--detach", head]);
       try {
@@ -229,7 +256,7 @@ export function createStewardGithub(options: StewardGithubOptions): StewardGithu
       for (const file of files) {
         const path = headPath(dir, file);
         if (path === undefined) {
-          throw new Error(`${file} is not a path in the checkout`);
+          throw new StewardRefusal(`${file} is not a path in the checkout`, "never");
         }
         let content = "";
         try {
@@ -239,7 +266,7 @@ export function createStewardGithub(options: StewardGithubOptions): StewardGithu
           continue;
         }
         if (CONFLICT_MARKER.test(content)) {
-          throw new Error(`${file} still has conflict markers`);
+          throw new StewardRefusal(`${file} still has conflict markers`, "agent");
         }
       }
       if (files.length > 0) {
@@ -247,13 +274,21 @@ export function createStewardGithub(options: StewardGithubOptions): StewardGithu
       }
       const left = await unmerged(dir, gitDir);
       if (left.length > 0) {
-        throw new Error(`still in conflict: ${left.join(", ")}`);
+        throw new StewardRefusal(`still in conflict: ${left.join(", ")}`, "agent");
       }
       const email = await git(dir, ["config", "user.email"], gitDir).catch(() => "");
       const who = email === "" ? ["-c", "user.name=Agent office runner", "-c", "user.email=runner@agent-office-sims.invalid"] : [];
       await git(dir, [...who, "commit", "--quiet", "--no-verify", "-m", message], gitDir);
-      // Never forced: a branch someone pushed to since is refused, and looked at again.
-      await git(dir, ["push", "--quiet", "--no-verify", "origin", `HEAD:refs/heads/${state.headRef}`], gitDir);
+      try {
+        // Never forced: a branch someone pushed to since is refused, and looked at again.
+        await git(dir, ["push", "--quiet", "--no-verify", "origin", `HEAD:refs/heads/${state.headRef}`], gitDir);
+      } catch (error) {
+        const why = (error as Error).message;
+        if (/\[rejected\]|non-fast-forward|fetch first/.test(why)) {
+          throw new StewardRefusal(`the push was refused: ${state.headRef} moved since it was looked at`, "moved");
+        }
+        throw deniedForGood(why) ? new StewardRefusal(`the push was refused: ${why}`, "never") : error;
+      }
       return git(dir, ["rev-parse", "HEAD"], gitDir);
     },
   };

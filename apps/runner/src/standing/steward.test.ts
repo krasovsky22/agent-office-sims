@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { type GitFixture, gitFixture } from "../gitFixture.js";
 import { runCommand } from "../github.js";
-import { createStewardGithub, readMergeMethod, readPullState } from "./steward.js";
+import { createStewardGithub, deniedForGood, readMergeMethod, readPullState } from "./steward.js";
 
 describe("readPullState", () => {
   it("reads the merge state and each check, required or not", () => {
@@ -28,6 +28,7 @@ describe("readPullState", () => {
               headRefOid: "ABC1234",
               headRefName: "feature",
               baseRefName: "main",
+              baseRefOid: "BASE000",
               isCrossRepository: false,
               commits: {
                 nodes: [
@@ -60,6 +61,7 @@ describe("readPullState", () => {
       headSha: "abc1234",
       headRef: "feature",
       baseRef: "main",
+      baseSha: "base000",
       crossRepository: false,
       mergeable: "MERGEABLE",
       mergeState: "CLEAN",
@@ -79,6 +81,16 @@ describe("readPullState", () => {
     // Unsaid means a fork's: never pushed to.
     expect(bare.crossRepository).toBe(true);
     expect(() => readPullState({ data: { repository: { pullRequest: null } } }, 7)).toThrow("no pull request #7");
+  });
+});
+
+describe("deniedForGood", () => {
+  it("treats a permission refusal as final and a rate limit as one to try again", () => {
+    expect(deniedForGood("remote: Permission to o/r.git denied to bot. (HTTP 403)")).toBe(true);
+    expect(deniedForGood("GraphQL: Resource not accessible by integration")).toBe(true);
+    expect(deniedForGood("gh: HTTP 403: You have exceeded a secondary rate limit")).toBe(false);
+    expect(deniedForGood("HTTP 403: abuse detection mechanism triggered")).toBe(false);
+    expect(deniedForGood("connection reset by peer")).toBe(false);
   });
 });
 
@@ -126,6 +138,7 @@ describe("resolving a pull request's conflicts", () => {
       headSha,
       headRef: "feature",
       baseRef: "main",
+      baseSha: "base000",
       crossRepository: false,
       mergeable: "CONFLICTING",
       mergeState: "DIRTY",
@@ -148,7 +161,11 @@ describe("resolving a pull request's conflicts", () => {
     const github = steward();
     const started = await github.startMerge(scratch, 7, state);
     expect(started).toEqual({ conflicts: ["a.txt"], upToDate: false, gitDir: expect.stringContaining("worktrees") });
-    await expect(github.finishMerge(scratch, started.gitDir, state, ["a.txt"], "Merge main into feature")).rejects.toThrow("a.txt still has conflict markers");
+    // The agent's to put right: shown to it on its next pass.
+    await expect(github.finishMerge(scratch, started.gitDir, state, ["a.txt"], "Merge main into feature")).rejects.toMatchObject({
+      message: "a.txt still has conflict markers",
+      kind: "agent",
+    });
     expect(originFeature()).toBe(state.headSha);
 
     writeFileSync(join(scratch, "a.txt"), "main and feature\n");
@@ -185,7 +202,7 @@ describe("resolving a pull request's conflicts", () => {
     const pushed = originFeature();
 
     writeFileSync(join(scratch, "a.txt"), "resolved\n");
-    await expect(github.finishMerge(scratch, gitDir, state, ["a.txt"], "Merge main into feature")).rejects.toThrow();
+    await expect(github.finishMerge(scratch, gitDir, state, ["a.txt"], "Merge main into feature")).rejects.toHaveProperty("kind", "moved");
     expect(originFeature()).toBe(pushed);
   });
 

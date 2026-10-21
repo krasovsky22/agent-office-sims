@@ -53,9 +53,9 @@ export type SkipReason = "draft" | "outside" | "closed" | "missed" | "superseded
 
 /**
  * One event, keyed `pr:<number>` for a pull request's review, `at:<epoch ms>`
- * for a schedule's firing, or, for the steward, `fix:<number>@<head>`,
+ * for a schedule's firing, or, for the steward, `fix:<number>@<head>+<base>`,
  * `merge:<number>@<head>` and `hold:<number>@<head>` for resolving, merging
- * or holding a pull request at one head commit.
+ * or holding a pull request at one head commit (and base commit, to resolve).
  */
 export interface LedgerEntry {
   state: LedgerState;
@@ -116,7 +116,7 @@ export const MAX_UNSENT_RUNS = 20;
 
 const LEDGER_STATES: ReadonlySet<string> = new Set(Object.values(LEDGER_STATE));
 const SKIP_REASONS: ReadonlySet<string> = new Set(["draft", "outside", "closed", "missed", "superseded", "held", "stale"]);
-const LEDGER_KEY = /^(?:pr:\d{1,10}|at:\d{1,16}|(?:fix|merge|hold):\d{1,10}@[0-9a-f]{7,64})$/;
+const LEDGER_KEY = /^(?:pr:\d{1,10}|at:\d{1,16}|(?:fix|merge|hold):\d{1,10}@[0-9a-f]{7,64}|fix:\d{1,10}@[0-9a-f]{7,64}\+[0-9a-f]{0,64})$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 function number(raw: unknown): number | undefined {

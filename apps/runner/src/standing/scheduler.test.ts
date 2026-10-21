@@ -143,6 +143,7 @@ function pullState(headSha: string, overrides: Partial<PullState> = {}): PullSta
     headSha,
     headRef: "feature",
     baseRef: "main",
+    baseSha: "base000",
     crossRepository: false,
     mergeable: "MERGEABLE",
     mergeState: "CLEAN",
@@ -542,6 +543,76 @@ describe("a pull request steward", () => {
     await until(() => steward.merged.length === 1);
     expect(steward.merged).toEqual([[42, "cccc333"]]);
     expect(steward.resolved).toEqual([42]);
+  });
+
+  it("tries a resolve that failed for good again only once its head or its base moves", async () => {
+    const states = new Map([[44, pullState("eeee555", { mergeable: "CONFLICTING", mergeState: "DIRTY" })]]);
+    const steward = stewardRunners(states);
+    const resolved: number[] = [];
+    const runners: StandingRunners = {
+      ...steward.runners,
+      resolve: async (job) => {
+        resolved.push(job.pr?.number ?? 0);
+        return { outcome: "failed", costUsd: 0, message: "Nothing was pushed: it had all 3 passes.", final: true };
+      },
+    };
+    const scheduler = makeScheduler(makePool(), {}, runners);
+    set(scheduler, STEWARD_TASK);
+    await looked(scheduler);
+    listing = [pull(44)];
+    await look(scheduler);
+    await until(() => runs(scheduler.pendingEvents()).length === 1);
+    await look(scheduler);
+    await until(() => resolved.length === 1);
+    expect(scheduler.pendingEvents().at(-1)).toMatchObject({ outcome: "failed", final: true });
+    // Past every retry's backoff: still not tried again.
+    for (let looks = 0; looks < 5; looks += 1) {
+      await look(scheduler);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(resolved).toEqual([44]);
+
+    states.set(44, pullState("eeee555", { mergeable: "CONFLICTING", mergeState: "DIRTY", baseSha: "base111" }));
+    await look(scheduler);
+    await until(() => resolved.length === 2);
+    states.set(44, pullState("ffff666", { mergeable: "CONFLICTING", mergeState: "DIRTY", baseSha: "base111" }));
+    await look(scheduler);
+    await until(() => resolved.length === 3);
+  });
+
+  it("drops a resolve still waiting to be tried again once the base moves and a fresh one is queued", async () => {
+    const states = new Map([[44, pullState("eeee555", { mergeable: "CONFLICTING", mergeState: "DIRTY" })]]);
+    const steward = stewardRunners(states);
+    const resolved: string[] = [];
+    const runners: StandingRunners = {
+      ...steward.runners,
+      resolve: async () => {
+        const baseSha = states.get(44)?.baseSha ?? "";
+        resolved.push(baseSha);
+        return baseSha === "base000" ? { outcome: "failed", costUsd: 0, message: "Resolving the conflicts stopped: timed out" } : { outcome: "resolved", costUsd: 0, message: "Pushed." };
+      },
+    };
+    const scheduler = makeScheduler(makePool(), {}, runners);
+    set(scheduler, STEWARD_TASK);
+    await looked(scheduler);
+    listing = [pull(44)];
+    await look(scheduler);
+    await until(() => runs(scheduler.pendingEvents()).length === 1);
+    await look(scheduler);
+    await until(() => resolved.length === 1);
+    // Its second try fails too, so the next is five minutes off: past the base moving.
+    await look(scheduler);
+    await until(() => resolved.length === 2);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    states.set(44, pullState("eeee555", { mergeable: "CONFLICTING", mergeState: "DIRTY", baseSha: "base111" }));
+    await look(scheduler);
+    await until(() => resolved.length === 3);
+    for (let looks = 0; looks < 5; looks += 1) {
+      await look(scheduler);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(resolved).toEqual(["base000", "base000", "base111"]);
   });
 
   it("never touches an outside contributor's pull request", async () => {

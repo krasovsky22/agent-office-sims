@@ -1526,6 +1526,15 @@ check on its head commit, required or not (one GraphQL call,
   pushed to since is never overwritten and is looked at again. The push is a
   new head, whose checks run before any merge. A fork's branch is never
   pushed to: its conflicts are left to its author, and said so.
+  When the runner refuses what the agent left (`a.txt still has conflict
+  markers`, `still in conflict: a.txt`), the agent gets another pass in the
+  same run, shown that refusal word for word, up to three passes sharing the
+  run's minutes and dollars (`MAX_RESOLVE_PASSES` in
+  `apps/runner/src/standing/claude.ts`); each refused pass is in the run's
+  screen and its result on the wall board. A pull request that moved under
+  it, before or at the push, is skipped and looked at again at its new head;
+  a refusal no second try gets past, a permission denied or a branch the
+  runner does not push to, fails at once and is not tried again.
 - **Hold**, said once a head commit (`It is not merged yet: the check “ci”
   failed.`), for a failed check, no checks at all, or GitHub blocking the
   merge. It keeps looking, and merges once the reason is gone.
@@ -1533,7 +1542,10 @@ check on its head commit, required or not (one GraphQL call,
   it merges.
 
 Each resolve and merge is a run on its agent's slot, held to the task's caps
-like any run, and tried again up to three attempts in all. The runner's
+like any run, and tried again up to three attempts in all. A resolve is
+keyed by both the head and the base commit, so one whose passes all ran out,
+or that failed for good, is tried again only once the pull request is pushed
+to or its base moves, never on every check. The runner's
 GitHub App's **Contents: Read and write** and **Pull requests: Read and
 write** cover the push and the merge. GitHub's branch rules still apply on
 top of the steward's own: with `main` protected as in [The runner's GitHub
