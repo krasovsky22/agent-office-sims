@@ -8,14 +8,16 @@
  */
 
 import {
+  ANIMATION_STATE,
   type AnimationState,
   INTERPOLATION_DELAY_MS,
   POSE_BUFFER_SIZE,
+  POSE_SEND_INTERVAL_MS,
   normalizeYaw,
   shortestYawDelta,
 } from "@sim/shared";
 
-/** One pose as received, stamped with local arrival time. */
+/** One pose as received, stamped with local arrival time re-spaced by {@link pushPose}. */
 export interface PoseSample {
   t: number;
   x: number;
@@ -32,14 +34,39 @@ export interface RemotePose {
   animation: AnimationState;
 }
 
-/** Adds a sample, dropping the oldest once the buffer holds {@link POSE_BUFFER_SIZE}. */
+/** Each buffer's latest real arrival time, since stored stamps may sit later than it. */
+const lastArrival = new WeakMap<PoseSample[], number>();
+
+/**
+ * Adds a sample stamped with its arrival time, dropping the oldest once the
+ * buffer holds {@link POSE_BUFFER_SIZE}.
+ *
+ * Arrival times carry the network's jitter, so the stored stamp is re-spaced:
+ * bunched arrivals spread back out to at least half the send cadence, and the
+ * first sample after standing still interpolates over one send interval
+ * rather than the whole idle period.
+ */
 export function pushPose(buffer: PoseSample[], sample: PoseSample): void {
+  const arrival = sample.t;
   const previous = buffer[buffer.length - 1];
-  if (previous !== undefined && previous.t === sample.t) {
+  if (previous !== undefined && lastArrival.get(buffer) === arrival) {
     // Two changes decoded in the same frame describe one moment in time.
-    buffer[buffer.length - 1] = sample;
+    buffer[buffer.length - 1] = { ...sample, t: previous.t };
     return;
   }
+  lastArrival.set(buffer, arrival);
+  if (previous !== undefined) {
+    // A late packet mid-walk is no standing start; holding there would freeze the walk.
+    if (previous.animation !== ANIMATION_STATE.walking && arrival - previous.t > 2 * POSE_SEND_INTERVAL_MS) {
+      append(buffer, { ...previous, t: arrival - POSE_SEND_INTERVAL_MS });
+    } else {
+      sample = { ...sample, t: Math.max(arrival, previous.t + POSE_SEND_INTERVAL_MS * 0.5) };
+    }
+  }
+  append(buffer, sample);
+}
+
+function append(buffer: PoseSample[], sample: PoseSample): void {
   buffer.push(sample);
   if (buffer.length > POSE_BUFFER_SIZE) {
     buffer.shift();

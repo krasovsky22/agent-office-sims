@@ -1,6 +1,6 @@
 /** How a remote occupant's buffered poses read back between packets. */
 
-import { ANIMATION_STATE, INTERPOLATION_DELAY_MS, POSE_BUFFER_SIZE } from "@sim/shared";
+import { ANIMATION_STATE, INTERPOLATION_DELAY_MS, POSE_BUFFER_SIZE, POSE_SEND_INTERVAL_MS } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import { type PoseSample, type RemotePose, pushPose, samplePoses } from "./poseBuffer.js";
@@ -47,10 +47,48 @@ describe("samplePoses", () => {
 });
 
 describe("pushPose", () => {
-  it("replaces the newest sample when the next one carries the same timestamp", () => {
-    const buffer = [sample(0, 0), sample(100, 5)];
-    pushPose(buffer, sample(100, 7));
+  it("replaces the newest sample when the next one arrives in the same frame", () => {
+    const buffer = [sample(0, 0)];
+    pushPose(buffer, sample(50, 5));
+    pushPose(buffer, sample(50, 7));
     expect(buffer.map(({ x }) => x)).toEqual([0, 7]);
+  });
+
+  it("spreads bunched arrivals back out to at least half the send cadence", () => {
+    const buffer = [sample(0, 0)];
+    pushPose(buffer, sample(90, 1));
+    pushPose(buffer, sample(95, 2));
+    pushPose(buffer, sample(100, 3));
+    const half = POSE_SEND_INTERVAL_MS * 0.5;
+    expect(buffer.map(({ t }) => t)).toEqual([0, 90, 90 + half, 90 + 2 * half]);
+  });
+
+  it("keeps the arrival time once samples arrive at the send cadence", () => {
+    const buffer = [sample(0, 0)];
+    pushPose(buffer, sample(POSE_SEND_INTERVAL_MS, 1));
+    expect(buffer.map(({ t }) => t)).toEqual([0, POSE_SEND_INTERVAL_MS]);
+  });
+
+  it("starts a walk after standing still from one send interval back, not from the idle pose's time", () => {
+    const buffer = [{ ...sample(0, 0), animation: ANIMATION_STATE.idle }];
+    pushPose(buffer, sample(5000, 1));
+    expect(buffer.map(({ t, x }) => [t, x])).toEqual([
+      [0, 0],
+      [5000 - POSE_SEND_INTERVAL_MS, 0],
+      [5000, 1],
+    ]);
+    const out = blank();
+    samplePoses(buffer, at(5000 - POSE_SEND_INTERVAL_MS / 2), out);
+    expect(out.x).toBeCloseTo(0.5);
+  });
+
+  it("keeps a late packet mid-walk at its arrival time instead of holding the last pose", () => {
+    const buffer = [sample(0, 0)];
+    pushPose(buffer, sample(110, 1));
+    expect(buffer.map(({ t }) => t)).toEqual([0, 110]);
+    const out = blank();
+    samplePoses(buffer, at(55), out);
+    expect(out.x).toBeCloseTo(0.5);
   });
 
   it("keeps only the newest samples once the buffer is full", () => {
