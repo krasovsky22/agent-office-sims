@@ -676,8 +676,8 @@ types only while its agent waits at its prompt and reports in `prompts`;
 `queue: true` as well on a direction the CEO gave at a standup, which the
 runner keeps, rather than refuses, until its agent is next at its prompt with
 the standup over, and has its agent answer from `context`, its status as the
-office sees it, at most 2,000 characters, when it has no session at all; the office's own rework prompt is given whatever the agent
-is doing) or `key`
+office sees it, at most 2,000 characters, when it has no session at all; the
+office's own rework prompt is given whatever the agent is doing) or `key`
 (`key`, one of `up`, `down`, `enter`, `escape` or `1`–`9`, and `requestedBy`:
 a key the CEO pressed in the terminal panel, which the runner presses only
 while its agent waits on a person and reports in `prompts` as it does a
