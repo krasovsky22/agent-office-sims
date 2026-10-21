@@ -134,7 +134,7 @@ const RADIO_NEAR = 2;
 /** Beyond this it plays no quieter, so it is heard across the whole office. */
 const RADIO_FAR = 16;
 /** The share of the listener's volume it keeps at the far end of the office. */
-const RADIO_FLOOR = 0.2;
+const RADIO_FLOOR = 0.5;
 
 /** How loud the radio plays `distance` metres away, as a share of the listener's own volume. */
 export function radioLoudness(distance: number): number {
