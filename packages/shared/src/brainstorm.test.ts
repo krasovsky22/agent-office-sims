@@ -114,6 +114,8 @@ describe("brainstormActionRefusal", () => {
     expect(brainstormActionRefusal(BRAINSTORM_ACTION.meet, CEO, idea({ status: BRAINSTORM_STATUS.reviewed }), open)).toBeUndefined();
     expect(brainstormActionRefusal(BRAINSTORM_ACTION.meet, PLAYER, idea(), open)).toBe(BRAINSTORM_REJECTION.forbidden);
     expect(brainstormActionRefusal(BRAINSTORM_ACTION.meet, CEO, idea({ status: BRAINSTORM_STATUS.researching }), open)).toBe(BRAINSTORM_REJECTION.wrongStep);
+    expect(brainstormActionRefusal(BRAINSTORM_ACTION.meet, CEO, idea({ status: BRAINSTORM_STATUS.reviewed, convertStatus: "sending" }), open)).toBe(BRAINSTORM_REJECTION.wrongStep);
+    expect(brainstormActionRefusal(BRAINSTORM_ACTION.meet, CEO, idea({ status: BRAINSTORM_STATUS.reviewed, convertStatus: "failed" }), open)).toBeUndefined();
     expect(brainstormActionRefusal(BRAINSTORM_ACTION.meet, CEO, idea(), { ...open, roomTaken: true })).toBe(BRAINSTORM_REJECTION.roomTaken);
     expect(brainstormActionRefusal(BRAINSTORM_ACTION.meet, CEO, idea(), { ...open, freeAgents: 1 })).toBe(BRAINSTORM_REJECTION.noAgents);
   });

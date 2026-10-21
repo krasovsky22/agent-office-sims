@@ -405,7 +405,7 @@ export interface BrainstormActionContext {
 export function brainstormActionRefusal(
   action: BrainstormAction,
   actor: OfficeActor,
-  brainstorm: Pick<BrainstormData, "status"> | undefined,
+  brainstorm: Pick<BrainstormData, "status" | "convertStatus"> | undefined,
   context: BrainstormActionContext,
 ): BrainstormRejection | undefined {
   const isPlayer = actor.kind === OCCUPANT_KIND.human;
@@ -415,6 +415,9 @@ export function brainstormActionRefusal(
         return BRAINSTORM_REJECTION.forbidden;
       }
       if (brainstorm?.status !== BRAINSTORM_STATUS.ready && brainstorm?.status !== BRAINSTORM_STATUS.reviewed) {
+        return BRAINSTORM_REJECTION.wrongStep;
+      }
+      if (brainstorm.convertStatus === BRAINSTORM_GITHUB.sending || brainstorm.convertStatus === BRAINSTORM_GITHUB.done) {
         return BRAINSTORM_REJECTION.wrongStep;
       }
       if (context.roomTaken) {

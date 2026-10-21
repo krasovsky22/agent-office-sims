@@ -252,15 +252,30 @@ describe("Brainstorms: research", () => {
     expect(office.idea()?.postStatus).toBe("done");
   });
 
+  it("keeps the recommendation of the agent chosen to write it when its take and its run's end come last, in one sync", () => {
+    const office = setup();
+    office.brainstorms.assign(office.dana, { issueNumber: 191, agentIds: [MAYA, LEO], mode: BRAINSTORM_MODE.takes });
+    office.flush();
+    office.sync({}, [office.write("slot-2", "take", "Verdict: doable\n\nB.")]);
+    office.sync({}, [
+      office.write("slot-1", "take", "Verdict: doable\n\nA."),
+      { id: "event-end", kind: "finished", slotId: "slot-1", issueNumber: 191, pr: undefined, message: "Wrote its write-up" },
+    ]);
+    expect(office.idea()).toMatchObject({ status: BRAINSTORM_STATUS.synthesizing, note: "" });
+    expect(starts(office.flush())).toMatchObject([{ slotId: "slot-1", role: "synthesis" }]);
+    office.sync({ "slot-1": 191 }, [office.write("slot-1", "synthesis", "Build the board first.")]);
+    expect(office.idea()).toMatchObject({ status: BRAINSTORM_STATUS.ready, synthesis: "Build the board first.", note: "" });
+  });
+
   it("fails an idea none of whose research came back, which can then be handed out again", () => {
     const office = setup();
     office.brainstorms.assign(office.dana, { issueNumber: 191, agentIds: [MAYA, LEO], mode: BRAINSTORM_MODE.takes });
     office.sync({}, [office.failed("slot-1", "#191 is not labelled brainstorm on GitHub, so it is not researched as an idea")]);
-    office.sync({}, [{ id: "event-x", kind: "finished", slotId: "slot-2", issueNumber: 191, pr: undefined, message: "" }]);
+    office.sync({}, [office.failed("slot-2", "The research stopped: it said nothing")]);
     expect(office.idea()?.status).toBe(BRAINSTORM_STATUS.failed);
     expect(office.data().takes.map((take) => take.note)).toEqual([
       "#191 is not labelled brainstorm on GitHub, so it is not researched as an idea",
-      "It finished without a write-up.",
+      "The research stopped: it said nothing",
     ]);
     expect(office.brainstorms.assign(office.dana, { issueNumber: 191, agentIds: [MAYA, ADA], mode: BRAINSTORM_MODE.takes })).toBeUndefined();
     expect(office.data().takes.map((take) => take.agentName)).toEqual(["Maya", "Ada"]);
@@ -394,6 +409,26 @@ describe("Brainstorms: the meeting", () => {
     office.brainstorms.step();
     expect(office.idea()).toMatchObject({ status: BRAINSTORM_STATUS.ready, note: "The meeting ended early: its agents left the office." });
     expect(office.crew.at(-1)).toBe("dismiss");
+  });
+
+  it("is refused while the idea's conversion is sending or done, and never sets a converted idea back", () => {
+    const office = ready();
+    office.brainstorms.act(office.milo, BRAINSTORM_ACTION.review, 191);
+    office.brainstorms.convert(office.milo, { issueNumber: 191, drafts: [{ title: "Board", body: "" }] });
+    expect(office.brainstorms.act(office.dana, BRAINSTORM_ACTION.meet, 191)).toBe(BRAINSTORM_REJECTION.wrongStep);
+    office.sync({}, [office.github("converted", [{ number: 200, url: `https://github.com/${REPO}/issues/200` }])]);
+    expect(office.brainstorms.act(office.dana, BRAINSTORM_ACTION.meet, 191)).toBe(BRAINSTORM_REJECTION.wrongStep);
+
+    const other = ready();
+    other.brainstorms.act(other.dana, BRAINSTORM_ACTION.meet, 191);
+    const idea = other.idea();
+    if (idea !== undefined) {
+      idea.status = BRAINSTORM_STATUS.converted;
+    }
+    other.state.occupants.delete(MAYA);
+    other.state.occupants.delete(LEO);
+    other.brainstorms.step();
+    expect(other.idea()?.status).toBe(BRAINSTORM_STATUS.converted);
   });
 
   it("tells each speaker the idea, its recommendation and its own write-up", () => {

@@ -331,17 +331,15 @@ export class Brainstorms {
         this.receiveBrainstorm(runnerId, event);
         continue;
       }
-      if (event.kind !== RUNNER_EVENT_KIND.failed && event.kind !== RUNNER_EVENT_KIND.finished) {
+      // A run finishes only after its write-up, so only a failed one ends research without it.
+      if (event.kind !== RUNNER_EVENT_KIND.failed) {
         continue;
       }
       const brainstorm = this.host.state.brainstorms.get(workKey(event.issueNumber));
       if (brainstorm === undefined) {
         continue;
       }
-      const agentId = liveAgentKey(runnerSlotAgentId(runnerId, event.slotId));
-      // A write-up comes before its run's end, so a run still out at its end wrote none.
-      const why = event.kind === RUNNER_EVENT_KIND.finished ? "It finished without a write-up." : event.message;
-      this.ended(brainstorm, agentId, why);
+      this.ended(brainstorm, liveAgentKey(runnerSlotAgentId(runnerId, event.slotId)), event.message);
     }
   }
 
@@ -745,7 +743,9 @@ export class Brainstorms {
     if (brainstorm === undefined) {
       return;
     }
-    brainstorm.status = meeting.returnTo;
+    if (brainstorm.status === BRAINSTORM_STATUS.meeting) {
+      brainstorm.status = meeting.returnTo;
+    }
     brainstorm.note = why === "" ? "" : replicableTitle(`The meeting ended early: ${why}.`);
     brainstorm.updatedAt = this.host.now();
     this.host.announce(
