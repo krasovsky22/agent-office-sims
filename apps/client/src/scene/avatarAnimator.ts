@@ -11,7 +11,7 @@
  * - **The walk cycle is played at the speed the avatar is actually moving.**
  *   The clip covers a fixed amount of ground per loop, so playing it at a rate
  *   that does not match the body's speed slides the feet across the floor. The
- *   rate is the ratio of the two; see {@link WALK_CLIP_GROUND_SPEED}.
+ *   rate is the ratio of the two; see `WALK_CLIP_GROUND_SPEED`.
  */
 
 import {
@@ -23,6 +23,7 @@ import {
 import * as THREE from "three";
 
 import type { AvatarClips } from "./avatarClips.js";
+import { WALK_CLIP_GROUND_SPEED } from "./avatarModel.js";
 
 /**
  * How long a state change takes to complete.
@@ -34,18 +35,10 @@ export const BLEND_SECONDS = 0.18;
 
 /**
  * Ground speed the walk clip covers at playback rate 1, in metres per second.
- *
- * Measured off the shipped asset rather than guessed. With the model scaled to
- * an occupant's height, the planted foot travels backwards at this speed
- * through the stance phase of the cycle, so playing the clip at `speed / this`
- * holds the stance foot still relative to the floor — which is what "the feet
- * do not slide" means. Checked by stepping an avatar at a fixed speed and
- * reading the stance foot's world velocity back off the rig: the residual is a
- * few per cent of the body's, which is smaller than the spread between
- * reasonable definitions of where the stance phase begins, and it stays there
- * from half walking speed up to the fastest pose the server will accept.
+ * Worked out from the rig's leg length and stride in `avatarModel.ts`, where the
+ * walk is built.
  */
-export const WALK_CLIP_GROUND_SPEED = 1.19;
+export { WALK_CLIP_GROUND_SPEED };
 
 /**
  * Floor on walk playback.

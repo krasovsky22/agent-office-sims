@@ -1,23 +1,19 @@
 /**
- * An occupant's body: a rigged humanoid, a floating nameplate, a CEO marker,
- * and whatever the occupant is currently expressing.
+ * An occupant's body: a blocky figure of boxes, a floating nameplate, a CEO
+ * marker, and whatever the occupant is currently expressing.
  *
  * Players, live agents and the manager are all built here, so they cannot
  * drift apart in how they move, sit or emote. What differs is identity, and it
  * is meant to read at a glance: each kind wears a colour of its own and says
  * on its nameplate what it is.
  *
- * Three things about the shape of this file are load-bearing:
+ * Two things about the shape of this file are load-bearing:
  *
- * - **The capsule is still here, as the fallback.** An avatar built without a
- *   model yet stands as a capsule until {@link Avatar.useModel} upgrades it. A
- *   model that never arrives therefore leaves a body you can see and walk,
- *   rather than an invisible player.
  * - **Head-height attachments hang off {@link Avatar.headAnchor}.** The
  *   nameplate, the CEO marker or the manager's badge, the emote sprite and the
  *   chat bubble are all children of it. It is a plain object whose height follows the pose, so
- *   nothing outside this file has to know whether the body underneath is a
- *   capsule, a standing humanoid or a seated one.
+ *   nothing outside this file has to know whether the body underneath is
+ *   standing or seated.
  * - **Speed is derived here, from the pose.** The walk cycle has to be played at
  *   the speed the body is moving, and that is the same measurement for the local
  *   player and for an interpolated remote one. Taking it from the rendered
@@ -31,11 +27,11 @@
  * bubbles by being given an {@link Avatar}, with no extra work here; they only
  * sit higher, above whatever badge and second line it carries.
  *
- * A live coding agent's shell is a colour of its own, and its nameplate's
+ * A live coding agent's shirt is a colour of its own, and its nameplate's
  * second line says what it is working on, so nobody walks up to one expecting
  * a colleague to answer.
  *
- * The AI manager has a crimson shell, its title under its name, and a badge
+ * The AI manager has a crimson shirt, its title under its name, and a badge
  * over its head saying whether it is ready or thinking.
  *
  * A live agent the CEO fired walks out in tears with a box of its belongings
@@ -70,7 +66,8 @@ import { type BadgeAppearance, MANAGER_STATUS_APPEARANCE } from "../managerStatu
 import { EMOTE_APPEARANCE } from "../emotes.js";
 
 import { AvatarAnimator } from "./avatarAnimator.js";
-import type { AvatarLook, AvatarModel } from "./avatarModel.js";
+import { type AvatarModel, EYE_ABOVE_HEAD } from "./avatarModel.js";
+import type { AvatarLook } from "./avatarSkin.js";
 import { Billboard, paintBeacon, paintEmote, paintSpeechBubble, paintStatusBadge } from "./billboard.js";
 import { CoffeeCup } from "./coffeeCup.js";
 import { SendOff } from "./sendOff.js";
@@ -136,52 +133,30 @@ const BADGED_EXPRESSION_LIFT = 0.31;
  */
 const HEAD_ANCHOR_Y = OCCUPANT_HEIGHT;
 
-/**
- * The capsule's seated pose, as a squash and a lift of the standing body.
- *
- * The capsule has no skeleton to pose, so sitting is a transform. The numbers
- * put the crown of a sitting capsule a little over a third of a metre below a
- * standing one, which is the difference that has to be legible from across the
- * office in the other tab.
- */
-const CAPSULE_SEATED_SQUASH = 0.62;
-const CAPSULE_SEATED_LIFT = 0.3;
-const CAPSULE_SEATED_HEAD_DROP =
-  OCCUPANT_HEIGHT - (CAPSULE_SEATED_LIFT + OCCUPANT_HEIGHT * CAPSULE_SEATED_SQUASH);
+/** The rig's right-hand pivot, where a carried cup is held. */
+const HAND_BONE = "HandR";
 
-/**
- * The humanoid rig's right palm, where a carried cup is held. `Palm2.R` in the
- * file; the loader strips the dot from bone names.
- */
-const HAND_BONE = "Palm2R";
-
-/** The rig's head bone, which a first-person camera sits just above. */
+/** The rig's head pivot, at the neck, which a first-person camera sits above. */
 const HEAD_BONE = "Head";
 
-/** From the head bone up to the middle of the robot's visor, where it sees from. */
-const EYE_ABOVE_HEAD_BONE = 0.28;
-
-/** Where a body without a head bone sees from: a little under its crown. */
-const CAPSULE_EYE_BELOW_CROWN = 0.25;
-
 /**
- * Bones whose meshes stay drawn in first person: both arms from the shoulder
- * down, and the skinned hands. A fact about this asset, like {@link HAND_BONE};
- * a part is kept when it, or a bone it hangs from, is named with one of these.
+ * Pivots whose boxes stay drawn in first person: both arms from the shoulder
+ * down. A part is kept when it, or a pivot it hangs from, is named with one of
+ * these.
  */
-const FIRST_PERSON_PARTS = /^(Shoulder|UpperArm|LowerArm|Palm|Hand)/;
+const FIRST_PERSON_PARTS = /^(UpperArm|LowerArm|Hand)/;
 
 /**
- * How the arms are raised in first person, in radians: the upper arm swung
- * forward about its local Z (mirrored on the left) and the elbow bent about
- * its local X, both measured on the rig. Together they bring the hands up to
- * about chest height, in front, which is where the bottom of the view is.
+ * How the arms are raised in first person, in radians: each upper arm swung
+ * forward from the shoulder and each elbow bent further forward, both about
+ * the rig's +X. Together they bring the hands up to about chest height, in
+ * front, which is where the bottom of the view is.
  */
 const FIRST_PERSON_ARMS: readonly { readonly bone: string; readonly axis: THREE.Vector3; readonly angle: number }[] = [
-  { bone: "UpperArmR", axis: new THREE.Vector3(0, 0, 1), angle: 0.7 },
-  { bone: "UpperArmL", axis: new THREE.Vector3(0, 0, -1), angle: 0.7 },
-  { bone: "LowerArmR", axis: new THREE.Vector3(1, 0, 0), angle: 1 },
-  { bone: "LowerArmL", axis: new THREE.Vector3(1, 0, 0), angle: 1 },
+  { bone: "UpperArmR", axis: new THREE.Vector3(1, 0, 0), angle: 0.8 },
+  { bone: "UpperArmL", axis: new THREE.Vector3(1, 0, 0), angle: 0.8 },
+  { bone: "LowerArmR", axis: new THREE.Vector3(1, 0, 0), angle: 0.9 },
+  { bone: "LowerArmL", axis: new THREE.Vector3(1, 0, 0), angle: 0.9 },
 ];
 
 /** How far a fired agent's head hangs, in radians about the head bone's local X. */
@@ -251,19 +226,10 @@ const TITLE_FONT_SCALE = 0.42;
 /** Expiry sentinel for "not showing anything". */
 const NOT_SHOWING = Number.NEGATIVE_INFINITY;
 
-const LOCAL_BODY_COLOUR = 0xcfd3da;
-const REMOTE_BODY_COLOUR = 0x9aa0aa;
-/** The fallback capsule's version of the live agents' violet shell in `avatarModel.ts`. */
-const LIVE_AGENT_BODY_COLOUR = 0x8a6cf0;
-/** A live agent's task line: the same violet, lifted to read on the dark pill. */
+/** A live agent's task line: its shirt's violet, lifted to read on the dark pill. */
 const LIVE_AGENT_CAPTION_COLOUR = "#c9bcff";
-/** The fallback capsule's version of the manager's crimson shell in `avatarModel.ts`. */
-const MANAGER_BODY_COLOUR = 0xcf3d4f;
-/** The manager's title on its nameplate: the same crimson, lifted to read on the dark pill. */
+/** The manager's title on its nameplate: its shirt's crimson, lifted to read on the dark pill. */
 const MANAGER_TITLE_COLOUR = "#ff9aa5";
-/** The fallback capsule's version of the concierge's teal shell in `avatarModel.ts`. */
-const CONCIERGE_BODY_COLOUR = 0x1f9e8f;
-const FACING_COLOUR = 0x5e6470;
 const CEO_MARKER_COLOUR = 0xf0c650;
 
 /** Fraction of the gap the smoothed speed closes per second. */
@@ -278,20 +244,8 @@ const SPEED_EASE_RATE = 12;
  */
 const MAX_TRACKED_SPEED = WALK_SPEED * SPEED_TOLERANCE;
 
-/**
- * Shared capsule geometry. A capsule's `length` is the cylindrical section only,
- * so the total standing height is `length + 2 * radius`.
- */
-const BODY_GEOMETRY = new THREE.CapsuleGeometry(
-  OCCUPANT_RADIUS,
-  OCCUPANT_HEIGHT - OCCUPANT_RADIUS * 2,
-  4,
-  12,
-);
-const FACING_GEOMETRY = new THREE.BoxGeometry(0.14, 0.14, 0.1);
 const CEO_MARKER_GEOMETRY = new THREE.ConeGeometry(0.16, 0.26, 10);
 
-const FACING_MATERIAL = new THREE.MeshLambertMaterial({ color: FACING_COLOUR });
 const CEO_MARKER_MATERIAL = new THREE.MeshLambertMaterial({ color: CEO_MARKER_COLOUR });
 
 /**
@@ -318,12 +272,8 @@ export interface AvatarOptions {
   readonly managerStatus: ManagerStatus | undefined;
   /** The local player's body is lighter, so you can pick yourself out. */
   readonly isLocal: boolean;
-  /**
-   * The humanoid model, or `undefined` while it is still downloading or if it
-   * failed to. An avatar built without one stands as a capsule until
-   * {@link Avatar.useModel} is called.
-   */
-  readonly model: AvatarModel | undefined;
+  /** The blocky body every occupant is stamped out of. */
+  readonly model: AvatarModel;
 }
 
 /** An arm bone a first-person view raises, and the turn the clips last gave it. */
@@ -334,12 +284,10 @@ interface RaisedArm {
   readonly angle: number;
 }
 
-/** A body, however it happens to be drawn. */
+/** A body and what drives it. */
 interface AvatarBody {
   readonly root: THREE.Object3D;
-  /** Absent on the capsule, which has no clips to play. */
-  readonly animator: AvatarAnimator | undefined;
-  readonly isHumanoid: boolean;
+  readonly animator: AvatarAnimator;
   /**
    * How far the head drops when seated.
    *
@@ -347,10 +295,12 @@ interface AvatarBody {
    * someone at a desk instead of floating where they used to be standing.
    */
   readonly seatedHeadDrop: number;
-  /** The bone a carried cup sits in; absent on the capsule, which has no hands. */
+  /** The pivot a carried cup sits in. */
   readonly hand: THREE.Object3D | undefined;
-  /** The bone a first-person camera sits above; absent on the capsule. */
+  /** The pivot a first-person camera sits above. */
   readonly head: THREE.Object3D | undefined;
+  /** Repaints the body for a new name. */
+  setIdentity: (identity: string) => void;
   dispose: () => void;
 }
 
@@ -430,67 +380,26 @@ function fitText(context: CanvasRenderingContext2D, text: string, maxWidth: numb
   return `${characters.join("").trimEnd()}…`;
 }
 
-/** The humanoid body, built once a model is available. */
-function createHumanoidBody(
+function createBody(
   model: AvatarModel,
   look: AvatarLook,
+  identity: string,
   initialAnimation: AnimationState,
 ): AvatarBody {
-  const instance = model.createInstance(look);
+  const instance = model.createInstance(look, identity);
   const animator = new AvatarAnimator(instance.root, instance.clips);
   animator.setState(initialAnimation);
 
   return {
     root: instance.root,
     animator,
-    isHumanoid: true,
     seatedHeadDrop: instance.seatedHeadDrop,
     hand: instance.root.getObjectByName(HAND_BONE),
     head: instance.root.getObjectByName(HEAD_BONE),
+    setIdentity: instance.setIdentity,
     dispose: () => {
       animator.dispose();
       instance.dispose();
-    },
-  };
-}
-
-const CAPSULE_COLOUR: Record<AvatarLook, number> = {
-  local: LOCAL_BODY_COLOUR,
-  remote: REMOTE_BODY_COLOUR,
-  liveAgent: LIVE_AGENT_BODY_COLOUR,
-  manager: MANAGER_BODY_COLOUR,
-  concierge: CONCIERGE_BODY_COLOUR,
-};
-
-/** The capsule: the body an avatar has before the model arrives, or instead of it. */
-function createCapsuleBody(look: AvatarLook): AvatarBody {
-  const root = new THREE.Group();
-  root.name = "avatar-capsule";
-
-  const material = new THREE.MeshLambertMaterial({ color: CAPSULE_COLOUR[look] });
-  const capsule = new THREE.Mesh(BODY_GEOMETRY, material);
-  capsule.position.y = OCCUPANT_HEIGHT / 2;
-  // The body is the only part of an avatar that casts: a shadow under a player
-  // is what sells them standing on the floor, and the nub and the CEO cone are
-  // too small to read as anything but noise.
-  capsule.castShadow = true;
-  root.add(capsule);
-
-  // A nub on the front, so which way an avatar faces is readable at a glance.
-  const facing = new THREE.Mesh(FACING_GEOMETRY, FACING_MATERIAL);
-  facing.position.set(0, OCCUPANT_HEIGHT * 0.72, -OCCUPANT_RADIUS);
-  root.add(facing);
-
-  return {
-    root,
-    animator: undefined,
-    isHumanoid: false,
-    seatedHeadDrop: CAPSULE_SEATED_HEAD_DROP,
-    hand: undefined,
-    head: undefined,
-    dispose: () => {
-      root.removeFromParent();
-      material.dispose();
     },
   };
 }
@@ -503,8 +412,7 @@ export class Avatar {
    *
    * Nameplate, CEO marker, status badge, needs-you beacon, emote sprite and
    * chat bubble are all children of it. Its height tracks the pose, so a child at a fixed local offset keeps
-   * sitting above the head, and when the capsule is replaced by a rigged
-   * mesh, re-parenting this one group to a head bone moves all of it.
+   * sitting above the head.
    */
   public readonly headAnchor = new THREE.Object3D();
 
@@ -599,10 +507,7 @@ export class Avatar {
           ? "local"
           : "remote";
 
-    this.body =
-      options.model !== undefined
-        ? createHumanoidBody(options.model, this.look, this.animation)
-        : createCapsuleBody(this.look);
+    this.body = createBody(options.model, this.look, options.name, this.animation);
     this.group.add(this.body.root);
     this.raisedArms = armsOf(this.body);
     this.bowedHead = headOf(this.body);
@@ -699,8 +604,7 @@ export class Avatar {
       this.lift = 0;
     }
     this.animation = animation;
-    this.body.animator?.setState(animation);
-    this.applyCapsulePosture();
+    this.body.animator.setState(animation);
   }
 
   /** Where a sticky note this occupant carries is drawn this frame, in world space. */
@@ -754,20 +658,17 @@ export class Avatar {
     this.previousX = this.group.position.x;
     this.previousZ = this.group.position.z;
 
-    const animator = this.body.animator;
-    if (animator !== undefined) {
-      // Back to the clips' own turn first: a channel the mixer leaves alone
-      // this frame would otherwise be raised again on top of last frame's.
-      for (const arm of this.raisedArms) {
-        arm.bone.quaternion.copy(arm.clip);
-      }
-      if (this.bowedHead !== undefined) {
-        this.bowedHead.bone.quaternion.copy(this.bowedHead.clip);
-      }
-      animator.setSpeed(this.speed);
-      animator.update(deltaSeconds);
-      this.raiseArms(deltaSeconds);
+    // Back to the clips' own turn first: a channel the mixer leaves alone
+    // this frame would otherwise be raised again on top of last frame's.
+    for (const arm of this.raisedArms) {
+      arm.bone.quaternion.copy(arm.clip);
     }
+    if (this.bowedHead !== undefined) {
+      this.bowedHead.bone.quaternion.copy(this.bowedHead.clip);
+    }
+    this.body.animator.setSpeed(this.speed);
+    this.body.animator.update(deltaSeconds);
+    this.raiseArms(deltaSeconds);
   }
 
   /**
@@ -785,43 +686,17 @@ export class Avatar {
   }
 
   /**
-   * Where the body sees from this frame, in world space: in the visor, so it
-   * follows the head down into a chair and bobs with the walk.
+   * Where the body sees from this frame, in world space: level with its eyes,
+   * so it follows the head down into a chair.
    */
   public eyePosition(target: THREE.Vector3): THREE.Vector3 {
     const head = this.body.head;
     if (head === undefined) {
-      return target.set(
-        this.group.position.x,
-        this.lift + this.headAnchor.position.y - CAPSULE_EYE_BELOW_CROWN,
-        this.group.position.z,
-      );
+      return target.set(this.group.position.x, this.lift + this.headAnchor.position.y, this.group.position.z);
     }
     head.getWorldPosition(target);
-    target.y += EYE_ABOVE_HEAD_BONE;
+    target.y += EYE_ABOVE_HEAD;
     return target;
-  }
-
-  /**
-   * Replaces the capsule with the humanoid body.
-   *
-   * Called once the model has downloaded, which may be after some avatars have
-   * already been built. Calling it on a body that is already the humanoid does
-   * nothing.
-   */
-  public useModel(model: AvatarModel): void {
-    if (this.body.isHumanoid) {
-      return;
-    }
-
-    const next = createHumanoidBody(model, this.look, this.animation);
-    this.body.dispose();
-    this.body = next;
-    this.body.root.visible = !this.bodyHidden;
-    this.group.add(this.body.root);
-    this.raisedArms = armsOf(this.body);
-    this.bowedHead = headOf(this.body);
-    this.applyFirstPersonParts();
   }
 
   /**
@@ -892,6 +767,9 @@ export class Avatar {
   public setLabel(name: string, isCeo: boolean, subtitle: string, agentTitle: string): void {
     if (name === this.name && isCeo === this.isCeo && subtitle === this.subtitle && agentTitle === this.agentTitle) {
       return;
+    }
+    if (name !== this.name) {
+      this.body.setIdentity(name);
     }
     this.name = name;
     this.isCeo = isCeo;
@@ -964,41 +842,12 @@ export class Avatar {
     this.beacon?.dispose();
   }
 
-  /**
-   * Squashes the capsule into a seated pose, or stands it back up.
-   *
-   * The humanoid sits by playing its clip, so this leaves it alone.
-   */
-  private applyCapsulePosture(): void {
-    if (this.body.isHumanoid) {
-      return;
-    }
-    const seated = isSeated(this.animation);
-    this.body.root.scale.y = seated ? CAPSULE_SEATED_SQUASH : 1;
-    this.body.root.position.y = seated ? CAPSULE_SEATED_LIFT : 0;
-  }
-
-  /**
-   * Shows every part of the body, or in first person only the arms; a capsule
-   * has none, so it goes entirely.
-   *
-   * A skinned hand is culled against the bounds it had the first time it was
-   * drawn, which were usually with the arms hanging down: raised, the hands
-   * leave those bounds and vanish whenever the camera is as close as the eyes.
-   * In first person they are in view anyway, so they are never culled, and
-   * their bounds are worked out again on the way back.
-   */
+  /** Shows every part of the body, or in first person only the arms. */
   private applyFirstPersonParts(): void {
     const root = this.body.root;
     root.traverse((node) => {
       if (node instanceof THREE.Mesh) {
         node.visible = !this.firstPerson || isFirstPersonPart(node, root);
-      }
-      if (node instanceof THREE.SkinnedMesh) {
-        node.frustumCulled = !this.firstPerson;
-        if (!this.firstPerson) {
-          node.computeBoundingSphere();
-        }
       }
     });
   }
@@ -1012,16 +861,20 @@ export class Avatar {
     const target = (this.firstPerson || this.fired) && !isSeated(this.animation) ? 1 : 0;
     this.armRaise += (target - this.armRaise) * (1 - Math.exp(-ARM_RAISE_RATE * Math.max(deltaSeconds, 0)));
     for (const arm of this.raisedArms) {
-      this.raisePart(arm);
+      // A box is carried steady; in first person the hands still swing with the walk.
+      this.raisePart(arm, this.fired);
     }
     if (this.fired && this.bowedHead !== undefined) {
-      this.raisePart(this.bowedHead);
+      this.raisePart(this.bowedHead, false);
     }
   }
 
-  private raisePart(part: RaisedArm): void {
+  private raisePart(part: RaisedArm, steady: boolean): void {
     part.clip.copy(part.bone.quaternion);
     if (this.armRaise > 0.001) {
+      if (steady) {
+        part.bone.quaternion.slerp(AT_REST, this.armRaise);
+      }
       part.bone.quaternion.multiply(RAISE.setFromAxisAngle(part.axis, part.angle * this.armRaise));
     }
   }
@@ -1040,11 +893,11 @@ export class Avatar {
 /** Scratch for one arm's lift, so raising the arms allocates nothing per frame. */
 const RAISE = new THREE.Quaternion();
 
-/** The arm bones a first-person view raises, on a body that has them. */
+/** The turn every pivot of the rig has at rest: none. */
+const AT_REST = new THREE.Quaternion();
+
+/** The arm bones a first-person view raises. */
 function armsOf(body: AvatarBody): RaisedArm[] {
-  if (!body.isHumanoid) {
-    return [];
-  }
   return FIRST_PERSON_ARMS.flatMap(({ bone: name, axis, angle }) => {
     const bone = body.root.getObjectByName(name);
     return bone === undefined ? [] : [{ bone, clip: bone.quaternion.clone(), axis, angle }];

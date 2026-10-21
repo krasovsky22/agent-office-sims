@@ -19,6 +19,11 @@ lobby, with a reception desk facing it, lifts down the hall (ridden only in a
 building of more than one floor, see [Floors and the lift](#floors-and-the-lift))
 and, to the left of the lifts, the door into the office. Players arrive on the pavement outside, facing the
 main entrance, and walk in through the lobby.
+Everyone in the office is a blocky figure built of boxes, with a pixel-art face
+and clothes: a player's skin, hair and outfit come from their name, so the same
+name looks the same in every tab, and every agent wears its kind's shirt and a
+tie, violet for the live agents, crimson for the AI Manager and teal for the
+concierge, which no player's shirt ever is.
 The server runs one office per floor, open from boot, for up to 16 players
 each; a 17th is turned away with "The office is full (16 people)" in the HUD's
 status rather than given an empty office of their own. Unless `FLOOR_REPOS`
@@ -2287,6 +2292,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/boardAccess.ts      what the local player may do about the project board's work, and why
   src/dayClock.ts         the replicated clock, run on smoothly between patches
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
+  src/scene/avatarModel.ts  the blocky body: its boxes, its rig and its idle, walk and sit clips
+  src/scene/avatarSkin.ts  a body's colours, from its kind and name, and the pixel-art texture they are painted into
   src/scene/sendOff.ts    a fired agent's box of belongings and its tears
   src/scene/daylight.ts   the day's light curve: sun, sky and interior by the minute
   src/scene/lighting.ts   the office's lights, set from that curve every frame

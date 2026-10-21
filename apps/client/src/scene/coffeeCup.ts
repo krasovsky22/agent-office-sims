@@ -33,8 +33,8 @@ const SIP_TILT = 1.1;
  * owner's own camera, which is exactly the viewer who most needs to see it.
  */
 const HELD_OFFSET = new THREE.Vector3(OCCUPANT_RADIUS + 0.07, OCCUPANT_HEIGHT * 0.56, -OCCUPANT_RADIUS * 0.7);
-/** Where it is raised to: in front of the face, a little off centre. */
-const MOUTH_OFFSET = new THREE.Vector3(0.1, OCCUPANT_HEIGHT * 0.72, -(OCCUPANT_RADIUS + 0.12));
+/** Where it is raised to: in front of the mouth, a little off centre. */
+const MOUTH_OFFSET = new THREE.Vector3(0.06, OCCUPANT_HEIGHT * 0.78, -(OCCUPANT_RADIUS - 0.03));
 /** From a hand bone to where the cup sits in its grip, in the body's frame. */
 const GRIP_OFFSET = new THREE.Vector3(0.04, 0.05, -0.04);
 
