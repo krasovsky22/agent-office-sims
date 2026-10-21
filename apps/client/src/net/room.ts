@@ -47,7 +47,6 @@
 
 import {
   type AnimationState,
-  type DeskTerminal,
   NO_STANDUP,
   type LiveAgentStatus,
   type ManagerStatus,
@@ -299,14 +298,14 @@ export class RoomConnection extends RoomCommands {
   }
 
   /**
-   * The CEO's desk terminal as of the last patch, or `undefined` before the
-   * state arrives. Read in place by the game loop, which must not allocate.
+   * The CEO's desk terminals that are on, by seat id, as of the last patch, or
+   * `undefined` before the state arrives. Read in place by the game loop, which must not allocate.
    */
-  public desk(): DeskTerminal | undefined {
-    return this.room?.state.desk;
+  public desks(): OfficeState["desks"] | undefined {
+    return this.room?.state.desks;
   }
 
-  /** What the office radio plays as of the last patch, or `undefined` before the state arrives. Read in place, like {@link desk}. */
+  /** What the office radio plays as of the last patch, or `undefined` before the state arrives. Read in place, like {@link desks}. */
   public radio(): Radio | undefined {
     return this.room?.state.radio;
   }

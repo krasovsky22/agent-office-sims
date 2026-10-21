@@ -114,7 +114,7 @@ export const CLIENT_MESSAGE = {
   standupDirect: "standup:direct",
   /** The size the CEO's desk terminal panel has room for, in cells; see `deskTerminal.ts`. */
   deskTerminalSize: "desk:size",
-  /** Turn the CEO's desk's computer off, ending its session; no payload. Only the CEO who turned it on is listened to. */
+  /** Turn one of the CEO's desks' computers off, ending that desk's session alone. Only the CEO who turned it on is listened to. */
   deskTerminalOff: "desk:off",
   /** Tune the office radio to a station or a YouTube link, from beside it; anyone may. See `radio.ts`. */
   radioTune: "radio:tune",
@@ -500,6 +500,12 @@ export interface AgentKeyMessage {
 export interface DeskTerminalSizeMessage {
   readonly cols: number;
   readonly rows: number;
+}
+
+/** Which desk's computer to turn off: the CEO may have several on at once. */
+export interface DeskTerminalOffMessage {
+  /** The desk's seat interactable id. */
+  readonly seatId: string;
 }
 
 /** The CEO's edit of one coding agent's profile, from its card in the roster. See `agentProfile.ts`. */
@@ -913,6 +919,15 @@ export function parseDeskTerminalSizeMessage(raw: unknown): DeskTerminalSizeMess
   const cols = candidate?.cols;
   const rows = candidate?.rows;
   return isTerminalSize(cols, rows) ? { cols: cols as number, rows: rows as number } : undefined;
+}
+
+/**
+ * Validates a raw `desk:off` payload. Shape only: whether that desk has a
+ * session the sender may turn off is the server's call.
+ */
+export function parseDeskTerminalOffMessage(raw: unknown): DeskTerminalOffMessage | undefined {
+  const seatId = asRecord(raw)?.seatId;
+  return isId(seatId) ? { seatId } : undefined;
 }
 
 /**

@@ -270,7 +270,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       {desk === undefined ? null : (
         <AgentTerminalPanel
           // A fresh panel per agent lent, so nothing painted for one is shown for the next.
-          key={`desk:${desk.agentId}`}
+          key={`desk:${desk.seatId}:${desk.agentId}`}
           agentId={desk.agentId}
           agent={deskAgent}
           links={NO_LINKS}

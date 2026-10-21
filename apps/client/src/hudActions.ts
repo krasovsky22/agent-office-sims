@@ -99,8 +99,8 @@ export function hudActions(host: HudActionsHost): HudActions {
       key: (agentId, key) => room.sendAgentKey(agentId, key),
       resizeDesk: (cols, rows) => room.sendDeskTerminalSize(cols, rows),
       // Stands up too, so the panel closes rather than showing a computer that is off.
-      turnOffDesk: () => {
-        room.sendDeskTerminalOff();
+      turnOffDesk: (seatId) => {
+        room.sendDeskTerminalOff(seatId);
         host.standUp();
       },
       close: host.closeTerminal,

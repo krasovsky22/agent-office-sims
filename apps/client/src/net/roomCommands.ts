@@ -18,6 +18,7 @@ import {
   ANIMATION_STATE,
   type ChatMessage,
   CLIENT_MESSAGE,
+  type DeskTerminalOffMessage,
   type DeskTerminalSizeMessage,
   type Emote,
   type EmoteMessage,
@@ -191,9 +192,9 @@ export abstract class RoomCommands {
     this.room?.send(CLIENT_MESSAGE.deskTerminalSize, { cols, rows } satisfies DeskTerminalSizeMessage);
   }
 
-  /** Turns the CEO's desk's computer off, ending its session. */
-  public sendDeskTerminalOff(): void {
-    this.room?.send(CLIENT_MESSAGE.deskTerminalOff);
+  /** Turns one of the CEO's desks' computers off, ending that desk's session alone. */
+  public sendDeskTerminalOff(seatId: string): void {
+    this.room?.send(CLIENT_MESSAGE.deskTerminalOff, { seatId } satisfies DeskTerminalOffMessage);
   }
 
   /**

@@ -2,12 +2,13 @@
  * What the local player's desk shows them while they sit at a computer, in
  * words the HUD can show.
  *
- * Nothing is decided here. The server lends the CEO's desk a coding agent
- * (`DeskTerminal` in the replicated state) and this module only reads that
- * record for the local player: the CEO's own desk opens the terminal panel on
- * the lent agent's terminal, with a line saying why there is no terminal yet
- * when there is none, and again on the same session each time the CEO sits
- * back down, since it keeps running until they turn it off; anyone else sitting at a computer is told why it stays
+ * Nothing is decided here. The server lends each of the CEO's desks a coding
+ * agent (`desks` in the replicated state, one `DeskTerminal` per desk that is
+ * on) and this module only reads those records for the local player: the desk
+ * the CEO sits at opens the terminal panel on its own lent agent's terminal,
+ * with a line saying why there is no terminal yet when there is none, and again
+ * on the same session each time the CEO sits back down there, since each keeps
+ * running until they turn it off; anyone else sitting at a computer is told why it stays
  * off for them, since `deskTerminalRefusal` in `@sim/shared` holds it to the
  * rule for prompting a coding agent. Like `agentPromptAccess.ts` for the
  * panel's composer.
@@ -18,8 +19,16 @@ import { type AgentPromptEntry, DESK_TERMINAL_PHASE, type DeskTerminal } from "@
 /** The replicated desk terminal, as this module reads it. */
 export type DeskReading = Pick<DeskTerminal, "seatId" | "ownerId" | "agentId" | "phase" | "needsInput" | "activity" | "note">;
 
+/** Every desk that is on, by seat id, as this module reads the replicated map. */
+export interface DeskReadings {
+  get(seatId: string): DeskReading | undefined;
+  values(): Iterable<DeskReading>;
+}
+
 /** What the CEO's desk panel shows. */
 export interface DeskPanelView {
+  /** The desk's seat, which its Turn off button names. */
+  readonly seatId: string;
   /** The lent agent's occupant key, whose terminal it is; `""` while there is none. */
   readonly agentId: string;
   /** Why there is no terminal to prompt, or `""` while there is one. */
@@ -37,21 +46,23 @@ export interface DeskPanelView {
  * the server has lent an agent to for them.
  *
  * @param heldWith the interactable the local player is predicted to hold, `""` for none.
- * @param promptsAfter the last prompt entry id from before the computer was turned on.
+ * @param promptsAfter the last prompt entry id from before that desk's computer was turned on.
  */
 export function deskPanelFor(
-  desk: DeskReading | undefined,
+  desks: DeskReadings | undefined,
   localId: string,
   heldWith: string,
   promptsAfter: number,
 ): DeskPanelView | undefined {
-  if (desk === undefined || heldWith === "" || desk.seatId !== heldWith || desk.ownerId !== localId) {
+  const desk = heldWith === "" ? undefined : desks?.get(heldWith);
+  if (desks === undefined || desk === undefined || desk.seatId !== heldWith || desk.ownerId !== localId) {
     return undefined;
   }
   const open = desk.phase === DESK_TERMINAL_PHASE.open && desk.agentId !== "";
   return {
+    seatId: desk.seatId,
     agentId: open ? desk.agentId : "",
-    message: open ? "" : deskPhaseText(desk.phase, desk.note),
+    message: open ? "" : deskPhaseText(desk.phase, desk.note, desk.phase === DESK_TERMINAL_PHASE.waiting && othersOn(desks, localId, heldWith)),
     needsInput: open && desk.needsInput,
     activity: open ? desk.activity : "",
     promptsAfter,
@@ -70,11 +81,27 @@ export function deskPrompts(entries: readonly AgentPromptEntry[], panel: DeskPan
   return entries.filter((entry) => entry.agentId === panel.agentId && entry.id > panel.promptsAfter);
 }
 
-/** Why the desk has no terminal to prompt yet, or any more. */
-export function deskPhaseText(phase: string, note: string): string {
+/** Whether the local player has a session running at another desk than `seatId`, holding an agent this desk could have had. */
+function othersOn(desks: DeskReadings, localId: string, seatId: string): boolean {
+  for (const desk of desks.values()) {
+    if (desk.ownerId === localId && desk.seatId !== seatId && (desk.phase === DESK_TERMINAL_PHASE.open || desk.phase === DESK_TERMINAL_PHASE.starting)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Why the desk has no terminal to prompt yet, or any more.
+ *
+ * @param othersOn the CEO's other desks hold agents, so turning one off frees one here.
+ */
+export function deskPhaseText(phase: string, note: string, othersOn = false): string {
   switch (phase) {
     case DESK_TERMINAL_PHASE.waiting:
-      return "Every coding agent is busy. This desk gets one as soon as one is free.";
+      return othersOn
+        ? "Every coding agent is busy, your other desks' computers included. This desk gets one as soon as one is free; turn another desk's computer off to free one."
+        : "Every coding agent is busy. This desk gets one as soon as one is free.";
     case DESK_TERMINAL_PHASE.noRunner:
       return "No agent runner is connected, so this desk's computer has no coding agent to run. Start a runner, or sit down again once one is up.";
     case DESK_TERMINAL_PHASE.ended:
@@ -82,24 +109,6 @@ export function deskPhaseText(phase: string, note: string): string {
     default:
       return "Starting a coding agent at this desk…";
   }
-}
-
-/** What the CEO is told on sitting at another computer while theirs is on. */
-export const DESK_ON_ELSEWHERE_TEXT = "Your desk's computer is still on at another desk. Sit there to use it, or turn it off there first.";
-
-/**
- * Whether the local player's own desk's computer has a session running at
- * another desk than `seatId`. Only once an agent is lent: one still waiting
- * for an agent is given up the moment its CEO stands up.
- */
-export function deskOnElsewhere(desk: DeskReading | undefined, localId: string, seatId: string): boolean {
-  return (
-    desk !== undefined &&
-    desk.ownerId === localId &&
-    desk.seatId !== "" &&
-    desk.seatId !== seatId &&
-    (desk.phase === DESK_TERMINAL_PHASE.open || desk.phase === DESK_TERMINAL_PHASE.starting)
-  );
 }
 
 /** What anyone but the CEO is told on sitting at a computer. */
@@ -113,7 +122,7 @@ export function sameDeskPanel(a: DeskPanelView | undefined, b: DeskPanelView | u
   if (a === undefined || b === undefined) {
     return a === b;
   }
-  return a.agentId === b.agentId && a.message === b.message && a.needsInput === b.needsInput && a.activity === b.activity && a.promptsAfter === b.promptsAfter;
+  return a.seatId === b.seatId && a.agentId === b.agentId && a.message === b.message && a.needsInput === b.needsInput && a.activity === b.activity && a.promptsAfter === b.promptsAfter;
 }
 
 /** What the desk's monitor is keyed by while it shows a placeholder, before an agent's terminal is there to show. */

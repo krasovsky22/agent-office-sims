@@ -664,14 +664,15 @@ defineTypes(Standup, {
 });
 
 /**
- * The CEO's desk terminal (`./deskTerminal.ts`): the desk whose computer the CEO turned on,
+ * One of the CEO's desk terminals (`./deskTerminal.ts`): a desk whose computer the CEO turned on,
  * the coding agent lent to it, and how its session stands. State rather than
  * a broadcast, so every tab draws the session's terminal on that desk's
- * monitor, and the CEO's own tab opens the panel, from the same record. Only
- * the CEO has one, so there is one, empty while the CEO's desk's computer is off.
+ * monitor, and the CEO's own tab opens the panel, from the same record. The
+ * CEO may have several desks' computers on at once, one record each in
+ * `OfficeState.desks`; a desk whose computer is off has none.
  */
 export class DeskTerminal extends Schema {
-  /** The seat's interactable id; `""` while there is no session. */
+  /** The seat's interactable id, which it is keyed by in `OfficeState.desks`. */
   declare public seatId: string;
   /** The CEO who turned it on, by occupant id. */
   declare public ownerId: string;
@@ -787,8 +788,8 @@ export class OfficeState extends Schema {
    * offers the drops that would be made, and says why while it offers none.
    */
   declare public issuesWritable: boolean;
-  /** The CEO's desk terminal; see `./deskTerminal.ts`. */
-  declare public desk: DeskTerminal;
+  /** The CEO's desk terminals whose computers are on, by seat id; see `./deskTerminal.ts`. */
+  declare public desks: MapSchema<DeskTerminal>;
   declare public radio: Radio;
 
   public constructor() {
@@ -805,7 +806,7 @@ export class OfficeState extends Schema {
     this.budgetSpent = false;
     this.standup = new Standup();
     this.issuesWritable = false;
-    this.desk = new DeskTerminal();
+    this.desks = new MapSchema<DeskTerminal>();
     this.radio = new Radio();
   }
 }
@@ -823,7 +824,7 @@ defineTypes(OfficeState, {
   budgetSpent: "boolean",
   standup: Standup,
   issuesWritable: "boolean",
-  desk: DeskTerminal,
+  desks: { map: DeskTerminal },
   radio: Radio,
 });
 

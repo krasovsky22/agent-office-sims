@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DESK_TERMINAL_PHASE, deskTerminalRefusal, deskTerminalSeat } from "./deskTerminal.js";
+import { deskTerminalRefusal, deskTerminalSeat } from "./deskTerminal.js";
 import { INTERACTION_KIND, OFFICE_LAYOUT, interactables } from "./layout.js";
 import { managerSeat } from "./manager.js";
 import { OCCUPANT_KIND, OfficeState } from "./state.js";
@@ -36,10 +36,7 @@ describe("deskTerminalRefusal", () => {
 });
 
 describe("the desk terminal's state", () => {
-  it("starts off, with no desk and no agent", () => {
-    const { desk } = new OfficeState();
-    expect(desk.seatId).toBe("");
-    expect(desk.agentId).toBe("");
-    expect(desk.phase).toBe(DESK_TERMINAL_PHASE.off);
+  it("starts with every desk's computer off", () => {
+    expect(new OfficeState().desks.size).toBe(0);
   });
 });

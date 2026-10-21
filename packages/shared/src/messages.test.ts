@@ -22,6 +22,7 @@ import {
   parseAgentPromptMessage,
   parseChatMessage,
   parseRenameMessage,
+  parseDeskTerminalOffMessage,
   parseDeskTerminalSizeMessage,
   parseEmoteMessage,
   parseInteractMessage,
@@ -260,6 +261,16 @@ describe("parseAgentPromptMessage", () => {
       expect(parseAgentPromptMessage(raw)).toBeUndefined();
     });
   }
+});
+
+describe("parseDeskTerminalOffMessage", () => {
+  it("accepts a seat id and rejects anything else", () => {
+    expect(parseDeskTerminalOffMessage({ seatId: "seat-desk-north-1-1" })).toEqual({ seatId: "seat-desk-north-1-1" });
+    expect(parseDeskTerminalOffMessage(undefined)).toBeUndefined();
+    expect(parseDeskTerminalOffMessage({ seatId: "" })).toBeUndefined();
+    expect(parseDeskTerminalOffMessage({ seatId: 7 })).toBeUndefined();
+    expect(parseDeskTerminalOffMessage({ seatId: "x".repeat(65) })).toBeUndefined();
+  });
 });
 
 describe("parseDeskTerminalSizeMessage", () => {

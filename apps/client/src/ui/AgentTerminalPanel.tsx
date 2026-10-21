@@ -75,8 +75,8 @@ export interface AgentTerminalActions {
   readonly key: (agentId: string, key: AgentKey) => boolean;
   /** Says how many cells the desk's computer has room for, so its session's terminal is sized to fill it. */
   readonly resizeDesk: (cols: number, rows: number) => void;
-  /** Turns the desk's computer off, ending its session, and stands the CEO up. */
-  readonly turnOffDesk: () => void;
+  /** Turns this desk's computer off, ending its session alone, and stands the CEO up. */
+  readonly turnOffDesk: (seatId: string) => void;
   /** Closes the panel; the caller unmounts it. */
   readonly close: () => void;
 }
@@ -452,7 +452,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
             type="button"
             onClick={(event) => {
               event.currentTarget.blur();
-              actions.turnOffDesk();
+              actions.turnOffDesk(desk.seatId);
             }}
           >
             Turn off

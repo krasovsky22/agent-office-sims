@@ -1,6 +1,6 @@
 /**
- * What the local player's desk shows them: the CEO's own desk opens on its
- * lent agent's terminal, or says why there is none, and nobody else's does.
+ * What the local player's desk shows them: each of the CEO's desks opens on its
+ * own lent agent's terminal, or says why there is none, and nobody else's does.
  */
 
 import { type AgentPromptEntry, DESK_TERMINAL_PHASE } from "@sim/shared";
@@ -9,7 +9,6 @@ import { describe, expect, it } from "vitest";
 import {
   type DeskReading,
   deskForbiddenText,
-  deskOnElsewhere,
   deskPanelFor,
   deskPhaseText,
   deskPrompts,
@@ -30,24 +29,29 @@ const OPEN: DeskReading = {
   note: "",
 };
 
+/** The replicated desks map, holding these desks. */
+function on(...desks: DeskReading[]): Map<string, DeskReading> {
+  return new Map(desks.map((desk) => [desk.seatId, desk]));
+}
+
 describe("deskPanelFor", () => {
   it("opens the CEO's own desk on its agent's terminal", () => {
-    expect(deskPanelFor(OPEN, "me", SEAT, 0)).toEqual({ agentId: AGENT, message: "", needsInput: false, activity: "Bash: ls", promptsAfter: 0 });
-    expect(deskPanelFor({ ...OPEN, needsInput: true }, "me", SEAT, 0)?.needsInput).toBe(true);
+    expect(deskPanelFor(on(OPEN), "me", SEAT, 0)).toEqual({ seatId: SEAT, agentId: AGENT, message: "", needsInput: false, activity: "Bash: ls", promptsAfter: 0 });
+    expect(deskPanelFor(on({ ...OPEN, needsInput: true }), "me", SEAT, 0)?.needsInput).toBe(true);
   });
 
   it("says why there is no terminal yet, with nothing to type to", () => {
     for (const phase of [DESK_TERMINAL_PHASE.starting, DESK_TERMINAL_PHASE.waiting, DESK_TERMINAL_PHASE.noRunner, DESK_TERMINAL_PHASE.ended]) {
-      const panel = deskPanelFor({ ...OPEN, agentId: "", phase, needsInput: true }, "me", SEAT, 0);
+      const panel = deskPanelFor(on({ ...OPEN, agentId: "", phase, needsInput: true }), "me", SEAT, 0);
       expect(panel).toMatchObject({ agentId: "", needsInput: false, activity: "" });
       expect(panel?.message).toBe(deskPhaseText(phase, ""));
     }
   });
 
   it("shows nothing to anyone else, at another seat, standing, or before the state", () => {
-    expect(deskPanelFor(OPEN, "someone-else", SEAT, 0)).toBeUndefined();
-    expect(deskPanelFor(OPEN, "me", "seat-desk-north-2-1", 0)).toBeUndefined();
-    expect(deskPanelFor(OPEN, "me", "", 0)).toBeUndefined();
+    expect(deskPanelFor(on(OPEN), "someone-else", SEAT, 0)).toBeUndefined();
+    expect(deskPanelFor(on(OPEN), "me", "seat-desk-north-2-1", 0)).toBeUndefined();
+    expect(deskPanelFor(on(OPEN), "me", "", 0)).toBeUndefined();
     expect(deskPanelFor(undefined, "me", SEAT, 0)).toBeUndefined();
   });
 });
@@ -65,14 +69,14 @@ describe("deskPrompts", () => {
   const log = [entry(1, AGENT), entry(2, "agent:runner:box:slot-2"), entry(3, AGENT)];
 
   it("lists only this sitting's prompts to its agent, not a previous sitting's with the same slot", () => {
-    const sitting = deskPanelFor(OPEN, "me", SEAT, 2);
+    const sitting = deskPanelFor(on(OPEN), "me", SEAT, 2);
     expect(sitting === undefined ? [] : deskPrompts(log, sitting).map((e) => e.id)).toEqual([3]);
-    const earlier = deskPanelFor(OPEN, "me", SEAT, 0);
+    const earlier = deskPanelFor(on(OPEN), "me", SEAT, 0);
     expect(earlier === undefined ? [] : deskPrompts(log, earlier).map((e) => e.id)).toEqual([1, 3]);
   });
 
   it("lists nothing while no agent is lent", () => {
-    const starting = deskPanelFor({ ...OPEN, agentId: "", phase: DESK_TERMINAL_PHASE.starting }, "me", SEAT, 0);
+    const starting = deskPanelFor(on({ ...OPEN, agentId: "", phase: DESK_TERMINAL_PHASE.starting }), "me", SEAT, 0);
     expect(starting === undefined ? [] : deskPrompts(log, starting)).toEqual([]);
   });
 });
@@ -88,16 +92,21 @@ describe("deskPhaseText", () => {
   });
 });
 
-describe("deskOnElsewhere", () => {
-  it("tells the CEO sitting at another computer that theirs is still on, only once an agent is lent", () => {
-    const OTHER = "seat-desk-north-2-1";
-    expect(deskOnElsewhere(OPEN, "me", OTHER)).toBe(true);
-    expect(deskOnElsewhere({ ...OPEN, agentId: "", phase: DESK_TERMINAL_PHASE.starting }, "me", OTHER)).toBe(true);
-    expect(deskOnElsewhere(OPEN, "me", SEAT)).toBe(false);
-    expect(deskOnElsewhere(OPEN, "someone", OTHER)).toBe(false);
-    expect(deskOnElsewhere({ ...OPEN, agentId: "", phase: DESK_TERMINAL_PHASE.waiting }, "me", OTHER)).toBe(false);
-    expect(deskOnElsewhere({ ...OPEN, seatId: "", phase: DESK_TERMINAL_PHASE.off }, "me", OTHER)).toBe(false);
-    expect(deskOnElsewhere(undefined, "me", OTHER)).toBe(false);
+describe("deskPanelFor with several desks on", () => {
+  const OTHER = "seat-desk-north-2-1";
+  const OTHER_AGENT = "agent:runner:box:slot-2";
+
+  it("opens each desk on its own session", () => {
+    const desks = on(OPEN, { ...OPEN, seatId: OTHER, agentId: OTHER_AGENT, activity: "" });
+    expect(deskPanelFor(desks, "me", SEAT, 0)).toMatchObject({ seatId: SEAT, agentId: AGENT });
+    expect(deskPanelFor(desks, "me", OTHER, 0)).toMatchObject({ seatId: OTHER, agentId: OTHER_AGENT });
+  });
+
+  it("says turning another desk off frees an agent when the CEO's other desks hold every one", () => {
+    const waiting: DeskReading = { ...OPEN, seatId: OTHER, agentId: "", phase: DESK_TERMINAL_PHASE.waiting };
+    expect(deskPanelFor(on(OPEN, waiting), "me", OTHER, 0)?.message).toBe(deskPhaseText(DESK_TERMINAL_PHASE.waiting, "", true));
+    expect(deskPhaseText(DESK_TERMINAL_PHASE.waiting, "", true)).toMatch(/turn another desk's computer off/);
+    expect(deskPanelFor(on(waiting), "me", OTHER, 0)?.message).toBe(deskPhaseText(DESK_TERMINAL_PHASE.waiting, ""));
   });
 });
 
@@ -122,9 +131,9 @@ describe("deskScreenKey", () => {
 
 describe("sameDeskPanel", () => {
   it("tells a changed panel from the same one", () => {
-    const panel = deskPanelFor(OPEN, "me", SEAT, 0);
-    expect(sameDeskPanel(panel, deskPanelFor(OPEN, "me", SEAT, 0))).toBe(true);
-    expect(sameDeskPanel(panel, deskPanelFor({ ...OPEN, activity: "Bash: pwd" }, "me", SEAT, 0))).toBe(false);
+    const panel = deskPanelFor(on(OPEN), "me", SEAT, 0);
+    expect(sameDeskPanel(panel, deskPanelFor(on(OPEN), "me", SEAT, 0))).toBe(true);
+    expect(sameDeskPanel(panel, deskPanelFor(on({ ...OPEN, activity: "Bash: pwd" }), "me", SEAT, 0))).toBe(false);
     expect(sameDeskPanel(panel, undefined)).toBe(false);
     expect(sameDeskPanel(undefined, undefined)).toBe(true);
   });

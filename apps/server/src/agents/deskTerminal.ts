@@ -1,6 +1,6 @@
 /**
- * The CEO's desk terminal, on the server: which desk the CEO sits at, which
- * runner's slot is lent to it, and how its session stands.
+ * The CEO's desk terminals, on the server: which desks' computers the CEO has
+ * on, which runner's slot is lent to each, and how each session stands.
  *
  * Sitting is all it takes. While the CEO sits at a desk with a computer
  * (`deskTerminalSeat` in `@sim/shared`), this lends the desk the first free
@@ -11,17 +11,20 @@
  * agent, through `./agentPrompts.ts`, so the same gate and the same budgets
  * hold. Standing up leaves the computer on: the session keeps running, its
  * terminal still on the desk's monitor, and the CEO sitting at that desk again
- * is back at the same session. It is closed with `desk-close`, and the slot is
- * back on the floor for issue work, only when the CEO turns it off, or is no
- * longer the CEO who turned it on (left for good, or handed the role on), so a
- * session is never left running that nobody may turn off. A sitting with no
+ * is back at the same session. Each desk is its own session, so the CEO may
+ * sit at another computer and turn that one on too, as many as there are free
+ * slots; with none free, that desk waits for one and says so. A session is
+ * closed with `desk-close`, and the slot is back on the floor for issue work,
+ * only when the CEO turns that desk off, or is no longer the CEO who turned it
+ * on (left for good, or handed the role on), so a session is never left
+ * running that nobody may turn off. A sitting with no
  * slot lent (every agent busy, no runner, or the session ended) leaves nothing
  * running, and standing up forgets it. The CEO's panel says how many cells it has
  * room for, and the session's terminal is sized to that with `desk-resize`, so
  * its agent wraps its output to the width the CEO reads it at.
  *
  * It is declarative, as the work's reconciliation is (`./runnerWork.ts`): each
- * step compares where the CEO sits with what the runners report, and sends
+ * step compares where the CEO sits, and which desks are on, with what the runners report, and sends
  * only what closes the gap. A slot reporting a desk no room has lent it to,
  * as after the server restarted, is closed too. Every room's
  * terminal shares the one runner link, so which slot is lent to which desk is
@@ -31,14 +34,15 @@
  * runner's host: the rule is `deskTerminalRefusal`, the prompt gate. Anyone
  * else sitting at a desk gets nothing from here.
  *
- * What it decides is written to the replicated `DeskTerminal`, which every tab
- * reads to draw the session's terminal on that desk's monitor, and the CEO's
- * tab to open the panel. Synchronous, and run on the tick: it reads what the
+ * What it decides is written to the replicated `desks`, one `DeskTerminal` per
+ * desk that is on, which every tab reads to draw each session's terminal on its
+ * desk's monitor, and the CEO's tab to open the panel at the desk they sit at. Synchronous, and run on the tick: it reads what the
  * runner link already holds and never waits on a runner.
  */
 
 import {
   DESK_TERMINAL_PHASE,
+  DeskTerminal as DeskTerminalState,
   type DeskTerminalPhase,
   type OfficeLayout,
   type OfficeState,
@@ -79,7 +83,7 @@ export interface DeskTerminalOptions {
   readonly log?: (name: string, detail: Record<string, string | number>) => void;
 }
 
-/** The CEO's desk's computer while it is on, and the slot lent to it. */
+/** One of the CEO's desks' computers while it is on, and the slot lent to it. */
 interface Session {
   readonly seatId: string;
   readonly ownerId: string;
@@ -120,7 +124,8 @@ function sameSlot(a: RunnerSlotRef, b: RunnerSlotRef): boolean {
 }
 
 export class DeskTerminal {
-  private session: Session | undefined;
+  /** Every desk whose computer is on, by seat id. */
+  private readonly sessions = new Map<string, Session>();
   /** Slots reporting a desk this room has asked to close, by `runner:slot@seat`, until they stop reporting it. */
   private readonly closing = new Set<string>();
   /** The seat the CEO turned the computer off at while sitting there, so it stays off until they stand up. */
@@ -128,65 +133,62 @@ export class DeskTerminal {
 
   public constructor(private readonly options: DeskTerminalOptions) {}
 
-  /** Gives the session's slot back, as the room closes. */
+  /** Gives every session's slot back, as the room closes. */
   public dispose(): void {
-    if (this.session !== undefined) {
-      this.close(this.session, "the room closed");
+    for (const session of [...this.sessions.values()]) {
+      this.close(session, "the room closed");
     }
   }
 
   /**
-   * One step: closes the session once its CEO is gone, or once the CEO has
-   * stood up from one with nothing running; lends one if the CEO sits at a
-   * desk while the computer is off; and writes where it stands to the state.
+   * One step: closes every session once its CEO is gone, and any the CEO has
+   * stood up from with nothing running; lends one if the CEO sits at a desk
+   * whose computer is off; and writes where each stands to the state.
    */
   public step(): void {
     const ceo = this.ceo();
     if (this.turnedOffAt !== undefined && ceo?.seatId !== this.turnedOffAt) {
       this.turnedOffAt = undefined;
     }
-    let session = this.session;
-    if (session !== undefined && ceo?.id !== session.ownerId) {
-      this.close(session, ceo === undefined ? "the CEO left" : "the CEO handed the role on");
-      session = undefined;
+    for (const session of [...this.sessions.values()]) {
+      if (ceo?.id !== session.ownerId) {
+        this.close(session, ceo === undefined ? "the CEO left" : "the CEO handed the role on");
+      } else if (ceo.seatId !== session.seatId && session.lent === undefined) {
+        this.close(session, "the CEO stood up");
+      }
     }
-    const sitting = session !== undefined && ceo?.seatId === session.seatId;
-    if (session !== undefined && !sitting && session.lent === undefined) {
-      this.close(session, "the CEO stood up");
-      session = undefined;
-    }
-    if (session === undefined && ceo?.seatId !== undefined && ceo.seatId !== this.turnedOffAt) {
-      session = { seatId: ceo.seatId, ownerId: ceo.id, ownerName: ceo.name, lent: undefined, opened: false, ended: undefined, size: undefined, sentSize: undefined };
-      this.session = session;
+    if (ceo?.seatId !== undefined && ceo.seatId !== this.turnedOffAt && !this.sessions.has(ceo.seatId)) {
+      this.sessions.set(ceo.seatId, { seatId: ceo.seatId, ownerId: ceo.id, ownerName: ceo.name, lent: undefined, opened: false, ended: undefined, size: undefined, sentSize: undefined });
       this.options.log?.("desk-terminal-sat", { seat: ceo.seatId, by: ceo.name });
     }
     const slots = this.options.runner?.hasRunners() === true ? this.options.runner.deskSlots() : [];
-    if (session !== undefined) {
+    for (const session of this.sessions.values()) {
       this.advance(session, slots, ceo?.seatId === session.seatId);
       this.sendSize(session);
     }
     this.closeStrays(slots);
-    this.publish(session, slots);
+    this.publish(slots);
   }
 
   /**
-   * Takes the cells the CEO's panel has room for, from the CEO sitting there;
-   * the next step sizes the session's terminal to them.
+   * Takes the cells the CEO's panel has room for, from the CEO sitting at one
+   * of their desks; the next step sizes that desk's terminal to them.
    */
   public resize(ownerId: string, cols: number, rows: number): void {
-    const session = this.session;
+    const ceo = this.ceo();
+    const session = ceo?.id === ownerId && ceo.seatId !== undefined ? this.sessions.get(ceo.seatId) : undefined;
     if (session?.ownerId === ownerId) {
       session.size = { cols, rows };
     }
   }
 
   /**
-   * Turns the computer off for the CEO who turned it on: closes its session,
-   * whether they sit there or not, and lends nothing more at that desk until
-   * they have stood up from it.
+   * Turns one desk's computer off for the CEO who turned it on: closes that
+   * desk's session alone, whether they sit there or not, and lends nothing
+   * more at that desk until they have stood up from it.
    */
-  public turnOff(ownerId: string): void {
-    const session = this.session;
+  public turnOff(ownerId: string, seatId: string): void {
+    const session = this.sessions.get(seatId);
     if (session?.ownerId !== ownerId) {
       return;
     }
@@ -196,13 +198,13 @@ export class DeskTerminal {
 
   /** Ends the session the runner says ended, or never started, with its reason. */
   public receive(events: readonly RunnerEventRecord[]): void {
-    const session = this.session;
     for (const { runnerId, event } of events) {
       if (event.kind !== RUNNER_EVENT_KIND.deskEnded) {
         continue;
       }
+      const session = this.sessions.get(event.seatId);
       const lent = session?.lent;
-      if (session === undefined || lent === undefined || !sameSlot(lent, { runnerId, slotId: event.slotId }) || event.seatId !== session.seatId) {
+      if (session === undefined || lent === undefined || !sameSlot(lent, { runnerId, slotId: event.slotId })) {
         continue;
       }
       this.lend(session, undefined);
@@ -330,7 +332,7 @@ export class DeskTerminal {
 
   /** Gives the session's slot back, if it has one, and forgets the session. */
   private close(session: Session, reason: string): void {
-    this.session = undefined;
+    this.sessions.delete(session.seatId);
     this.options.log?.("desk-terminal-closed", { seat: session.seatId, by: session.ownerName, why: reason });
     const lent = session.lent;
     if (lent !== undefined) {
@@ -366,29 +368,36 @@ export class DeskTerminal {
     }
   }
 
-  /** Writes where the session stands to the replicated state, field by field, so a step that changed nothing sends nothing. */
-  private publish(session: Session | undefined, slots: readonly RunnerDeskSlot[]): void {
-    const desk = this.options.state.desk;
-    const lent = session?.lent;
-    const slot = lent === undefined || session?.opened !== true ? undefined : slots.find((candidate) => sameSlot(candidate, lent));
-    const phase = this.phaseOf(session, slot);
-    const agentId = slot === undefined ? "" : liveAgentKey(runnerSlotAgentId(slot.runnerId, slot.slotId));
-    const needsInput = slot?.status === RUNNER_SLOT_STATUS.needsInput;
-    const activity = slot?.activity ?? "";
-    const note = session?.ended ?? "";
-    desk.seatId = session?.seatId ?? "";
-    desk.ownerId = session?.ownerId ?? "";
-    desk.agentId = agentId;
-    desk.phase = phase;
-    desk.needsInput = needsInput;
-    desk.activity = activity;
-    desk.note = note;
+  /**
+   * Writes where each session stands to the replicated state, one record per
+   * desk that is on, field by field, so a step that changed nothing sends nothing.
+   */
+  private publish(slots: readonly RunnerDeskSlot[]): void {
+    const desks = this.options.state.desks;
+    for (const seatId of [...desks.keys()]) {
+      if (!this.sessions.has(seatId)) {
+        desks.delete(seatId);
+      }
+    }
+    for (const session of this.sessions.values()) {
+      let desk = desks.get(session.seatId);
+      if (desk === undefined) {
+        desk = new DeskTerminalState();
+        desk.seatId = session.seatId;
+        desks.set(session.seatId, desk);
+      }
+      const lent = session.lent;
+      const slot = lent === undefined || !session.opened ? undefined : slots.find((candidate) => sameSlot(candidate, lent));
+      desk.ownerId = session.ownerId;
+      desk.agentId = slot === undefined ? "" : liveAgentKey(runnerSlotAgentId(slot.runnerId, slot.slotId));
+      desk.phase = this.phaseOf(session, slot);
+      desk.needsInput = slot?.status === RUNNER_SLOT_STATUS.needsInput;
+      desk.activity = slot?.activity ?? "";
+      desk.note = session.ended ?? "";
+    }
   }
 
-  private phaseOf(session: Session | undefined, slot: RunnerDeskSlot | undefined): DeskTerminalPhase {
-    if (session === undefined) {
-      return DESK_TERMINAL_PHASE.off;
-    }
+  private phaseOf(session: Session, slot: RunnerDeskSlot | undefined): DeskTerminalPhase {
     if (session.ended !== undefined) {
       return DESK_TERMINAL_PHASE.ended;
     }
