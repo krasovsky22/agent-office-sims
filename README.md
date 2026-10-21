@@ -418,7 +418,7 @@ are. Floors above the first have no street door, glass the length of the
 street side with the street seen from up high, and a lift lobby where reception
 would be. Every floor shows the one clock.
 
-The floors above the first have a board and an AI Manager and no agents yet:
+The floors above the first have only a board, with no AI Manager and no agents yet:
 neither the runner link nor the live agents reach them, so nothing can start
 work there: there is nobody on the floor to hand an issue to, and drops on
 Closed and Open are not offered. The agents still work the ground

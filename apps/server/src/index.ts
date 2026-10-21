@@ -16,7 +16,7 @@
  * per room: one poll loop serves every room of a floor, and its token stays in
  * this process. Each floor is one repository's office and its own room type,
  * floor 1 `PROJECT_BOARD_REPO`'s and the rest `FLOOR_REPOS`'; the floors above
- * the ground floor get their board and the manager, and no agents yet, so
+ * the ground floor get only their board, with no manager and no agents yet, so
  * nothing can start work on one. The building opens every floor's room, keeps
  * the lift's directory of them, and has one clock they all step. The live
  * agents' registry is made here for the same reason, and its report route is
@@ -189,7 +189,7 @@ const server = new Server({
 // Handed to the room type, not as Colyseus room options, which a client's join
 // options are merged into: a client can never supply the feeds or the way the
 // manager thinks. The manager's advisor is made once, so its call budget is the
-// whole server's, every floor's together.
+// whole server's.
 const advisor = createConfiguredManager(manager);
 server.define(OFFICE_ROOM_NAME, officeRoom({
   projectBoard: projectFeed,
@@ -224,7 +224,6 @@ upperFeeds.forEach((feed, index) => {
     ...lifts,
     clock,
     reconnectGraceSeconds: RECONNECT_GRACE_SECONDS,
-    manager: advisor,
     agentRestrictLabel: runner.restrictLabel,
   } satisfies OfficeRoomOptions));
 });

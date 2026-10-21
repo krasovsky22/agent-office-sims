@@ -35,6 +35,14 @@ describe("hudRoomEvents", () => {
     events = hudRoomEvents(host);
   });
 
+  it("takes the ride's overlay down once the connection is anything but connected", () => {
+    hud = { ...hud, riding: 2 };
+    events.onStatusChanged?.("connected");
+    expect(hud.riding).toBe(2);
+    events.onStatusChanged?.("full");
+    expect(hud.riding).toBeUndefined();
+  });
+
   it("counts the manager's new lines as unread while its panel is closed, once each", () => {
     events.onManagerEntry?.(line(1));
     events.onManagerEntry?.(line(1));

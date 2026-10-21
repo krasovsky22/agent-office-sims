@@ -67,9 +67,10 @@ export function hudRoomEvents(host: HudRoomEventsHost): RoomConnectionEvents {
   };
 
   return {
-    // A refresh asked for before the connection changed will not be answered on the new one.
+    // A refresh asked for before the connection changed will not be answered on the new one,
+    // and a ride that lost its connection is over.
     onStatusChanged: (status, detail) => {
-      host.publish({ status, detail, boardRefreshing: false });
+      host.publish({ status, detail, boardRefreshing: false, ...(status === "connected" ? {} : { riding: undefined }) });
     },
 
     onThrottled: (event) => {
