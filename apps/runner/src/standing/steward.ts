@@ -147,10 +147,12 @@ export class StewardRefusal extends Error {
 
 /** What git and GitHub say when the runner's identity may not do it: trying again changes nothing. */
 const PERMISSION_DENIED = /permission|denied|forbidden|not authorized|\b403\b|resource not accessible/i;
+/** GitHub answers a rate limit with a 403 too, but that one passes. */
+const RATE_LIMITED = /rate limit|secondary|abuse/i;
 
 /** Whether a refusal is one no second try gets past. */
 export function deniedForGood(message: string): boolean {
-  return PERMISSION_DENIED.test(message);
+  return PERMISSION_DENIED.test(message) && !RATE_LIMITED.test(message);
 }
 
 export interface StewardGithub {

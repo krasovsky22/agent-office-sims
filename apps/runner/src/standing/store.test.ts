@@ -38,4 +38,15 @@ describe("the standing store", () => {
     expect(loaded({ perRunUsd: 1, runMinutes: 10, maxRunsPerHour: 6 })).toEqual({ perRunUsd: 1, runMinutes: 10, maxRunsPerHour: 6 });
     expect(loaded({ runMinutes: 20, maxRunsPerHour: 3 })).toEqual({ runMinutes: 20, maxRunsPerHour: 3 });
   });
+
+  it("keeps a steward resolve's ledger entry, keyed by head and base, through a save and a load", () => {
+    const file = join(dir, "standing.json");
+    const spec = { id: "st-prwatch1", kind: "pr-review", name: "", paused: false, note: "", version: 1, caps: { runMinutes: 10 }, intervalSeconds: 120, authors: "collaborators" };
+    const entry = { state: "failed", attempts: 3, at: 5 };
+    const ledger = { "fix:189@abc1234+def5678": entry, "fix:190@abc1234+": entry };
+    writeFileSync(file, JSON.stringify({ day: "2026-10-20", spentTodayUsd: 0, tasks: [{ spec, ledger, runStarts: [] }], unsent: [] }));
+    const store = new StandingStore({ file });
+    store.save(store.load("2026-10-20"));
+    expect(Object.keys(new StandingStore({ file }).load("2026-10-20").tasks[0]?.ledger ?? {})).toEqual(Object.keys(ledger));
+  });
 });

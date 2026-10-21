@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { type GitFixture, gitFixture } from "../gitFixture.js";
 import { runCommand } from "../github.js";
-import { createStewardGithub, readMergeMethod, readPullState } from "./steward.js";
+import { createStewardGithub, deniedForGood, readMergeMethod, readPullState } from "./steward.js";
 
 describe("readPullState", () => {
   it("reads the merge state and each check, required or not", () => {
@@ -81,6 +81,16 @@ describe("readPullState", () => {
     // Unsaid means a fork's: never pushed to.
     expect(bare.crossRepository).toBe(true);
     expect(() => readPullState({ data: { repository: { pullRequest: null } } }, 7)).toThrow("no pull request #7");
+  });
+});
+
+describe("deniedForGood", () => {
+  it("treats a permission refusal as final and a rate limit as one to try again", () => {
+    expect(deniedForGood("remote: Permission to o/r.git denied to bot. (HTTP 403)")).toBe(true);
+    expect(deniedForGood("GraphQL: Resource not accessible by integration")).toBe(true);
+    expect(deniedForGood("gh: HTTP 403: You have exceeded a secondary rate limit")).toBe(false);
+    expect(deniedForGood("HTTP 403: abuse detection mechanism triggered")).toBe(false);
+    expect(deniedForGood("connection reset by peer")).toBe(false);
   });
 });
 

@@ -116,7 +116,7 @@ export const MAX_UNSENT_RUNS = 20;
 
 const LEDGER_STATES: ReadonlySet<string> = new Set(Object.values(LEDGER_STATE));
 const SKIP_REASONS: ReadonlySet<string> = new Set(["draft", "outside", "closed", "missed", "superseded", "held", "stale"]);
-const LEDGER_KEY = /^(?:pr:\d{1,10}|at:\d{1,16}|(?:fix|merge|hold):\d{1,10}@[0-9a-f]{7,64})$/;
+const LEDGER_KEY = /^(?:pr:\d{1,10}|at:\d{1,16}|(?:fix|merge|hold):\d{1,10}@[0-9a-f]{7,64}|fix:\d{1,10}@[0-9a-f]{7,64}\+[0-9a-f]{0,64})$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 function number(raw: unknown): number | undefined {
