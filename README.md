@@ -2145,7 +2145,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/concierge.ts    the concierge's welcome to each player who steps into the lobby
   src/github/             the project board's feed: fetch, bucket, poll
   src/agents/             the live agents' feeds: the report and assignment routes, the registry, the runner link, the slots' screens, and the loop between the work and the runner's slots
-  src/manager/            the AI manager: its view of the office, rule and model planners, call budget, assignments, updates
+  src/manager/            the AI manager: its view of the office, model planners, call budget, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/rooms/agentPromptHandlers.ts  the CEO's prompts and keys to a coding agent, and the refusals sent back
   src/rooms/agentProfileHandlers.ts  the CEO's edits to an agent's profile, queued for its runner, and the refusals sent back
