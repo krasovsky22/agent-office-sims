@@ -53,9 +53,9 @@ export type SkipReason = "draft" | "outside" | "closed" | "missed" | "superseded
 
 /**
  * One event, keyed `pr:<number>` for a pull request's review, `at:<epoch ms>`
- * for a schedule's firing, or, for the steward, `fix:<number>@<head>`,
+ * for a schedule's firing, or, for the steward, `fix:<number>@<head>+<base>`,
  * `merge:<number>@<head>` and `hold:<number>@<head>` for resolving, merging
- * or holding a pull request at one head commit.
+ * or holding a pull request at one head commit (and base commit, to resolve).
  */
 export interface LedgerEntry {
   state: LedgerState;

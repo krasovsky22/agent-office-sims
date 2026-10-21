@@ -28,6 +28,7 @@ describe("readPullState", () => {
               headRefOid: "ABC1234",
               headRefName: "feature",
               baseRefName: "main",
+              baseRefOid: "BASE000",
               isCrossRepository: false,
               commits: {
                 nodes: [
@@ -60,6 +61,7 @@ describe("readPullState", () => {
       headSha: "abc1234",
       headRef: "feature",
       baseRef: "main",
+      baseSha: "base000",
       crossRepository: false,
       mergeable: "MERGEABLE",
       mergeState: "CLEAN",
@@ -126,6 +128,7 @@ describe("resolving a pull request's conflicts", () => {
       headSha,
       headRef: "feature",
       baseRef: "main",
+      baseSha: "base000",
       crossRepository: false,
       mergeable: "CONFLICTING",
       mergeState: "DIRTY",
@@ -148,7 +151,11 @@ describe("resolving a pull request's conflicts", () => {
     const github = steward();
     const started = await github.startMerge(scratch, 7, state);
     expect(started).toEqual({ conflicts: ["a.txt"], upToDate: false, gitDir: expect.stringContaining("worktrees") });
-    await expect(github.finishMerge(scratch, started.gitDir, state, ["a.txt"], "Merge main into feature")).rejects.toThrow("a.txt still has conflict markers");
+    // The agent's to put right: shown to it on its next pass.
+    await expect(github.finishMerge(scratch, started.gitDir, state, ["a.txt"], "Merge main into feature")).rejects.toMatchObject({
+      message: "a.txt still has conflict markers",
+      kind: "agent",
+    });
     expect(originFeature()).toBe(state.headSha);
 
     writeFileSync(join(scratch, "a.txt"), "main and feature\n");
@@ -185,7 +192,7 @@ describe("resolving a pull request's conflicts", () => {
     const pushed = originFeature();
 
     writeFileSync(join(scratch, "a.txt"), "resolved\n");
-    await expect(github.finishMerge(scratch, gitDir, state, ["a.txt"], "Merge main into feature")).rejects.toThrow();
+    await expect(github.finishMerge(scratch, gitDir, state, ["a.txt"], "Merge main into feature")).rejects.toHaveProperty("kind", "moved");
     expect(originFeature()).toBe(pushed);
   });
 

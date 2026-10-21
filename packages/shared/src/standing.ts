@@ -368,6 +368,8 @@ export interface PullState {
   readonly headSha: string;
   readonly headRef: string;
   readonly baseRef: string;
+  /** The base branch's commit as GitHub has it now: the steward tries a pull request's conflicts again once it moves. */
+  readonly baseSha: string;
   /** From a fork, which the runner cannot push to. */
   readonly crossRepository: boolean;
   /** GitHub's `mergeable`: `MERGEABLE`, `CONFLICTING` or `UNKNOWN` while it works it out. */

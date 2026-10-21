@@ -43,6 +43,8 @@ export interface StandingRunResult {
   readonly message: string;
   /** The review comment, once posted. */
   readonly commentId?: number | undefined;
+  /** A failure trying the run again cannot get past: it is the event's last, whatever attempts are left. */
+  readonly final?: boolean | undefined;
 }
 
 export interface StandingRunners {
