@@ -522,7 +522,9 @@ again. Where it stands is replicated state (`DeskTerminal` in
 
 An agent runner is the separate process that owns real coding agents, kept out
 of the game server. It talks to the server over two routes, a sync and its
-slots' screens. Set `RUNNER_SECRET`
+slots' screens. Run the server and the runner at the same version: the sync's
+standing-budget fields changed when an unset standing budget became unlimited,
+so a mixed pair rejects each other's syncs and standing tasks. Set `RUNNER_SECRET`
 (16 characters or more) on the server, and the runner syncs about once a second
 to `/agents/runner/sync` with the secret as a bearer token:
 
