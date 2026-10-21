@@ -522,7 +522,9 @@ again. Where it stands is replicated state (`DeskTerminal` in
 
 An agent runner is the separate process that owns real coding agents, kept out
 of the game server. It talks to the server over two routes, a sync and its
-slots' screens. Set `RUNNER_SECRET`
+slots' screens. Run the server and the runner at the same version: the sync's
+standing-budget fields changed when an unset standing budget became unlimited,
+so a mixed pair rejects each other's syncs and standing tasks. Set `RUNNER_SECRET`
 (16 characters or more) on the server, and the runner syncs about once a second
 to `/agents/runner/sync` with the secret as a bearer token:
 
@@ -853,7 +855,7 @@ It reads its own variables, listed in `.env.example`:
 | `RUNNER_MAX_AGENTS` | `2` | Slots, from 1 to 4, the server's cap. Agents the AI Manager hires are added to them, up to 4 slots in all. |
 | `RUNNER_TASK_TIMEOUT_MINUTES` | `60` | Whole minutes an agent may work, from its start or a prompt, before its slot stops it; time it waits on a person does not count. |
 | `RUNNER_DAILY_BUDGET_USD` | none | US dollars, `0` or more, the agents may spend in a day before the runner refuses new starts; see [The runner's budget](#the-runners-budget). Unset, spend is counted and nothing is refused. |
-| `RUNNER_STANDING_DAILY_BUDGET_USD` | none | US dollars, `0` or more, all [standing tasks](#standing-tasks) together may spend in a day. For `RUNNER_AGENT=claude` it is also the opt-in: unset, the runner takes no standing tasks. Refused at boot when above `RUNNER_DAILY_BUDGET_USD`, so issue work always keeps the difference. |
+| `RUNNER_STANDING_DAILY_BUDGET_USD` | none | US dollars, `0` or more, all [standing tasks](#standing-tasks) together may spend in a day. Unset, their spend is counted and shown, and nothing caps it but `RUNNER_DAILY_BUDGET_USD`, if that is set. Refused at boot when above `RUNNER_DAILY_BUDGET_USD`, so issue work always keeps the difference. |
 | `RUNNER_STANDING_MAX_CONCURRENT` | `1` | Standing runs at once across every task, from 1 to `RUNNER_MAX_AGENTS`. |
 | `REAL_AGENT_RESTRICT_LABEL` | `agent-restricted` | The label that keeps a real agent from starting on an issue that carries it on GitHub; the server's own setting, the same value on both. |
 | `RUNNER_GITHUB_AUTH` | `app` | Who a `claude` agent is on GitHub: `app`, the runner's GitHub App, or `personal`, your own login, with your full access; see [Your own GitHub login instead](#your-own-github-login-instead). The setting decides, whatever else is set: with `personal` the App's variables are ignored, and with `app` `RUNNER_GITHUB_TOKEN` is. |
@@ -1286,21 +1288,20 @@ terminal panel name and link the pull request it reviews.
 
 **The caps.** Each task has its own: $0.50 and 10 minutes a run
 (`--max-budget-usd`, and the runner stops the run's process group at its
-minutes, or once its own estimate passes the cap by a quarter), $2.00 a day,
-and 6 runs an hour; a task that reaches its runs an hour starts nothing more
-that day, so a burst of pull requests cannot run up the day. A run stopped by
-a cap is reported `failed` and tried again later, up to three attempts in
-all; a task past a cap shows `over budget` and starts nothing more that day.
-All standing tasks together are held to `RUNNER_STANDING_DAILY_BUDGET_USD`,
-and everything to the runner's own `RUNNER_DAILY_BUDGET_USD`, in whose ledger
-standing spend is booked too. A `claude` runner takes no standing task at all
-until its operator sets `RUNNER_STANDING_DAILY_BUDGET_USD`: it says so on
-every sync, the AI Manager says why when asked for one, and the runner itself
-refuses one anyway; tasks kept in `standing.json` from before show `error`
-and check and run nothing until it is set, and `Resume` and `Check now` on
-them are refused. The runner holds a task's caps to the standing budget
-whatever the server sent, and holds at most four tasks, one of them a pull
-request watch.
+minutes, or once its own estimate passes the cap by a quarter), and 6 runs an
+hour, retries included; a task that reaches its runs an hour shows
+`run limit reached` and starts nothing more that day, so a burst of pull
+requests cannot run up the day. A run stopped by a cap is reported `failed`
+and tried again later, up to three attempts in all. A task has no daily spend
+of its own: all standing tasks together are held to
+`RUNNER_STANDING_DAILY_BUDGET_USD`, and everything to the runner's own
+`RUNNER_DAILY_BUDGET_USD`, in whose ledger standing spend is booked too. Once
+either is spent a task shows `over budget` and starts nothing more that day.
+With the standing budget set, a task's row reads `$0.20 of $2.00 today`
+against it; unset, `$0.20 today`, its spend still counted. With neither set,
+nothing caps what standing tasks spend in a day. The runner holds a run's
+cap to the standing budget whatever the server sent, and holds at most four
+tasks, one of them a pull request watch.
 
 **Issue work comes first.** A standing run only takes a slot holding no run
 of any kind, at most `RUNNER_STANDING_MAX_CONCURRENT` at once and one per
@@ -1699,8 +1700,8 @@ Then confirm all twenty-seven:
     shows `Read: .sims-review/pr.diff` and the rest of its steps, the floor
     names `Review PR #<n>: <title>`, and the AI Manager posts
     `<first> did a simulated review of PR #<n> “<title>” … nothing was posted
-    on GitHub.`; the row reads `Last: simulated PR #<n>` and `$0.20 of $2.00
-    today` in both tabs, and nothing appears on the pull request. A draft
+    on GitHub.`; the row reads `Last: simulated PR #<n>` and `$0.20 today`
+    in both tabs, and nothing appears on the pull request. A draft
     waits until it is marked ready. Assign an unrestricted issue to the slot
     while it reviews: it starts the issue at once, the AI Manager says the
     review gave way to issue work, and it runs again on the other slot.
@@ -1709,9 +1710,7 @@ Then confirm all twenty-seven:
     day's spend kept, and the pull request is not reviewed again. Restart the
     server, or close both tabs and open them again: the row is back within a
     sync. `Remove`, or `stop watching pull requests` from Dana, takes it off
-    both rosters. With `RUNNER_AGENT=claude` and no
-    `RUNNER_STANDING_DAILY_BUDGET_USD`, the AI Manager answers that the
-    runner takes no standing tasks and why.
+    both rosters.
     `apps/server/src/manager/standingRoundTrip.test.ts` plays this against a
     live room and the runner's own scheduler, and
     `apps/runner/src/standing/scheduler.test.ts` the baseline, the skips,

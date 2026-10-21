@@ -47,11 +47,11 @@ import {
   type StandingStatus,
   type StandingTaskAction,
   type StandingSchedule,
-  formatUsd,
   isStandingOutcome,
   isStandingStatus,
   parseCron,
   scheduleRefusal,
+  standingSpendText,
 } from "@sim/shared";
 
 import type { StandingControl } from "../agents/standingControl.js";
@@ -422,7 +422,7 @@ function describeStandingTask(task: StandingTaskView): string {
   if (task.queued > 0) {
     parts.push(`${task.queued} waiting for a free coding agent`);
   }
-  parts.push(`${formatUsd(task.spentTodayUsd)} of ${formatUsd(task.dailyUsd)} today`);
+  parts.push(standingSpendText(task.spentTodayUsd, task.dailyUsd));
   if (task.lastError !== undefined) {
     parts.push(`last error: ${task.lastError}`);
   }

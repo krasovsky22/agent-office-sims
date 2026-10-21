@@ -18,10 +18,10 @@ import {
   STANDING_STATUS_TEXT,
   type StandingRejection,
   type StandingTask,
-  formatUsd,
   isStandingOutcome,
   isStandingStatus,
   mayManageStandingTasks,
+  standingSpendText,
 } from "@sim/shared";
 
 /** One standing task as the state replicates it, copied into plain data for the HUD. */
@@ -111,7 +111,7 @@ export function standingRow(task: StandingTaskData, now: number): StandingRow {
     lines.push(`Last: ${outcome}${task.lastRunPr === 0 ? "" : ` PR #${task.lastRunPr}`}`);
   }
   const waiting = task.queued === 0 ? "" : ` · ${task.queued} waiting for a slot`;
-  lines.push(`${formatUsd(task.spentTodayUsd)} of ${formatUsd(task.dailyUsd)} today${waiting}`);
+  lines.push(`${standingSpendText(task.spentTodayUsd, task.dailyUsd === 0 ? undefined : task.dailyUsd)}${waiting}`);
   if (task.lastError !== "") {
     lines.push(task.lastError);
   }
@@ -119,7 +119,7 @@ export function standingRow(task: StandingTaskData, now: number): StandingRow {
     title: `${task.name} · ${status}`,
     lines,
     paused: task.status === STANDING_STATUS.paused,
-    alert: task.status === STANDING_STATUS.overBudget || task.status === STANDING_STATUS.error,
+    alert: task.status === STANDING_STATUS.overBudget || task.status === STANDING_STATUS.runLimit || task.status === STANDING_STATUS.error,
   };
 }
 
@@ -131,6 +131,7 @@ const STATUS_TONE: Readonly<Record<string, RecurringTone>> = {
   [STANDING_STATUS.running]: "pending",
   [STANDING_STATUS.waitingSlot]: "pending",
   [STANDING_STATUS.overBudget]: "bad",
+  [STANDING_STATUS.runLimit]: "bad",
   [STANDING_STATUS.error]: "bad",
   [STANDING_STATUS.paused]: "plain",
 };

@@ -234,7 +234,7 @@ export function copyStandingTasks(map: MapSchema<StandingTask>, records: readonl
       queued: report.queued,
       handledToday: report.handledToday,
       spentTodayUsd: report.spentTodayUsd,
-      dailyUsd: report.dailyUsd,
+      dailyUsd: report.dailyUsd ?? 0,
       lastError: report.lastError,
       lastOutcome: latest?.outcome ?? "",
       lastRunAt: latest?.at ?? 0,

@@ -23,9 +23,8 @@
  *
  * Beside the slots' issue work, the runner keeps its standing tasks
  * (`./standing/`): recurring jobs the CEO set up, such as watching for new
- * pull requests, each run a fresh, short, capped agent run on a free slot. A
- * real agent's runner takes them only once `RUNNER_STANDING_DAILY_BUDGET_USD`
- * is set.
+ * pull requests, each run a fresh, short, capped agent run on a free slot,
+ * held to `RUNNER_STANDING_DAILY_BUDGET_USD` together while it is set.
  *
  * A slot holding nothing can also be lent to a desk in the office, where the
  * CEO sitting there prompts a fresh session of its agent directly; its
@@ -38,7 +37,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { STANDING_OFF, formatUsd, retiredAgentIssueLabelNotice } from "@sim/shared";
+import { formatUsd, retiredAgentIssueLabelNotice } from "@sim/shared";
 
 import { claudeAdapter } from "./agents/claude.js";
 import { HookServer } from "./agents/hookServer.js";
@@ -256,7 +255,6 @@ try {
     }),
     ledger,
     budgetUsd: config.standingDailyBudgetUsd,
-    off: config.agent !== "mock" && config.standingDailyBudgetUsd === undefined ? STANDING_OFF.noBudget : undefined,
     maxConcurrent: config.standingMaxConcurrent,
     redactor,
     log,
@@ -357,17 +355,13 @@ if (config.agent === "mock") {
     }
   }
 }
-if (config.agent !== "mock" && config.standingDailyBudgetUsd === undefined) {
-  log("standing tasks: off (RUNNER_STANDING_DAILY_BUDGET_USD is not set), so the office cannot set any up on this runner");
-} else {
-  log(
-    `standing tasks: up to ${config.standingMaxConcurrent} ${config.standingMaxConcurrent === 1 ? "run" : "runs"} at once, ` +
-      (config.standingDailyBudgetUsd === undefined
-        ? "no standing budget of their own"
-        : `${formatUsd(config.standingDailyBudgetUsd)} a day for all of them together`) +
-      `; kept in ${join(config.dataDir, "standing.json")}`,
-  );
-}
+log(
+  `standing tasks: up to ${config.standingMaxConcurrent} ${config.standingMaxConcurrent === 1 ? "run" : "runs"} at once, ` +
+    (config.standingDailyBudgetUsd === undefined
+      ? "no standing budget (RUNNER_STANDING_DAILY_BUDGET_USD is not set): spend is counted, and nothing is refused"
+      : `${formatUsd(config.standingDailyBudgetUsd)} a day for all of them together`) +
+    `; kept in ${join(config.dataDir, "standing.json")}`,
+);
 if (config.logLevel === "debug") {
   log("logging every step the agents report (RUNNER_LOG_LEVEL=debug)");
 }

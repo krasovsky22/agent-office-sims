@@ -54,6 +54,11 @@ export function budgetRefusal(spentUsd: number, budgetUsd: number | undefined): 
   );
 }
 
+/** A standing task's spend: `$0.20 of $2.00 today`, or `$0.20 today` with no standing budget. */
+export function standingSpendText(spentUsd: number, budgetUsd: number | undefined): string {
+  return budgetUsd === undefined ? `${formatUsd(spentUsd)} today` : `${formatUsd(spentUsd)} of ${formatUsd(budgetUsd)} today`;
+}
+
 /** The HUD's line: `$1.23 of $5.00 today`, or `$1.23 today, no budget` without one. */
 export function spendSummary(total: RunnerSpendTotal): string {
   return total.budgetUsd === undefined

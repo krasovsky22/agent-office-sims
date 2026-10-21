@@ -118,9 +118,9 @@ export interface RunnerConfig {
   /** The person's token the agents push and open pull requests with, with `RUNNER_GITHUB_AUTH=personal`. */
   readonly personalGithub: PersonalGithubConfig | undefined;
   /**
-   * US dollars all standing tasks together may spend in a day. For a real
-   * agent it is also the opt-in: unset, the runner takes no standing tasks.
-   * Never more than {@link dailyBudgetUsd}, so issue work keeps the difference.
+   * US dollars all standing tasks together may spend in a day; `undefined`
+   * for no standing budget. Never more than {@link dailyBudgetUsd}, so issue
+   * work keeps the difference.
    */
   readonly standingDailyBudgetUsd: number | undefined;
   /** Standing runs at once, across every task, from 1 to the slots. */
@@ -161,8 +161,8 @@ export interface RunnerConfig {
  *   unset, the machine's own `gh auth token`.
  * - `RUNNER_LOG_LEVEL`: one of {@link RUNNER_LOG_LEVELS}, defaulting to `info`.
  * - `RUNNER_STANDING_DAILY_BUDGET_USD`: US dollars, `0` or more, all standing
- *   tasks may spend in a day; unset, a `claude` runner takes no standing
- *   tasks. Refused when above `RUNNER_DAILY_BUDGET_USD`.
+ *   tasks may spend in a day; unset, no standing budget. Refused when above
+ *   `RUNNER_DAILY_BUDGET_USD`.
  * - `RUNNER_STANDING_MAX_CONCURRENT`: standing runs at once, from 1 to
  *   `RUNNER_MAX_AGENTS`, defaulting to 1.
  *

@@ -21,7 +21,6 @@ import {
   type RunnerEvent,
   type RunnerSlotCommand,
   type RunnerStandingRunEvent,
-  STANDING_OFF,
   type StandingTaskSpec,
 } from "@sim/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -280,22 +279,21 @@ describe("a pull request watch", () => {
     expect(pool.pendingEvents().some((event) => event.kind === "failed")).toBe(false);
   });
 
-  it("starts nothing more today once its daily spend is used up, and shows it", async () => {
+  it("counts its spend and caps nothing with no standing budget", async () => {
     const scheduler = makeScheduler(makePool());
-    set(scheduler, { ...PR_TASK, caps: { ...DEFAULT_STANDING_CAPS, dailyUsd: 0.15 } });
+    set(scheduler, PR_TASK);
     await until(() => polls === 1);
-    listing = [pull(40), pull(41)];
+    listing = [pull(40), pull(41), pull(42)];
     later(scheduler);
-    await until(() => runs(scheduler.pendingEvents()).length === 1);
-    scheduler.tick();
-    expect(scheduler.report()[0]).toMatchObject({ status: "over-budget", queued: 1, nextCheckAt: undefined });
-    expect(runs(scheduler.pendingEvents())).toEqual([["simulated", 40]]);
-
-    // A new day: it carries on.
-    clock = new Date(2026, 9, 20, 8, 0).getTime();
-    scheduler.tick();
-    await until(() => runs(scheduler.pendingEvents()).length === 2);
-    expect(runs(scheduler.pendingEvents())[1]).toEqual(["simulated", 41]);
+    await until(() => runs(scheduler.pendingEvents()).length === 3);
+    expect(runs(scheduler.pendingEvents())).toEqual([
+      ["simulated", 40],
+      ["simulated", 41],
+      ["simulated", 42],
+    ]);
+    const report = scheduler.report()[0];
+    expect(report).toMatchObject({ status: "active", dailyUsd: undefined });
+    expect(report?.spentTodayUsd).toBeGreaterThan(0);
   });
 
   it("starts nothing more that day once it reaches its runs an hour", async () => {
@@ -307,17 +305,8 @@ describe("a pull request watch", () => {
     await until(() => runs(scheduler.pendingEvents()).length === 1);
     clock += 2 * 60 * 60_000;
     scheduler.tick();
-    expect(scheduler.report()[0]?.status).toBe("over-budget");
-  });
-
-  it("is refused by a real agent's runner with no standing budget, which says why", () => {
-    const scheduler = makeScheduler(makePool(), { off: STANDING_OFF.noBudget });
-    set(scheduler, PR_TASK);
-    expect(scheduler.report()).toEqual([]);
-    expect(scheduler.off()).toBe("no-budget");
-    expect(scheduler.pendingEvents()).toEqual([
-      expect.objectContaining({ kind: "standing-refused", taskId: PR_TASK.id, message: expect.stringContaining("RUNNER_STANDING_DAILY_BUDGET_USD") }),
-    ]);
+    // A run limit, not a budget: it says so, with money left.
+    expect(scheduler.report()[0]).toMatchObject({ status: "run-limit", nextCheckAt: undefined });
   });
 
   it("refuses a second watch, a fifth task, and pauses, resumes, checks and removes", async () => {
@@ -380,30 +369,6 @@ describe("a restarted runner", () => {
     expect(runs(second.pendingEvents())).toEqual([]);
   });
 
-  it("polls and runs nothing a mock left in standing.json once it is a real agent's runner with no standing budget", async () => {
-    const first = makeScheduler(makePool());
-    set(first, PR_TASK);
-    set(first, SCHEDULE_TASK);
-    await until(() => polls === 1);
-    first.stop();
-
-    const pool = makePool();
-    const second = makeScheduler(pool, { off: STANDING_OFF.noBudget });
-    listing = [pull(90)];
-    later(second);
-    second.handle({ id: "c-now", kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: PR_TASK.id, requestedBy: "Dana" });
-    second.handle({ id: "c-fire", kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: SCHEDULE_TASK.id, requestedBy: "Dana" });
-    clock = new Date(2026, 9, 19, 9, 0).getTime();
-    second.tick();
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(polls).toBe(1);
-    expect(pool.report().every((slot) => slot.standing === undefined)).toBe(true);
-    expect(runs(second.pendingEvents())).toEqual([]);
-    for (const task of second.report()) {
-      expect(task).toMatchObject({ status: "error", nextCheckAt: undefined, queued: 0, lastError: expect.stringContaining("RUNNER_STANDING_DAILY_BUDGET_USD") });
-    }
-  });
-
   it("tries a run the restart cut short again", async () => {
     const pool = makePool();
     const first = makeScheduler(pool, {}, createMockStandingRunners({ stepMs: 1000, minPollIntervalMs: 0 }));
@@ -463,8 +428,7 @@ describe("a schedule", () => {
     await until(() => runs(scheduler.pendingEvents()).length === 1);
     scheduler.handle({ id: "c-now2", kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: SCHEDULE_TASK.id, requestedBy: "Dana" });
     scheduler.handle({ id: "c-now3", kind: RUNNER_COMMAND_KIND.standingCheckNow, taskId: SCHEDULE_TASK.id, requestedBy: "Dana" });
-    // The caps were held to the standing budget, so the task's own day is spent first.
-    expect(scheduler.report()[0]?.status).toBe("over-budget");
+    expect(scheduler.report()[0]).toMatchObject({ status: "over-budget", dailyUsd: 0.1 });
     expect(runs(scheduler.pendingEvents()).map(([outcome]) => outcome)).toEqual(["simulated"]);
   });
 });

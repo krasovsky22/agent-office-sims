@@ -358,6 +358,13 @@ describe("standing state on a sync", () => {
     expect(parsed?.events[1]?.kind).toBe("standing-refused");
   });
 
+  it("reads a task with no standing budget as uncapped, and refuses a cap that is not dollars", () => {
+    const { dailyUsd: _none, ...uncapped } = report;
+    const sync = { runnerId: "r", repo: "o/r", slots: [], standing: [uncapped] };
+    expect(parseRunnerSync(sync)?.standing).toEqual([{ ...uncapped, agent: undefined, dailyUsd: undefined }]);
+    expect(parseRunnerSync({ ...sync, standing: [{ ...report, dailyUsd: -1 }] })).toBeUndefined();
+  });
+
   it("refuses a sync with too many tasks, a task twice, or a task it cannot read", () => {
     const sync = { runnerId: "r", repo: "o/r" };
     const many = Array.from({ length: MAX_STANDING_TASKS + 1 }, (_, index) => ({ ...report, id: `st-task${index}` }));
