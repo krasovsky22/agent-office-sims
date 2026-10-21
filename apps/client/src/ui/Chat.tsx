@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { EMOTE_APPEARANCE } from "../emotes.js";
 import { isTypingTarget } from "../keys.js";
+import { MicButton } from "./MicButton.js";
 import type { ChatLogEntry } from "./hudStore.js";
 
 /** Digit to emote, from the one appearance table. */
@@ -83,6 +84,7 @@ export function ChatComposer({ sendChat }: { sendChat: (text: string) => void })
           }
         }}
       />
+      <MicButton inputRef={inputRef} setDraft={setDraft} maxLength={MAX_CHAT_LENGTH} />
       <button
         className="hud__send"
         type="button"

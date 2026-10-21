@@ -328,6 +328,15 @@ focus back, so walking resumes without a click. While the box has focus it keeps
 every key it is given, so typing an `a` is a letter rather than a step to the
 left.
 
+Every message field — the office chat, an agent's prompt, the AI Manager and
+the standup's direction — has a microphone button beside Send. Press it and
+speak: the browser's own speech recognition (Chrome, Edge, Safari) writes what
+it heard into the field, after anything already typed, and stops at the first
+pause or when the button is pressed again. Nothing is sent until you press Send
+or `Enter`, so a misheard word can be fixed first. Where the browser has no
+speech recognition the button is greyed out, and a blocked microphone says so
+above it.
+
 ### Live coding agents
 
 The office shows the real coding agents working on this repository when their
@@ -2122,6 +2131,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/ui/hudStore.ts      the HUD's snapshot, its actions and its store: the seam with the game loop
   src/ui/Roster.tsx       the roster: people, the manager, the live agents, the spend, the standing tasks
   src/ui/Chat.tsx         the office chat, its field and the emote bar
+  src/ui/MicButton.tsx    the microphone beside each message field
+  src/dictation.ts        speech to text into a field's draft, never sent by itself
   src/boardAccess.ts      what the local player may do about the project board's work, and why
   src/dayClock.ts         the replicated clock, run on smoothly between patches
   src/scene/billboard.ts  the sprite that floats above a head, and its painters
