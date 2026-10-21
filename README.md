@@ -560,7 +560,8 @@ An agent runner is the separate process that owns real coding agents, kept out
 of the game server. It talks to the server over two routes, a sync and its
 slots' screens. Run the server and the runner at the same version: the sync's
 standing-budget fields changed when an unset standing budget became unlimited,
-so a mixed pair rejects each other's syncs and standing tasks. Set `RUNNER_SECRET`
+and a task's caps when its dollars a run and runs an hour became optional, so
+a mixed pair rejects each other's syncs and standing tasks. Set `RUNNER_SECRET`
 (16 characters or more) on the server, and the runner syncs about once a second
 to `/agents/runner/sync` with the secret as a bearer token:
 
@@ -1325,12 +1326,18 @@ terminal panel name and link the pull request it reviews.
   taken from a model's plan, so an order lifted from an issue or pull request
   title can neither set one up nor change what it runs.
 
-**The caps.** Each task has its own: $0.50 and 10 minutes a run
-(`--max-budget-usd`, and the runner stops the run's process group at its
-minutes, or once its own estimate passes the cap by a quarter), and 6 runs an
-hour, retries included; a task that reaches its runs an hour shows
-`run limit reached` and starts nothing more that day, so a burst of pull
-requests cannot run up the day. A run stopped by a cap is reported `failed`
+**The caps.** Every run is held to its minutes, 10 unless its definition
+says otherwise: the runner stops the run's
+process group at its minutes, the safety net that keeps a stuck run from
+holding its slot. Beyond that a task is capped only where its definition says
+so, as an unset budget caps nothing: dollars a run (`--max-budget-usd`, and
+the runner stops the run once its own estimate passes the cap by a quarter),
+and runs an hour, retries included. The office sets neither, so a task runs as
+often as its trigger asks and its spend is counted against the budgets below.
+A task that reaches runs an hour it was set shows `run limit reached` and
+starts nothing more until an hour has passed since the run that reached it. A
+runner upgraded from when every task got $0.50 a run and 6 runs an hour reads
+a task stored with those caps as having none. A run stopped by a cap is reported `failed`
 and tried again later, up to three attempts in all. A task has no daily spend
 of its own: all standing tasks together are held to
 `RUNNER_STANDING_DAILY_BUDGET_USD`, and everything to the runner's own

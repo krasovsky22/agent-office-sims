@@ -104,6 +104,14 @@ describe("parseStandingTaskSpec", () => {
     expect(parseStandingTaskSpec({ ...SCHEDULE, name: "" })?.name).toBe("Summarise what changed on main since yes");
   });
 
+  it("keeps a run's dollars and a task's runs an hour uncapped when left out, and capped when set", () => {
+    expect(parseStandingTaskSpec(PR_REVIEW)?.caps).toEqual({ runMinutes: 10 });
+    const set = { perRunUsd: 0.5, runMinutes: 10, maxRunsPerHour: 6 };
+    expect(parseStandingTaskSpec({ ...PR_REVIEW, caps: set })?.caps).toEqual(set);
+    expect(parseStandingTaskSpec({ ...PR_REVIEW, caps: { perRunUsd: 0.5 } })).toBeUndefined();
+    expect(parseStandingTaskSpec({ ...PR_REVIEW, caps: { ...DEFAULT_STANDING_CAPS, maxRunsPerHour: 0 } })).toBeUndefined();
+  });
+
   it("refuses an interval under a minute, a schedule firing too often, or caps past the limits", () => {
     expect(parseStandingTaskSpec({ ...PR_REVIEW, intervalSeconds: 30 })).toBeUndefined();
     expect(parseStandingTaskSpec({ ...SCHEDULE, cron: "* * * * *" })).toBeUndefined();

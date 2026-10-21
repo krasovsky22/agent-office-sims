@@ -296,17 +296,34 @@ describe("a pull request watch", () => {
     expect(report?.spentTodayUsd).toBeGreaterThan(0);
   });
 
-  it("starts nothing more that day once it reaches its runs an hour", async () => {
+  it("starts nothing more once it reaches the runs an hour it was set, until that hour has passed", async () => {
     const scheduler = makeScheduler(makePool());
     set(scheduler, { ...PR_TASK, caps: { ...DEFAULT_STANDING_CAPS, maxRunsPerHour: 1 } });
     await until(() => polls === 1);
     listing = [pull(50), pull(51)];
     later(scheduler);
     await until(() => runs(scheduler.pendingEvents()).length === 1);
-    clock += 2 * 60 * 60_000;
+    clock += 30 * 60_000;
     scheduler.tick();
     // A run limit, not a budget: it says so, with money left.
     expect(scheduler.report()[0]).toMatchObject({ status: "run-limit", nextCheckAt: undefined });
+    clock += 31 * 60_000;
+    scheduler.tick();
+    await until(() => runs(scheduler.pendingEvents()).length === 2);
+    expect(runs(scheduler.pendingEvents())).toEqual([
+      ["simulated", 50],
+      ["simulated", 51],
+    ]);
+  });
+
+  it("starts as many runs an hour as it is asked for when it was set no limit", async () => {
+    const scheduler = makeScheduler(makePool());
+    set(scheduler, PR_TASK);
+    await until(() => polls === 1);
+    listing = Array.from({ length: 8 }, (_, at) => pull(60 + at));
+    later(scheduler);
+    await until(() => runs(scheduler.pendingEvents()).length === 8);
+    expect(scheduler.report()[0]?.status).not.toBe("run-limit");
   });
 
   it("refuses a second watch, a fifth task, and pauses, resumes, checks and removes", async () => {

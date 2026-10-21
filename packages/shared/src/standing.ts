@@ -29,9 +29,9 @@
  * record of what it handled and its spend, on its own disk. The server owns
  * who may create, pause, resume, remove and check one, which is
  * {@link mayManageStandingTasks}, the CEO, from the roster's buttons and
- * through the AI Manager alike. Every run is capped in money and minutes by
- * {@link StandingCaps}, and the runner caps them again itself whatever a
- * definition says.
+ * through the AI Manager alike. Every run is capped in minutes, and in money
+ * and runs an hour only where its definition says so, by {@link StandingCaps},
+ * and the runner caps them again itself whatever a definition says.
  *
  * Shared because a definition crosses the runner link as a command, a task's
  * state crosses back on every sync, and the client asks the same rule as the
@@ -80,7 +80,7 @@ export const STANDING_STATUS = {
   running: "running",
   /** The runner's standing budget, or its own daily budget, is spent. */
   overBudget: "over-budget",
-  /** It started its runs an hour, so it starts nothing more today. */
+  /** It started the runs an hour it was set, so it starts nothing more until that hour has passed. */
   runLimit: "run-limit",
   /** Its last check or run went wrong. */
   error: "error",
@@ -146,21 +146,24 @@ export const MAX_STANDING_INTERVAL_SECONDS = 24 * 60 * 60;
 /**
  * What one run of a task may spend and take, and how often it may run. A
  * task has no daily spend of its own: standing tasks together are held to
- * `RUNNER_STANDING_DAILY_BUDGET_USD`, and only while it is set.
+ * `RUNNER_STANDING_DAILY_BUDGET_USD`, and only while it is set. Left out, a
+ * run's spend and a task's runs an hour are not capped, as an unset budget
+ * is not; its minutes always are, so a stuck run cannot hold its slot.
  */
 export interface StandingCaps {
-  /** US dollars one run may spend before it is stopped. */
-  readonly perRunUsd: number;
-  /** Minutes one run may take before it is stopped. */
+  /** US dollars one run may spend before it is stopped; left out, no cap but the budgets. */
+  readonly perRunUsd?: number;
+  /** Minutes one run may take before it is stopped: the safety net every run keeps. */
   readonly runMinutes: number;
-  /** Runs the task may start in any hour. */
-  readonly maxRunsPerHour: number;
+  /** Runs the task may start in any hour; left out, as many as its trigger asks for. */
+  readonly maxRunsPerHour?: number;
 }
 
-export const DEFAULT_STANDING_CAPS: StandingCaps = { perRunUsd: 0.5, runMinutes: 10, maxRunsPerHour: 6 };
+/** What a task the CEO set no caps for gets: only the minutes. */
+export const DEFAULT_STANDING_CAPS: StandingCaps = { runMinutes: 10 };
 
 /** The most a definition may ask for; the runner may hold a task to less. */
-export const MAX_STANDING_CAPS: StandingCaps = { perRunUsd: 5, runMinutes: 30, maxRunsPerHour: 12 };
+export const MAX_STANDING_CAPS: Required<StandingCaps> = { perRunUsd: 5, runMinutes: 30, maxRunsPerHour: 12 };
 
 export interface StandingSpecBase {
   /** The server's id for it, {@link isStandingTaskId}: in the posted comment's marker, so never reused. */
@@ -236,21 +239,19 @@ function isWhole(value: unknown, min: number, max: number): value is number {
   return inRange(value, min, max) && Number.isInteger(value);
 }
 
-/** `undefined` for caps that are not, or ask for more than {@link MAX_STANDING_CAPS}. */
+/** `undefined` for caps that are not, or ask for more than {@link MAX_STANDING_CAPS}; a cap left out stays out. */
 export function parseStandingCaps(raw: unknown): StandingCaps | undefined {
   const caps = asRecord(raw);
   if (caps === undefined) {
     return undefined;
   }
   const { perRunUsd, runMinutes, maxRunsPerHour } = caps;
-  if (
-    !inRange(perRunUsd, 0.01, MAX_STANDING_CAPS.perRunUsd) ||
-    !isWhole(runMinutes, 1, MAX_STANDING_CAPS.runMinutes) ||
-    !isWhole(maxRunsPerHour, 1, MAX_STANDING_CAPS.maxRunsPerHour)
-  ) {
+  const usd = perRunUsd === undefined ? {} : inRange(perRunUsd, 0.01, MAX_STANDING_CAPS.perRunUsd) ? { perRunUsd } : undefined;
+  const hourly = maxRunsPerHour === undefined ? {} : isWhole(maxRunsPerHour, 1, MAX_STANDING_CAPS.maxRunsPerHour) ? { maxRunsPerHour } : undefined;
+  if (!isWhole(runMinutes, 1, MAX_STANDING_CAPS.runMinutes) || usd === undefined || hourly === undefined) {
     return undefined;
   }
-  return { perRunUsd, runMinutes, maxRunsPerHour };
+  return { ...usd, runMinutes, ...hourly };
 }
 
 /**

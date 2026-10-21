@@ -47,8 +47,8 @@ export interface HeadlessOptions {
   readonly env: Record<string, string>;
   readonly signal: AbortSignal;
   readonly timeoutMs: number;
-  /** Its cap, in US dollars. */
-  readonly maxUsd: number;
+  /** Its cap, in US dollars; left out, it is stopped by its minutes alone. */
+  readonly maxUsd?: number;
   /** Written to its slot's screen. */
   readonly output: (data: string) => void;
   readonly activity: (text: string) => void;
@@ -194,7 +194,7 @@ export function runHeadless(options: HeadlessOptions): Promise<HeadlessResult> {
           if (id !== "" && message["usage"] !== undefined) {
             costs.set(id, usageOfMessage(str(message["model"]), message["usage"]).costUsd);
             spend([...costs.values()].reduce((sum, cost) => sum + cost, 0));
-            if (total > options.maxUsd * SPEND_MARGIN) {
+            if (options.maxUsd !== undefined && total > options.maxUsd * SPEND_MARGIN) {
               stop(`it passed its spending cap of $${options.maxUsd.toFixed(2)}`);
             }
           }
