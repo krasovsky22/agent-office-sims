@@ -118,6 +118,8 @@ export const CLIENT_MESSAGE = {
   deskTerminalOff: "desk:off",
   /** Tune the office radio to a station or a YouTube link, from beside it; anyone may. See `radio.ts`. */
   radioTune: "radio:tune",
+  /** Switch the conference room's TV's channel, or give its YouTube channel a link, from in front of it; anyone may. See `tv.ts`. */
+  tvTune: "tv:tune",
   /** Have the project board fetch GitHub's issues and pull requests now, not at its next poll; anyone may. */
   boardRefresh: "board:refresh",
   /** Ask for the building's floors, from beside a lift; anyone may. See `lift.ts`. */
@@ -240,6 +242,12 @@ export const SERVER_MESSAGE = {
    */
   radioRejected: "radio:rejected",
   /**
+   * Sent only to the client whose change the TV did not take, with the
+   * reason. Carries a `TvRejectedEvent` from `tv.ts`; one taken has no reply
+   * but the next patch.
+   */
+  tvRejected: "tv:rejected",
+  /**
    * Sent only to the client that asked for the board to be refreshed, once the
    * fetch is done or refused. Carries a {@link BoardRefreshResultEvent}; the
    * fresh board itself arrives as a `projectBoard` broadcast first.
@@ -343,7 +351,8 @@ export interface ThrottledEvent {
     | typeof CLIENT_MESSAGE.standingHistory
     | typeof CLIENT_MESSAGE.standupStart
     | typeof CLIENT_MESSAGE.standupDirect
-    | typeof CLIENT_MESSAGE.radioTune;
+    | typeof CLIENT_MESSAGE.radioTune
+    | typeof CLIENT_MESSAGE.tvTune;
 }
 
 /** The standing task commands, which share one allowance. */

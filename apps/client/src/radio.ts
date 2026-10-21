@@ -19,9 +19,10 @@ export interface RadioSettings {
 
 export const DEFAULT_RADIO_SETTINGS: RadioSettings = { volume: 0.5, muted: false };
 
-export function readRadioSettings(storage: Pick<Storage, "getItem"> | undefined): RadioSettings {
+/** @param key where they are kept; the TV keeps its own apart from the radio's. */
+export function readRadioSettings(storage: Pick<Storage, "getItem"> | undefined, key = RADIO_SETTINGS_STORAGE_KEY): RadioSettings {
   try {
-    const kept = JSON.parse(storage?.getItem(RADIO_SETTINGS_STORAGE_KEY) ?? "null") as Partial<RadioSettings> | null;
+    const kept = JSON.parse(storage?.getItem(key) ?? "null") as Partial<RadioSettings> | null;
     const volume = typeof kept?.volume === "number" && kept.volume >= 0 && kept.volume <= 1 ? kept.volume : DEFAULT_RADIO_SETTINGS.volume;
     return { volume, muted: kept?.muted === true };
   } catch {
@@ -29,9 +30,9 @@ export function readRadioSettings(storage: Pick<Storage, "getItem"> | undefined)
   }
 }
 
-export function writeRadioSettings(storage: Pick<Storage, "setItem"> | undefined, settings: RadioSettings): void {
+export function writeRadioSettings(storage: Pick<Storage, "setItem"> | undefined, settings: RadioSettings, key = RADIO_SETTINGS_STORAGE_KEY): void {
   try {
-    storage?.setItem(RADIO_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    storage?.setItem(key, JSON.stringify(settings));
   } catch {
     // Not kept: the next visit starts at the default volume.
   }

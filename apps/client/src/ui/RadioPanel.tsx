@@ -27,7 +27,16 @@ export interface RadioActions {
   readonly close: () => void;
 }
 
-export function RadioControls({ settings, actions }: { settings: RadioSettings; actions: RadioActions }) {
+export function RadioControls({
+  settings,
+  actions,
+  label = "Radio volume",
+}: {
+  settings: RadioSettings;
+  actions: Pick<RadioActions, "setVolume" | "toggleMute">;
+  /** What the slider is called; the TV's panel uses these controls for its own sound. */
+  label?: string;
+}) {
   return (
     <span className="radio__controls">
       <button
@@ -47,7 +56,7 @@ export function RadioControls({ settings, actions }: { settings: RadioSettings; 
         min={0}
         max={100}
         value={Math.round(settings.volume * 100)}
-        aria-label="Radio volume"
+        aria-label={label}
         onChange={(event) => actions.setVolume(Number(event.target.value) / 100)}
         onPointerUp={(event) => event.currentTarget.blur()}
       />

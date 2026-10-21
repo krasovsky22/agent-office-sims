@@ -148,7 +148,16 @@ describe("SlotPool desk sessions", () => {
     expect(slot(slots)?.desk).toEqual({ seatId: "seat-desk-north-1-1" });
     slots.handle(CLOSE);
     await settle();
-    expect(slot(slots)).toEqual({ id: "slot-1", name: FIRST, ...DEFAULT_PROFILE, status: "idle", issueNumber: undefined, activity: "", pr: undefined });
+    expect(slot(slots)).toEqual({
+      id: "slot-1",
+      name: FIRST,
+      ...DEFAULT_PROFILE,
+      status: "idle",
+      issueNumber: undefined,
+      activity: "",
+      pr: undefined,
+      spentTodayUsd: 0,
+    });
     expect(deskAsked).toEqual(["open slot-1", "close /desks/slot-1"]);
     expect(slots.pendingEvents()).toEqual([]);
   });

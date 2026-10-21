@@ -36,6 +36,7 @@ import {
   type StandupData,
   type StandupRejectedEvent,
   type ThrottledEvent,
+  type TvRejectedEvent,
   type WorkData,
   type WorkRejectedEvent,
 } from "@sim/shared";
@@ -104,6 +105,8 @@ export interface RoomConnectionEvents {
   onStandupRejected?: (event: StandupRejectedEvent) => void;
   /** The radio did not take the local client's own tune, and kept playing. */
   onRadioRejected?: (event: RadioRejectedEvent) => void;
+  /** The TV did not take the local client's own change, and kept showing what it had. */
+  onTvRejected?: (event: TvRejectedEvent) => void;
   /** Which floor of how many the office is, as the state first says and whenever the lift changes it. */
   onFloorChanged?: (floor: number, floors: number) => void;
   /** The building's floors, which the local client asked for at a lift. */
@@ -136,6 +139,7 @@ const FORWARDED = {
   [SERVER_MESSAGE.standingHistory]: "onStandingHistory",
   [SERVER_MESSAGE.standupRejected]: "onStandupRejected",
   [SERVER_MESSAGE.radioRejected]: "onRadioRejected",
+  [SERVER_MESSAGE.tvRejected]: "onTvRejected",
   [SERVER_MESSAGE.liftFloors]: "onLiftFloors",
   [SERVER_MESSAGE.liftRejected]: "onLiftRejected",
 } as const satisfies Partial<Record<ServerMessageType, keyof RoomConnectionEvents>>;

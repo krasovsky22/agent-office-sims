@@ -161,6 +161,7 @@ import { type YoutubeCheck, youtubeCheck } from "../sim/youtube.js";
 import { registerManagerHandlers } from "./managerHandlers.js";
 import { registerPresenceHandlers } from "./presenceHandlers.js";
 import { registerRadioHandlers } from "./radioHandlers.js";
+import { registerTvHandlers } from "./tvHandlers.js";
 import { type RunnerWiring, wireRunners } from "./runnerWiring.js";
 import { answerBoardRefresh, relayProjectBoard, sendProjectBoard } from "./projectBoardDelivery.js";
 import { type IssueStates } from "./issueStateHandlers.js";
@@ -237,7 +238,7 @@ export interface OfficeRoomOptions {
   readonly runnerStandup?: RunnerStandupHold;
   /** Where the AI Manager hires new agents, with the office's cap on them; absent when no runner is configured. */
   readonly agentHiring?: AgentHiring;
-  /** How a YouTube link for the radio is checked; YouTube's own oEmbed endpoint unless a test stands in. */
+  /** How a YouTube link for the radio or the TV is checked; YouTube's own oEmbed endpoint unless a test stands in. */
   readonly youtubeCheck?: YoutubeCheck;
 }
 
@@ -409,11 +410,19 @@ export class OfficeRoom extends Room<OfficeState> {
       allow: (client, command) => this.spend(client, command),
       say: (occupantId, text) => this.say(occupantId, text),
     });
+    const checkYoutube = services.youtubeCheck ?? youtubeCheck();
     registerRadioHandlers(this, {
       state: this.state,
       layout: this.layout,
       allow: (client) => this.spend(client, CLIENT_MESSAGE.radioTune),
-      checkYoutube: services.youtubeCheck ?? youtubeCheck(),
+      checkYoutube,
+      now: Date.now,
+    });
+    registerTvHandlers(this, {
+      state: this.state,
+      layout: this.layout,
+      allow: (client) => this.spend(client, CLIENT_MESSAGE.tvTune),
+      checkYoutube,
       now: Date.now,
     });
     if (services.lifts !== undefined) {

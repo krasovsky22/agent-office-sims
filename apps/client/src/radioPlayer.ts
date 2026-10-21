@@ -18,8 +18,8 @@ import { DEFAULT_RADIO_STATION_ID, radioStation } from "@sim/shared";
 
 import type { RadioView } from "./radio.js";
 
-/** The parts of YouTube's IFrame API this uses. */
-interface YtPlayer {
+/** The parts of YouTube's IFrame API this and the TV's player use. */
+export interface YtPlayer {
   getDuration(): number;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
   playVideo(): void;
@@ -52,8 +52,8 @@ declare global {
 
 let youtubeApi: Promise<YtNamespace> | undefined;
 
-/** Loads YouTube's IFrame API once, the first time a link is played. */
-function loadYoutubeApi(): Promise<YtNamespace> {
+/** Loads YouTube's IFrame API once, the first time a link is played by the radio or the TV. */
+export function loadYoutubeApi(): Promise<YtNamespace> {
   youtubeApi ??= new Promise((resolve, reject) => {
     window.onYouTubeIframeAPIReady = () => {
       if (window.YT !== undefined) {

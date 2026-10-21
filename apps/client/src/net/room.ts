@@ -63,6 +63,7 @@ import {
   type OfficeState,
   type Radio,
   RECONNECT_GRACE_SECONDS,
+  type Tv,
   type RunnerSpendTotal,
   SERVER_MESSAGE,
   type ScreenFramesEvent,
@@ -123,6 +124,8 @@ export interface OccupantHudFields {
   carriedIssue: number;
   /** The AI manager's status, or `undefined` for anyone else. */
   managerStatus: ManagerStatus | undefined;
+  /** What a live agent's runner says it has spent today, in US dollars; `0` for anyone else. */
+  agentSpentUsd: number;
 }
 
 /** Reads the {@link OccupantHudFields} off an occupant as replicated. */
@@ -145,6 +148,7 @@ export function hudFieldsOf(occupant: Occupant): OccupantHudFields {
     fired: agent?.fired ?? false,
     carriedIssue: agent?.carriedIssue ?? 0,
     managerStatus: isAiManager(occupant) ? occupant.status : undefined,
+    agentSpentUsd: agent?.spentTodayUsd ?? 0,
   };
 }
 
@@ -319,6 +323,11 @@ export class RoomConnection extends RoomCommands {
   /** What the office radio plays as of the last patch, or `undefined` before the state arrives. Read in place, like {@link desks}. */
   public radio(): Radio | undefined {
     return this.room?.state.radio;
+  }
+
+  /** What the conference room's TV shows as of the last patch, or `undefined` before the state arrives. Read in place, like {@link radio}. */
+  public tv(): Tv | undefined {
+    return this.room?.state.tv;
   }
 
   /** The label that keeps an issue from the live coding agents; `""` before the state arrives. */

@@ -202,8 +202,8 @@ function paintColumn(
   }
 }
 
-/** Paints the whole face: a header with the repository and freshness, then four columns. */
-function paintBoard(
+/** Paints the whole face: a header with the repository and freshness, then four columns. The TV's tickets channel paints it too. */
+export function paintBoard(
   context: CanvasRenderingContext2D,
   width: number,
   height: number,

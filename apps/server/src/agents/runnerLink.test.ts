@@ -126,6 +126,15 @@ describe("RunnerLink slots", () => {
     expect(link.current()[0]?.activity).toBe("Bash: pnpm test");
   });
 
+  it("passes on what each slot's agent has spent today, and tells the floor when it changes", () => {
+    const { link, notifications } = setup();
+    const slot = { id: "slot-1", name: "Claude 1", title: "Software Developer", description: "", status: "working" as const, issueNumber: 39, activity: "", pr: undefined };
+    link.sync(sync({ slots: [slot] }));
+    link.sync(sync({ slots: [{ ...slot, spentTodayUsd: 0.75 }] }));
+    expect(notifications()).toBe(2);
+    expect(link.current()[0]?.spentTodayUsd).toBe(0.75);
+  });
+
   it("shows an exited slot as idle", () => {
     const { link } = setup();
     link.sync(sync({ slots: [{ id: "slot-1", name: "Claude 1", title: "Software Developer", description: "", status: "exited", issueNumber: 39, activity: "", pr: undefined }] }));

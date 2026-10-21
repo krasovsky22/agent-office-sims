@@ -186,6 +186,15 @@ describe("parseRunnerSync", () => {
     expect(parsed?.events[0]?.message).toBe("line one line two");
   });
 
+  it("reads what a slot's agent has spent today, and refuses a sync whose spend is not dollars", () => {
+    const [first, second] = SYNC.slots;
+    const spent = (spentTodayUsd: unknown) => parseRunnerSync({ ...SYNC, slots: [{ ...first, spentTodayUsd }, second] });
+    expect(spent(1.25)?.slots[0]?.spentTodayUsd).toBe(1.25);
+    expect(parseRunnerSync(SYNC)?.slots[0]).not.toHaveProperty("spentTodayUsd");
+    expect(spent(-1)).toBeUndefined();
+    expect(spent("1")).toBeUndefined();
+  });
+
   it("reads a slot lent to a desk, and why a desk session ended", () => {
     const parsed = parseRunnerSync({
       ...SYNC,

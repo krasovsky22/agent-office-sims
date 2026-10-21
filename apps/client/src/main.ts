@@ -20,6 +20,7 @@ import { boardRefreshRefusal } from "./projectBoard.js";
 import { rideLine } from "./lift.js";
 import { keepAcceptedName, readPlayerName } from "./playerName.js";
 import { readRadioSettings } from "./radio.js";
+import { TV_SETTINGS_STORAGE_KEY } from "./tv.js";
 import { timedNotice } from "./timedNotice.js";
 import { RoomConnection } from "./net/room.js";
 import { Hud } from "./ui/Hud.js";
@@ -48,7 +49,10 @@ function start(): void {
     hud = { ...hud, ...next };
     hudStore.publish(hud);
   };
-  publishHud({ radioSettings: readRadioSettings(browserStorage()) });
+  publishHud({
+    radioSettings: readRadioSettings(browserStorage()),
+    tvSettings: readRadioSettings(browserStorage(), TV_SETTINGS_STORAGE_KEY),
+  });
 
   let nextChatId = 1;
   // The agent whose key pad in the standup panel was last pressed, for a key the limiter dropped.
@@ -65,6 +69,9 @@ function start(): void {
   const showRadioPanelNotice = timedNotice((radioNotice) => publishHud({ radioNotice }), BOARD_NOTICE_DURATION_MS);
   /** Shows a line about the radio in its panel, or as a notice while the panel is closed. */
   const showRadioNotice = (text: string) => (hud.radioOpen ? showRadioPanelNotice(text) : showNotice(text));
+  const showTvPanelNotice = timedNotice((tvNotice) => publishHud({ tvNotice }), BOARD_NOTICE_DURATION_MS);
+  /** Shows a line about the TV in its panel, or as a notice while the panel is closed. */
+  const showTvNotice = (text: string) => (hud.tvOpen ? showTvPanelNotice(text) : showNotice(text));
   const showLiftPanelNotice = timedNotice((liftNotice) => publishHud({ liftNotice }), NOTICE_DURATION_MS);
   /** Shows a line about the lift in its panel, or as a notice while the panel is closed. */
   const showLiftNotice = (text: string) => (hud.liftOpen ? showLiftPanelNotice(text) : showNotice(text));
@@ -84,6 +91,7 @@ function start(): void {
     hud: () => hud,
     notice: showNotice,
     radioNotice: showRadioNotice,
+    tvNotice: showTvNotice,
     room: () => room,
   });
   const scene = loop.events;
@@ -98,6 +106,7 @@ function start(): void {
       notice: showNotice,
       standupNotice: showStandupNotice,
       radioNotice: showRadioNotice,
+      tvNotice: showTvNotice,
       liftNotice: showLiftNotice,
       nameOf: (id) => room.occupantName(id),
       localId: () => room.sessionId,
@@ -205,6 +214,7 @@ function start(): void {
         standUp: loop.standUp,
         closeAgentMenu: loop.closeAgentMenu,
         radioNotice: showRadioNotice,
+        tvNotice: showTvNotice,
       }),
     }),
   );

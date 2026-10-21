@@ -19,6 +19,7 @@ import type { RoomConnectionEvents } from "./net/roomEvents.js";
 import { nameRejectionText } from "./playerName.js";
 import { liftRejectionText } from "./lift.js";
 import { radioRejectionText } from "./radio.js";
+import { tvRejectionText } from "./tv.js";
 import { standingRejectionText } from "./standingAccess.js";
 import { standupRejectionText } from "./standupAccess.js";
 import { THROTTLED_PLACE, throttledNotice } from "./throttledNotice.js";
@@ -44,6 +45,8 @@ export interface HudRoomEventsHost {
   readonly standupNotice: (text: string) => void;
   /** Shows a line in the radio's panel, or as a notice while it is closed. */
   readonly radioNotice: (text: string) => void;
+  /** Shows a line in the TV's panel, or as a notice while it is closed. */
+  readonly tvNotice: (text: string) => void;
   /** Shows a line in the lift's panel, or as a notice while it is closed. */
   readonly liftNotice: (text: string) => void;
   /** An occupant's display name, `undefined` once they are gone. */
@@ -92,6 +95,9 @@ export function hudRoomEvents(host: HudRoomEventsHost): RoomConnectionEvents {
           return;
         case THROTTLED_PLACE.radio:
           host.radioNotice(text);
+          return;
+        case THROTTLED_PLACE.tv:
+          host.tvNotice(text);
           return;
         case THROTTLED_PLACE.notice:
           host.notice(text);
@@ -184,6 +190,10 @@ export function hudRoomEvents(host: HudRoomEventsHost): RoomConnectionEvents {
 
     onRadioRejected: (event) => {
       host.radioNotice(radioRejectionText(event.rejection));
+    },
+
+    onTvRejected: (event) => {
+      host.tvNotice(tvRejectionText(event.rejection));
     },
 
     onLiftFloors: (event) => {

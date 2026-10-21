@@ -35,6 +35,7 @@ import { ArraySchema, MapSchema, Schema, defineTypes } from "@colyseus/schema";
 
 import { STARTING_MINUTE_OF_DAY } from "./clock.js";
 import { DEFAULT_RADIO_STATION_ID } from "./radio.js";
+import { DEFAULT_TV_CHANNEL } from "./tv.js";
 
 /**
  * What sort of thing an occupant is.
@@ -270,6 +271,8 @@ export class LiveAgent extends Occupant {
    * already gone; see `agentActions.ts`.
    */
   declare public fired: boolean;
+  /** What its runner says it has spent today, in US dollars; `0` from a source that does not meter it. */
+  declare public spentTodayUsd: number;
 
   public constructor() {
     super();
@@ -286,6 +289,7 @@ export class LiveAgent extends Occupant {
     this.description = "";
     this.profileEditable = false;
     this.fired = false;
+    this.spentTodayUsd = 0;
   }
 }
 
@@ -302,6 +306,7 @@ defineTypes(LiveAgent, {
   description: "string",
   profileEditable: "boolean",
   fired: "boolean",
+  spentTodayUsd: "float64",
 });
 
 /**
@@ -748,6 +753,47 @@ defineTypes(Radio, {
   tunedBy: "string",
 });
 
+/**
+ * What the conference room's TV shows; see `./tv.ts`. State rather than a
+ * broadcast, so a tab that joins sees the channel everyone else sees. Its
+ * YouTube link is kept while another channel is on, and runs on from
+ * {@link startedAt} like a live channel, so switching back finds it where
+ * everyone else would.
+ */
+export class Tv extends Schema {
+  /** A `TvChannel`. */
+  declare public channel: string;
+  /** The YouTube channel's video, or `""` for a playlist from its start, or no link yet. */
+  declare public videoId: string;
+  /** Its playlist, or `""` for a single video. */
+  declare public listId: string;
+  /** What YouTube calls it; `""` before a link is given. */
+  declare public title: string;
+  /** Epoch milliseconds the link was given; `0` before one is. */
+  declare public startedAt: number;
+  /** Who last changed it, by name; `""` for the channel the office opened on. */
+  declare public changedBy: string;
+
+  public constructor() {
+    super();
+    this.channel = DEFAULT_TV_CHANNEL;
+    this.videoId = "";
+    this.listId = "";
+    this.title = "";
+    this.startedAt = 0;
+    this.changedBy = "";
+  }
+}
+
+defineTypes(Tv, {
+  channel: "string",
+  videoId: "string",
+  listId: "string",
+  title: "string",
+  startedAt: "number",
+  changedBy: "string",
+});
+
 export class OfficeState extends Schema {
   declare public occupants: MapSchema<Occupant>;
   /** The agents' work on the project board's issues, keyed by {@link workKey}. */
@@ -791,6 +837,7 @@ export class OfficeState extends Schema {
   /** The CEO's desk terminals whose computers are on, by seat id; see `./deskTerminal.ts`. */
   declare public desks: MapSchema<DeskTerminal>;
   declare public radio: Radio;
+  declare public tv: Tv;
   /**
    * Which floor of the building this office is, from 1 at the street, and how
    * many floors the building has. Replicated so the client draws the plan the
@@ -816,6 +863,7 @@ export class OfficeState extends Schema {
     this.issuesWritable = false;
     this.desks = new MapSchema<DeskTerminal>();
     this.radio = new Radio();
+    this.tv = new Tv();
     this.floor = 1;
     this.floors = 1;
   }
@@ -836,6 +884,7 @@ defineTypes(OfficeState, {
   issuesWritable: "boolean",
   desks: { map: DeskTerminal },
   radio: Radio,
+  tv: Tv,
   floor: "uint8",
   floors: "uint8",
 });

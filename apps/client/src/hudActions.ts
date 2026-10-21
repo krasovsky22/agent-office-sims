@@ -7,12 +7,13 @@
  * of every command.
  */
 
-import { parseRadioSource } from "@sim/shared";
+import { TV_CHANNEL, parseRadioSource } from "@sim/shared";
 
 import { helpSeen, markHelpSeen } from "./help.js";
 import type { RoomConnection } from "./net/room.js";
 import type { PendingIssueMoves } from "./pendingIssueMoves.js";
 import { NOT_A_YOUTUBE_LINK, type RadioSettings, writeRadioSettings } from "./radio.js";
+import { TV_SETTINGS_STORAGE_KEY } from "./tv.js";
 import type { HudActions, HudSnapshot } from "./ui/hudStore.js";
 
 /** What the actions need of the game loop. */
@@ -43,6 +44,8 @@ export interface HudActionsHost {
   readonly closeAgentMenu: () => void;
   /** Shows a line in the radio's panel, to this player only, and takes it down again. */
   readonly radioNotice: (text: string) => void;
+  /** Shows a line in the TV's panel, to this player only, and takes it down again. */
+  readonly tvNotice: (text: string) => void;
 }
 
 export function hudActions(host: HudActionsHost): HudActions {
@@ -51,6 +54,11 @@ export function hudActions(host: HudActionsHost): HudActions {
     const radioSettings = { ...host.hud().radioSettings, ...change };
     writeRadioSettings(host.browserStorage(), radioSettings);
     host.publish({ radioSettings });
+  };
+  const setTv = (change: Partial<RadioSettings>) => {
+    const tvSettings = { ...host.hud().tvSettings, ...change };
+    writeRadioSettings(host.browserStorage(), tvSettings, TV_SETTINGS_STORAGE_KEY);
+    host.publish({ tvSettings });
   };
   return {
     sendEmote: (emote) => room.sendEmote(emote),
@@ -133,6 +141,19 @@ export function hudActions(host: HudActionsHost): HudActions {
       },
       setVolume: (volume) => setRadio({ volume, muted: false }),
       toggleMute: () => setRadio({ muted: !host.hud().radioSettings.muted }),
+      close: host.closePanel,
+    },
+    tv: {
+      tune: (channel) => room.sendTvTune(channel),
+      play: (link) => {
+        if (parseRadioSource(link)?.kind !== "youtube") {
+          host.tvNotice(NOT_A_YOUTUBE_LINK);
+          return;
+        }
+        room.sendTvTune(TV_CHANNEL.youtube, link);
+      },
+      setVolume: (volume) => setTv({ volume, muted: false }),
+      toggleMute: () => setTv({ muted: !host.hud().tvSettings.muted }),
       close: host.closePanel,
     },
     lift: {

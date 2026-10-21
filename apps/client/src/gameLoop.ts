@@ -32,6 +32,8 @@ import {
   type ProjectBoardSnapshot,
   RECURRING_TASKS_BOARD_ID,
   STARTING_MINUTE_OF_DAY,
+  TV_CHANNEL,
+  TV_INTERACTABLE_ID,
   type WorkData,
   authorizeInteract,
   describeLiveAgentTask,
@@ -45,6 +47,7 @@ import {
   radioLoudness,
   stickerNotes,
   taskReference,
+  tvLoudness,
 } from "@sim/shared";
 import * as THREE from "three";
 
@@ -63,11 +66,14 @@ import { standupAccessFor } from "./standupAccess.js";
 import { boardAccessFor } from "./boardAccess.js";
 import { browserStorage, readDebugEnabled, readPropsEnabled, requireCanvas } from "./browserEnv.js";
 import { DayClock } from "./dayClock.js";
-import { withOfficeWork } from "./projectBoard.js";
+import { formatClockTime, formatShortDate, withOfficeWork } from "./projectBoard.js";
 import { managerAccessFor } from "./managerAccess.js";
 import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
 import { UNPLAYABLE_HERE } from "./radio.js";
 import { RadioPlayer } from "./radioPlayer.js";
+import { TV_UNPLAYABLE_HERE, type TvView, playsYoutube } from "./tv.js";
+import { SPRINT_DAYS, dailyBoard, sprintColumns, statusBoard } from "./tvBoards.js";
+import { TvPlayer } from "./tvPlayer.js";
 import { recurringRow, standingAccessFor } from "./standingAccess.js";
 import type { RemotePose } from "./net/poseBuffer.js";
 import type { OccupantView, RoomConnection } from "./net/room.js";
@@ -84,6 +90,7 @@ import { buildLighting } from "./scene/lighting.js";
 import { buildFloorScene } from "./scene/floorScene.js";
 import { type PropKit, loadPropKit, screenFaceOf, screenMaterialOf } from "./scene/propKit.js";
 import { StickerBoards } from "./scene/stickerBoards.js";
+import { type TvScreen, paintTvScreen } from "./scene/tvScreen.js";
 import { streetReach } from "./scene/street.js";
 import type { HudPrompt, HudSnapshot } from "./ui/hudStore.js";
 
@@ -114,6 +121,19 @@ const CLOSE_CONVERSATION_LABEL = "Close the conversation";
 
 /** What it reads while the player has the radio open. */
 const CLOSE_RADIO_LABEL = "Close the radio";
+
+/** What it reads while the player has the TV open. */
+const CLOSE_TV_LABEL = "Close the TV";
+
+/** How often the TV's board is looked at for a change worth repainting; its status and ages move by the second. */
+const TV_REPAINT_MS = 1000;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The video's still, for the TV's screen; YouTube serves it to any page. */
+function thumbnailUrl(videoId: string): string {
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
 
 /** What it reads while the player is watching a live agent's terminal. */
 const CLOSE_TERMINAL_LABEL = "Close the terminal";
@@ -148,6 +168,7 @@ function takesKeyboard(layout: OfficeLayout, interactableId: string): boolean {
   return (
     interactableId === MANAGER_INTERACTABLE_ID ||
     interactableId === RADIO_INTERACTABLE_ID ||
+    interactableId === TV_INTERACTABLE_ID ||
     interactableById(layout, interactableId)?.kind === INTERACTION_KIND.lift
   );
 }
@@ -167,6 +188,9 @@ function closeLabelFor(layout: OfficeLayout, interactableId: string): string {
   }
   if (interactableId === RADIO_INTERACTABLE_ID) {
     return CLOSE_RADIO_LABEL;
+  }
+  if (interactableId === TV_INTERACTABLE_ID) {
+    return CLOSE_TV_LABEL;
   }
   const kind = interactableById(layout, interactableId)?.kind;
   return kind === INTERACTION_KIND.screen ? CLOSE_TERMINAL_LABEL : kind === INTERACTION_KIND.lift ? CLOSE_LIFT_LABEL : CLOSE_BOARD_LABEL;
@@ -188,6 +212,8 @@ export interface GameLoopHost {
   readonly notice: (text: string) => void;
   /** Shows a line about the radio, in its panel while that is open. */
   readonly radioNotice: (text: string) => void;
+  /** Shows a line about the TV, in its panel while that is open. */
+  readonly tvNotice: (text: string) => void;
   /** The connection, which is made with {@link GameLoop.events} and so after the loop. */
   readonly room: () => RoomConnection;
 }
@@ -291,6 +317,16 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
   const radioPlayer = new RadioPlayer(() => host.radioNotice(UNPLAYABLE_HERE));
   // The radio as last published, so React hears only of a retune.
   let radioShownAt = -1;
+
+  let tvSpot = interactableById(layout, TV_INTERACTABLE_ID);
+  const tvPlayer = new TvPlayer(() => host.tvNotice(TV_UNPLAYABLE_HERE));
+  // The TV as last published, so React hears only of a change.
+  let tvShownKey = "";
+  // What the TV's screen last painted, so it repaints only when its board changes.
+  let tvPainted = "";
+  let tvCheckedAt = -TV_REPAINT_MS;
+  // The YouTube channel's still, loaded once a video, and then drawn on the screen.
+  let tvThumbnail: { readonly videoId: string; image: HTMLImageElement | undefined } | undefined;
 
   /** Looks through the other camera, and keeps the choice for the next visit. */
   const toggleCameraMode = () => {
@@ -521,6 +557,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     }
     controller.setLayout(layout);
     radioSpot = interactableById(layout, RADIO_INTERACTABLE_ID);
+    tvSpot = interactableById(layout, TV_INTERACTABLE_ID);
     shoulderViews.clear();
   };
 
@@ -794,6 +831,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
           target.kind === INTERACTION_KIND.manager ||
           target.kind === INTERACTION_KIND.screen ||
           target.kind === INTERACTION_KIND.radio ||
+          target.kind === INTERACTION_KIND.tv ||
           target.kind === INTERACTION_KIND.lift
         ) {
           readingBoard = target.id;
@@ -819,6 +857,10 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     if (radioOpen !== host.hud().radioOpen) {
       host.publish({ radioOpen, radioNotice: undefined });
     }
+    const tvOpen = readingBoard === TV_INTERACTABLE_ID;
+    if (tvOpen !== host.hud().tvOpen) {
+      host.publish({ tvOpen, tvNotice: undefined });
+    }
     const liftOpen = interactableById(layout, readingBoard)?.kind === INTERACTION_KIND.lift;
     if (liftOpen !== host.hud().liftOpen) {
       host.publish({ liftOpen, liftNotice: undefined });
@@ -833,6 +875,19 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
       const { volume, muted } = host.hud().radioSettings;
       const near = radioSpot === undefined ? 1 : radioLoudness(distanceToInteractable(radioSpot, controller.pose));
       radioPlayer.update(radio, muted ? 0 : volume * near);
+    }
+    // The TV's YouTube channel plays in every tab while it is on, from the TV, apart from the radio.
+    const tv = room.tv();
+    if (tv !== undefined) {
+      const tvKey = `${tv.channel}|${tv.videoId}|${tv.listId}|${tv.startedAt}|${tv.title}|${tv.changedBy}`;
+      if (tvKey !== tvShownKey) {
+        tvShownKey = tvKey;
+        tvCheckedAt = -TV_REPAINT_MS;
+        host.publish({ tv: tv.toJSON() as TvView });
+      }
+      const { volume, muted } = host.hud().tvSettings;
+      const near = tvSpot === undefined ? 1 : tvLoudness(distanceToInteractable(tvSpot, controller.pose));
+      tvPlayer.update(tv, muted ? 0 : volume * near, tvOpen);
     }
     const managerOpen = readingBoard === MANAGER_INTERACTABLE_ID;
     if (managerOpen !== host.hud().managerOpen) {
@@ -951,6 +1006,16 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
       }
     }
 
+    if (nowMs - tvCheckedAt >= TV_REPAINT_MS) {
+      tvCheckedAt = nowMs;
+      const screen = tvScreen(Date.now());
+      const painted = `${JSON.stringify(screen)}|${screen.channel === TV_CHANNEL.youtube && screen.thumbnail !== undefined}`;
+      if (painted !== tvPainted) {
+        tvPainted = painted;
+        wallDecor.paintTv((context, width, height) => paintTvScreen(context, width, height, screen));
+      }
+    }
+
     // Every seated live agent's terminal on its own desk's monitor, and none
     // for an agent that has stood up or gone.
     if (agentScreens !== undefined) {
@@ -985,6 +1050,55 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     }
 
     requestAnimationFrame(frame);
+  };
+
+  /** What the TV shows now, worked out from what the HUD holds, so every tab paints the same board. */
+  const tvScreen = (now: number): TvScreen => {
+    const hud = host.hud();
+    const agentName = (id: string) => hud.roster.find((entry) => entry.id === id)?.name;
+    switch (hud.tv.channel) {
+      case TV_CHANNEL.sprint:
+        return {
+          channel: TV_CHANNEL.sprint,
+          range: `This week · ${formatShortDate(now - (SPRINT_DAYS - 1) * DAY_MS)} – ${formatShortDate(now)}`,
+          columns: hud.projectBoard === undefined ? [] : sprintColumns(hud.projectBoard, hud.work, now, agentName, formatShortDate),
+        };
+      case TV_CHANNEL.tickets:
+        return { channel: TV_CHANNEL.tickets, snapshot: hud.projectBoard === undefined ? undefined : withOfficeWork(hud.projectBoard, hud.work) };
+      case TV_CHANNEL.status:
+        return {
+          channel: TV_CHANNEL.status,
+          board: statusBoard(hud.roster, hud.status, hud.runnerSpend),
+        };
+      case TV_CHANNEL.youtube: {
+        const { videoId } = hud.tv;
+        if (videoId !== "" && tvThumbnail?.videoId !== videoId) {
+          const image = new Image();
+          // Drawn into the screen's texture, which a still from another origin would taint.
+          image.crossOrigin = "anonymous";
+          const loading = { videoId, image: undefined as HTMLImageElement | undefined };
+          image.onload = () => {
+            loading.image = image;
+            tvCheckedAt = -TV_REPAINT_MS;
+          };
+          image.src = thumbnailUrl(videoId);
+          tvThumbnail = loading;
+        }
+        return {
+          channel: TV_CHANNEL.youtube,
+          title: hud.tv.title,
+          hasVideo: playsYoutube(hud.tv),
+          changedBy: hud.tv.changedBy,
+          thumbnail: tvThumbnail?.videoId === videoId ? tvThumbnail.image : undefined,
+        };
+      }
+      default:
+        return {
+          channel: TV_CHANNEL.daily,
+          date: new Date(now).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
+          board: dailyBoard(hud.standingTasks, hud.standup, now, agentName, formatClockTime),
+        };
+    }
   };
 
   requestAnimationFrame(frame);

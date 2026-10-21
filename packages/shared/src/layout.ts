@@ -264,6 +264,7 @@ export const INTERACTION_KIND = {
   manager: "manager",
   screen: "screen",
   radio: "radio",
+  tv: "tv",
   lift: "lift",
 } as const;
 
@@ -487,6 +488,9 @@ export const MANAGER_INTERACTABLE_ID = "manager-desk";
 
 /** The office radio's interactable, stood at in front of the lounge's coffee table. */
 export const RADIO_INTERACTABLE_ID = "radio";
+
+/** The conference room's TV's interactable, stood at between the table's end and the TV over the sideboard. */
+export const TV_INTERACTABLE_ID = "meeting-tv";
 
 /**
  * Gap between the back of a chair and the occupant who just got up from it.
@@ -994,6 +998,17 @@ export const OFFICE_LAYOUT: OfficeLayout = {
       id: RADIO_INTERACTABLE_ID,
       kind: INTERACTION_KIND.radio,
       anchor: { x: -9.7, z: -5.1, yaw: 0 },
+      volume: undefined,
+      exit: undefined,
+      deskId: undefined,
+      seatId: undefined,
+    },
+    // Between the foot of the conference table and the sideboard, facing the
+    // TV hung over it on the south wall. The TV itself shows it.
+    {
+      id: TV_INTERACTABLE_ID,
+      kind: INTERACTION_KIND.tv,
+      anchor: { x: 8, z: -2, yaw: Math.PI },
       volume: undefined,
       exit: undefined,
       deskId: undefined,

@@ -50,6 +50,8 @@ export interface GithubIssueItem {
   readonly assignees: readonly string[];
   /** Epoch milliseconds, or `null` while the item is open. */
   readonly closedAt: number | null;
+  /** Epoch milliseconds of its latest change, or `null` when GitHub did not say. */
+  readonly updatedAt?: number | null;
   readonly pullRequest: { readonly draft: boolean; readonly body: string } | null;
 }
 
@@ -156,6 +158,7 @@ export function parseIssueItem(raw: unknown): GithubIssueItem | undefined {
     author: loginOf(item["user"]) ?? "unknown",
     assignees,
     closedAt: timestampOf(item["closed_at"]),
+    updatedAt: timestampOf(item["updated_at"]),
     pullRequest: isPullRequest
       ? {
           draft: item["draft"] === true,
@@ -215,6 +218,7 @@ function toBoardIssue(item: GithubIssueItem, pullRequests: readonly number[]): B
     assignees: item.assignees,
     pullRequests,
     closedAt: item.open ? null : item.closedAt,
+    ...(typeof item.updatedAt === "number" ? { updatedAt: item.updatedAt } : {}),
   };
 }
 

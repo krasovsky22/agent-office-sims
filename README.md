@@ -161,8 +161,8 @@ then move it to swing the camera; `Esc` releases it. `V`, or the button under
 the HUD's hints, switches between the camera behind you and first person, at
 your avatar's eyes with its hands in view; the browser remembers the choice.
 Behind you, the mouse wheel over the office zooms the camera in and out. Walk
-up to a desk chair, the coffee machine, the project board, the manager's desk
-or the radio and a prompt appears; `E` uses it. Any movement key gets you out of a chair. A
+up to a desk chair, the coffee machine, the project board, the manager's desk,
+the radio or the conference room's TV and a prompt appears; `E` uses it. Any movement key gets you out of a chair. A
 coffee goes with you: the cup steams in your hand and is sipped every few
 seconds, ten sips in all, then it is gone; idle agents now and then go for one
 too, and everyone in the office sees the same cup and the same sips.
@@ -304,6 +304,32 @@ still refuse to play it in one tab, that tab says so and plays the default
 station until the radio changes. Your own `Mute` and volume are in the Status
 panel and the radio's panel, and the browser remembers them
 (`packages/shared/src/radio.ts`, `apps/client/src/radioPlayer.ts`).
+
+The TV over the sideboard in the conference room switches between five
+channels, and everyone sees the same one. Standing at the foot of the table,
+`E` opens its panel: anyone may pick a channel, and `Esc` closes it.
+
+- **Daily board**: today's runs of each recurring task (how many, the last
+  one's time and outcome, and what they cost), beside the latest standup's
+  summary, an update a line with its blockers.
+- **Sprint board**: this week's work, the issues opened, worked on or closed
+  in the last seven days, in To do, In progress, In review (a pull request is
+  open for it, or its agent has handed it in) and Done. There is no sprint of
+  its own to set up; it is read off the project board.
+- **Tickets board**: the project board, as the open floor's wall shows it.
+- **Status board**: whether the server connection and the runners are up, and
+  each coding agent's state, task and spend today.
+- **YouTube**: a video or playlist link pasted into the panel, apart from the
+  radio's. The server checks it with YouTube as it does the radio's; the TV
+  then shows its still and title, and it plays with sound from the TV,
+  loudest in the conference room and faint across the office, at the same
+  point in every tab. With the panel open the video itself shows above it.
+  The TV's volume and `Mute` are in its panel, the browser keeps them apart
+  from the radio's, and the radio plays on.
+
+The boards are drawn in each tab from what it already holds, so they change
+as the office does (`packages/shared/src/tv.ts`, `apps/client/src/tvBoards.ts`,
+`apps/client/src/scene/tvScreen.ts`, `apps/client/src/tvPlayer.ts`).
 
 At the manager's desk in its office, `E` opens the conversation with the AI Manager
 and puts the keyboard in its message box: `Enter` sends, `Esc` closes, and
@@ -677,7 +703,8 @@ curl -X POST localhost:2567/agents/runner/sync \
 Each sync carries the runner's whole state. `slots` lists every slot, at most
 4, each `idle`, `starting`, `working`, `needs-input` or `exited`, with its
 agent's `name`, `title` and `description` (see [Agent profiles](#agent-profiles)),
-and an optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`),
+and an optional `issueNumber`, `activity` line, `pr` (`{"number","title","url"}`)
+and `spentTodayUsd`, what its agent has spent today across all its runs,
 or a `desk` (`{"seatId"}`) while it is lent to the CEO's desk, which it holds
 instead of an issue or a standing run, its status and activity then the desk
 session's. `events` lists what happened since the last answered sync, at most 8, each
@@ -1623,7 +1650,7 @@ so `Enter` is all it takes to arrive as these two:
 - <http://localhost:5173/?name=Dana>
 - <http://localhost:5173/?name=Milo>
 
-Then confirm all twenty-seven:
+Then confirm all twenty-nine:
 
 1. **Both tabs list both players**, with the right names on the right avatars,
    and the tab that joined first is marked CEO — a gold cone above the head, a
@@ -1997,7 +2024,20 @@ Then confirm all twenty-seven:
     history and new schedule against a live room, and
     `apps/runner/src/standing/scheduler.test.ts` and `steward.test.ts` the
     steward's merges, holds, resolves and pushes.
-28. **`pnpm typecheck` passes** across the whole repository.
+28. **The conference room's TV shows the same channel in both tabs.** With the
+    server and the mock runner as in step 17, Milo walks into the conference
+    room to the foot of the table, facing the TV: the prompt reads `Change the
+    TV's channel`, and the TV shows the daily board. `E` opens its panel;
+    `Sprint board` puts this week's issues on the TV in both tabs, and
+    `Status board` the connection, `1 runner connected` and each agent's
+    state and spend. In the panel's link box `example.com` is refused at once;
+    a YouTube video plays above the panel with its title and still on the
+    TV in both tabs, loudest in the conference room, while the radio plays
+    on. `Esc` closes the panel and the video plays on, heard but not seen; a
+    board channel stops it. `apps/server/src/rooms/tvHandlers.test.ts` covers
+    the range check and YouTube's refusals, and `apps/client/src/tvBoards.test.ts`
+    the sprint grouping.
+29. **`pnpm typecheck` passes** across the whole repository.
 
 ## Checks
 
@@ -2155,7 +2195,7 @@ thing the page talks to is the WebSocket.
   `POST /agents/runner/screens` when `RUNNER_SECRET` is set, the only HTTP the
   server serves; everything else is 404.
 - Open the deployed client in two tabs, as in
-  [The two-tab check](#the-two-tab-check), and confirm the same twenty-seven things.
+  [The two-tab check](#the-two-tab-check), and confirm the same twenty-nine things.
   Doing it from two different networks is the real test, since that is the one
   the single-machine case cannot fake.
 - A browser console showing a CORS error naming
@@ -2190,6 +2230,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/standup.ts      the standup: the CEO-only gate, why a command was refused, the places in the conference room, what came of a direction
   src/deskTerminal.ts the CEO's desk terminal: which seats have a computer, the CEO-only gate, and the session's phases
   src/radio.ts        the office radio: its stations, reading a YouTube link, and how loud it is across the office
+  src/tv.ts           the conference room's TV: its channels, the message that switches it, and how loud its YouTube channel is
   src/lift.ts         the building's floors and the lift: each floor's room name, the floor list, the ride, and why one was refused
   src/layout.ts       the office floor plan and its interactables, as data, and each floor's plan derived from it
   src/props.ts        the furniture, derived from that floor plan
@@ -2225,9 +2266,10 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/manager/hire.ts            hiring a new coding agent for an issue or a recurring task: the cap, the profile, and its work once it walks in
   src/manager/workMoves.ts       approving, sending back, taking back and starting again work in hand, as the CEO
   src/rooms/radioHandlers.ts  tuning the radio from beside it, and the refusals sent back
+  src/rooms/tvHandlers.ts  switching the TV's channel or giving it a YouTube link from in front of it, and the refusals sent back
   src/rooms/building.ts   the building's floors: opening each one's room, its headcount, and a seat kept on it for a rider
   src/rooms/liftHandlers.ts  calling the lift and riding it from beside it, and the refusals sent back
-  src/sim/youtube.ts      asking YouTube's oEmbed endpoint whether the radio may play a link
+  src/sim/youtube.ts      asking YouTube's oEmbed endpoint whether the radio or the TV may play a link
   src/rooms/standupHandlers.ts  the CEO's standup commands: call, end, direct, and the refusals sent back
   src/sim/standup.ts      the standup: gathering, the turns and each update read off an agent's real state, directions, blockers, the end
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk, and carry the sticky notes between boards and desk
@@ -2305,7 +2347,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/doors.ts     the doors in every doorway, swinging open for whoever comes near; decor, never collided with
   src/scene/office.ts    the shell from the layout: floor, walls, lintels and the room signs over the doors, ceiling, lifts
   src/scene/floorScene.ts  what differs from floor to floor: the shell, the doors, the street seen from that height and the furniture, swapped on a ride
-  src/scene/wallDecor.ts  the wall decor from shared decor.ts, hung as instanced boxes, the clocks kept to the office's time
+  src/scene/wallDecor.ts  the wall decor from shared decor.ts, hung as instanced boxes, the clocks kept to the office's time, the TV's screen repainted
   src/scene/wallArt.ts    the decor's artwork, painted on canvases: pictures, posters, clock faces, whiteboards, the TV's slide
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
   src/scene/recurringBoard.ts  the open floor's recurring tasks board, painted on a canvas
@@ -2332,6 +2374,11 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/radio.ts            the listener's own radio volume and mute, and what the HUD says about the radio
   src/radioPlayer.ts      the radio's speakers in this tab: a station's stream, or a hidden YouTube player
   src/ui/RadioPanel.tsx   the radio's panel, opened beside it, and the mute and volume controls
+  src/tv.ts               what the HUD says about the TV, and the listener's own TV volume
+  src/tvBoards.ts         what the TV's daily, sprint and status boards say, worked out from what the HUD holds
+  src/tvPlayer.ts         the TV's YouTube player in this tab: heard from the TV, shown over the HUD while the TV is open
+  src/scene/tvScreen.ts   the TV's screen, painted for the channel it is on
+  src/ui/TvPanel.tsx      the TV's panel, opened in front of it: the channels, a YouTube link, and its volume
   src/lift.ts             what the HUD says about the lift: a floor's line, who is there, why a ride was refused
   src/ui/LiftPanel.tsx    the lift's floors, opened at its doors, and a ride to each
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to

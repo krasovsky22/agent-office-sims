@@ -38,11 +38,11 @@ export interface HeldRun {
  *
  * @returns whether it was booked; a total that is not a number is not.
  */
-export function bookSpend(ledger: SpendLedger, held: Pick<HeldRun, "spentUsd">, totalUsd: number): boolean {
+export function bookSpend(ledger: SpendLedger, held: Pick<HeldRun, "spentUsd">, totalUsd: number, slotId?: string): boolean {
   if (!Number.isFinite(totalUsd)) {
     return false;
   }
-  ledger.add(totalUsd - held.spentUsd);
+  ledger.add(totalUsd - held.spentUsd, slotId);
   held.spentUsd = totalUsd;
   return true;
 }
@@ -53,6 +53,8 @@ export interface RunBooks {
   readonly debug: (line: string) => void;
   /** Who the spend is said of, `slot-1 on #39`. */
   readonly on: string;
+  /** The slot whose agent spends it, which a sync reports it of. */
+  readonly slotId?: string;
 }
 
 /**
@@ -75,7 +77,7 @@ export function runReporter(
       }
     },
     spent: (totalUsd) => {
-      if (bookSpend(books.ledger, held, totalUsd)) {
+      if (bookSpend(books.ledger, held, totalUsd, books.slotId)) {
         books.debug(`${books.on} has spent ${formatUsd(totalUsd)}`);
       }
     },

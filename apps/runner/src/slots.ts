@@ -384,6 +384,7 @@ export class SlotPool {
       pr: slot.pr,
       ...(slot.standing === undefined ? {} : { standing: slot.standing.report }),
       ...(slot.desk === undefined ? {} : { desk: { seatId: slot.desk.seatId } }),
+      spentTodayUsd: this.ledger.slotSpent(slot.id),
     }));
   }
 
@@ -437,7 +438,7 @@ export class SlotPool {
       // Booked whether or not the slot was taken back: a cut-short run's spend is still spent.
       spent: (totalUsd) => {
         if (totalUsd > held.spentUsd) {
-          bookSpend(this.ledger, held, totalUsd);
+          bookSpend(this.ledger, held, totalUsd, slot.id);
         }
       },
       release: () => {
@@ -910,7 +911,7 @@ export class SlotPool {
         askedBy: command.requestedBy,
         signal: controller.signal,
         spent: (totalUsd) => {
-          if (bookSpend(this.ledger, held, totalUsd)) {
+          if (bookSpend(this.ledger, held, totalUsd, slot.id)) {
             this.debug(`${slot.id}'s answer has spent ${formatUsd(totalUsd)}`);
           }
         },
@@ -1109,7 +1110,7 @@ export class SlotPool {
     const report = (status: RunnerSlotStatus, activity: string): void => {
       this.setStatus(slot, run, status, activity);
     };
-    const books = { ledger: this.ledger, debug: this.debug, on: `${slot.id} on #${run.issueNumber}` };
+    const books = { ledger: this.ledger, debug: this.debug, on: `${slot.id} on #${run.issueNumber}`, slotId: slot.id };
     const reporter = runReporter(slot.screen, run, books, {
       started: () => report(RUNNER_SLOT_STATUS.idle, ""),
       progress: (activity) => {
