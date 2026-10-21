@@ -15,7 +15,7 @@
 import { type Client, type Room } from "@colyseus/core";
 import {
   CLIENT_MESSAGE,
-  OFFICE_LAYOUT,
+  type OfficeLayout,
   type OfficeState,
   type ProjectBoardSnapshot,
   SERVER_MESSAGE,
@@ -49,6 +49,8 @@ import { type WorkHost, registerWorkHandlers } from "./workHandlers.js";
 /** What the wiring needs from the room beyond the room itself. */
 export interface RunnerWiringHost {
   readonly services: Partial<OfficeRoomOptions>;
+  /** The floor plan of the room's floor, which the standup and the desk terminals walk. */
+  readonly layout: OfficeLayout;
   /** The bodies of the live coding agents, which the standup gathers and a firing walks out. */
   readonly crew: LiveAgentCrew;
   /** The project board as of now, for the work rules; `undefined` in a room given no feed. */
@@ -191,7 +193,7 @@ export function wireRunners(
   const runnerStandup = services.runnerStandup;
   const standup = new StandupMeeting({
     state,
-    layout: OFFICE_LAYOUT,
+    layout: host.layout,
     crew: host.crew,
     now: () => Date.now(),
     clock: () => room.clock.currentTime,
@@ -208,7 +210,7 @@ export function wireRunners(
     allowDirection: (client) => host.allow(client, CLIENT_MESSAGE.standupDirect),
   });
 
-  const deskTerminal = new DeskTerminal({ state, layout: OFFICE_LAYOUT, runner: runnerCommands, log: recordOfficeEvent });
+  const deskTerminal = new DeskTerminal({ state, layout: host.layout, runner: runnerCommands, log: recordOfficeEvent });
   room.onMessage(CLIENT_MESSAGE.deskTerminalSize, (client, raw: unknown) => {
     // Kept, not acted on: the tick's step sends a changed size at most once.
     const size = parseDeskTerminalSizeMessage(raw);

@@ -1,5 +1,5 @@
 /**
- * The clock as the room runs it: stepped at the tick rate against real schema
+ * The clock as the rooms run it: stepped at the tick rate against real schema
  * state, with time passed in rather than read from a clock.
  */
 
@@ -27,7 +27,7 @@ interface Office {
 
 function openOffice(): Office {
   const state = new OfficeState();
-  return { state, clock: createSimClock(state, 0), now: 0 };
+  return { state, clock: createSimClock(0), now: 0 };
 }
 
 /** Steps the clock at the room's tick rate for `ms` of real time. */
@@ -65,5 +65,23 @@ describe("stepClock", () => {
     expect(office.state.minuteOfDay).toBe(
       STARTING_MINUTE_OF_DAY + (MAX_CLOCK_STEP_MS / 1000) * SIM_MINUTES_PER_REAL_SECOND,
     );
+  });
+
+  it("is one clock for every floor: a floor opened later shows the time the others do", () => {
+    const ground = openOffice();
+    run(ground, 10_000);
+    const upstairs = new OfficeState();
+    stepClock(upstairs, ground.clock, ground.now);
+    expect(upstairs.minuteOfDay).toBe(ground.state.minuteOfDay);
+  });
+
+  it("moves no further for a second room stepping it at the same moment, or a moment behind", () => {
+    const office = openOffice();
+    run(office, 10_000);
+    const other = new OfficeState();
+    stepClock(other, office.clock, office.now);
+    stepClock(other, office.clock, office.now - TICK_INTERVAL_MS);
+    run(office, 10_000);
+    expect(office.state.minuteOfDay).toBe(STARTING_MINUTE_OF_DAY + 20 * SIM_MINUTES_PER_REAL_SECOND);
   });
 });

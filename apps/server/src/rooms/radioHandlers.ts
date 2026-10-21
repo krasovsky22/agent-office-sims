@@ -11,7 +11,7 @@
 import { type Client, type Room } from "@colyseus/core";
 import {
   CLIENT_MESSAGE,
-  OFFICE_LAYOUT,
+  type OfficeLayout,
   type OfficeState,
   RADIO_INTERACTABLE_ID,
   RADIO_REJECTION,
@@ -29,6 +29,8 @@ import type { YoutubeCheck } from "../sim/youtube.js";
 /** What the handler needs from the room, named so a test can supply it. */
 export interface RadioHandlerHost {
   readonly state: OfficeState;
+  /** The floor plan of the room's floor, where the radio stands. */
+  readonly layout: OfficeLayout;
   /** Charges one tune against the sender's budget; `false` drops it, and the limiter says so. */
   readonly allow: (client: Client) => boolean;
   readonly checkYoutube: YoutubeCheck;
@@ -41,7 +43,7 @@ function refuse(client: Client, rejection: RadioRejection): void {
 }
 
 export function registerRadioHandlers(room: Pick<Room<OfficeState>, "onMessage">, host: RadioHandlerHost): void {
-  const radioSpot = interactableById(OFFICE_LAYOUT, RADIO_INTERACTABLE_ID);
+  const radioSpot = interactableById(host.layout, RADIO_INTERACTABLE_ID);
 
   room.onMessage(CLIENT_MESSAGE.radioTune, async (client, raw: unknown) => {
     const message = parseRadioTuneMessage(raw);

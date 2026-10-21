@@ -53,10 +53,10 @@ import { ANIMATION_STATE, type ReportedAnimation, type WorkStatus, isWorkStatus 
 import { asRecord, clip, isIssueNumber, replaceControls, truncate } from "./text.js";
 import type { WorkAction, WorkRejection } from "./work.js";
 
-/** Matchmaking name of the only room type this milestone defines. */
+/** Matchmaking name of the ground floor's room, and of the only one in a building of one floor; see `lift.ts`. */
 export const OFFICE_ROOM_NAME = "office";
 
-/** How many players the one office holds; the next is turned away. */
+/** How many players one floor's office holds; the next is turned away. */
 export const OFFICE_CAPACITY = 16;
 
 export const CLIENT_MESSAGE = {
@@ -120,6 +120,10 @@ export const CLIENT_MESSAGE = {
   radioTune: "radio:tune",
   /** Have the project board fetch GitHub's issues and pull requests now, not at its next poll; anyone may. */
   boardRefresh: "board:refresh",
+  /** Ask for the building's floors, from beside a lift; anyone may. See `lift.ts`. */
+  liftFloors: "lift:floors",
+  /** Ride the lift to another floor, from beside it; anyone may. See `lift.ts`. */
+  liftRide: "lift:ride",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -241,6 +245,12 @@ export const SERVER_MESSAGE = {
    * fresh board itself arrives as a `projectBoard` broadcast first.
    */
   boardRefreshResult: "board:refresh-result",
+  /** Sent only to the client that called the lift, with every floor. Carries a `LiftFloorsEvent` from `lift.ts`. */
+  liftFloors: "lift:floors",
+  /** Sent only to the rider, with the seat kept for them on the floor they chose. Carries a `LiftSeatEvent`. */
+  liftSeat: "lift:seat",
+  /** Sent only to the client whose ride the lift refused, with the reason. Carries a `LiftRejectedEvent`. */
+  liftRejected: "lift:rejected",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];

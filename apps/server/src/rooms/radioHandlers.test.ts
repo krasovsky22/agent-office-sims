@@ -34,7 +34,7 @@ function harness(options: { readonly answer?: YoutubeAnswer; readonly at?: typeo
   const allow = vi.fn(() => true);
   registerRadioHandlers(
     { onMessage: ((type: string, handler: (client: Client, raw: unknown) => Promise<void>) => handlers.set(type, handler)) as never },
-    { state, allow, checkYoutube, now: () => 1234 },
+    { state, layout: OFFICE_LAYOUT, allow, checkYoutube, now: () => 1234 },
   );
   const client = { sessionId: "ada", send: vi.fn() } as unknown as Client & { send: ReturnType<typeof vi.fn> };
   const tune = (source: unknown) => handlers.get(CLIENT_MESSAGE.radioTune)!(client, { source });

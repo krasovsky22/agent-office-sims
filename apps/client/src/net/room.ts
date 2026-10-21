@@ -22,6 +22,12 @@
  * every change. The clock that lights the office does not: it is state, and is
  * read off each patch.
  *
+ * Riding the lift is changing rooms: each floor of the building is one. The
+ * floor being left hands over a seat on the floor chosen; the connection
+ * leaves on purpose, clears everything of the floor it left, and takes the
+ * seat, and the new floor's state then arrives as a join's does. Which floor
+ * the office is comes in the state too, for the scene to draw its plan.
+ *
  * A dropped socket is reconnected rather than given up on. The server holds a
  * dropped player's place, and with it their role, for
  * {@link RECONNECT_GRACE_SECONDS}; reconnecting inside that window resumes the
@@ -48,6 +54,7 @@
 import {
   type AnimationState,
   NO_STANDUP,
+  type LiftSeatEvent,
   type LiveAgentStatus,
   type ManagerStatus,
   OFFICE_ROOM_NAME,
@@ -63,7 +70,7 @@ import {
   isCeo,
   isLiveAgent,
 } from "@sim/shared";
-import { Client, ErrorCode, MatchMakeError, type Room, getStateCallbacks } from "colyseus.js";
+import { Client, ErrorCode, MatchMakeError, type Room, type SeatReservation, getStateCallbacks } from "colyseus.js";
 
 import { type PoseSample, type RemotePose, pushPose, samplePoses } from "./poseBuffer.js";
 import { RoomCommands } from "./roomCommands.js";
@@ -190,6 +197,10 @@ export class RoomConnection extends RoomCommands {
   private joining = false;
   /** Set by {@link leave}, so a deliberate exit is never reconnected. */
   private leaving = false;
+  /** Set while the lift takes the player from one floor's room to another's, so leaving the first is not a drop. */
+  private riding = false;
+  /** The room of the floor the player is on, which a fresh join after a lost session joins again. */
+  private roomName = OFFICE_ROOM_NAME;
   private readonly views = new Map<string, OccupantView>();
   private readonly buffers = new Map<string, PoseSample[]>();
   private readonly screens = new Map<string, TerminalScreen>();
@@ -226,7 +237,7 @@ export class RoomConnection extends RoomCommands {
     this.joining = true;
     this.events.onStatusChanged?.("connecting");
     try {
-      const room = await client.join<OfficeState>(OFFICE_ROOM_NAME, { name: this.name });
+      const room = await client.join<OfficeState>(this.roomName, { name: this.name });
       if (this.leaving) {
         void room.leave();
         return;
@@ -333,6 +344,7 @@ export class RoomConnection extends RoomCommands {
 
   private attach(room: Room<OfficeState>): void {
     this.room = room;
+    this.roomName = room.name;
     this.bind(room);
     this.events.onStatusChanged?.("connected");
   }
@@ -408,6 +420,11 @@ export class RoomConnection extends RoomCommands {
       this.events.onClockChanged?.(minuteOfDay);
     });
 
+    // Both at once, once a patch: the plan is drawn from the two together.
+    const floorChanged = (): void => this.queue(room, this.publishFloor);
+    $(room.state).listen("floor", floorChanged);
+    $(room.state).listen("floors", floorChanged);
+
     // What the board offers is worked out with the roster, and a runner that
     // can change issues coming or going changes it.
     $(room.state).listen("issuesWritable", () => {
@@ -476,6 +493,10 @@ export class RoomConnection extends RoomCommands {
       }
     });
 
+    room.onMessage<LiftSeatEvent>(SERVER_MESSAGE.liftSeat, (event) => {
+      void this.ride(room, event);
+    });
+
     room.onError((code, message) => {
       this.events.onStatusChanged?.("failed", message ?? `error ${code}`);
     });
@@ -497,12 +518,52 @@ export class RoomConnection extends RoomCommands {
         this.events.onStatusChanged?.("disconnected");
         return;
       }
+      // Left on purpose, for the floor the lift is taking the player to.
+      if (this.riding) {
+        return;
+      }
       // Even a clean close is reconnected from: the server never sends one
       // player away, so it is shutting down, and its successor needs joining.
       // Rebuilt from the full state the server sends on reconnection, which
       // re-adds every occupant through the handlers above.
       void this.reconnect(room.reconnectionToken);
     });
+  }
+
+  /**
+   * Takes the player from the floor they are on to the seat the lift kept for
+   * them on another: leaves this floor's room, then joins that one's.
+   *
+   * Left first, so the player is never in two floors at once and nothing of
+   * the floor left can arrive after the new one's state. A seat that cannot
+   * be taken, kept too long or the floor gone, ends in a fresh join of the
+   * floor left, as after a lost session.
+   */
+  private async ride(from: Room<OfficeState>, event: LiftSeatEvent): Promise<void> {
+    const client = this.client;
+    if (client === undefined || this.room !== from || this.riding) {
+      return;
+    }
+    this.riding = true;
+    this.events.onRide?.(event.floor);
+    try {
+      await from.leave();
+      // The library reads the room's name and ids off a listing; the counts are the server's business.
+      const seat: SeatReservation = { sessionId: event.reservation.sessionId, room: { ...event.reservation.room, clients: 0, maxClients: 0 } };
+      const next = await client.consumeSeatReservation<OfficeState>(seat);
+      if (this.leaving) {
+        void next.leave();
+        return;
+      }
+      this.attach(next);
+    } catch {
+      this.riding = false;
+      await this.join().catch(() => {
+        // The status is already on the HUD, and Rejoin with it.
+      });
+    } finally {
+      this.riding = false;
+    }
   }
 
   private handleOccupantChange(
@@ -565,6 +626,10 @@ export class RoomConnection extends RoomCommands {
 
   private readonly publishStanding = (state: OfficeState): void => {
     this.events.onStandingChanged?.([...state.standing.values()].map((task) => task.toJSON()));
+  };
+
+  private readonly publishFloor = (state: OfficeState): void => {
+    this.events.onFloorChanged?.(state.floor, state.floors);
   };
 
   private readonly publishStandup = (state: OfficeState): void => {

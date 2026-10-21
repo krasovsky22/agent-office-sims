@@ -17,6 +17,7 @@ import { rejectionText } from "./boardAccess.js";
 import { managerRejectionText } from "./managerAccess.js";
 import type { RoomConnectionEvents } from "./net/roomEvents.js";
 import { nameRejectionText } from "./playerName.js";
+import { liftRejectionText } from "./lift.js";
 import { radioRejectionText } from "./radio.js";
 import { standingRejectionText } from "./standingAccess.js";
 import { standupRejectionText } from "./standupAccess.js";
@@ -43,6 +44,8 @@ export interface HudRoomEventsHost {
   readonly standupNotice: (text: string) => void;
   /** Shows a line in the radio's panel, or as a notice while it is closed. */
   readonly radioNotice: (text: string) => void;
+  /** Shows a line in the lift's panel, or as a notice while it is closed. */
+  readonly liftNotice: (text: string) => void;
   /** An occupant's display name, `undefined` once they are gone. */
   readonly nameOf: (id: string) => string | undefined;
   /** The local player's session id. */
@@ -64,9 +67,10 @@ export function hudRoomEvents(host: HudRoomEventsHost): RoomConnectionEvents {
   };
 
   return {
-    // A refresh asked for before the connection changed will not be answered on the new one.
+    // A refresh asked for before the connection changed will not be answered on the new one,
+    // and a ride that lost its connection is over.
     onStatusChanged: (status, detail) => {
-      host.publish({ status, detail, boardRefreshing: false });
+      host.publish({ status, detail, boardRefreshing: false, ...(status === "connected" ? {} : { riding: undefined }) });
     },
 
     onThrottled: (event) => {
@@ -180,6 +184,14 @@ export function hudRoomEvents(host: HudRoomEventsHost): RoomConnectionEvents {
 
     onRadioRejected: (event) => {
       host.radioNotice(radioRejectionText(event.rejection));
+    },
+
+    onLiftFloors: (event) => {
+      host.publish({ liftFloors: event.floors });
+    },
+
+    onLiftRejected: (event) => {
+      host.liftNotice(liftRejectionText(event.rejection));
     },
 
     onStandupChanged: (standup) => {

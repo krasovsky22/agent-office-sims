@@ -31,6 +31,7 @@ import {
   type InteractableSpec,
   OCCUPANT_RADIUS,
   OFFICE_LAYOUT,
+  type OfficeLayout,
   RECONCILE_EASE_RATE,
   RECONCILE_SNAP_THRESHOLD,
   RECONCILE_THRESHOLD,
@@ -167,46 +168,57 @@ const CEILING_THICKNESS = 0.3;
  * as the room it is rather than from over its roof; outside, on the pavement,
  * the boom is free. Not desks: they are knee height and the camera flies well
  * above them, so including them would make the view lurch every time the boom
- * passed over one. Built once — the layout does not change at runtime.
+ * passed over one. Built once per floor plan, and again only when the lift
+ * brings the player to a floor of another.
  */
-const CAMERA_OCCLUDERS: readonly Box3[] = [
-  ...OFFICE_LAYOUT.walls.map((spec) => ({
-    minX: spec.footprint.minX - CAMERA_WALL_PADDING,
-    minY: -CAMERA_WALL_PADDING,
-    minZ: spec.footprint.minZ - CAMERA_WALL_PADDING,
-    maxX: spec.footprint.maxX + CAMERA_WALL_PADDING,
-    maxY: spec.height + CAMERA_WALL_PADDING,
-    maxZ: spec.footprint.maxZ + CAMERA_WALL_PADDING,
-  })),
-  // Without the lintel the boom slips through the doorway over the frame and
-  // leaves the camera in the room behind, looking at a closed door.
-  ...doorwayGaps(OFFICE_LAYOUT)
-    .filter((gap) => gap.wallHeight > gap.frameHeight)
-    .map((gap) => {
-      const halfX = (gap.yaw === 0 ? gap.width : gap.depth) / 2;
-      const halfZ = (gap.yaw === 0 ? gap.depth : gap.width) / 2;
-      return {
-        minX: gap.x - halfX - CAMERA_WALL_PADDING,
-        minY: gap.frameHeight - CAMERA_WALL_PADDING,
-        minZ: gap.z - halfZ - CAMERA_WALL_PADDING,
-        maxX: gap.x + halfX + CAMERA_WALL_PADDING,
-        maxY: gap.wallHeight + CAMERA_WALL_PADDING,
-        maxZ: gap.z + halfZ + CAMERA_WALL_PADDING,
-      };
-    }),
-  ...(OFFICE_LAYOUT.ceiling === undefined
-    ? []
-    : [
-        {
-          minX: OFFICE_LAYOUT.floor.minX,
-          minY: OFFICE_LAYOUT.ceiling - CAMERA_WALL_PADDING,
-          minZ: OFFICE_LAYOUT.floor.minZ,
-          maxX: OFFICE_LAYOUT.floor.maxX,
-          maxY: OFFICE_LAYOUT.ceiling + CEILING_THICKNESS,
-          maxZ: OFFICE_LAYOUT.floor.maxZ,
-        },
-      ]),
-];
+const occluderCache = new WeakMap<OfficeLayout, readonly Box3[]>();
+
+function cameraOccludersOf(layout: OfficeLayout): readonly Box3[] {
+  const cached = occluderCache.get(layout);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const occluders = [
+    ...layout.walls.map((spec) => ({
+      minX: spec.footprint.minX - CAMERA_WALL_PADDING,
+      minY: -CAMERA_WALL_PADDING,
+      minZ: spec.footprint.minZ - CAMERA_WALL_PADDING,
+      maxX: spec.footprint.maxX + CAMERA_WALL_PADDING,
+      maxY: spec.height + CAMERA_WALL_PADDING,
+      maxZ: spec.footprint.maxZ + CAMERA_WALL_PADDING,
+    })),
+    // Without the lintel the boom slips through the doorway over the frame and
+    // leaves the camera in the room behind, looking at a closed door.
+    ...doorwayGaps(layout)
+      .filter((gap) => gap.wallHeight > gap.frameHeight)
+      .map((gap) => {
+        const halfX = (gap.yaw === 0 ? gap.width : gap.depth) / 2;
+        const halfZ = (gap.yaw === 0 ? gap.depth : gap.width) / 2;
+        return {
+          minX: gap.x - halfX - CAMERA_WALL_PADDING,
+          minY: gap.frameHeight - CAMERA_WALL_PADDING,
+          minZ: gap.z - halfZ - CAMERA_WALL_PADDING,
+          maxX: gap.x + halfX + CAMERA_WALL_PADDING,
+          maxY: gap.wallHeight + CAMERA_WALL_PADDING,
+          maxZ: gap.z + halfZ + CAMERA_WALL_PADDING,
+        };
+      }),
+    ...(layout.ceiling === undefined
+      ? []
+      : [
+          {
+            minX: layout.floor.minX,
+            minY: layout.ceiling - CAMERA_WALL_PADDING,
+            minZ: layout.floor.minZ,
+            maxX: layout.floor.maxX,
+            maxY: layout.ceiling + CEILING_THICKNESS,
+            maxZ: layout.floor.maxZ,
+          },
+        ]),
+  ];
+  occluderCache.set(layout, occluders);
+  return occluders;
+}
 
 /**
  * A view the camera can lean into instead of its boom: where the eye is, and
@@ -225,6 +237,7 @@ export interface CameraFocus {
  * caller turns into the minimum boom length.
  */
 function distanceToFirstWall(
+  occluders: readonly Box3[],
   originX: number,
   originY: number,
   originZ: number,
@@ -234,7 +247,7 @@ function distanceToFirstWall(
 ): number {
   let nearest = 1;
 
-  for (const box of CAMERA_OCCLUDERS) {
+  for (const box of occluders) {
     let enter = 0;
     let exit = nearest;
 
@@ -277,7 +290,11 @@ function distanceToFirstWall(
  * @returns the view, or `undefined` when no eye outside a wall is far enough
  * from the screen to show it.
  */
-export function shoulderView(seat: { readonly x: number; readonly z: number }, screen: THREE.Vector3): CameraFocus | undefined {
+export function shoulderView(
+  seat: { readonly x: number; readonly z: number },
+  screen: THREE.Vector3,
+  layout: OfficeLayout = OFFICE_LAYOUT,
+): CameraFocus | undefined {
   const forwardX = screen.x - seat.x;
   const forwardZ = screen.z - seat.z;
   const length = Math.hypot(forwardX, forwardZ);
@@ -289,7 +306,7 @@ export function shoulderView(seat: { readonly x: number; readonly z: number }, s
     SHOULDER_HEIGHT,
     seat.z - (forwardZ / length) * SHOULDER_BACK,
   );
-  const reach = distanceToFirstWall(screen.x, screen.y, screen.z, eye.x - screen.x, eye.y - screen.y, eye.z - screen.z);
+  const reach = distanceToFirstWall(cameraOccludersOf(layout), screen.x, screen.y, screen.z, eye.x - screen.x, eye.y - screen.y, eye.z - screen.z);
   eye.sub(screen).multiplyScalar(reach).add(screen);
   // An eye pulled in almost onto the screen shows nothing worth leaning in for.
   return eye.distanceTo(screen) < CAMERA_MIN_DISTANCE / 2 ? undefined : { eye, target: screen.clone() };
@@ -351,10 +368,18 @@ export class PlayerController {
   /** How long the player has been in the air, or `undefined` on the floor. */
   private airborneSeconds: number | undefined;
 
+  /** The floor plan the player walks, and the camera keeps inside; the ground floor's until the room says otherwise. */
+  private layout: OfficeLayout = OFFICE_LAYOUT;
+
   public constructor(
     private readonly camera: THREE.PerspectiveCamera,
     private readonly viewport: HTMLCanvasElement,
   ) {}
+
+  /** Walks another floor's plan from now on, as when the lift arrives there. */
+  public setLayout(layout: OfficeLayout): void {
+    this.layout = layout;
+  }
 
   /** Places the player without any easing. Used on join. */
   public teleport(x: number, z: number, yaw: number): void {
@@ -724,7 +749,7 @@ export class PlayerController {
         this.pose,
         { x: inputX * step, z: inputZ * step },
         OCCUPANT_RADIUS,
-        OFFICE_LAYOUT,
+        this.layout,
       );
       this.pose.x = resolved.x;
       this.pose.z = resolved.z;
@@ -827,6 +852,7 @@ export class PlayerController {
     this.cameraTarget.set(this.pose.x, CAMERA_TARGET_Y, this.pose.z);
 
     const reach = distanceToFirstWall(
+      cameraOccludersOf(this.layout),
       this.cameraTarget.x,
       this.cameraTarget.y,
       this.cameraTarget.z,

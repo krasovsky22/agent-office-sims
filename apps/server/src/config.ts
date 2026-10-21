@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   DEFAULT_REPOSITORY,
+  MAX_FLOORS,
   MAX_RUNNER_SLOTS,
   MIN_SECRET_LENGTH,
   REPOSITORY_PATTERN,
@@ -106,6 +107,8 @@ export interface ServerConfig {
   /** Origins permitted to matchmake and open a socket, already normalized. */
   readonly allowedOrigins: readonly string[];
   readonly projectBoard: ProjectBoardConfig;
+  /** The repository whose office each floor is, floor 1 first; see {@link readFloors}. */
+  readonly floors: readonly string[];
   readonly liveAgents: LiveAgentsConfig;
   readonly runner: RunnerConfig;
   readonly manager: ManagerConfig;
@@ -114,10 +117,12 @@ export interface ServerConfig {
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
+  const projectBoard = readProjectBoardConfig(env);
   return {
     port: readPort(env),
     allowedOrigins: readAllowedOrigins(env),
-    projectBoard: readProjectBoardConfig(env),
+    projectBoard,
+    floors: readFloors(env, projectBoard),
     liveAgents: readLiveAgentsConfig(env),
     runner: readRunnerConfig(env),
     manager: readManagerConfig(env),
@@ -279,6 +284,48 @@ export function readProjectBoardConfig(env: NodeJS.ProcessEnv = process.env): Pr
   });
 
   return { repository, token, pollIntervalMs: seconds * 1000 };
+}
+
+/**
+ * Reads the building's floors above the ground floor, which is always
+ * `PROJECT_BOARD_REPO`'s office.
+ *
+ * - `FLOOR_REPOS`: optional, a comma-separated list of `owner/name`, one per
+ *   floor from floor 2 up, none repeated or the ground floor's, at most
+ *   {@link MAX_FLOORS} floors in all. Unset, the building is one floor, the
+ *   office as it always was. Each floor polls GitHub for its own board, which
+ *   anonymous requests cannot afford, so more than one floor needs
+ *   `PROJECT_BOARD_TOKEN`; the token must be able to read every floor's repo.
+ *
+ * @returns each floor's repository, floor 1 first.
+ */
+export function readFloors(env: NodeJS.ProcessEnv, projectBoard: ProjectBoardConfig): readonly string[] {
+  const upper = readEnv(env, "FLOOR_REPOS")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  const floors = [projectBoard.repository, ...upper];
+  for (const repository of upper) {
+    if (!REPOSITORY_PATTERN.test(repository)) {
+      throw new Error(`FLOOR_REPOS must list owner/name repositories, got "${repository}"`);
+    }
+  }
+  // GitHub's names are case-insensitive, so `Acme/Office` is `acme/office`'s floor too.
+  const seen = new Set<string>();
+  for (const repository of floors) {
+    const key = repository.toLowerCase();
+    if (seen.has(key)) {
+      throw new Error(`FLOOR_REPOS lists ${repository} twice, or as the ground floor's PROJECT_BOARD_REPO; each repository has one floor`);
+    }
+    seen.add(key);
+  }
+  if (floors.length > MAX_FLOORS) {
+    throw new Error(`FLOOR_REPOS lists ${upper.length} floors, but the building has at most ${MAX_FLOORS - 1} above the ground floor`);
+  }
+  if (floors.length > 1 && projectBoard.token === undefined) {
+    throw new Error("FLOOR_REPOS needs PROJECT_BOARD_TOKEN: every floor polls GitHub, which anonymous requests cannot afford");
+  }
+  return floors;
 }
 
 export function readPort(env: NodeJS.ProcessEnv = process.env): number {

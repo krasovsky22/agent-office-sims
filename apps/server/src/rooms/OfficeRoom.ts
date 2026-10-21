@@ -28,8 +28,15 @@
  *
  * A player whose socket drops without leaving keeps their place, role
  * included, for {@link RECONNECT_GRACE_SECONDS}. Only a player who left on
- * purpose, or did not come back in time, is removed. The main office itself
- * stays open once the last player is gone: the agents' work lives in it.
+ * purpose, or did not come back in time, is removed. Each floor's office
+ * itself stays open once the last player is gone: the agents' work lives in
+ * it.
+ *
+ * One room is one floor of the building, and walks that floor's plan, which
+ * `floorLayout` in `@sim/shared` picks from the floor's number and the
+ * building's count of floors; the client draws the same plan from the same two
+ * numbers in the state. The lift between floors is `liftHandlers.ts`'s, and
+ * every floor steps the one clock the building is given.
  *
  * Nor is the project board's GitHub feed, beyond passing it on. The server's
  * one feed polls GitHub on its own timer and is handed to every room through {@link officeRoom};
@@ -100,7 +107,7 @@ import {
   type NameRejectedEvent,
   OCCUPANT_KIND,
   OFFICE_CAPACITY,
-  OFFICE_LAYOUT,
+  type OfficeLayout,
   OfficeState,
   RECONNECT_GRACE_SECONDS,
   SERVER_MESSAGE,
@@ -113,6 +120,7 @@ import {
   conciergePost,
   employConcierge,
   employManager,
+  floorLayout,
   isCeo,
   managerSeat,
   nameRefusal,
@@ -132,7 +140,7 @@ import { type RunnerCommands } from "../agents/runnerWork.js";
 import type { ScreenSource } from "../agents/screens.js";
 import { type StandingMirror, copyStandingTasks } from "../agents/standingMirror.js";
 import type { ProjectBoardSource } from "../github/feed.js";
-import { type SimClock, createSimClock, stepClock } from "../sim/clock.js";
+import { type SimClock, createSimClock, minuteOf, stepClock } from "../sim/clock.js";
 import type { ManagerAdvisor } from "../manager/advisor.js";
 import type { AgentHiring } from "../manager/hire.js";
 import type { LiveAssignmentQueue } from "../manager/liveAssignments.js";
@@ -156,6 +164,7 @@ import { registerRadioHandlers } from "./radioHandlers.js";
 import { type RunnerWiring, wireRunners } from "./runnerWiring.js";
 import { answerBoardRefresh, relayProjectBoard, sendProjectBoard } from "./projectBoardDelivery.js";
 import { type IssueStates } from "./issueStateHandlers.js";
+import { type BuildingLifts, registerLiftHandlers } from "./liftHandlers.js";
 import { type WorkHost } from "./workHandlers.js";
 
 /**
@@ -175,9 +184,23 @@ const IDLE_AFTER_MS = 400;
  */
 const MAX_AGENT_STEP_MS = TICK_INTERVAL_MS * 4;
 
+/** Which floor of the building a room is. */
+export interface FloorPlacement {
+  /** From 1, at the street. */
+  readonly floor: number;
+  /** How many floors the building has. */
+  readonly floors: number;
+}
+
 /** What `index.ts` hands the room type when it defines it. */
 export interface OfficeRoomOptions {
   readonly projectBoard: ProjectBoardSource;
+  /** Which floor this room is; floor 1 of 1, the office as it always was, unless the building has more. */
+  readonly floor?: FloorPlacement;
+  /** The building's floors, for the lift; absent in a building of one floor, where the lifts go nowhere. */
+  readonly lifts?: BuildingLifts;
+  /** The building's clock, which every floor steps; a room given none keeps its own, as a test's does. */
+  readonly clock?: SimClock;
   /**
    * How long a dropped player's place is held, in seconds. Defaults to
    * {@link RECONNECT_GRACE_SECONDS}; a test sets it low to watch a grace
@@ -232,13 +255,13 @@ export function officeRoom(services: Partial<OfficeRoomOptions>): typeof OfficeR
 }
 
 /**
- * The first office opened on this server, which stays open with nobody in it
- * so the agents keep working while the CEO is away. The server opens no other
- * (see `onlyOffice.ts`), but any other office a test opens still closes when it
- * empties: left open, its once-a-second check would stop the main office's work
- * on the shared runner link.
+ * The first office opened for each floor on this server, by floor, which
+ * stays open with nobody in it so the agents keep working while the CEO is
+ * away. The server opens no other (see `onlyOffice.ts`), but any other office
+ * a test opens for a floor still closes when it empties: left open, its
+ * once-a-second check would stop that floor's work on the shared runner link.
  */
-let mainOfficeId: string | undefined;
+const permanentOffices = new Map<number, string>();
 
 export class OfficeRoom extends Room<OfficeState> {
   public override maxClients = OFFICE_CAPACITY;
@@ -255,10 +278,13 @@ export class OfficeRoom extends Room<OfficeState> {
   /** The authoritative answer to who is sitting where. */
   private readonly holds = new HoldRegistry();
 
+  /** The floor plan of this room's floor; assigned in `onCreate`, from the floor it is given. */
+  private layout!: OfficeLayout;
+
   /** Assigned in `onCreate`, once the state it reads exists. */
   private interaction!: InteractionHost;
 
-  /** The server-only half of the clock; assigned in `onCreate`. */
+  /** The server-only half of the clock, the building's if it was given one; assigned in `onCreate`. */
   private simClock!: SimClock;
 
   private spawnCursor = 0;
@@ -301,23 +327,28 @@ export class OfficeRoom extends Room<OfficeState> {
   }
 
   public override onCreate(): void {
-    if (mainOfficeId === undefined) {
-      mainOfficeId = this.roomId;
+    const services = this.services;
+    const { floor, floors } = services.floor ?? { floor: 1, floors: 1 };
+    if (!permanentOffices.has(floor)) {
+      permanentOffices.set(floor, this.roomId);
       this.autoDispose = false;
     }
     this.state = new OfficeState();
+    this.state.floor = floor;
+    this.state.floors = floors;
+    this.layout = floorLayout(floor, floors);
     this.patchRate = TICK_INTERVAL_MS;
     this.interaction = {
-      layout: OFFICE_LAYOUT,
+      layout: this.layout,
       occupants: this.state.occupants,
       motions: this.motions,
       holds: this.holds,
       lastUsedAt: new Map(),
       cups: new CoffeeCups(),
     };
-    this.simClock = createSimClock(this.state, this.clock.currentTime);
+    this.simClock = services.clock ?? createSimClock(this.clock.currentTime);
+    this.state.minuteOfDay = minuteOf(this.simClock);
 
-    const services = this.services;
     this.reconnectGraceSeconds = services.reconnectGraceSeconds ?? RECONNECT_GRACE_SECONDS;
     this.state.agentRestrictLabel = services.agentRestrictLabel ?? DEFAULT_AGENT_RESTRICT_LABEL;
 
@@ -343,7 +374,7 @@ export class OfficeRoom extends Room<OfficeState> {
     }
 
     this.crew = new LiveAgentCrew({
-      layout: OFFICE_LAYOUT,
+      layout: this.layout,
       occupants: this.state.occupants,
       interaction: this.interaction,
       work: this.state.work,
@@ -361,6 +392,7 @@ export class OfficeRoom extends Room<OfficeState> {
     }
     this.runners = wireRunners(this, {
       services,
+      layout: this.layout,
       crew: this.crew,
       board: () => this.projectBoard?.current(),
       allow: (client, command) => this.spend(client, command),
@@ -379,10 +411,14 @@ export class OfficeRoom extends Room<OfficeState> {
     });
     registerRadioHandlers(this, {
       state: this.state,
+      layout: this.layout,
       allow: (client) => this.spend(client, CLIENT_MESSAGE.radioTune),
       checkYoutube: services.youtubeCheck ?? youtubeCheck(),
       now: Date.now,
     });
+    if (services.lifts !== undefined) {
+      registerLiftHandlers(this, { state: this.state, layout: this.layout, lifts: services.lifts, now: () => this.clock.currentTime });
+    }
 
     this.setSimulationInterval((deltaMs) => {
       this.simulate(deltaMs);
@@ -438,8 +474,8 @@ export class OfficeRoom extends Room<OfficeState> {
   }
 
   public override onDispose(): void {
-    if (mainOfficeId === this.roomId) {
-      mainOfficeId = undefined;
+    if (permanentOffices.get(this.state.floor) === this.roomId) {
+      permanentOffices.delete(this.state.floor);
     }
     // First, so no manager is left writing to a room that is closing.
     this.manager?.stop();
@@ -540,7 +576,7 @@ export class OfficeRoom extends Room<OfficeState> {
         continue;
       }
       if (motion.hasPending) {
-        applyPose(occupant, motion, now, OFFICE_LAYOUT);
+        applyPose(occupant, motion, now, this.layout);
         motion.hasPending = false;
       } else if (
         occupant.animation !== ANIMATION_STATE.idle &&
@@ -585,15 +621,15 @@ export class OfficeRoom extends Room<OfficeState> {
    * lobby, if the floor plan has a reception desk.
    */
   private openReception(): void {
-    const concierge = employConcierge(OFFICE_LAYOUT);
-    const post = conciergePost(OFFICE_LAYOUT);
+    const concierge = employConcierge(this.layout);
+    const post = conciergePost(this.layout);
     if (concierge === undefined || post === undefined) {
       return;
     }
     this.state.occupants.set(concierge.id, concierge);
     this.concierge = new ConciergeDesk(
       {
-        layout: OFFICE_LAYOUT,
+        layout: this.layout,
         occupants: this.state.occupants,
         say: (occupantId, text) => this.say(occupantId, text),
         wave: (occupantId) => this.wave(occupantId),
@@ -612,8 +648,8 @@ export class OfficeRoom extends Room<OfficeState> {
    */
   private openManagersDesk(work: WorkHost, services: Partial<OfficeRoomOptions>): void {
     const advisor = services.manager;
-    const manager = employManager(OFFICE_LAYOUT);
-    const seat = managerSeat(OFFICE_LAYOUT);
+    const manager = employManager(this.layout);
+    const seat = managerSeat(this.layout);
     if (advisor === undefined || manager === undefined || seat === undefined) {
       return;
     }
@@ -685,7 +721,7 @@ export class OfficeRoom extends Room<OfficeState> {
 
   /** Cycles the layout's spawn points so arrivals do not stack on one spot. */
   private nextSpawn() {
-    const points = OFFICE_LAYOUT.spawnPoints;
+    const points = this.layout.spawnPoints;
     const point = points[this.spawnCursor % points.length];
     this.spawnCursor += 1;
     return point ?? { x: 0, z: 0, yaw: 0 };

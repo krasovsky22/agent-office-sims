@@ -791,6 +791,14 @@ export class OfficeState extends Schema {
   /** The CEO's desk terminals whose computers are on, by seat id; see `./deskTerminal.ts`. */
   declare public desks: MapSchema<DeskTerminal>;
   declare public radio: Radio;
+  /**
+   * Which floor of the building this office is, from 1 at the street, and how
+   * many floors the building has. Replicated so the client draws the plan the
+   * server's room walks, `floorLayout(floor, floors)` from `layout.ts`, and
+   * knows whether the lifts go anywhere.
+   */
+  declare public floor: number;
+  declare public floors: number;
 
   public constructor() {
     super();
@@ -808,6 +816,8 @@ export class OfficeState extends Schema {
     this.issuesWritable = false;
     this.desks = new MapSchema<DeskTerminal>();
     this.radio = new Radio();
+    this.floor = 1;
+    this.floors = 1;
   }
 }
 
@@ -826,6 +836,8 @@ defineTypes(OfficeState, {
   issuesWritable: "boolean",
   desks: { map: DeskTerminal },
   radio: Radio,
+  floor: "uint8",
+  floors: "uint8",
 });
 
 const TAU = Math.PI * 2;

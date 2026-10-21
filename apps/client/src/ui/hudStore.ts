@@ -10,6 +10,7 @@ import {
   type AgentPromptEntry,
   DEFAULT_RADIO_STATION_ID,
   type Emote,
+  type LiftFloor,
   NO_STANDUP,
   type ManagerEntry,
   OCCUPANT_KIND,
@@ -41,6 +42,7 @@ import type { AgentProfileActions, AgentProfileNotice } from "./AgentProfileCard
 import type { AgentPromptRefusal, AgentTerminalActions } from "./AgentTerminalPanel.js";
 import type { ManagerPanelActions } from "./ManagerPanel.js";
 import type { ProjectBoardActions } from "./ProjectBoardPanel.js";
+import type { LiftActions } from "./LiftPanel.js";
 import type { RadioActions } from "./RadioPanel.js";
 import type { StandupActions } from "./StandupPanel.js";
 
@@ -206,6 +208,17 @@ export interface HudSnapshot {
   readonly radioSettings: RadioSettings;
   /** Why the local player's latest tune was not taken, or why this tab is not playing it. */
   readonly radioNotice?: string | undefined;
+  /** Which floor of the building the office is, from 1 at the street, and how many it has. */
+  readonly floor: number;
+  readonly floors: number;
+  /** Whether the local player opened the lift's floors with `E` at its doors. */
+  readonly liftOpen: boolean;
+  /** The building's floors as the server last listed them; absent until the lift is called. */
+  readonly liftFloors?: readonly LiftFloor[] | undefined;
+  /** Why the lift would not take the local player, if it would not. */
+  readonly liftNotice?: string | undefined;
+  /** The floor the lift is taking the local player to, while it does. */
+  readonly riding?: number | undefined;
 }
 
 /** What the standing tasks' buttons do; the server decides whether it happens. */
@@ -245,6 +258,7 @@ export interface HudActions {
   readonly profile: AgentProfileActions;
   readonly agentMenu: AgentMenuActions;
   readonly radio: RadioActions;
+  readonly lift: LiftActions;
 }
 
 export interface HudStore {
@@ -276,6 +290,9 @@ const INITIAL: HudSnapshot = {
   radioOpen: false,
   radio: { stationId: DEFAULT_RADIO_STATION_ID, videoId: "", listId: "", title: "", startedAt: 0, tunedBy: "" },
   radioSettings: DEFAULT_RADIO_SETTINGS,
+  floor: 1,
+  floors: 1,
+  liftOpen: false,
 };
 
 export function createHudStore(): HudStore {

@@ -174,10 +174,12 @@ export interface WallBoardSpec {
 /**
  * A lift door set into a wall, for the building's lift lobby.
  *
- * A placeholder: nobody rides it, so nothing about it is interactive and
- * nothing collides with it, the wall it is set into already does. It is
+ * Nothing collides with it, the wall it is set into already does. It is
  * positioned like a {@link WallBoardSpec}, by the centre of its face on the
- * wall's surface, with `yaw` the way the face looks.
+ * wall's surface, with `yaw` the way the face looks. It is only called, and
+ * ridden, on a floor of a building with more than one: {@link withLiftCalls}
+ * puts a call in front of each door, and a building of one floor leaves the
+ * doors as scenery.
  */
 export interface LiftSpec {
   readonly id: string;
@@ -262,6 +264,7 @@ export const INTERACTION_KIND = {
   manager: "manager",
   screen: "screen",
   radio: "radio",
+  lift: "lift",
 } as const;
 
 export type InteractionKind = (typeof INTERACTION_KIND)[keyof typeof INTERACTION_KIND];
@@ -572,8 +575,9 @@ const DESK_ROW_XS = [-6.6, -2.6, 1.4] as const;
  * - The main entrance opens from the pavement into the lobby, a hall along the
  *   building's south wall. Reception stands just inside, facing the door, in
  *   front of a feature wall with the office's name on it. Down the hall the
- *   lifts are set into a core on the north wall — placeholders, nobody rides
- *   them — and to the left of the lifts a door leads north into the office.
+ *   lifts are set into a core on the north wall — ridden only in a building
+ *   of more than one floor — and to the left of the lifts a door leads north
+ *   into the office.
  * - That door comes in at the south-west corner of the open floor, the office's
  *   main room, which holds three rows of desks facing north. Across its north
  *   side stand two private offices side by side, the CEO's and the AI
@@ -1014,6 +1018,128 @@ export const OFFICE_LAYOUT: OfficeLayout = {
   },
   ceiling: WALL_HEIGHT,
 };
+
+/** How far in front of a lift's doors whoever calls it stands. */
+const LIFT_CALL_DISTANCE = 0.7;
+
+/** How far in front of a lift's doors its riders step out, the nearer of two rows. */
+const LIFT_ARRIVAL_DISTANCE = 1.2;
+
+/** Between the two rows of arrivals in front of a lift, so two riders never land in one another. */
+const LIFT_ARRIVAL_SPACING = 1;
+
+/** The interactable that calls a lift, by the lift's id. */
+export function liftCallId(liftId: string): string {
+  return `${liftId}-call`;
+}
+
+/** A point `distance` out from a lift's doors, the way they face. */
+function inFrontOfLift(lift: LiftSpec, distance: number): Vec2 {
+  return { x: lift.x - Math.sin(lift.yaw) * distance, z: lift.z - Math.cos(lift.yaw) * distance };
+}
+
+/**
+ * The layout with a call in front of each of its lifts, where `E` opens the
+ * list of floors.
+ *
+ * Derived from the lifts rather than placed by hand, so a lift cannot move and
+ * leave its call behind. Only a building with somewhere else to go has them:
+ * a building of one floor uses its layout as it is.
+ */
+export function withLiftCalls(layout: OfficeLayout): OfficeLayout {
+  const calls = layout.lifts.map(
+    (lift): InteractableSpec => ({
+      id: liftCallId(lift.id),
+      kind: INTERACTION_KIND.lift,
+      // Facing the doors, which face the other way.
+      anchor: { ...inFrontOfLift(lift, LIFT_CALL_DISTANCE), yaw: lift.yaw >= 0 ? lift.yaw - Math.PI : lift.yaw + Math.PI },
+      volume: undefined,
+      exit: undefined,
+      deskId: undefined,
+      seatId: undefined,
+    }),
+  );
+  return { ...layout, fixtures: [...layout.fixtures, ...calls] };
+}
+
+/**
+ * The office on a floor above the street, derived from the ground floor's.
+ *
+ * The same office in the same place, so the floors cannot drift apart and the
+ * tests that walk the ground floor's plan cover most of this one too. What
+ * goes is what only the ground floor has: reception, the main entrance and
+ * the pavement outside it with its railings, and the waypoints out to them.
+ * The street front is glass from end to end instead, the street seen from up
+ * high, and everyone arrives by lift, stepping out of its doors into the lift
+ * lobby facing the office door, so the lifts are called here whatever the
+ * building.
+ */
+export function upperFloorLayout(ground: OfficeLayout): OfficeLayout {
+  const outdoors = new Set(ground.rooms.filter((room) => room.id === SIDEWALK_ROOM_ID).map((room) => room.id));
+  const entrances = ground.doorways.filter((door) => door.connects.some((id) => outdoors.has(id)));
+  const isOut = (point: Vec2): boolean => {
+    const room = roomAt(ground, point);
+    return (room !== undefined && outdoors.has(room.id)) || entrances.some((door) => door.centre.x === point.x && door.centre.z === point.z);
+  };
+  const dropped = new Set(ground.waypoints.filter(isOut).map((node) => node.id));
+  const office = ground.doorways.find((door) => door.connects.includes(LOBBY_ROOM_ID) && !entrances.includes(door));
+
+  // The street front's glazing, broken on the ground floor by the main entrance, as one run.
+  const glazed = ground.walls.filter((spec) => spec.style === "window");
+  const glass: WallSpec = {
+    id: "wall-street",
+    footprint: {
+      minX: Math.min(...glazed.map((spec) => spec.footprint.minX)),
+      minZ: Math.min(...glazed.map((spec) => spec.footprint.minZ)),
+      maxX: Math.max(...glazed.map((spec) => spec.footprint.maxX)),
+      maxZ: Math.max(...glazed.map((spec) => spec.footprint.maxZ)),
+    },
+    height: WALL_HEIGHT,
+    style: "window",
+  };
+
+  return withLiftCalls({
+    ...ground,
+    name: "Upper Floor",
+    walls: [...ground.walls.filter((spec) => spec.style === undefined), glass],
+    props: ground.props.filter((spec) => spec.kind !== "reception"),
+    rooms: ground.rooms.filter((room) => !outdoors.has(room.id)),
+    doorways: ground.doorways.filter((door) => !entrances.includes(door)),
+    waypoints: ground.waypoints
+      .filter((node) => !dropped.has(node.id))
+      .map((node) => ({ ...node, links: node.links.filter((id) => !dropped.has(id)) })),
+    // Out of the doors, two rows deep in front of each, turned down the hall
+    // towards the door into the office, which is the way anyone arriving is
+    // going; square to the hall, so the camera behind them looks along it.
+    spawnPoints: ground.lifts.flatMap((lift) =>
+      [0, 1].map((row) => {
+        const at = inFrontOfLift(lift, LIFT_ARRIVAL_DISTANCE + row * LIFT_ARRIVAL_SPACING);
+        return { ...at, yaw: office === undefined ? lift.yaw : office.centre.x < at.x ? QUARTER_TURN : -QUARTER_TURN };
+      }),
+    ),
+  });
+}
+
+/** The ground floor of a building with more than one floor: the office as it is, with its lifts called. */
+export const GROUND_FLOOR_LAYOUT: OfficeLayout = withLiftCalls(OFFICE_LAYOUT);
+
+/** Every floor above the ground floor. */
+export const UPPER_FLOOR_LAYOUT: OfficeLayout = upperFloorLayout(OFFICE_LAYOUT);
+
+/**
+ * The floor plan of one floor of a building of `floors`, numbered from 1 at
+ * the street.
+ *
+ * The one place the choice is made, so the server's room and the client's
+ * scene pick the same plan from the same two numbers. A building of one floor
+ * is the office as it always was.
+ */
+export function floorLayout(floor: number, floors: number): OfficeLayout {
+  if (floor > 1) {
+    return UPPER_FLOOR_LAYOUT;
+  }
+  return floors > 1 ? GROUND_FLOOR_LAYOUT : OFFICE_LAYOUT;
+}
 
 /**
  * Rotates a point in a furnishing's local frame into world space.

@@ -15,12 +15,14 @@ a reference office plan: desk rows in the open plan, the CEO's office and the AI
 Manager's side by side across its north side, a lounge with a sofa, armchairs
 and a coffee table, a conference room with a long table seated down both sides,
 and a kitchen. A main entrance from the pavement opens into the building's
-lobby, with a reception desk facing it, lifts down the hall (placeholders,
-nobody rides them) and, to the left of the lifts, the door into the office. Players arrive on the pavement outside, facing the
+lobby, with a reception desk facing it, lifts down the hall (ridden only in a
+building of more than one floor, see [Floors and the lift](#floors-and-the-lift))
+and, to the left of the lifts, the door into the office. Players arrive on the pavement outside, facing the
 main entrance, and walk in through the lobby.
-The server runs one office, open from boot, for up to 16 players; a 17th is
-turned away with "The office is full (16 people)" in the HUD's status rather
-than given an empty office of their own.
+The server runs one office per floor, open from boot, for up to 16 players
+each; a 17th is turned away with "The office is full (16 people)" in the HUD's
+status rather than given an empty office of their own. Unless `FLOOR_REPOS`
+says otherwise the building is one floor, the office for `PROJECT_BOARD_REPO`.
 Behind the reception desk stands the concierge, a teal body that is neither a
 player nor an agent: it takes no work and answers nothing, but whenever a
 player steps into the lobby, in off the street or out through the office door,
@@ -103,7 +105,7 @@ That starts both halves: the Colyseus server on `ws://localhost:2567` and the
 Vite client on `http://localhost:5173`. Both have working defaults, so no
 configuration is required; `.env.example` lists the variables (`PORT`,
 `ALLOWED_ORIGINS`, and `VITE_SERVER_URL`, plus the project board's
-`PROJECT_BOARD_*`, the manager's `ANTHROPIC_API_KEY` and
+`PROJECT_BOARD_*`, the building's `FLOOR_REPOS`, the manager's `ANTHROPIC_API_KEY` and
 `MANAGER_*`, the live agents' `LIVE_AGENTS_*`, the runner
 link's `RUNNER_SECRET`, and the runner's own `RUNNER_*`) if you need
 to point the client somewhere else. A deployment
@@ -382,6 +384,49 @@ pause or when the button is pressed again. Nothing is sent until you press Send
 or `Enter`, so a misheard word can be fixed first. Where the browser has no
 speech recognition the button is greyed out, and a blocked microphone says so
 above it.
+
+### Floors and the lift
+
+Each floor of the building is one repository's office, in a room of its own on
+the server: its own project board, sticker boards, people and CEO. Floor 1 is the ground floor, with the street, the lobby and
+reception, and is always `PROJECT_BOARD_REPO`'s. `FLOOR_REPOS` adds floors above
+it, one `owner/name` per floor from floor 2 up, comma-separated, at most seven:
+
+```sh
+PROJECT_BOARD_TOKEN=github_pat_… PROJECT_BOARD_REPO=acme/office FLOOR_REPOS=acme/site,acme/api pnpm dev
+```
+
+Every floor polls GitHub for its own board, which anonymous requests cannot
+afford, so the server refuses to start with more than one floor and no
+`PROJECT_BOARD_TOKEN`; the token has to be able to read every floor's
+repository. It also refuses a repository listed twice, or as the ground floor's
+as well. Anyone who can open the office's URL can ride to every floor and read
+its board, a private repository's included, so list only repositories everyone
+you share the office with may see.
+
+With more than one floor the lifts in the lobby run. Walk up to either lift's
+doors and `E Call the lift` opens the floors: each one's number, repository and
+who is on it, and a Go button. The floor you are on decides the ride, not your
+tab: it checks you are standing at a lift and keeps you a place on the floor
+you chose, which your tab takes as it leaves the floor you were on, and the
+chat log says where you went. You arrive out of the lift doors on a floor
+above the first, and on the pavement outside the entrance on the ground floor,
+as anyone arriving there does, under the same name if nobody there has it,
+and its first arrival is its CEO, as on the ground floor; the CEO role on the
+floor you left passes on as it does when anyone leaves. A full floor turns the ride down and you stay where you
+are. Floors above the first have no street door, glass the length of the
+street side with the street seen from up high, and a lift lobby where reception
+would be. Every floor shows the one clock.
+
+The floors above the first have only a board, with no AI Manager and no agents yet:
+neither the runner link nor the live agents reach them, so nothing can start
+work there: there is nobody on the floor to hand an issue to, and drops on
+Closed and Open are not offered. The agents still work the ground
+floor as they always have.
+
+To check the lift by hand, start the server with a second floor as above, walk
+to the lifts in one tab, ride to floor 2, and see the second repository's board
+on the open floor, and the floor 1 tab's roster lose you.
 
 ### Live coding agents
 
@@ -1987,6 +2032,7 @@ public.
 | `PROJECT_BOARD_REPO` | server | runtime | No. The `owner/name` the project board shows. Defaults to this repository. |
 | `PROJECT_BOARD_TOKEN` | server | runtime | No, but recommended. A read-only GitHub token; see below. |
 | `PROJECT_BOARD_POLL_SECONDS` | server | runtime | No. Seconds between polls, at least 15. Defaults to 180, or 60 with a token. |
+| `FLOOR_REPOS` | server | runtime | No. Comma-separated `owner/name` repositories, one floor each above the ground floor; see [Floors and the lift](#floors-and-the-lift). Needs `PROJECT_BOARD_TOKEN`. Unset, the building is one floor. |
 | `ANTHROPIC_API_KEY` | server | runtime | Only on a host without a signed-in `claude` CLI, such as the Docker image: the AI manager plans through the API with it, else through that CLI. A secret. |
 | `MANAGER_MODEL` | server | runtime | No. The model the manager uses. Defaults to `claude-opus-5-5`. |
 | `MANAGER_CALLS_PER_DAY` / `MANAGER_CALLS_PER_RUN` | server | runtime | No. The manager's model call ceilings per UTC day and per server process. Default 150 and 1000. |
@@ -2139,7 +2185,8 @@ packages/shared/   @sim/shared   the contract both sides import
   src/standup.ts      the standup: the CEO-only gate, why a command was refused, the places in the conference room, what came of a direction
   src/deskTerminal.ts the CEO's desk terminal: which seats have a computer, the CEO-only gate, and the session's phases
   src/radio.ts        the office radio: its stations, reading a YouTube link, and how loud it is across the office
-  src/layout.ts       the office floor plan and its interactables, as data
+  src/lift.ts         the building's floors and the lift: each floor's room name, the floor list, the ride, and why one was refused
+  src/layout.ts       the office floor plan and its interactables, as data, and each floor's plan derived from it
   src/props.ts        the furniture, derived from that floor plan
   src/decor.ts        the wall decor: pictures, posters, clocks, whiteboards, a shelf and the TV, each on the wall it names
   src/collision.ts    capsule-vs-AABB movement resolution
@@ -2152,7 +2199,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/presenceHandlers.ts  moving, jumping, using things, emoting, chatting and renaming
   src/rooms/runnerWiring.ts  what a room builds round the runners: the work's host, the prompts, the standing tasks, the standup, the desk terminal
   src/sim/expression.ts   per-occupant emote, chat, manager-message and agent-prompt budgets
-  src/sim/clock.ts        the in-game clock, stepped by the simulation tick
+  src/sim/clock.ts        the building's in-game clock, stepped by every floor's simulation tick
   src/sim/roles.ts        who holds the CEO role, and who inherits it
   src/sim/concierge.ts    the concierge's welcome to each player who steps into the lobby
   src/github/             the project board's feed: fetch, bucket, poll
@@ -2173,6 +2220,8 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/manager/hire.ts            hiring a new coding agent for an issue or a recurring task: the cap, the profile, and its work once it walks in
   src/manager/workMoves.ts       approving, sending back, taking back and starting again work in hand, as the CEO
   src/rooms/radioHandlers.ts  tuning the radio from beside it, and the refusals sent back
+  src/rooms/building.ts   the building's floors: opening each one's room, its headcount, and a seat kept on it for a rider
+  src/rooms/liftHandlers.ts  calling the lift and riding it from beside it, and the refusals sent back
   src/sim/youtube.ts      asking YouTube's oEmbed endpoint whether the radio may play a link
   src/rooms/standupHandlers.ts  the CEO's standup commands: call, end, direct, and the refusals sent back
   src/sim/standup.ts      the standup: gathering, the turns and each update read off an agent's real state, directions, blockers, the end
@@ -2248,6 +2297,7 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/scene/props.ts     those props, drawn as instanced meshes
   src/scene/doors.ts     the doors in every doorway, swinging open for whoever comes near; decor, never collided with
   src/scene/office.ts    the shell from the layout: floor, walls, lintels and the room signs over the doors, ceiling, lifts
+  src/scene/floorScene.ts  what differs from floor to floor: the shell, the doors, the street seen from that height and the furniture, swapped on a ride
   src/scene/wallDecor.ts  the wall decor from shared decor.ts, hung as instanced boxes, the clocks kept to the office's time
   src/scene/wallArt.ts    the decor's artwork, painted on canvases: pictures, posters, clock faces, whiteboards, the TV's slide
   src/scene/wallBoard.ts  the open floor's GitHub board, painted on a canvas
@@ -2275,6 +2325,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/radio.ts            the listener's own radio volume and mute, and what the HUD says about the radio
   src/radioPlayer.ts      the radio's speakers in this tab: a station's stream, or a hidden YouTube player
   src/ui/RadioPanel.tsx   the radio's panel, opened beside it, and the mute and volume controls
+  src/lift.ts             what the HUD says about the lift: a floor's line, who is there, why a ride was refused
+  src/ui/LiftPanel.tsx    the lift's floors, opened at its doors, and a ride to each
   src/agentTerminal.ts    the issue and pull requests an agent's terminal panel links to
   src/ui/AgentTerminalPanel.tsx  a working agent's terminal at full size, opened behind its chair, or at the CEO's own desk
   src/deskTerminalAccess.ts  what the local player's desk shows them: the CEO's terminal, why there is none yet, or why it is the CEO's alone
