@@ -7,6 +7,7 @@
 import { Encoder, MapSchema, Reflection } from "@colyseus/schema";
 import { describe, expect, it } from "vitest";
 
+import { BRAINSTORM_STATUS } from "./brainstorm.js";
 import { MAX_WORK_NOTE_LENGTH } from "./constants.js";
 import { parseWorkAssignMessage, parseWorkMoveMessage, parseWorkReleaseMessage } from "./messages.js";
 import {
@@ -18,6 +19,8 @@ import {
 } from "./projectBoard.js";
 import {
   AiManager,
+  Brainstorm,
+  BrainstormTake,
   HumanPlayer,
   IssueWork,
   LiveAgent,
@@ -207,6 +210,35 @@ describe("assigning an issue", () => {
     expect(run(at, assign(1, "agent-1")).ok).toBe(true);
     workAt(at, 1, WORK_STATUS.done);
     expect(run(at, assign(3, "agent-1")).ok).toBe(true);
+  });
+
+  it("gives a brainstorm ticket to no one agent: several research it, and nobody codes it", () => {
+    const at = office();
+    at.board = snapshot({ open: [{ ...issue(1), labels: [{ name: "Brainstorm", color: "" }] }, issue(2)] });
+    expect(run(at, assign(1, "agent-1"))).toEqual({ ok: false, rejection: WORK_REJECTION.brainstorm });
+    expect(at.work.has(workKey(1))).toBe(false);
+    // Nor an issue the office already researches as an idea, whatever the board says of its labels now.
+    const brainstorms = new MapSchema<Brainstorm>();
+    brainstorms.set(workKey(2), Object.assign(new Brainstorm(), { issueNumber: 2, status: BRAINSTORM_STATUS.ready }));
+    const actor = actorOf(at.occupants.get(CEO_ID) as Occupant);
+    expect(applyWorkCommand(assign(2, "agent-1"), { work: at.work, occupants: at.occupants, board: at.board, actor, now: T0, brainstorms })).toEqual({
+      ok: false,
+      rejection: WORK_REJECTION.brainstorm,
+    });
+  });
+
+  it("gives no issue to an agent an idea holds, until its research and meeting are done", () => {
+    const at = office();
+    const brainstorms = new MapSchema<Brainstorm>();
+    const held: Brainstorm = Object.assign(new Brainstorm(), { issueNumber: 9, status: BRAINSTORM_STATUS.researching });
+    held.takes.push(Object.assign(new BrainstormTake(), { agentId: "agent-1" }));
+    brainstorms.set(workKey(9), held);
+    const actor = actorOf(at.occupants.get(CEO_ID) as Occupant);
+    const context = { work: at.work, occupants: at.occupants, board: at.board, actor, now: T0, brainstorms };
+    expect(applyWorkCommand(assign(2, "agent-1"), context)).toEqual({ ok: false, rejection: WORK_REJECTION.busy });
+    expect(applyWorkCommand(assign(2, "agent-2"), context).ok).toBe(true);
+    held.status = BRAINSTORM_STATUS.ready;
+    expect(applyWorkCommand(assign(3, "agent-1"), context).ok).toBe(true);
   });
 
   it("does not reassign finished work", () => {

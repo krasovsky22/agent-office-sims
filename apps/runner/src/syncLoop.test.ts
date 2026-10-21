@@ -10,17 +10,21 @@ import {
   MAX_RUNNER_EVENTS,
   MAX_RUNNER_PROMPT_OUTCOMES,
   RUNNER_PROMPT_OUTCOME,
+  type RunnerBrainstormEvent,
   type RunnerCommand,
+  type RunnerEvent,
   type RunnerWorkEvent,
   type RunnerPromptOutcome,
   type RunnerSlotReport,
   type RunnerSync,
+  parseRunnerSync,
 } from "@sim/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import { IssueStateDesk } from "./issueStates.js";
 import { SyncError, type SyncReply } from "./syncClient.js";
-import { SyncLoop } from "./syncLoop.js";
+import type { SlotPool } from "./slots.js";
+import { SyncLoop, upToOneBrainstorm } from "./syncLoop.js";
 
 const REPO = "krasovsky22/agent-office-sims";
 
@@ -300,5 +304,76 @@ describe("SyncLoop issue states", () => {
     await loop.syncOnce();
     expect(sent[1]?.acked).toEqual(["command-1"]);
     expect(logged.some((line) => line.includes("cannot"))).toBe(true);
+  });
+});
+
+describe("SyncLoop with brainstorms", () => {
+  const brainstorm = (id: string, part: RunnerBrainstormEvent["part"] = "take"): RunnerBrainstormEvent => ({
+    id,
+    kind: "brainstorm",
+    issueNumber: 191,
+    part,
+    slotId: part === "posted" ? undefined : "slot-1",
+    text: part === "posted" ? "" : "Verdict: doable",
+    created: [],
+  });
+
+  it("takes events up to a second brainstorm event, never past one queued before it", () => {
+    const finished: RunnerWorkEvent = { ...event("e2"), kind: "finished" };
+    expect(upToOneBrainstorm([event("e1"), brainstorm("b1"), finished, brainstorm("b2"), event("e3")])).toEqual([event("e1"), brainstorm("b1"), finished]);
+    expect(upToOneBrainstorm([event("e1"), event("e3")])).toEqual([event("e1"), event("e3")]);
+  });
+
+  it("carries one write-up a sync, the slots' first, and hands posts and conversions to the brainstorm desk", async () => {
+    const sent: RunnerSync[] = [];
+    let pool: RunnerEvent[] = [brainstorm("b1"), { ...event("e2"), kind: "finished" }, brainstorm("b2")];
+    let desk: RunnerBrainstormEvent[] = [brainstorm("d1", "posted")];
+    const handled: string[] = [];
+    const replies: SyncReply[] = [
+      { commands: [{ id: "command-post", kind: "brainstorm-post", issueNumber: 191, body: "# Doc", requestedBy: "Dana" }], unreadable: [] },
+    ];
+    const loop = new SyncLoop({
+      runnerId: "runner-1",
+      repo: REPO,
+      pool: {
+        report: () => SLOTS,
+        pendingEvents: () => pool as ReturnType<SlotPool["pendingEvents"]>,
+        pendingPromptOutcomes: () => [],
+        delivered: (ids) => {
+          pool = pool.filter((candidate) => !ids.has(candidate.id));
+        },
+        handle: () => undefined,
+        spend: () => ({ spentUsd: 0, budgetUsd: undefined }),
+      },
+      brainstorms: {
+        handle: async (command) => {
+          handled.push(command.id);
+        },
+        pendingEvents: () => desk,
+        delivered: (ids) => {
+          desk = desk.filter((candidate) => !ids.has(candidate.id));
+        },
+      },
+      client: async (sync) => {
+        sent.push(sync);
+        return replies.shift() ?? { commands: [], unreadable: [] };
+      },
+    });
+    await loop.syncOnce();
+    await loop.syncOnce();
+    await loop.syncOnce();
+    expect(sent.map((sync) => sync.events.map((each) => each.id))).toEqual([["b1", "e2"], ["b2"], ["d1"]]);
+    expect(handled).toEqual(["command-post"]);
+    for (const sync of sent) {
+      expect(parseRunnerSync(sync)).toBeDefined();
+    }
+  });
+
+  it("acks a post it cannot make, with no GitHub identity, without making it", async () => {
+    const { loop, logged, sent } = setup([{ commands: [{ id: "command-post", kind: "brainstorm-post", issueNumber: 191, body: "# Doc", requestedBy: "Dana" }], unreadable: [] }]);
+    await loop.syncOnce();
+    await loop.syncOnce();
+    expect(sent[1]?.acked).toContain("command-post");
+    expect(logged.some((line) => line.includes("would write a brainstorm to GitHub"))).toBe(true);
   });
 });

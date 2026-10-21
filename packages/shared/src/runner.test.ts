@@ -9,8 +9,10 @@
 
 import { describe, expect, it } from "vitest";
 
+import { MAX_BRAINSTORM_TEXT_BYTES } from "./brainstorm.js";
 import {
   MAX_RUNNER_ACKS,
+  MAX_RUNNER_ANSWER_BYTES,
   MAX_RUNNER_EVENTS,
   MAX_RUNNER_ISSUE_STATE_OUTCOMES,
   MAX_RUNNER_PROMPT_LENGTH,
@@ -483,5 +485,62 @@ describe("simulatedPullRequestArtifact", () => {
     expect(isSimulatedPullRequestArtifact(SIMULATED_PULL_REQUEST)).toBe(true);
     expect(isSimulatedPullRequestArtifact(`PR #41: Night shift, ${PULL}`)).toBe(false);
     expect(isSimulatedPullRequestArtifact("")).toBe(false);
+  });
+});
+
+describe("brainstorms on the runner link", () => {
+  const take = { id: "event-9", kind: "brainstorm", issueNumber: 191, part: "take", slotId: "slot-1", text: "Verdict: doable\r\n\r\n\r\n\r\nBuild it." };
+  const posted = { id: "event-10", kind: "brainstorm", issueNumber: 191, part: "posted" };
+  const converted = {
+    id: "event-11",
+    kind: "brainstorm",
+    issueNumber: 191,
+    part: "converted",
+    created: [{ number: 200, url: "https://github.com/krasovsky22/agent-office-sims/issues/200" }],
+  };
+
+  it("reads a slot's write-up, with its paragraphs, and the runner's own posts and conversions", () => {
+    expect(parseRunnerSync({ ...SYNC, events: [take] })?.events).toEqual([
+      { id: "event-9", kind: "brainstorm", issueNumber: 191, part: "take", slotId: "slot-1", text: "Verdict: doable\n\nBuild it.", created: [] },
+    ]);
+    expect(parseRunnerSync({ ...SYNC, events: [posted] })?.events[0]).toMatchObject({ part: "posted", slotId: undefined, text: "" });
+    expect(parseRunnerSync({ ...SYNC, events: [converted] })?.events[0]).toMatchObject({ part: "converted", created: converted.created });
+    const event = parseRunnerSync({ ...SYNC, events: [take] })?.events[0];
+    expect(event === undefined || isRunnerWorkEvent(event)).toBe(false);
+  });
+
+  it("refuses a write-up with no slot or no words, a runner's call that names a slot, a bad link, or one past its budget", () => {
+    expect(parseRunnerSync({ ...SYNC, events: [{ ...take, slotId: undefined }] })).toBeUndefined();
+    expect(parseRunnerSync({ ...SYNC, events: [{ ...take, text: "   " }] })).toBeUndefined();
+    expect(parseRunnerSync({ ...SYNC, events: [{ ...posted, slotId: "slot-1" }] })).toBeUndefined();
+    expect(parseRunnerSync({ ...SYNC, events: [{ ...converted, created: [{ number: 200, url: "http://example.com/1" }] }] })).toBeUndefined();
+    expect(parseRunnerSync({ ...SYNC, events: [{ ...take, text: "x".repeat(MAX_BRAINSTORM_TEXT_BYTES + 1) }] })).toBeUndefined();
+    expect(parseRunnerSync({ ...SYNC, events: [{ ...take, part: "line", text: "x".repeat(MAX_RUNNER_ANSWER_BYTES + 1) }] })).toBeUndefined();
+    expect(parseRunnerSync({ ...SYNC, events: [{ ...take, part: "vote" }] })).toBeUndefined();
+  });
+
+  it("takes one brainstorm event a sync at most, a write-up being the largest thing a sync holds", () => {
+    expect(parseRunnerSync({ ...SYNC, events: [take, posted] })).toBeUndefined();
+    expect(parseRunnerSync({ ...SYNC, events: [take, ...SYNC.events] })?.events).toHaveLength(2);
+  });
+
+  it("builds a brainstorm's start, its meeting lines, and its posts and conversions, sanitised", () => {
+    const base = { slotId: "slot-1", kind: "start", issueNumber: 191, title: "Idea tasks", url: "https://github.com/o/r/issues/191", note: "", requestedBy: "Dana" } as const;
+    expect(toRunnerCommand("command-1", { ...base, brainstorm: { role: "critic", prior: "## Maya\r\n\r\n\r\nIt" } })).toMatchObject({
+      brainstorm: { role: "critic", prior: "## Maya\n\nIt" },
+    });
+    expect(toRunnerCommand("command-1", { ...base, brainstorm: { role: "coder" as "critic", prior: "" } })).toBeUndefined();
+    expect(toRunnerCommand("command-1", base)).not.toHaveProperty("brainstorm");
+    const speak = toRunnerCommand("command-2", { kind: "brainstorm-speak", slotId: "slot-1", issueNumber: 191, part: "line", text: "Say it", requestedBy: "Dana" });
+    expect(speak).toMatchObject({ kind: "brainstorm-speak", part: "line", text: "Say it" });
+    expect(speak === undefined ? false : isRunnerSlotCommand(speak)).toBe(true);
+    expect(toRunnerCommand("command-2", { kind: "brainstorm-speak", slotId: "slot-1", issueNumber: 191, part: "take" as "line", text: "x", requestedBy: "" })).toBeUndefined();
+    const post = toRunnerCommand("command-3", { kind: "brainstorm-post", issueNumber: 191, body: "# Doc", requestedBy: "Dana" });
+    expect(post).toEqual({ id: "command-3", kind: "brainstorm-post", issueNumber: 191, body: "# Doc", requestedBy: "Dana" });
+    expect(post === undefined ? true : isRunnerSlotCommand(post)).toBe(false);
+    expect(
+      toRunnerCommand("command-4", { kind: "brainstorm-convert", issueNumber: 191, drafts: [{ title: "Ideas\non the board", body: "Do it" }], requestedBy: "Milo" }),
+    ).toEqual({ id: "command-4", kind: "brainstorm-convert", issueNumber: 191, drafts: [{ title: "Ideas on the board", body: "Do it" }], requestedBy: "Milo" });
+    expect(toRunnerCommand("command-4", { kind: "brainstorm-convert", issueNumber: 191, drafts: [{ title: " ", body: "" }], requestedBy: "Milo" })).toBeUndefined();
   });
 });

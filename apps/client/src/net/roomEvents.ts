@@ -8,6 +8,7 @@
  * only to hand it to the caller. A new event is one line in the table below.
  */
 
+import type { BrainstormData, BrainstormRejectedEvent } from "@sim/shared";
 import {
   type AgentActionRejectedEvent,
   type AgentProfileRejectedEvent,
@@ -103,6 +104,10 @@ export interface RoomConnectionEvents {
   onStandupChanged?: (standup: StandupData) => void;
   /** The office refused one of the local client's own standup commands. */
   onStandupRejected?: (event: StandupRejectedEvent) => void;
+  /** The office's brainstorm tickets, after any of them changed: a write-up in, a meeting, a conversion. */
+  onBrainstormsChanged?: (brainstorms: readonly BrainstormData[]) => void;
+  /** The office refused one of the local client's own brainstorm commands. */
+  onBrainstormRejected?: (event: BrainstormRejectedEvent) => void;
   /** The radio did not take the local client's own tune, and kept playing. */
   onRadioRejected?: (event: RadioRejectedEvent) => void;
   /** The TV did not take the local client's own change, and kept showing what it had. */
@@ -138,6 +143,7 @@ const FORWARDED = {
   [SERVER_MESSAGE.standingRejected]: "onStandingRejected",
   [SERVER_MESSAGE.standingHistory]: "onStandingHistory",
   [SERVER_MESSAGE.standupRejected]: "onStandupRejected",
+  [SERVER_MESSAGE.brainstormRejected]: "onBrainstormRejected",
   [SERVER_MESSAGE.radioRejected]: "onRadioRejected",
   [SERVER_MESSAGE.tvRejected]: "onTvRejected",
   [SERVER_MESSAGE.liftFloors]: "onLiftFloors",

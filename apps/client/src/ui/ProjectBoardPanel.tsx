@@ -23,6 +23,10 @@
  * and an executive sees the same detail with no controls. None of it writes to
  * GitHub.
  *
+ * An issue labelled `brainstorm` is an idea rather than work: its card says
+ * so, and its detail is `BrainstormDetail.tsx`'s, where the CEO hands it to
+ * several agents at once and anyone reads its design document.
+ *
  * The one thing that does is dragging. The CEO can pick an issue card up and
  * drop it on Closed to close the issue on GitHub, or a closed one on Open to
  * reopen it, which a connected agent runner does with its own GitHub
@@ -43,17 +47,21 @@
 
 import {
   type BoardLabel,
+  type BrainstormData,
   type IssueState,
   type ProjectBoardSnapshot,
   WORK_ACTION,
   type WorkData,
   type WorkStatus,
+  isBrainstormIssue,
   isWorkStopped,
 } from "@sim/shared";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import type { BoardAccess } from "../boardAccess.js";
+import { type BrainstormBoardActions, brainstormBadge, brainstormChoices } from "../brainstormBoard.js";
 import { isTypingTarget } from "../keys.js";
+import { BrainstormDetail } from "./BrainstormDetail.js";
 import {
   type BoardAgent,
   type BoardColumnKey,
@@ -101,12 +109,17 @@ export interface ProjectBoardActions {
   readonly setIssueState: (issueNumber: number, state: IssueState) => void;
   /** Has the server fetch the board from GitHub now; the fresh snapshot is the reply. */
   readonly refresh: () => void;
+  readonly brainstorm: BrainstormBoardActions;
 }
 
 interface ProjectBoardPanelProps {
   readonly snapshot: ProjectBoardSnapshot | undefined;
   /** The office's work on the board's issues, in no particular order. */
   readonly work: readonly WorkData[];
+  /** The office's brainstorm tickets, in no particular order. */
+  readonly brainstorms: readonly BrainstormData[];
+  /** Whether a standup has the meeting room. */
+  readonly standupActive: boolean;
   /** Who an issue can be given to, and so who the board names as having one. */
   readonly agents: readonly BoardAgent[];
   /** `undefined` before the local player has joined, when nothing is offered. */
@@ -129,6 +142,8 @@ interface DraggedCard {
 export function ProjectBoardPanel({
   snapshot: received,
   work,
+  brainstorms,
+  standupActive,
   agents,
   access,
   moves,
@@ -187,10 +202,13 @@ export function ProjectBoardPanel({
 
   const workOn = (issueNumber: number | null) =>
     issueNumber === null ? undefined : work.find((entry) => entry.issueNumber === issueNumber);
+  const ideaOf = (issueNumber: number | null) =>
+    issueNumber === null ? undefined : brainstorms.find((entry) => entry.issueNumber === issueNumber);
   // Looked up on every render, so the detail tracks the live issue and work.
   const detailIssue = openIssue === undefined ? undefined : boardIssue(snapshot, openIssue);
   const detailWork = openIssue === undefined ? undefined : workOn(openIssue);
-  const detailOpen = openIssue !== undefined && (detailIssue !== undefined || detailWork !== undefined);
+  const detailIdea = openIssue === undefined ? undefined : ideaOf(openIssue);
+  const detailOpen = openIssue !== undefined && (detailIssue !== undefined || detailWork !== undefined || detailIdea !== undefined);
 
   const dropOf = (card: DraggedCard | undefined, to: BoardColumnKey) =>
     card === undefined || access === undefined
@@ -418,6 +436,8 @@ export function ProjectBoardPanel({
                         )}
                         <RowWork
                           issueNumber={row.issueNumber}
+                          idea={isBrainstormIssue(row) || ideaOf(row.issueNumber) !== undefined}
+                          brainstorm={ideaOf(row.issueNumber)}
                           work={workOn(row.issueNumber)}
                           agents={agents}
                           assignable={column.key !== "closed" && access?.mayAssign === true}
@@ -443,7 +463,7 @@ export function ProjectBoardPanel({
         <IssueDetail
           key={openIssue}
           issueNumber={openIssue}
-          title={detailIssue?.title ?? detailWork?.title ?? ""}
+          title={detailIssue?.title ?? detailWork?.title ?? detailIdea?.title ?? ""}
           body={detailIssue?.body ?? ""}
           url={snapshot === undefined ? null : githubItemUrl(snapshot.repository, "issues", openIssue)}
           open={detailIssue !== undefined && detailIssue.closedAt === null}
@@ -453,6 +473,23 @@ export function ProjectBoardPanel({
           access={access}
           actions={actions}
           onClose={() => setOpenIssue(undefined)}
+          idea={
+            (detailIssue !== undefined && isBrainstormIssue(detailIssue)) || detailIdea !== undefined ? (
+              <BrainstormDetail
+                issueNumber={openIssue}
+                issue={detailIssue}
+                open={detailIssue !== undefined && detailIssue.closedAt === null}
+                brainstorm={detailIdea}
+                brainstorms={brainstorms}
+                hasWork={detailWork !== undefined}
+                restrictLabel={access?.restrictLabel ?? ""}
+                choices={brainstormChoices(agents, work, brainstorms)}
+                standupActive={standupActive}
+                access={access}
+                actions={actions.brainstorm}
+              />
+            ) : undefined
+          }
         />
       )}
       </div>
@@ -482,6 +519,8 @@ function carried(snapshot: ProjectBoardSnapshot, key: BoardColumnKey): number {
  */
 function RowWork({
   issueNumber,
+  idea,
+  brainstorm,
   work,
   agents,
   assignable,
@@ -490,6 +529,9 @@ function RowWork({
   onRestart,
 }: {
   issueNumber: number | null;
+  /** The issue is a brainstorm ticket: an idea, whose card says so and opens for anyone to read. */
+  idea: boolean;
+  brainstorm: BrainstormData | undefined;
   work: WorkData | undefined;
   agents: readonly BoardAgent[];
   assignable: boolean;
@@ -497,10 +539,10 @@ function RowWork({
   onToggle: (issueNumber: number) => void;
   onRestart: (issueNumber: number, agentId: string) => void;
 }) {
-  if (issueNumber === null || (work === undefined && !assignable)) {
+  if (issueNumber === null || (work === undefined && !assignable && !idea)) {
     return null;
   }
-  const badge = work === undefined ? undefined : workBadge(work, agents);
+  const badge = idea ? brainstormBadge(brainstorm) : work === undefined ? undefined : workBadge(work, agents);
   return (
     <span className="work__row">
       {badge === undefined ? null : (
@@ -516,7 +558,7 @@ function RowWork({
           onToggle(issueNumber);
         }}
       >
-        {work === undefined ? "Assign…" : "Work"}
+        {idea ? "Idea" : work === undefined ? "Assign…" : "Work"}
       </button>
       {work === undefined || !assignable || !isWorkStopped(work) ? null : (
         <button
@@ -550,6 +592,7 @@ function IssueDetail({
   access,
   actions,
   onClose,
+  idea,
 }: {
   issueNumber: number;
   title: string;
@@ -563,6 +606,8 @@ function IssueDetail({
   access: BoardAccess | undefined;
   actions: ProjectBoardActions;
   onClose: () => void;
+  /** A brainstorm ticket's detail, shown in place of an issue's work; absent for an ordinary issue. */
+  idea: ReactNode;
 }) {
   const moves = work === undefined ? [] : (access?.movesFor(work, agents) ?? []);
   return (
@@ -588,16 +633,18 @@ function IssueDetail({
           Back
         </button>
       </header>
-      <dl className="work__facts">
-        <dt>Work</dt>
-        <dd>{work === undefined ? "Nobody in the office has it" : workStatusText(work)}</dd>
-        {work === undefined ? null : (
-          <>
-            <dt>Agent</dt>
-            <dd>{workAgentName(work, agents)}</dd>
-          </>
-        )}
-      </dl>
+      {idea !== undefined ? null : (
+        <dl className="work__facts">
+          <dt>Work</dt>
+          <dd>{work === undefined ? "Nobody in the office has it" : workStatusText(work)}</dd>
+          {work === undefined ? null : (
+            <>
+              <dt>Agent</dt>
+              <dd>{workAgentName(work, agents)}</dd>
+            </>
+          )}
+        </dl>
+      )}
       {work === undefined || work.note === "" ? null : <p className="work__text work__note">{work.note}</p>}
       {body === "" ? <p className="board__empty">No description on GitHub.</p> : <p className="work__text">{body}</p>}
       {work === undefined || work.outputArtifact === "" ? null : (
@@ -606,7 +653,8 @@ function IssueDetail({
           <p className="work__text work__artifact">{work.outputArtifact}</p>
         </>
       )}
-      {work === undefined && open && access?.mayAssign === true ? (
+      {idea}
+      {work === undefined && idea === undefined && open && access?.mayAssign === true ? (
         <AssignPicker agents={agents} work={allWork} onAssign={(agentId) => actions.assign(issueNumber, agentId)} />
       ) : null}
       {moves.length === 0 || work === undefined ? null : (

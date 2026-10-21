@@ -8,7 +8,7 @@
  * refusal or a new log is added here.
  */
 
-import type { AgentPromptEntry, ManagerEntry } from "@sim/shared";
+import { type AgentPromptEntry, type ManagerEntry, brainstormRejectionText } from "@sim/shared";
 
 import { agentActionRejectionText } from "./agentMenu.js";
 import { agentProfileRejectionText } from "./agentProfileAccess.js";
@@ -206,6 +206,14 @@ export function hudRoomEvents(host: HudRoomEventsHost): RoomConnectionEvents {
 
     onStandupChanged: (standup) => {
       host.publish({ standup });
+    },
+
+    onBrainstormsChanged: (brainstorms) => {
+      host.publish({ brainstorms });
+    },
+
+    onBrainstormRejected: (event) => {
+      host.notice(`#${event.issueNumber}: ${brainstormRejectionText(event.rejection)}`);
     },
 
     // In the standup panel while one is on, where the command came from; as a notice otherwise.

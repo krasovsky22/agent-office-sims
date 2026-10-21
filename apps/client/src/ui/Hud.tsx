@@ -77,6 +77,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     standingHistory,
     boardAccess,
     work,
+    brainstorms,
     issueMoves,
     boardNotice,
     boardRefreshing,
@@ -211,6 +212,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
         <ProjectBoardPanel
           snapshot={projectBoard}
           work={work}
+          brainstorms={brainstorms}
+          standupActive={standup.active}
           agents={assignableAgents(roster)}
           access={boardAccess}
           moves={issueMoves}

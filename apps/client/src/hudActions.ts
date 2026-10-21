@@ -90,6 +90,12 @@ export function hudActions(host: HudActionsHost): HudActions {
       move: (issueNumber, status) => room.sendWorkMove(issueNumber, status),
       release: (issueNumber) => room.sendWorkRelease(issueNumber),
       setIssueState: (issueNumber, state) => host.issueMoves.move(issueNumber, state),
+      brainstorm: {
+        assign: (issueNumber, agentIds, mode) => room.sendBrainstormAssign(issueNumber, agentIds, mode),
+        meet: (issueNumber) => room.sendBrainstormMeet(issueNumber),
+        review: (issueNumber) => room.sendBrainstormReview(issueNumber),
+        convert: (issueNumber, drafts) => room.sendBrainstormConvert(issueNumber, drafts),
+      },
       refresh: () => {
         if (room.sendBoardRefresh()) {
           host.publish({ boardRefreshing: true });

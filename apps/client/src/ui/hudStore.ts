@@ -6,6 +6,7 @@
  * nearly every feature makes, does not edit the components that draw it.
  */
 
+import type { BrainstormData } from "@sim/shared";
 import {
   type AgentPromptEntry,
   DEFAULT_RADIO_STATION_ID,
@@ -155,6 +156,8 @@ export interface HudSnapshot {
   readonly boardAccess?: BoardAccess | undefined;
   /** The agents' work on the project board's issues as last replicated, in no particular order. */
   readonly work: readonly WorkData[];
+  /** The office's brainstorm tickets as last replicated, in no particular order. */
+  readonly brainstorms: readonly BrainstormData[];
   /** Cards the local player dropped on Closed or Open that the board's snapshot does not show there yet. */
   readonly issueMoves: readonly IssueMove[];
   /** Why the local player's latest drop went back, if one did; shown on the board itself. */
@@ -289,6 +292,7 @@ const INITIAL: HudSnapshot = {
   recurringOpen: false,
   standingHistory: {},
   work: [],
+  brainstorms: [],
   issueMoves: [],
   boardRefreshing: false,
   managerOpen: false,
