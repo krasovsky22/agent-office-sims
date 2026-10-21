@@ -410,10 +410,11 @@ doors and `E Call the lift` opens the floors: each one's number, repository and
 who is on it, and a Go button. The floor you are on decides the ride, not your
 tab: it checks you are standing at a lift and keeps you a place on the floor
 you chose, which your tab takes as it leaves the floor you were on, and the
-chat log says where you went. You arrive out of the lift doors on that floor,
-under the same name if nobody there has it, and its first arrival is its CEO,
-as on the ground floor; the CEO role on the floor you left passes on as it does
-when anyone leaves. A full floor turns the ride down and you stay where you
+chat log says where you went. You arrive out of the lift doors on a floor
+above the first, and on the pavement outside the entrance on the ground floor,
+as anyone arriving there does, under the same name if nobody there has it,
+and its first arrival is its CEO, as on the ground floor; the CEO role on the
+floor you left passes on as it does when anyone leaves. A full floor turns the ride down and you stay where you
 are. Floors above the first have no street door, glass the length of the
 street side with the street seen from up high, and a lift lobby where reception
 would be. Every floor shows the one clock.
