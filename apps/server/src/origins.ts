@@ -43,7 +43,7 @@ export function restrictMatchmakingOrigins(allowedOrigins: readonly string[]): v
       // No browser involved, so there is no cross-origin reply to withhold.
       return {};
     }
-    if (!isOriginAllowed(origin, allowedOrigins)) {
+    if (!isOriginAllowed(origin, allowedOrigins) && !isSameHttpsOrigin(origin, req)) {
       return { "Access-Control-Allow-Origin": DISALLOWED_ORIGIN };
     }
     // `Vary` because the answer depends on the request's origin, and a cache in
@@ -61,5 +61,24 @@ export function restrictMatchmakingOrigins(allowedOrigins: readonly string[]): v
 export function verifyOrigin(
   allowedOrigins: readonly string[],
 ): (info: { origin: string; secure: boolean; req: IncomingMessage }) => boolean {
-  return (info) => isOriginAllowed(info.origin, allowedOrigins);
+  return (info) => isOriginAllowed(info.origin, allowedOrigins) || isSameHttpsOrigin(info.origin, info.req);
+}
+
+/**
+ * Whether the page asking is served from the very host it is asking, as it is
+ * through the dev proxy behind an ngrok tunnel, so no tunnel has to be listed.
+ *
+ * HTTPS only: this server speaks plain HTTP, so a DNS-rebound page that
+ * reaches it directly can only have an `http:` origin and never passes.
+ */
+export function isSameHttpsOrigin(origin: string | undefined, req: IncomingMessage): boolean {
+  if (origin === undefined || req.headers.host === undefined) {
+    return false;
+  }
+  try {
+    const url = new URL(origin);
+    return url.protocol === "https:" && url.host === req.headers.host;
+  } catch {
+    return false;
+  }
 }

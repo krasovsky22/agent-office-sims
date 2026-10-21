@@ -28,11 +28,11 @@ export function requireHudMount(): HTMLElement {
 
 /**
  * The server URL baked in at build time. A production build cannot get here
- * without one — `vite.config.ts` refuses to build — so the fallback only ever
- * serves `pnpm dev`.
+ * without one — `vite.config.ts` refuses to build — so the fallback, the dev
+ * server's own proxy, only ever serves `pnpm dev`.
  */
 export function readServerUrl(): string {
-  return resolveServerUrl(import.meta.env.VITE_SERVER_URL);
+  return resolveServerUrl(import.meta.env.VITE_SERVER_URL, window.location);
 }
 
 /**

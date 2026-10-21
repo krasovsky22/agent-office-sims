@@ -1,7 +1,10 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
 
-import { assertDeployableServerUrl } from "./src/net/serverUrl.js";
+import { DEV_SERVER_PATH, assertDeployableServerUrl } from "./src/net/serverUrl.js";
+
+/** The leading dot admits every subdomain; ngrok has used all three. */
+const NGROK_HOSTS = [".ngrok-free.app", ".ngrok.app", ".ngrok.io"];
 
 export default defineConfig(({ command, mode }) => {
   if (command === "build") {
@@ -51,7 +54,20 @@ export default defineConfig(({ command, mode }) => {
       // Fail loudly rather than drifting to another port: the two-tab check in
       // the README tells the reader which URL to open.
       strictPort: true,
+      // Every ngrok subdomain, so `pnpm tunnel` works without editing this per URL.
+      allowedHosts: NGROK_HOSTS,
+      // The game server on the page's own origin, which is what lets one tunnel
+      // to this port carry the office too. The `Host` header passes through
+      // unchanged, which is how the server tells the page is asking its own host.
+      proxy: {
+        [DEV_SERVER_PATH]: {
+          target: "http://localhost:2567",
+          ws: true,
+          rewrite: (path) => path.slice(DEV_SERVER_PATH.length),
+        },
+      },
     },
+    preview: { allowedHosts: NGROK_HOSTS },
     // @sim/shared is a workspace package served as TypeScript source, so it must
     // go through the normal transform pipeline instead of being pre-bundled.
     optimizeDeps: { exclude: ["@sim/shared"] },

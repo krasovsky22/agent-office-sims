@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "concurrently -k -n server,client -c cyan,magenta \"pnpm --filter @sim/server dev\" \"pnpm --filter @sim/client dev\"",
     "dev:runner": "pnpm --filter @sim/runner dev",
+    "tunnel": "ngrok http 5173",
     "build": "pnpm --filter @sim/client build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
