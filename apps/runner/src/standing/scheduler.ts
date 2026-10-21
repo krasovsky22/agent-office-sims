@@ -638,6 +638,13 @@ export class StandingScheduler {
         // A resolve is for its base too: one that failed for good is tried again once either moves, never on every check.
         const key = step.kind === "merge" ? `merge:${at}` : `fix:${at}+${state.baseSha}`;
         if (task.ledger[key] === undefined) {
+          if (step.kind === "resolve") {
+            for (const [other, entry] of Object.entries(task.ledger)) {
+              if (other.startsWith(`fix:${number}@`) && (entry.state === LEDGER_STATE.queued || (entry.state === LEDGER_STATE.failed && entry.retryAt !== undefined))) {
+                this.skip(entry, "superseded");
+              }
+            }
+          }
           task.ledger[key] = { ...base, state: LEDGER_STATE.queued };
           this.log(`standing task "${task.spec.name}" queues PR #${number} at ${state.headSha.slice(0, 7)} to ${step.kind === "merge" ? "merge: every required check is green" : "merge its base in and resolve its conflicts"}`);
         }
