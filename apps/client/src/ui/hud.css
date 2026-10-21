@@ -1675,11 +1675,13 @@
   overflow-wrap: anywhere;
 }
 
+/* The status panel lets the pointer through to the office; mute and volume must take it. */
 .radio__controls {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   vertical-align: middle;
+  pointer-events: auto;
 }
 
 .radio__volume {

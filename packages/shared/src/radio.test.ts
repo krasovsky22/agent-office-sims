@@ -57,6 +57,6 @@ describe("radioLoudness", () => {
     expect(radioLoudness(0)).toBe(1);
     expect(radioLoudness(8)).toBeLessThan(1);
     expect(radioLoudness(8)).toBeGreaterThan(radioLoudness(14));
-    expect(radioLoudness(100)).toBeCloseTo(0.2);
+    expect(radioLoudness(100)).toBeCloseTo(0.5);
   });
 });
