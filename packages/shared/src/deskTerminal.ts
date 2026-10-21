@@ -6,12 +6,14 @@
  * the runners' idle coding agents: a fresh session of it, with no issue and no
  * first prompt, started in a scratch worktree of the default branch, shown on
  * that desk's monitor and in the terminal panel, and prompted from there as the
- * CEO prompts any coding agent. It lasts while the CEO sits: standing up,
- * leaving, or handing the role on ends it, its agent stopped and its worktree
- * discarded, and the slot goes back to the floor for issue work. Sitting down
- * again starts a fresh one. What it does runs real commands on the runner's
- * host, so it is held to the rule that gates prompting a coding agent, which is
- * the CEO's alone; anyone else sitting at a desk gets no terminal.
+ * CEO prompts any coding agent. It keeps running when the CEO stands up, its
+ * terminal still on the desk's monitor, and sitting there again is back at the
+ * same session. Turning the computer off, leaving, or handing the role on ends
+ * it, its agent stopped and its worktree discarded, and the slot goes back to
+ * the floor for issue work; the next sitting starts a fresh one. What it does
+ * runs real commands on the runner's host, so it is held to the rule that gates
+ * prompting a coding agent, which is the CEO's alone; anyone else sitting at a
+ * desk gets no terminal.
  *
  * What the session is doing is replicated state (`DeskTerminal` in
  * `./state.ts`), run by the server (`apps/server/src/agents/deskTerminal.ts`);
@@ -27,7 +29,7 @@ import type { OfficeActor } from "./work.js";
 
 /** Where the CEO's desk terminal stands. */
 export const DESK_TERMINAL_PHASE = {
-  /** No CEO sits at a desk with a computer. */
+  /** The CEO's desk's computer is off. */
   off: "",
   /** Every runner's coding agent is busy; one is lent as soon as one is free. */
   waiting: "waiting",

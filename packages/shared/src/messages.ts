@@ -114,6 +114,8 @@ export const CLIENT_MESSAGE = {
   standupDirect: "standup:direct",
   /** The size the CEO's desk terminal panel has room for, in cells; see `deskTerminal.ts`. */
   deskTerminalSize: "desk:size",
+  /** Turn the CEO's desk's computer off, ending its session; no payload. Only the CEO who turned it on is listened to. */
+  deskTerminalOff: "desk:off",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];

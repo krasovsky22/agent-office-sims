@@ -6,7 +6,8 @@
  * (`DeskTerminal` in the replicated state) and this module only reads that
  * record for the local player: the CEO's own desk opens the terminal panel on
  * the lent agent's terminal, with a line saying why there is no terminal yet
- * when there is none; anyone else sitting at a computer is told why it stays
+ * when there is none, and again on the same session each time the CEO sits
+ * back down, since it keeps running until they turn it off; anyone else sitting at a computer is told why it stays
  * off for them, since `deskTerminalRefusal` in `@sim/shared` holds it to the
  * rule for prompting a coding agent. Like `agentPromptAccess.ts` for the
  * panel's composer.
@@ -27,7 +28,7 @@ export interface DeskPanelView {
   readonly needsInput: boolean;
   /** What its agent is doing. */
   readonly activity: string;
-  /** The last prompt entry id from before this sitting, so the panel shows only this sitting's prompts. */
+  /** The last prompt entry id from before the computer was turned on, so the panel shows only its session's prompts. */
   readonly promptsAfter: number;
 }
 
@@ -36,7 +37,7 @@ export interface DeskPanelView {
  * the server has lent an agent to for them.
  *
  * @param heldWith the interactable the local player is predicted to hold, `""` for none.
- * @param promptsAfter the last prompt entry id from before this sitting.
+ * @param promptsAfter the last prompt entry id from before the computer was turned on.
  */
 export function deskPanelFor(
   desk: DeskReading | undefined,
@@ -58,9 +59,9 @@ export function deskPanelFor(
 }
 
 /**
- * The prompts the desk panel lists: those typed into its agent this sitting.
- * The same slot is lent again on the next sitting, so its agent id alone
- * would carry the last sitting's prompts over.
+ * The prompts the desk panel lists: those typed into its agent since the
+ * computer was turned on. The same slot is lent again the next time, so its
+ * agent id alone would carry the last session's prompts over.
  */
 export function deskPrompts(entries: readonly AgentPromptEntry[], panel: DeskPanelView): readonly AgentPromptEntry[] {
   if (panel.agentId === "") {
@@ -81,6 +82,24 @@ export function deskPhaseText(phase: string, note: string): string {
     default:
       return "Starting a coding agent at this desk…";
   }
+}
+
+/** What the CEO is told on sitting at another computer while theirs is on. */
+export const DESK_ON_ELSEWHERE_TEXT = "Your desk's computer is still on at another desk. Sit there to use it, or turn it off there first.";
+
+/**
+ * Whether the local player's own desk's computer has a session running at
+ * another desk than `seatId`. Only once an agent is lent: one still waiting
+ * for an agent is given up the moment its CEO stands up.
+ */
+export function deskOnElsewhere(desk: DeskReading | undefined, localId: string, seatId: string): boolean {
+  return (
+    desk !== undefined &&
+    desk.ownerId === localId &&
+    desk.seatId !== "" &&
+    desk.seatId !== seatId &&
+    (desk.phase === DESK_TERMINAL_PHASE.open || desk.phase === DESK_TERMINAL_PHASE.starting)
+  );
 }
 
 /** What anyone but the CEO is told on sitting at a computer. */

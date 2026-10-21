@@ -3,8 +3,8 @@
  * session, under `<RUNNER_DATA_DIR>/desks`, discarded whatever is in it as the
  * session ends.
  *
- * A desk session is the CEO's own terminal for as long as the CEO sits at the
- * desk, not a task with work to hand in: what the CEO wants kept, the CEO has
+ * A desk session is the CEO's own terminal until the CEO turns the desk's
+ * computer off, not a task with work to hand in: what the CEO wants kept, the CEO has
  * its agent commit on a branch and push. So nothing in its worktree is kept,
  * as nothing in a standing run's is, and a session that a restart cut short
  * left its worktree behind for the next boot to discard.

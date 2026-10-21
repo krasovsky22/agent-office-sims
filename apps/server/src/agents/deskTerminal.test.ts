@@ -1,7 +1,8 @@
 /**
  * The CEO's desk terminal against a real runner link: sitting at a computer
  * lends the CEO a free slot, the slot reporting the desk opens it, standing up
- * gives it back, and nobody but the CEO is lent one.
+ * leaves it running and sitting again reattaches it, turning it off or the
+ * CEO leaving gives it back, and nobody but the CEO is lent one.
  */
 
 import {
@@ -110,39 +111,143 @@ describe("DeskTerminal", () => {
     expect(sync([lent])).toEqual([{ id: "command-3", slotId: "slot-1", kind: "desk-resize", seatId: SEAT, cols: 130, rows: 35 }]);
   });
 
-  it("gives the slot back the moment the CEO stands up, and lends a fresh one at the next sitting", () => {
+  it("keeps the session running when the CEO stands up, and reattaches it when they sit there again", () => {
     const { state, ceo, desk, sync, ack } = setup();
+    sync([IDLE]);
+    ceo.interactableId = SEAT;
+    desk.step();
+    const lent: RunnerSlotReport = { ...IDLE, status: "working", activity: "Running the tests", desk: { seatId: SEAT } };
+    ack([lent]);
+    desk.step();
+    const open = { seatId: SEAT, ownerId: CEO, agentId: liveAgentKey(runnerSlotAgentId("box", "slot-1")), phase: DESK_TERMINAL_PHASE.open, activity: "Running the tests" };
+    expect(state.desk.toJSON()).toMatchObject(open);
+
+    ceo.interactableId = "";
+    desk.step();
+    // Still on the desk's monitor in every tab, and nothing sent to the runner.
+    expect(state.desk.toJSON()).toMatchObject(open);
+    expect(sync([lent])).toEqual([]);
+
+    ceo.interactableId = SEAT;
+    desk.step();
+    expect(state.desk.toJSON()).toMatchObject(open);
+    expect(sync([lent])).toEqual([]);
+  });
+
+  it("turns off on the CEO's word alone, sitting or not, and lends a fresh session only at the next sitting", () => {
+    const { state, ceo, employee, desk, sync, ack } = setup();
     sync([IDLE]);
     ceo.interactableId = SEAT;
     desk.step();
     const lent: RunnerSlotReport = { ...IDLE, desk: { seatId: SEAT } };
     ack([lent]);
     desk.step();
-    ceo.interactableId = "";
+    desk.turnOff(employee.id);
+    desk.step();
+    expect(state.desk.phase).toBe(DESK_TERMINAL_PHASE.open);
+
+    desk.turnOff(CEO);
     desk.step();
     expect(state.desk.toJSON()).toMatchObject({ seatId: "", ownerId: "", agentId: "", phase: DESK_TERMINAL_PHASE.off });
-    expect(sync([lent])).toEqual([{ id: "command-2", slotId: "slot-1", kind: "desk-close", seatId: SEAT, reason: "the CEO stood up" }]);
-    // Still reported until the runner has closed it: not closed twice.
+    expect(sync([lent])).toEqual([{ id: "command-2", slotId: "slot-1", kind: "desk-close", seatId: SEAT, reason: "the CEO turned it off" }]);
+    // Still reported until the runner has closed it: not closed twice, and still sitting there lends nothing.
     desk.step();
     expect(sync([lent]).filter((command) => command.kind === "desk-close")).toHaveLength(1);
-
     ack([IDLE]);
+    desk.step();
+    expect(state.desk.phase).toBe(DESK_TERMINAL_PHASE.off);
+    expect(sync([IDLE])).toEqual([]);
+
+    ceo.interactableId = "";
+    desk.step();
     ceo.interactableId = SEAT;
     desk.step();
     expect(sync([IDLE]).at(-1)).toMatchObject({ kind: "desk-open", slotId: "slot-1", seatId: SEAT });
+
+    // Turned off from a distance, after standing up.
+    ack([lent]);
+    desk.step();
+    ceo.interactableId = "";
+    desk.step();
+    desk.turnOff(CEO);
+    desk.step();
+    expect(state.desk.phase).toBe(DESK_TERMINAL_PHASE.off);
+    expect(sync([lent]).at(-1)).toMatchObject({ kind: "desk-close", slotId: "slot-1", seatId: SEAT, reason: "the CEO turned it off" });
   });
 
-  it("gives the slot back when the CEO hands the role on", () => {
+  it("forgets a sitting with nothing running the moment the CEO stands up", () => {
+    const { state, ceo, desk, sync } = setup();
+    sync([{ ...IDLE, status: "working", issueNumber: 39 }]);
+    ceo.interactableId = SEAT;
+    desk.step();
+    expect(state.desk.phase).toBe(DESK_TERMINAL_PHASE.waiting);
+    ceo.interactableId = "";
+    desk.step();
+    expect(state.desk.phase).toBe(DESK_TERMINAL_PHASE.off);
+    // A slot coming free with nobody sitting there is not lent.
+    sync([IDLE]);
+    desk.step();
+    expect(sync([IDLE])).toEqual([]);
+  });
+
+  it("goes off when the runner ends the session while the CEO is away", () => {
     const { state, ceo, desk, sync, ack } = setup();
     sync([IDLE]);
     ceo.interactableId = SEAT;
     desk.step();
     ack([{ ...IDLE, desk: { seatId: SEAT } }]);
     desk.step();
-    ceo.role = PLAYER_ROLE.exec;
+    ceo.interactableId = "";
+    desk.step();
+    sync([IDLE], [{ id: "event-1", kind: "desk-ended", slotId: "slot-1", seatId: SEAT, message: "Claude exited with code 0" }]);
     desk.step();
     expect(state.desk.phase).toBe(DESK_TERMINAL_PHASE.off);
-    expect(sync([{ ...IDLE, desk: { seatId: SEAT } }]).map((command) => command.kind)).toEqual(["desk-close"]);
+    expect(sync([IDLE])).toEqual([]);
+  });
+
+  it("lends no second session at another computer while the CEO's is on", () => {
+    const { state, ceo, desk, sync, ack } = setup();
+    sync([IDLE, { ...IDLE, id: "slot-2", name: "Claude 2" }]);
+    ceo.interactableId = SEAT;
+    desk.step();
+    const slots: RunnerSlotReport[] = [{ ...IDLE, desk: { seatId: SEAT } }, { ...IDLE, id: "slot-2", name: "Claude 2" }];
+    ack(slots);
+    desk.step();
+    ceo.interactableId = "seat-desk-north-2-1";
+    desk.step();
+    expect(state.desk.toJSON()).toMatchObject({ seatId: SEAT, phase: DESK_TERMINAL_PHASE.open });
+    expect(sync(slots)).toEqual([]);
+  });
+
+  it("turns off when the CEO who turned it on leaves the office", () => {
+    const { state, ceo, desk, sync, ack } = setup();
+    sync([IDLE]);
+    ceo.interactableId = SEAT;
+    desk.step();
+    ack([{ ...IDLE, desk: { seatId: SEAT } }]);
+    desk.step();
+    ceo.interactableId = "";
+    desk.step();
+    state.occupants.delete(CEO);
+    desk.step();
+    expect(state.desk.phase).toBe(DESK_TERMINAL_PHASE.off);
+    expect(sync([{ ...IDLE, desk: { seatId: SEAT } }])).toEqual([expect.objectContaining({ kind: "desk-close", reason: "the CEO left" })]);
+  });
+
+  it("gives the slot back when the CEO hands the role on, even standing", () => {
+    const { state, ceo, employee, desk, sync, ack } = setup();
+    sync([IDLE]);
+    ceo.interactableId = SEAT;
+    desk.step();
+    ack([{ ...IDLE, desk: { seatId: SEAT } }]);
+    desk.step();
+    ceo.interactableId = "";
+    desk.step();
+    ceo.role = PLAYER_ROLE.exec;
+    employee.role = PLAYER_ROLE.ceo;
+    desk.step();
+    expect(state.desk.phase).toBe(DESK_TERMINAL_PHASE.off);
+    expect(sync([{ ...IDLE, desk: { seatId: SEAT } }])).toEqual([expect.objectContaining({ kind: "desk-close", reason: "the CEO handed the role on" })]);
   });
 
   it("lends nothing to anyone but the CEO", () => {
