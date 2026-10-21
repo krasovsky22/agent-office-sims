@@ -4,7 +4,8 @@
  *
  * Each books what its agent says it cost in the runner's ledger, shows what
  * its agent prints on the slot's screen, and, for a task and a desk session,
- * takes the CEO's prompt only while its agent waits at its prompt. Kept apart
+ * takes the CEO's prompt only while its agent waits at its prompt, and a key
+ * only while it waits on a person. Kept apart
  * from `./slots.ts` so the pool and `./deskSessions.ts` say each of these once.
  */
 
@@ -112,4 +113,22 @@ export function promptOutcome(
     case RUNNER_SLOT_STATUS.exited:
       return RUNNER_PROMPT_OUTCOME.unavailable;
   }
+}
+
+/**
+ * Whether an agent waits on a person, so a key answers it, and if not, why.
+ * One that needs a person only because a turn ended with nothing handed in
+ * (`missing`) has its agent at its prompt, where a prompt is the answer.
+ *
+ * @param agentRun `undefined` while the run cannot take a key: it is over.
+ */
+export function keyOutcome(
+  status: RunnerSlotStatus,
+  agentRun: AgentRun | undefined,
+  run: { readonly missing: boolean } = { missing: false },
+): RunnerPromptOutcomeKind {
+  if (agentRun?.key === undefined) {
+    return RUNNER_PROMPT_OUTCOME.unavailable;
+  }
+  return status === RUNNER_SLOT_STATUS.needsInput && !run.missing ? RUNNER_PROMPT_OUTCOME.delivered : RUNNER_PROMPT_OUTCOME.notWaiting;
 }

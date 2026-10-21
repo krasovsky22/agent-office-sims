@@ -2050,7 +2050,7 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/issueStates.ts      closing and reopening issues for the CEO with gh, and what came of each
   src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it, and each slot's agent's profile
   src/deskSessions.ts     a slot lent to the CEO's desk: its session, from the worktree made to the worktree discarded
-  src/slotRuns.ts         what a task, a desk session and a standing run share: the spend, the screen, when a prompt is taken
+  src/slotRuns.ts         what a task, a desk session and a standing run share: the spend, the screen, when a prompt or a key is taken
   src/eventOutbox.ts      the events held until a sync delivers them, for the slot pool and the standing scheduler alike
   src/profiles.ts         profiles.json: the CEO's edits to the agents' profiles, kept across restarts
   src/slotIds.ts          fired.json and hired.json: the slots whose agents the CEO fired, kept out of the pool, and those the AI Manager hired, kept in it, across restarts
@@ -2085,6 +2085,8 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/standing/steward.ts  the pull request steward's GitHub and git side: merge state and checks, the merge, the base merged in and pushed
 apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/browserEnv.ts       the page's mount points, the build's settings, the URL's flags, the browser's storage
+  src/main.ts             the page's wiring: the HUD's store, the room, the game loop, React mounted over the canvas
+  src/gameLoop.ts         the scene and the frame loop that draws it, and the room handlers that move it
   src/hudActions.ts       what the HUD's buttons and fields do: a command to the office, or a panel closed
   src/hudRoomEvents.ts    the room's events only the HUD hears of: the logs, the spend, the standing tasks, the standup, every refusal
   src/throttledNotice.ts  what a message the rate limiter dropped says, and where

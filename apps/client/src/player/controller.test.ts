@@ -242,7 +242,7 @@ describe("PlayerController leaning in over a working agent's shoulder", () => {
     vi.unstubAllGlobals();
   });
 
-  /** Runs frames as `main.ts` does: the controller first, then this frame's focus, `null` for none. */
+  /** Runs frames as `gameLoop.ts` does: the controller first, then this frame's focus, `null` for none. */
   function frames(seconds: number, focus: typeof view | null = view): void {
     for (let frame = 0; frame < Math.ceil(seconds / FRAME); frame += 1) {
       controller.update(FRAME);
