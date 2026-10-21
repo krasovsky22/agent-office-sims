@@ -658,7 +658,7 @@ in place of an ordinary issue's work. The rules are in
 - **The meeting.** The CEO's `Discuss in meeting room` walks the idea's agents,
   and nobody else, to the conference room the standup uses, where they sit as
   they do for one; it is refused while a standup is on, and a standup while it
-  is. Each speaks in turn for two rounds, a line in a speech bubble from a short
+  is, and once the idea is being or has been converted. Each speaks in turn for two rounds, a line in a speech bubble from a short
   run with no tools (`brainstorm-speak`, capped as a standup answer is) that
   hears everything said before it, including what players standing in the
   room say in the chat. Then the first of them sums it up; the summary goes
