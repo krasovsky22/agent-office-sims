@@ -275,6 +275,14 @@ export function boardStatus(snapshot: ProjectBoardSnapshot | undefined, formatTi
     : { text: `Updated ${updated}`, stale: false };
 }
 
+/** Why the board's Refresh did nothing yet, and when it will. */
+export function boardRefreshRefusal(retryAfterMs: number): string {
+  const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  // A spent GitHub rate limit can be most of an hour away.
+  const wait = seconds < 60 ? `${seconds} s` : `${Math.ceil(seconds / 60)} min`;
+  return `The board can't be refreshed again yet — try again in ${wait}.`;
+}
+
 /** Clock time, which is what "last updated" needs on a board looked at today. */
 export const formatClockTime: TimeFormatter = (epochMs) =>
   new Date(epochMs).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });

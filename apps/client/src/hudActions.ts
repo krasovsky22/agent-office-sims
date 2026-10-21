@@ -82,6 +82,11 @@ export function hudActions(host: HudActionsHost): HudActions {
       move: (issueNumber, status) => room.sendWorkMove(issueNumber, status),
       release: (issueNumber) => room.sendWorkRelease(issueNumber),
       setIssueState: (issueNumber, state) => host.issueMoves.move(issueNumber, state),
+      refresh: () => {
+        if (room.sendBoardRefresh()) {
+          host.publish({ boardRefreshing: true });
+        }
+      },
     },
     manager: {
       say: (text) => room.sendManagerSay(text),

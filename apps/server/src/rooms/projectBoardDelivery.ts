@@ -11,9 +11,17 @@
  * calls in here with a finished snapshot, so nothing on the room's side of
  * this ever awaits — least of all the simulation tick, which does not touch
  * the board at all.
+ *
+ * A player's Refresh is answered here too, to that player alone, once the
+ * feed's poll is done: by then the fresh board has gone out on the first path.
  */
 
-import { SERVER_MESSAGE, type ProjectBoardSnapshot } from "@sim/shared";
+import {
+  type BoardRefreshResultEvent,
+  SERVER_MESSAGE,
+  type ProjectBoardSnapshot,
+  parseBoardRefreshMessage,
+} from "@sim/shared";
 
 import type { ProjectBoardSource } from "../github/feed.js";
 
@@ -50,4 +58,22 @@ export function sendProjectBoard(client: BoardClient, source: ProjectBoardSource
   if (snapshot !== undefined) {
     client.send(SERVER_MESSAGE.projectBoard, snapshot);
   }
+}
+
+/** The slice of a Colyseus client a refresh's answer uses. */
+export interface RefreshClient {
+  send(type: typeof SERVER_MESSAGE.boardRefreshResult, message: BoardRefreshResultEvent): void;
+}
+
+/**
+ * Has the feed fetch now for a player who pressed Refresh, and tells them when
+ * it is done or how long until they may ask again. Any player may; the feed's
+ * one allowance is what keeps them all from spending GitHub's rate limit.
+ */
+export async function answerBoardRefresh(client: RefreshClient, raw: unknown, source: ProjectBoardSource): Promise<void> {
+  if (parseBoardRefreshMessage(raw) === undefined || source.refreshNow === undefined) {
+    return;
+  }
+  const retryAfterMs = await source.refreshNow();
+  client.send(SERVER_MESSAGE.boardRefreshResult, { retryAfterMs } satisfies BoardRefreshResultEvent);
 }

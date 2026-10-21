@@ -154,7 +154,7 @@ import { registerManagerHandlers } from "./managerHandlers.js";
 import { registerPresenceHandlers } from "./presenceHandlers.js";
 import { registerRadioHandlers } from "./radioHandlers.js";
 import { type RunnerWiring, wireRunners } from "./runnerWiring.js";
-import { relayProjectBoard, sendProjectBoard } from "./projectBoardDelivery.js";
+import { answerBoardRefresh, relayProjectBoard, sendProjectBoard } from "./projectBoardDelivery.js";
 import { type IssueStates } from "./issueStateHandlers.js";
 import { type WorkHost } from "./workHandlers.js";
 
@@ -325,6 +325,7 @@ export class OfficeRoom extends Room<OfficeState> {
     if (source !== undefined) {
       this.projectBoard = source;
       this.stopRelayingProjectBoard = relayProjectBoard(this, source);
+      this.onMessage(CLIENT_MESSAGE.boardRefresh, (client, raw: unknown) => answerBoardRefresh(client, raw, source));
       // On the feed's own timer, between ticks: an issue GitHub closed is no
       // longer anyone's to work, unless it was a live agent's review, which
       // the closure shipped.

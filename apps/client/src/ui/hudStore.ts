@@ -154,6 +154,8 @@ export interface HudSnapshot {
   readonly issueMoves: readonly IssueMove[];
   /** Why the local player's latest drop went back, if one did; shown on the board itself. */
   readonly boardNotice?: string | undefined;
+  /** Whether the local player's refresh of the project board is waiting on GitHub. */
+  readonly boardRefreshing: boolean;
   /** Whether the local player opened the conversation with `E` at the manager's desk. */
   readonly managerOpen: boolean;
   /** The conversation with the manager, oldest first, as the server relayed it. */
@@ -262,6 +264,7 @@ const INITIAL: HudSnapshot = {
   standingHistory: {},
   work: [],
   issueMoves: [],
+  boardRefreshing: false,
   managerOpen: false,
   managerLog: [],
   agentPrompts: [],

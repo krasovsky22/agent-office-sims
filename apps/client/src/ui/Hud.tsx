@@ -95,6 +95,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     work,
     issueMoves,
     boardNotice,
+    boardRefreshing,
     managerOpen,
     managerLog,
     managerUnread,
@@ -221,6 +222,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           access={boardAccess}
           moves={issueMoves}
           notice={boardNotice}
+          refreshing={boardRefreshing}
           actions={actions.projectBoard}
         />
       ) : null}

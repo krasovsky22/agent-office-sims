@@ -21,6 +21,7 @@ import {
   parseAgentProfileMessage,
   parseAgentPromptMessage,
   parseChatMessage,
+  parseBoardRefreshMessage,
   parseRenameMessage,
   parseDeskTerminalOffMessage,
   parseDeskTerminalSizeMessage,
@@ -122,6 +123,19 @@ describe("parseRenameMessage", () => {
     expect(parseRenameMessage({ name: "  Dana \u0000 Lee " })).toEqual({ name: "Dana Lee" });
     for (const raw of [undefined, null, "Dana", {}, { name: 7 }, { name: " \t " }]) {
       expect(parseRenameMessage(raw)).toBeUndefined();
+    }
+  });
+});
+
+describe("parseBoardRefreshMessage", () => {
+  it("takes any object, and carries none of its fields on", () => {
+    expect(parseBoardRefreshMessage({})).toEqual({});
+    expect(parseBoardRefreshMessage({ force: true })).toEqual({});
+  });
+
+  it("rejects anything that is not an object", () => {
+    for (const raw of [undefined, null, "refresh", 1, []]) {
+      expect(parseBoardRefreshMessage(raw)).toBeUndefined();
     }
   });
 });

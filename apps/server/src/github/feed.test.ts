@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EMPTY_BOARD_LISTS, type ProjectBoardLists, type ProjectBoardSnapshot } from "@sim/shared";
 
 import { type BoardLoader, GithubRateLimitError } from "./client.js";
-import { ProjectFeed } from "./feed.js";
+import { MIN_ASKED_REFRESH_GAP_MS, ProjectFeed } from "./feed.js";
 
 const REPO = "krasovsky22/agent-office-sims";
 const INTERVAL = 60_000;
@@ -264,6 +264,94 @@ describe("ProjectFeed", () => {
     const feed = new ProjectFeed({ repository: REPO, load, intervalMs: INTERVAL });
     feed.refresh();
     await vi.advanceTimersByTimeAsync(INTERVAL);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("polls at once when a player asks, and shows the board's time move even when nothing else did", async () => {
+    vi.useFakeTimers();
+    const load = vi.fn(scripted(LISTS));
+    const feed = new ProjectFeed({ repository: REPO, load, intervalMs: INTERVAL });
+    const published: ProjectBoardSnapshot[] = [];
+    feed.subscribe((snapshot) => published.push(snapshot));
+
+    feed.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(20_000);
+    const asked = feed.refreshNow();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(asked).resolves.toBeNull();
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(published).toHaveLength(2);
+    expect(published[1]?.updatedAt).toBe(Date.now());
+
+    // The loop's next poll is an interval after the asked-for one.
+    await vi.advanceTimersByTimeAsync(INTERVAL - 1);
+    expect(load).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledTimes(3);
+    feed.stop();
+  });
+
+  it("refuses a second ask inside the gap, whoever asks, and says how long is left", async () => {
+    vi.useFakeTimers();
+    const load = vi.fn(scripted(LISTS));
+    const feed = new ProjectFeed({ repository: REPO, load, intervalMs: INTERVAL });
+
+    feed.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const first = feed.refreshNow();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(first).resolves.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    await expect(feed.refreshNow()).resolves.toBe(MIN_ASKED_REFRESH_GAP_MS - 4_000);
+    expect(load).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(MIN_ASKED_REFRESH_GAP_MS - 4_000);
+    const later = feed.refreshNow();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(later).resolves.toBeNull();
+    expect(load).toHaveBeenCalledTimes(3);
+    feed.stop();
+  });
+
+  it("answers every ask made while a poll is in flight from that one poll", async () => {
+    vi.useFakeTimers();
+    let release: (() => void) | undefined;
+    const load = vi.fn(
+      () =>
+        new Promise<ProjectBoardLists>((resolve) => {
+          release = () => resolve(LISTS);
+        }),
+    );
+    const feed = new ProjectFeed({ repository: REPO, load, intervalMs: INTERVAL });
+
+    feed.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const asks = [feed.refreshNow(), feed.refreshNow(), feed.refreshNow()];
+    release?.();
+    await expect(Promise.all(asks)).resolves.toEqual([null, null, null]);
+    expect(load).toHaveBeenCalledTimes(1);
+    feed.stop();
+  });
+
+  it("refuses an ask inside a rate limit's wait, until GitHub's reset", async () => {
+    vi.useFakeTimers();
+    const load = vi.fn(scripted(new GithubRateLimitError(Date.now() + 10 * 60_000), LISTS));
+    const feed = new ProjectFeed({ repository: REPO, load, intervalMs: INTERVAL });
+
+    feed.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(feed.refreshNow()).resolves.toBe(9 * 60_000);
+    expect(load).toHaveBeenCalledTimes(1);
+    feed.stop();
+  });
+
+  it("has nothing to fetch for an ask while stopped", async () => {
+    const load = vi.fn(scripted(LISTS));
+    const feed = new ProjectFeed({ repository: REPO, load, intervalMs: INTERVAL });
+    await expect(feed.refreshNow()).resolves.toBeNull();
     expect(load).not.toHaveBeenCalled();
   });
 });

@@ -16,6 +16,7 @@ import { startGameLoop } from "./gameLoop.js";
 import { hudActions } from "./hudActions.js";
 import { hudRoomEvents } from "./hudRoomEvents.js";
 import { PendingIssueMoves } from "./pendingIssueMoves.js";
+import { boardRefreshRefusal } from "./projectBoard.js";
 import { keepAcceptedName, readPlayerName } from "./playerName.js";
 import { readRadioSettings } from "./radio.js";
 import { timedNotice } from "./timedNotice.js";
@@ -120,6 +121,13 @@ function start(): void {
 
     onIssueStateResult: (event) => {
       issueMoves.answered(event);
+    },
+
+    onBoardRefreshResult: (event) => {
+      publishHud({ boardRefreshing: false });
+      if (event.retryAfterMs !== null) {
+        showBoardNotice(boardRefreshRefusal(event.retryAfterMs));
+      }
     },
 
     // Announced in the chat log, where everyone in the office is already

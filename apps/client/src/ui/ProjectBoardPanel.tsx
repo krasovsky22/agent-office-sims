@@ -32,6 +32,10 @@
  * column at once, from the moves `pendingIssueMoves.ts` keeps, and goes back with the
  * reason, said here on the board, if GitHub does not take it.
  *
+ * Its Refresh button has the server fetch the board from GitHub now rather
+ * than at its next poll, for anyone; the fresh board reaches the wall board
+ * and every tab as any poll's does.
+ *
  * Every string is a React text node, from a snapshot or state the server
  * sanitized, so an issue title containing markup is shown rather than
  * interpreted.
@@ -95,6 +99,8 @@ export interface ProjectBoardActions {
   readonly release: (issueNumber: number) => void;
   /** Closes or reopens the issue on GitHub; `pendingIssueMoves.ts` shows the move until GitHub's answer. */
   readonly setIssueState: (issueNumber: number, state: IssueState) => void;
+  /** Has the server fetch the board from GitHub now; the fresh snapshot is the reply. */
+  readonly refresh: () => void;
 }
 
 interface ProjectBoardPanelProps {
@@ -107,8 +113,10 @@ interface ProjectBoardPanelProps {
   readonly access: BoardAccess | undefined;
   /** Cards this player dropped on Closed or Open that the snapshot does not show there yet. */
   readonly moves: readonly IssueMove[];
-  /** Why the latest dropped card went back, if one did. */
+  /** Why the latest dropped card went back, or a refresh was refused, if one was. */
   readonly notice: string | undefined;
+  /** Whether this player's refresh is waiting on GitHub. */
+  readonly refreshing: boolean;
   readonly actions: ProjectBoardActions;
 }
 
@@ -125,6 +133,7 @@ export function ProjectBoardPanel({
   access,
   moves,
   notice,
+  refreshing,
   actions,
 }: ProjectBoardPanelProps) {
   const [filter, setFilter] = useState<BoardFilter>(NO_BOARD_FILTER);
@@ -231,6 +240,15 @@ export function ProjectBoardPanel({
           {snapshot === undefined ? null : <span className="board__repo">{snapshot.repository}</span>}
         </h2>
         <p className={status.stale ? "board__status board__status--stale" : "board__status"}>{status.text}</p>
+        <button
+          type="button"
+          className="panel__button board__refresh"
+          disabled={refreshing}
+          aria-busy={refreshing}
+          onClick={actions.refresh}
+        >
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
       </header>
       {notice === undefined ? null : (
         <p className="board__notice" role="alert">
