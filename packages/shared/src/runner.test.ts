@@ -183,7 +183,7 @@ describe("parseRunnerSync", () => {
     expect(slot?.description).toBe("Line one\n[2Jline two");
     expect(slot?.activity).not.toContain("\n");
     expect(slot?.activity).not.toContain("\u0007");
-    expect(parsed?.events[0]?.message).toBe("line one line two");
+    expect(parsed?.events[0]).toMatchObject({ message: "line one line two" });
   });
 
   it("reads what a slot's agent has spent today, and refuses a sync whose spend is not dollars", () => {

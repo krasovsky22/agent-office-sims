@@ -95,6 +95,7 @@ export function applyAs(host: WorkHost, actor: OfficeActor, command: WorkCommand
     actor,
     now: host.now(),
     restrictLabel: host.state.agentRestrictLabel,
+    brainstorms: host.state.brainstorms,
   });
   if (result.ok) {
     host.observe?.({ actor, command, before, work: result.work });

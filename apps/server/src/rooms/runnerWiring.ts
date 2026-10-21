@@ -2,7 +2,7 @@
  * Everything an office room builds around the agent runners, built in one place.
  *
  * The runners' link, the work rules' host, the CEO's prompts and standing
- * tasks, the standup and the desk terminal all reach into one another, and
+ * tasks, the standup, the brainstorm tickets and the desk terminal all reach into one another, and
  * each brings handlers the room registers. Wired here rather than in
  * `OfficeRoom.onCreate`, so a new runner feature adds to this file instead of
  * the room every feature edits; the room keeps the tick that steps them.
@@ -26,6 +26,7 @@ import {
 } from "@sim/shared";
 
 import { AgentPrompts } from "../agents/agentPrompts.js";
+import { Brainstorms } from "../agents/brainstorms.js";
 import { DeskTerminal } from "../agents/deskTerminal.js";
 import type { RunnerEventInbox, RunnerSpendSource } from "../agents/runnerLink.js";
 import { RunnerWork } from "../agents/runnerWork.js";
@@ -41,6 +42,7 @@ import type { OfficeRoomOptions } from "./OfficeRoom.js";
 import { registerAgentActionHandlers } from "./agentActionHandlers.js";
 import { registerAgentProfileHandlers } from "./agentProfileHandlers.js";
 import { registerAgentPromptHandlers } from "./agentPromptHandlers.js";
+import { registerBrainstormHandlers } from "./brainstormHandlers.js";
 import { type IssueStates, registerIssueStateHandler } from "./issueStateHandlers.js";
 import { registerStandingHandlers } from "./standingHandlers.js";
 import { registerStandupHandlers } from "./standupHandlers.js";
@@ -85,6 +87,8 @@ export interface RunnerWiring {
   /** The CEO's words the AI Manager passes to the runners' agents. */
   readonly agentMessages: AgentMessages;
   readonly standup: StandupMeeting;
+  /** The brainstorm tickets: their research, meetings, reviews and conversions. */
+  readonly brainstorms: Brainstorms;
   readonly deskTerminal: DeskTerminal;
   /** Lets go of the runners when the room closes. */
   readonly dispose: () => void;
@@ -117,7 +121,13 @@ export function wireRunners(
   const runnerWork =
     runnerCommands === undefined
       ? undefined
-      : new RunnerWork({ host: workHost, runner: runnerCommands, log: recordOfficeEvent, announce: host.announce });
+      : new RunnerWork({
+          host: workHost,
+          runner: runnerCommands,
+          log: recordOfficeEvent,
+          announce: host.announce,
+          researching: (agentId, issueNumber) => brainstorms.holds(agentId, issueNumber),
+        });
   registerWorkHandlers(room, workHost);
   const issueStates = services.issueStates;
   registerIssueStateHandler(room, { state, board: host.board, issues: issueStates });
@@ -191,7 +201,7 @@ export function wireRunners(
   });
 
   const runnerStandup = services.runnerStandup;
-  const standup = new StandupMeeting({
+  const standup: StandupMeeting = new StandupMeeting({
     state,
     layout: host.layout,
     crew: host.crew,
@@ -201,6 +211,7 @@ export function wireRunners(
     say: host.say,
     report: host.announce,
     hold: (on) => runnerStandup?.holdForStandup(room.roomId, on),
+    roomTaken: (): boolean => brainstorms.meetingOn,
     log: recordOfficeEvent,
   });
   registerStandupHandlers(room, {
@@ -209,6 +220,22 @@ export function wireRunners(
     allowCall: (client) => host.allow(client, CLIENT_MESSAGE.standupStart),
     allowDirection: (client) => host.allow(client, CLIENT_MESSAGE.standupDirect),
   });
+
+  const brainstorms: Brainstorms = new Brainstorms({
+    state,
+    layout: host.layout,
+    board: host.board,
+    runner: runnerCommands,
+    github: services.brainstormRunner,
+    crew: host.crew,
+    standupOn: (): boolean => standup.active,
+    say: host.say,
+    announce: host.announce,
+    now: () => Date.now(),
+    clock: () => room.clock.currentTime,
+    log: recordOfficeEvent,
+  });
+  registerBrainstormHandlers(room, { state, brainstorms, allow: host.allow });
 
   const deskTerminal = new DeskTerminal({ state, layout: host.layout, runner: runnerCommands, log: recordOfficeEvent });
   room.onMessage(CLIENT_MESSAGE.deskTerminalSize, (client, raw: unknown) => {
@@ -238,6 +265,7 @@ export function wireRunners(
     agentPrompts,
     agentMessages,
     standup,
+    brainstorms,
     deskTerminal,
     dispose: () => {
       runnerEvents?.close();

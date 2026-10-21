@@ -200,7 +200,9 @@ server.define(OFFICE_ROOM_NAME, officeRoom({
   manager: advisor,
   ...(floor === undefined ? {} : { liveAgents: floor }),
   ...(liveAssignments === undefined ? {} : { liveAssignments }),
-  ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink, runnerCommands: runnerLink, runnerSpend: runnerLink, runnerStandup: runnerLink }),
+  ...(runnerLink === undefined
+    ? {}
+    : { runnerEvents: runnerLink, runnerCommands: runnerLink, runnerSpend: runnerLink, runnerStandup: runnerLink, brainstormRunner: runnerLink }),
   agentRestrictLabel: runner.restrictLabel,
   ...(issueStates === undefined ? {} : { issueStates }),
   ...(screens === undefined ? {} : { screens }),

@@ -108,7 +108,8 @@ const REJECTION_TEXT: Readonly<Record<WorkRejection, string>> = {
   [WORK_REJECTION.unknownAssignee]: "That agent is no longer in the office.",
   [WORK_REJECTION.missingArtifact]: "That work has no deliverable to hand in yet.",
   [WORK_REJECTION.restricted]: "That issue is restricted from the coding agents.",
-  [WORK_REJECTION.busy]: "That agent is already working on another issue.",
+  [WORK_REJECTION.busy]: "That agent is already working on another issue, or an idea.",
+  [WORK_REJECTION.brainstorm]: "That issue is a brainstorm ticket: hand it to several agents to research from its card.",
 };
 
 /**

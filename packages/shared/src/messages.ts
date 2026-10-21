@@ -126,6 +126,14 @@ export const CLIENT_MESSAGE = {
   liftFloors: "lift:floors",
   /** Ride the lift to another floor, from beside it; anyone may. See `lift.ts`. */
   liftRide: "lift:ride",
+  /** Hand a brainstorm ticket to several agents to research, in a mode; only the CEO is listened to. See `brainstorm.ts`. */
+  brainstormAssign: "brainstorm:assign",
+  /** Gather an idea's agents in the meeting room to discuss it; only the CEO is listened to. */
+  brainstormMeet: "brainstorm:meet",
+  /** Mark an idea's design document reviewed; any player may. */
+  brainstormReview: "brainstorm:review",
+  /** Create a reviewed idea's implementation issues and close it; any player may. */
+  brainstormConvert: "brainstorm:convert",
 } as const;
 
 export type ClientMessageType = (typeof CLIENT_MESSAGE)[keyof typeof CLIENT_MESSAGE];
@@ -259,6 +267,12 @@ export const SERVER_MESSAGE = {
   liftSeat: "lift:seat",
   /** Sent only to the client whose ride the lift refused, with the reason. Carries a `LiftRejectedEvent`. */
   liftRejected: "lift:rejected",
+  /**
+   * Sent only to the client whose brainstorm command the office refused, with
+   * the reason. Carries a `BrainstormRejectedEvent` from `brainstorm.ts`; the
+   * idea itself is replicated state, so a command taken has no reply but the next patch.
+   */
+  brainstormRejected: "brainstorm:rejected",
 } as const;
 
 export type ServerMessageType = (typeof SERVER_MESSAGE)[keyof typeof SERVER_MESSAGE];
@@ -352,8 +366,16 @@ export interface ThrottledEvent {
     | typeof CLIENT_MESSAGE.standupStart
     | typeof CLIENT_MESSAGE.standupDirect
     | typeof CLIENT_MESSAGE.radioTune
-    | typeof CLIENT_MESSAGE.tvTune;
+    | typeof CLIENT_MESSAGE.tvTune
+    | BrainstormClientMessage;
 }
+
+/** The brainstorm commands, which share one allowance: each starts agents' runs or a call to GitHub. */
+export type BrainstormClientMessage =
+  | typeof CLIENT_MESSAGE.brainstormAssign
+  | typeof CLIENT_MESSAGE.brainstormMeet
+  | typeof CLIENT_MESSAGE.brainstormReview
+  | typeof CLIENT_MESSAGE.brainstormConvert;
 
 /** The standing task commands, which share one allowance. */
 export type StandingClientMessage =

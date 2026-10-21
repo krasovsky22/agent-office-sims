@@ -669,6 +669,144 @@ defineTypes(Standup, {
 });
 
 /**
+ * One agent's write-up on an idea (`./brainstorm.ts`): its role, how far it
+ * got, what it wrote and the verdict read off it. Every string is sanitised by
+ * the sync it came on, or is the server's own words.
+ */
+export class BrainstormTake extends Schema {
+  /** The agent's occupant key. */
+  declare public agentId: string;
+  /** By name, since the agent may leave before the idea is done with. */
+  declare public agentName: string;
+  /** `BRAINSTORM_ROLE`: `take`, `researcher` or `critic`. */
+  declare public role: string;
+  /** `BRAINSTORM_TAKE_STATUS`. */
+  declare public status: string;
+  /** Its write-up, in Markdown; `""` until it is in. */
+  declare public text: string;
+  /** `BRAINSTORM_VERDICT`, read off its write-up. */
+  declare public verdict: string;
+  /** Why it has no write-up, for a failed one; `""` otherwise. */
+  declare public note: string;
+
+  public constructor() {
+    super();
+    this.agentId = "";
+    this.agentName = "";
+    this.role = "";
+    this.status = "";
+    this.text = "";
+    this.verdict = "";
+    this.note = "";
+  }
+}
+
+defineTypes(BrainstormTake, {
+  agentId: "string",
+  agentName: "string",
+  role: "string",
+  status: "string",
+  text: "string",
+  verdict: "string",
+  note: "string",
+});
+
+/** An implementation issue created from an idea, as its runner reported it. */
+export class BrainstormIssue extends Schema {
+  declare public number: number;
+  /** Always `https:`. */
+  declare public url: string;
+
+  public constructor() {
+    super();
+    this.number = 0;
+    this.url = "";
+  }
+}
+
+defineTypes(BrainstormIssue, {
+  number: "uint32",
+  url: "string",
+});
+
+/**
+ * What the office is doing about one brainstorm ticket, an issue labelled
+ * `brainstorm` (`./brainstorm.ts`): its agents and their write-ups, the
+ * recommendation one of them merged them into, the meeting's summary, and
+ * where its review and conversion stand. Keyed in `OfficeState.brainstorms`
+ * by {@link workKey}. State rather than broadcasts, since an idea's research
+ * takes minutes and every tab reads the same design document, which is built
+ * from this record (`designDocument`) rather than sent.
+ */
+export class Brainstorm extends Schema {
+  declare public issueNumber: number;
+  declare public title: string;
+  /** `BRAINSTORM_MODE`. */
+  declare public mode: string;
+  /** `BRAINSTORM_STATUS`. */
+  declare public status: string;
+  /** The CEO who handed it out, by name. */
+  declare public requestedBy: string;
+  /** In the order the CEO picked the agents; in the critics' mode the first is the researcher. */
+  declare public takes: ArraySchema<BrainstormTake>;
+  /** The recommendation merging the write-ups; `""` until written. */
+  declare public synthesis: string;
+  declare public synthesizedBy: string;
+  declare public meetingSummary: string;
+  /** The latest word on it from the office: why it failed, or why its meeting ended early. */
+  declare public note: string;
+  /** `BRAINSTORM_GITHUB`: posting the design document on the issue. */
+  declare public postStatus: string;
+  /** `BRAINSTORM_GITHUB`: creating its implementation issues. */
+  declare public convertStatus: string;
+  /** Who marked it reviewed, by name; `""` until someone has. */
+  declare public reviewedBy: string;
+  declare public created: ArraySchema<BrainstormIssue>;
+  /** Epoch milliseconds. */
+  declare public startedAt: number;
+  declare public updatedAt: number;
+
+  public constructor() {
+    super();
+    this.issueNumber = 0;
+    this.title = "";
+    this.mode = "";
+    this.status = "";
+    this.requestedBy = "";
+    this.takes = new ArraySchema<BrainstormTake>();
+    this.synthesis = "";
+    this.synthesizedBy = "";
+    this.meetingSummary = "";
+    this.note = "";
+    this.postStatus = "";
+    this.convertStatus = "";
+    this.reviewedBy = "";
+    this.created = new ArraySchema<BrainstormIssue>();
+    this.startedAt = 0;
+    this.updatedAt = 0;
+  }
+}
+
+defineTypes(Brainstorm, {
+  issueNumber: "uint32",
+  title: "string",
+  mode: "string",
+  status: "string",
+  requestedBy: "string",
+  takes: [BrainstormTake],
+  synthesis: "string",
+  synthesizedBy: "string",
+  meetingSummary: "string",
+  note: "string",
+  postStatus: "string",
+  convertStatus: "string",
+  reviewedBy: "string",
+  created: [BrainstormIssue],
+  startedAt: "number",
+  updatedAt: "number",
+});
+
+/**
  * One of the CEO's desk terminals (`./deskTerminal.ts`): a desk whose computer the CEO turned on,
  * the coding agent lent to it, and how its session stands. State rather than
  * a broadcast, so every tab draws the session's terminal on that desk's
@@ -800,6 +938,8 @@ export class OfficeState extends Schema {
   declare public work: MapSchema<IssueWork>;
   /** The runners' standing tasks, keyed by id. */
   declare public standing: MapSchema<StandingTask>;
+  /** The office's brainstorm tickets, keyed by {@link workKey}; see `./brainstorm.ts`. */
+  declare public brainstorms: MapSchema<Brainstorm>;
   /**
    * Minutes since midnight on the in-game clock, 0 to 1439, which the lighting
    * reads. Only the server writes it, at whole-minute resolution; the server
@@ -852,6 +992,7 @@ export class OfficeState extends Schema {
     this.occupants = new MapSchema<Occupant>();
     this.work = new MapSchema<IssueWork>();
     this.standing = new MapSchema<StandingTask>();
+    this.brainstorms = new MapSchema<Brainstorm>();
     this.minuteOfDay = STARTING_MINUTE_OF_DAY;
     this.agentRestrictLabel = "";
     this.spendRunners = 0;
@@ -873,6 +1014,7 @@ defineTypes(OfficeState, {
   occupants: { map: Occupant },
   work: { map: IssueWork },
   standing: { map: StandingTask },
+  brainstorms: { map: Brainstorm },
   minuteOfDay: "uint16",
   agentRestrictLabel: "string",
   spendRunners: "uint8",

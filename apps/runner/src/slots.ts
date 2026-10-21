@@ -86,6 +86,15 @@
  * slot out of the pool: it is reported no more and takes no command, and it
  * stays out across a restart, kept in `./slotIds.ts`.
  *
+ * A start for a brainstorm ticket is research rather than work: the issue is
+ * checked on GitHub for its `brainstorm` label as an ordinary start is checked
+ * for being free of it, and the slot runs one read-only run of its agent
+ * ({@link SlotPoolOptions.brainstormer}, `./agents/brainstorm.ts`) in a scratch
+ * checkout of its own, with no worktree, branch or pull request, reports its
+ * write-up as a `brainstorm` event and is finished with the issue. A line at
+ * the idea's meeting, `brainstorm-speak`, is a short run as a standup answer
+ * is, holding nothing, its spend booked and refused by the budget the same.
+ *
  * The AI Manager can hire an agent for the CEO, `hire`: a new slot, under the
  * id the server picked and with the profile it wrote, added to the pool up to
  * {@link MAX_RUNNER_SLOTS} and kept, with its profile, across a restart, after
@@ -98,6 +107,13 @@ import { randomUUID } from "node:crypto";
 import {
   AGENT_KEY_LABEL,
   type AgentProfile,
+  BRAINSTORM_PART,
+  BRAINSTORM_ROLE,
+  type BrainstormPart,
+  MAX_BRAINSTORM_TEXT_BYTES,
+  type RunnerBrainstormEvent,
+  type RunnerBrainstormTask,
+  sanitizeBrainstormText,
   MAX_NAME_LENGTH,
   MAX_RUNNER_ANSWER_BYTES,
   MAX_RUNNER_SLOTS,
@@ -127,6 +143,7 @@ import {
 } from "@sim/shared";
 
 import type { Answerer } from "./agents/answer.js";
+import type { Brainstormer } from "./agents/brainstorm.js";
 import { systemPrompt } from "./agents/prompt.js";
 import type { Agent, AgentRun } from "./agents/types.js";
 import { SpendLedger } from "./budget.js";
@@ -161,6 +178,7 @@ export type KeyCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAN
 type ProfileCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.profile }>;
 type FireCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.fire }>;
 type HireCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.hire }>;
+type SpeakCommand = Extract<RunnerSlotCommand, { kind: typeof RUNNER_COMMAND_KIND.brainstormSpeak }>;
 
 /** Why a standing run gave its slot up before it finished. */
 export const STANDING_SLOT_END = {
@@ -223,6 +241,8 @@ export interface SlotPoolOptions {
   readonly ledger?: SpendLedger;
   /** How an agent with no session answers a standup's direction; without it, such a direction is refused as unavailable. */
   readonly answerer?: Answerer;
+  /** How an agent researches a brainstorm ticket and speaks at its meeting; without it, the slots research no ideas. */
+  readonly brainstormer?: Brainstormer;
   /** Event ids. Injected so a test can name the events it expects. */
   readonly eventId?: () => string;
   readonly log?: (line: string) => void;
@@ -285,7 +305,7 @@ export function fitBytes(value: string, maxBytes: number): string {
 
 export class SlotPool {
   private readonly slots: Slot[];
-  private readonly events = new EventOutbox<RunnerWorkEvent | RunnerDeskEndedEvent>();
+  private readonly events = new EventOutbox<RunnerWorkEvent | RunnerDeskEndedEvent | RunnerBrainstormEvent>();
   private readonly promptOutcomes = new EventOutbox<RunnerPromptOutcome>();
   private readonly eventId: () => string;
   private readonly log: (line: string) => void;
@@ -302,7 +322,7 @@ export class SlotPool {
   /** The slots the AI Manager hired agents into, by id, in the order they were hired. */
   private readonly hiredIds: Set<string>;
   private readonly deskSessions: DeskSessions;
-  /** Answers to standup directions under way, each stopped should the runner shut down. */
+  /** Answers to standup directions and lines at meetings under way, each stopped should the runner shut down. */
   private readonly answering = new Set<AbortController>();
 
   public constructor(private readonly options: SlotPoolOptions) {
@@ -471,7 +491,7 @@ export class SlotPool {
   }
 
   /** The events not yet delivered, oldest first. */
-  public pendingEvents(): ReadonlyArray<RunnerWorkEvent | RunnerDeskEndedEvent> {
+  public pendingEvents(): ReadonlyArray<RunnerWorkEvent | RunnerDeskEndedEvent | RunnerBrainstormEvent> {
     return this.events.pending();
   }
 
@@ -590,6 +610,9 @@ export class SlotPool {
         return;
       case RUNNER_COMMAND_KIND.fire:
         this.fire(slot, command);
+        return;
+      case RUNNER_COMMAND_KIND.brainstormSpeak:
+        void this.speak(slot, command);
         return;
     }
   }
@@ -1078,13 +1101,17 @@ export class SlotPool {
   /** Checks the issue on GitHub, opens the task's worktree, then starts its agent there, unless the work ended meanwhile. */
   private async launch(slot: Slot, run: ActiveRun, task: StartCommand): Promise<void> {
     this.debug(`${slot.id} checking #${task.issueNumber} on GitHub`);
-    const refusal = await this.github.refusal(task.issueNumber);
+    const refusal = await this.github.refusal(task.issueNumber, task.brainstorm !== undefined);
     if (!run.live) {
       return;
     }
     if (refusal !== undefined) {
       this.log(`start for ${slot.id} on #${task.issueNumber} refused by its GitHub check`);
       void this.end(slot, RUNNER_EVENT_KIND.failed, refusal);
+      return;
+    }
+    if (task.brainstorm !== undefined) {
+      await this.research(slot, run, task, task.brainstorm);
       return;
     }
     slot.activity = "Making a worktree";
@@ -1214,10 +1241,135 @@ export class SlotPool {
     // The message can quote the agent's last line, so it is masked as its event's is.
     const said = this.redactor.redactText(message);
     this.log(`${slot.id} ${kind} on #${run.issueNumber}${said === "" ? "" : `: ${said}`} (${formatUsd(run.spentUsd)} spent)`);
-    slot.ended = Promise.all([slot.ended, stopped]).then(() =>
-      discard ? this.discardKept(slot.id, run.issueNumber) : this.options.workspaces.close(slot.id, run.issueNumber),
-    );
+    slot.ended = Promise.all([slot.ended, stopped]).then(() => {
+      if (run.task.brainstorm !== undefined) {
+        // Research has no worktree of the slot's own: its scratch checkout went with its run.
+        return undefined;
+      }
+      return discard ? this.discardKept(slot.id, run.issueNumber) : this.options.workspaces.close(slot.id, run.issueNumber);
+    });
     return slot.ended;
+  }
+
+  /**
+   * A brainstorm ticket's research: no worktree of the slot's and no session,
+   * but one read-only run whose write-up the slot reports, after which the
+   * slot is finished with the issue. The task timeout bounds it as any run's.
+   */
+  private async research(slot: Slot, run: ActiveRun, task: StartCommand, brainstorm: RunnerBrainstormTask): Promise<void> {
+    const brainstormer = this.options.brainstormer;
+    if (brainstormer === undefined) {
+      void this.end(slot, RUNNER_EVENT_KIND.failed, "This runner researches no ideas");
+      return;
+    }
+    const controller = new AbortController();
+    let researching: Promise<unknown> = Promise.resolve();
+    run.agentRun = {
+      stop: () => {
+        controller.abort();
+        return researching.then(() => undefined);
+      },
+    };
+    this.log(`${slot.id} researching #${task.issueNumber} as its ${brainstorm.role}, read-only: no branch, no commits, no pull request`);
+    this.setStatus(slot, run, RUNNER_SLOT_STATUS.working, `Researching #${task.issueNumber}`);
+    const research = brainstormer
+      .research({
+        issueNumber: task.issueNumber,
+        title: task.title,
+        note: task.note,
+        role: brainstorm.role,
+        prior: brainstorm.prior,
+        systemPrompt: systemPrompt(slot.profile),
+        signal: controller.signal,
+        timeoutMs: this.options.taskTimeoutMs,
+        output: (data) => {
+          if (run.live) {
+            slot.screen.write(data);
+          }
+        },
+        activity: (text) => {
+          this.setStatus(slot, run, RUNNER_SLOT_STATUS.working, text);
+        },
+        spent: (totalUsd) => {
+          if (bookSpend(this.ledger, run, totalUsd)) {
+            this.debug(`${slot.id} on #${task.issueNumber} has spent ${formatUsd(totalUsd)}`);
+          }
+        },
+      })
+      .catch((error: unknown) => ({ ok: false, text: "", why: (error as Error).message }));
+    researching = research;
+    const result = await research;
+    if (!run.live) {
+      return;
+    }
+    const part = brainstorm.role === BRAINSTORM_ROLE.synthesis ? BRAINSTORM_PART.synthesis : BRAINSTORM_PART.take;
+    const text = result.ok ? this.brainstormText(part, result.text) : "";
+    if (text === "") {
+      void this.end(slot, RUNNER_EVENT_KIND.failed, `The research stopped: ${result.ok ? "it said nothing" : result.why}`);
+      return;
+    }
+    this.emitBrainstorm(slot.id, task.issueNumber, part, text);
+    void this.end(slot, RUNNER_EVENT_KIND.finished, "Wrote its write-up");
+  }
+
+  /**
+   * Has the slot's agent say its line at an idea's meeting, or sum it up, in
+   * a short run of its own that holds nothing, and reports what it said or why
+   * it said nothing.
+   */
+  private async speak(slot: Slot, command: SpeakCommand): Promise<void> {
+    const brainstormer = this.options.brainstormer;
+    const refused = brainstormer === undefined ? "this runner holds no meetings" : this.ledger.refusal();
+    if (brainstormer === undefined || refused !== undefined) {
+      this.log(`${slot.id} not speaking at #${command.issueNumber}'s meeting: ${refused ?? ""}`);
+      this.emitBrainstorm(slot.id, command.issueNumber, BRAINSTORM_PART.unanswered, refused ?? "");
+      return;
+    }
+    const controller = new AbortController();
+    this.answering.add(controller);
+    const held = { spentUsd: 0 };
+    let result;
+    try {
+      result = await brainstormer.speak({
+        part: command.part,
+        text: command.text,
+        systemPrompt: systemPrompt(slot.profile),
+        signal: controller.signal,
+        spent: (totalUsd) => {
+          bookSpend(this.ledger, held, totalUsd);
+        },
+      });
+    } catch (error) {
+      result = { ok: false, text: "", why: (error as Error).message };
+    } finally {
+      this.answering.delete(controller);
+    }
+    const text = result.ok ? this.brainstormText(command.part, result.text) : "";
+    this.log(`${slot.id} ${text === "" ? "said nothing" : "spoke"} at #${command.issueNumber}'s meeting (${formatUsd(held.spentUsd)} spent)`);
+    if (text === "") {
+      this.emitBrainstorm(slot.id, command.issueNumber, BRAINSTORM_PART.unanswered, result.ok ? "it said nothing" : result.why);
+      return;
+    }
+    this.emitBrainstorm(slot.id, command.issueNumber, command.part, text);
+  }
+
+  /** What an agent wrote, masked, sanitised and cut to its part's budget, as the sync measures it. */
+  private brainstormText(part: BrainstormPart, text: string): string {
+    const max =
+      part === BRAINSTORM_PART.line ? MAX_RUNNER_ANSWER_BYTES : part === BRAINSTORM_PART.unanswered ? MAX_WORK_NOTE_LENGTH : MAX_BRAINSTORM_TEXT_BYTES;
+    return fitBytes(sanitizeBrainstormText(this.redactor.redactText(text)), max);
+  }
+
+  private emitBrainstorm(slotId: string, issueNumber: number, part: BrainstormPart, text: string): void {
+    this.events.push({
+      id: this.eventId(),
+      kind: RUNNER_EVENT_KIND.brainstorm,
+      issueNumber,
+      part,
+      slotId,
+      text: this.brainstormText(part, text),
+      created: [],
+    });
   }
 
   /**

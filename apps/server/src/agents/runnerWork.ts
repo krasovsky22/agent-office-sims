@@ -144,6 +144,12 @@ export interface RunnerWorkOptions {
   readonly log?: (name: string, detail: Record<string, string | number>) => void;
   /** Says something to the office as the AI Manager; nobody hears it by default. */
   readonly announce?: (text: string) => void;
+  /**
+   * Whether a slot's agent holding an issue is researching it as a brainstorm
+   * ticket, which is the office's work for it though no issue work is
+   * (`./brainstorms.ts`); none is by default.
+   */
+  readonly researching?: (agentId: string, issueNumber: number) => boolean;
 }
 
 export class RunnerWork {
@@ -215,7 +221,11 @@ export class RunnerWork {
       current.add(key);
       const agentId = liveAgentKey(runnerSlotAgentId(runnerId, slotId));
       const work = this.options.host.state.work.get(workKey(issueNumber));
-      if ((work !== undefined && work.assigneeId === agentId && work.status !== WORK_STATUS.done) || this.orphans.has(key)) {
+      if (
+        (work !== undefined && work.assigneeId === agentId && work.status !== WORK_STATUS.done) ||
+        this.options.researching?.(agentId, issueNumber) === true ||
+        this.orphans.has(key)
+      ) {
         continue;
       }
       this.orphans.add(key);

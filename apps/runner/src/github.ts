@@ -5,7 +5,9 @@
  *
  * The server already refuses an issue with the restriction label, and the
  * runner asks GitHub again before its agent starts, so an agent spends nothing
- * on an issue on the word of a server alone.
+ * on an issue on the word of a server alone. The same check keeps code off a
+ * brainstorm ticket: an issue labelled `brainstorm` is only ever researched,
+ * so an ordinary start on one is refused, and research needs the label.
  *
  * A task's agent is asked to push its branch and open the pull request
  * itself, and the runner reads the pull request off the command that opened
@@ -22,7 +24,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { MAX_TITLE_LENGTH, type RunnerPullRequest } from "@sim/shared";
+import { BRAINSTORM_LABEL, MAX_TITLE_LENGTH, type RunnerPullRequest } from "@sim/shared";
 
 import { BRANCH_PREFIX } from "./worktrees.js";
 
@@ -82,8 +84,11 @@ export interface HandInTask {
 
 /** The runner's questions to GitHub about its tasks. */
 export interface TaskGithub {
-  /** Why the issue may not be worked, or `undefined` when it may. Never rejects. */
-  refusal(issueNumber: number): Promise<string | undefined>;
+  /**
+   * Why the issue may not be worked, or `undefined` when it may: researched
+   * as a brainstorm ticket when `brainstorm`, coded otherwise. Never rejects.
+   */
+  refusal(issueNumber: number, brainstorm?: boolean): Promise<string | undefined>;
   /**
    * The open pull request for the task's branch, opening one when the agent
    * pushed the branch without; `undefined` when there is none to be had.
@@ -137,7 +142,7 @@ export function createTaskGithub(options: TaskGithubOptions): TaskGithub {
     run("git", args, { env: await options.env(), cwd });
 
   return {
-    async refusal(issueNumber) {
+    async refusal(issueNumber, brainstorm = false) {
       let issue: { state?: unknown; labels?: unknown };
       try {
         issue = JSON.parse(await gh(["issue", "view", String(issueNumber), "--repo", repo, "--json", "state,labels"])) as typeof issue;
@@ -151,6 +156,13 @@ export function createTaskGithub(options: TaskGithubOptions): TaskGithub {
       const unwanted = label.toLowerCase();
       if (labels.some((candidate) => typeof candidate.name === "string" && candidate.name.toLowerCase() === unwanted)) {
         return `#${issueNumber} is labelled ${label} on GitHub, so no agent may work it`;
+      }
+      const isIdea = labels.some((candidate) => typeof candidate.name === "string" && candidate.name.toLowerCase() === BRAINSTORM_LABEL);
+      if (isIdea && !brainstorm) {
+        return `#${issueNumber} is labelled ${BRAINSTORM_LABEL} on GitHub: its agents research it and write no code`;
+      }
+      if (!isIdea && brainstorm) {
+        return `#${issueNumber} is not labelled ${BRAINSTORM_LABEL} on GitHub, so it is not researched as an idea`;
       }
       return undefined;
     },

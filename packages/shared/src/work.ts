@@ -41,10 +41,12 @@ import {
   sanitizeWorkNote,
 } from "./messages.js";
 import { heldIssue } from "./agentActions.js";
+import { brainstormHeld, isBrainstormIssue } from "./brainstorm.js";
 import { isLiveAgentKey } from "./liveAgents.js";
 import { clip } from "./text.js";
 import { type BoardIssue, type ProjectBoardSnapshot, isIssueGone, openBoardIssue } from "./projectBoard.js";
 import {
+  type Brainstorm,
   IssueWork,
   OCCUPANT_KIND,
   type Occupant,
@@ -375,8 +377,13 @@ export const WORK_REJECTION = {
   missingArtifact: "missing-artifact",
   /** The issue carries the label that keeps the real coding agents off it. */
   restricted: "restricted",
-  /** The named assignee already has another issue in hand; an agent works one at a time. */
+  /** The named assignee already has another issue in hand, or an idea; an agent works one at a time. */
   busy: "busy",
+  /**
+   * The issue is a brainstorm ticket (`./brainstorm.ts`): several agents
+   * research it at once and write no code, so it is never one agent's work.
+   */
+  brainstorm: "brainstorm",
 } as const;
 
 export type WorkRejection = (typeof WORK_REJECTION)[keyof typeof WORK_REJECTION];
@@ -455,6 +462,8 @@ export interface WorkCommandContext {
    * `agentRestrictLabel`; see {@link isAgentRestricted}. Absent or `""`, none.
    */
   readonly restrictLabel?: string;
+  /** The office's brainstorm tickets, whose agents take no other work; none when absent. */
+  readonly brainstorms?: MapSchema<Brainstorm>;
 }
 
 export type WorkCommandResult =
@@ -530,7 +539,10 @@ export function applyWorkCommand(command: WorkCommand, context: WorkCommandConte
  * open without the office's restriction label, {@link isAgentRestricted}:
  * giving work in hand to another agent puts that one to work too, so it is
  * checked again. An agent works one issue at a time, review included, so one
- * with another unfinished issue in hand ({@link heldIssue}) takes no more.
+ * with another unfinished issue in hand ({@link heldIssue}), or an idea it is
+ * researching ({@link brainstormHeld}), takes no more. A brainstorm ticket is
+ * never one agent's work at all ({@link isBrainstormIssue}): it is handed to
+ * several at once, as an idea, and coded by none.
  */
 function assignWork(
   work: IssueWork | undefined,
@@ -546,11 +558,14 @@ function assignWork(
   if (work === undefined && issue === undefined) {
     return reject(WORK_REJECTION.unknownIssue);
   }
+  if (work === undefined && (context.brainstorms?.has(workKey(payload.issueNumber)) === true || (issue !== undefined && isBrainstormIssue(issue)))) {
+    return reject(WORK_REJECTION.brainstorm);
+  }
   const assignee = context.occupants.get(payload.assigneeId);
   if (assignee === undefined || !isIssueAssignee(assignee)) {
     return reject(WORK_REJECTION.unknownAssignee);
   }
-  const held = heldIssue(payload.assigneeId, context.work.values());
+  const held = heldIssue(payload.assigneeId, context.work.values()) ?? brainstormHeld(payload.assigneeId, context.brainstorms?.values() ?? []);
   if (held !== undefined && held !== payload.issueNumber) {
     return reject(WORK_REJECTION.busy);
   }

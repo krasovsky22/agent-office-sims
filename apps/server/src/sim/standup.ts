@@ -103,6 +103,8 @@ export interface StandupHost {
   readonly report: (text: string) => void;
   /** Tells the runners a standup is on, or over. */
   readonly hold: (on: boolean) => void;
+  /** Whether a brainstorm ticket's meeting has the conference room; nothing has it when absent. */
+  readonly roomTaken?: () => boolean;
   readonly log?: (name: string, detail: Record<string, string | number>) => void;
 }
 
@@ -270,6 +272,9 @@ export class StandupMeeting {
     if (standup.active) {
       return STANDUP_REJECTION.running;
     }
+    if (this.host.roomTaken?.() === true) {
+      return STANDUP_REJECTION.roomTaken;
+    }
     const agents = this.agentsOnFloor();
     if (agents.length === 0) {
       return STANDUP_REJECTION.noAgents;
@@ -341,6 +346,8 @@ export class StandupMeeting {
         return "✗ A standup is already on.";
       case STANDUP_REJECTION.notRunning:
         return "✗ There is no standup on to end.";
+      case STANDUP_REJECTION.roomTaken:
+        return "✗ A brainstorm meeting has the conference room; call the standup once it is over.";
       default:
         return "✗ There are no agents on the floor to gather.";
     }
