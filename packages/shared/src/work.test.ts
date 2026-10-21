@@ -192,6 +192,23 @@ describe("assigning an issue", () => {
     expect(title.startsWith(sent?.title.slice(0, -1) ?? "")).toBe(true);
   });
 
+  it("gives no second issue to an agent with one unfinished, review included", () => {
+    const at = office();
+    for (const status of [WORK_STATUS.assigned, WORK_STATUS.in_progress, WORK_STATUS.review]) {
+      workAt(at, 1, status);
+      expect(run(at, assign(2, "agent-1"))).toEqual({ ok: false, rejection: WORK_REJECTION.busy });
+      expect(run(at, assign(3, "agent-1"))).toEqual({ ok: false, rejection: WORK_REJECTION.busy });
+    }
+    expect(at.work.has(workKey(2))).toBe(false);
+    workAt(at, 2, WORK_STATUS.in_progress, "agent-2");
+    expect(run(at, assign(2, "agent-1"))).toEqual({ ok: false, rejection: WORK_REJECTION.busy });
+    expect(at.work.get(workKey(2))?.assigneeId).toBe("agent-2");
+    // Its own issue is no second one, and finished work holds nobody.
+    expect(run(at, assign(1, "agent-1")).ok).toBe(true);
+    workAt(at, 1, WORK_STATUS.done);
+    expect(run(at, assign(3, "agent-1")).ok).toBe(true);
+  });
+
   it("does not reassign finished work", () => {
     const at = office();
     workAt(at, 2, WORK_STATUS.done);
@@ -590,7 +607,7 @@ describe("work for a real coding agent", () => {
     expect(at.work.get(workKey(2))?.assigneeId).toBe("agent-1");
     // An office with no restriction label takes any open issue.
     at.board = snapshot({ open: [labelled(1, "agent-restricted")], inProgress: [] });
-    expect(gated(at, assign(1, "agent-1"), CEO_ID, "").ok).toBe(true);
+    expect(gated(at, assign(1, "agent-2"), CEO_ID, "").ok).toBe(true);
     expect(isAgentRestricted(labelled(5, "agent-restricted"), "")).toBe(false);
     expect(isAgentRestricted(labelled(5), "agent-restricted")).toBe(false);
     expect(isAgentRestricted(labelled(5, "AGENT-RESTRICTED"), "agent-restricted")).toBe(true);

@@ -30,7 +30,9 @@ import {
   type WorkData,
   type WorkMove,
   type WorkStatus,
+  agentLabel,
   clip,
+  heldIssue,
   isWorkStopped,
   openBoardIssue,
 } from "@sim/shared";
@@ -307,6 +309,17 @@ export function workStatusText(work: WorkData): string {
  */
 export function workAgentName(work: WorkData, agents: readonly BoardAgent[]): string {
   return agents.find((candidate) => candidate.id === work.assigneeId)?.name ?? "Left the office";
+}
+
+/**
+ * How the assign picker offers an agent: by name and title, and, while it has
+ * another issue unfinished, as busy on that one and not to be picked, since
+ * the server refuses an agent a second issue.
+ */
+export function assignOption(agent: BoardAgent, work: readonly WorkData[]): { label: string; busy: boolean } {
+  const label = agentLabel(agent.name, agent.title ?? "");
+  const held = heldIssue(agent.id, work);
+  return held === undefined ? { label, busy: false } : { label: `${label} — busy on #${held}`, busy: true };
 }
 
 /**

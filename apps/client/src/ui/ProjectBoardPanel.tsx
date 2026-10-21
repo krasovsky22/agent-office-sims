@@ -44,7 +44,6 @@ import {
   WORK_ACTION,
   type WorkData,
   type WorkStatus,
-  agentLabel,
   isWorkStopped,
 } from "@sim/shared";
 import { useEffect, useRef, useState } from "react";
@@ -57,6 +56,7 @@ import {
   type BoardFilter,
   type IssueMove,
   NO_BOARD_FILTER,
+  assignOption,
   boardColumns,
   boardDrop,
   boardIssue,
@@ -430,6 +430,7 @@ export function ProjectBoardPanel({
           url={snapshot === undefined ? null : githubItemUrl(snapshot.repository, "issues", openIssue)}
           open={detailIssue !== undefined && detailIssue.closedAt === null}
           work={detailWork}
+          allWork={work}
           agents={agents}
           access={access}
           actions={actions}
@@ -526,6 +527,7 @@ function IssueDetail({
   url,
   open,
   work,
+  allWork,
   agents,
   access,
   actions,
@@ -537,6 +539,8 @@ function IssueDetail({
   url: string | null;
   open: boolean;
   work: WorkData | undefined;
+  /** The office's work on every issue, so the picker can tell who is busy. */
+  allWork: readonly WorkData[];
   agents: readonly BoardAgent[];
   access: BoardAccess | undefined;
   actions: ProjectBoardActions;
@@ -585,7 +589,7 @@ function IssueDetail({
         </>
       )}
       {work === undefined && open && access?.mayAssign === true ? (
-        <AssignPicker agents={agents} onAssign={(agentId) => actions.assign(issueNumber, agentId)} />
+        <AssignPicker agents={agents} work={allWork} onAssign={(agentId) => actions.assign(issueNumber, agentId)} />
       ) : null}
       {moves.length === 0 || work === undefined ? null : (
         <div className="work__moves">
@@ -616,12 +620,22 @@ function IssueDetail({
  * Who to give an issue to.
  *
  * Offers only the agents the server will take — the live agents that can take
- * issues — and re-checks the choice against them as they stand when sent: an
- * agent picked and then gone is no longer one the server will take.
+ * issues, with those busy on another issue shown but disabled — and re-checks
+ * the choice against them as they stand when sent: an agent picked and then
+ * gone, or since put to work, is no longer one the server will take.
  */
-function AssignPicker({ agents, onAssign }: { agents: readonly BoardAgent[]; onAssign: (agentId: string) => void }) {
+function AssignPicker({
+  agents,
+  work,
+  onAssign,
+}: {
+  agents: readonly BoardAgent[];
+  work: readonly WorkData[];
+  onAssign: (agentId: string) => void;
+}) {
   const [choice, setChoice] = useState("");
-  const present = agents.some((agent) => agent.id === choice);
+  const options = agents.map((agent) => ({ agent, ...assignOption(agent, work) }));
+  const present = options.some((option) => option.agent.id === choice && !option.busy);
   if (agents.length === 0) {
     return <p className="board__empty">No agent in the office can take an issue right now.</p>;
   }
@@ -643,9 +657,9 @@ function AssignPicker({ agents, onAssign }: { agents: readonly BoardAgent[]; onA
         <option value="" disabled>
           Give it to…
         </option>
-        {agents.map((agent) => (
-          <option key={agent.id} value={agent.id}>
-            {agentLabel(agent.name, agent.title ?? "")}
+        {options.map(({ agent, label, busy }) => (
+          <option key={agent.id} value={agent.id} disabled={busy}>
+            {label}
           </option>
         ))}
       </select>

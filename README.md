@@ -282,9 +282,11 @@ issue an agent has says who and how far they have got; its `Work` button opens
 the detail beside the columns, with the issue's description, the agent's note
 and its deliverable. For the CEO the detail also offers the moves the server
 will accept: `Assign…` on an open issue nobody has picks a live agent that can
-take issues, and work in hand can be approved, sent back for rework, started
-again or unassigned. Each of those reaches a real coding agent, so the server
-also refuses an issue carrying the restriction label; see
+take issues, with one busy on another unfinished issue listed but disabled, as
+the server refuses an agent a second issue, and work in hand can be approved,
+sent back for rework, started again or unassigned. Each of those reaches a
+real coding agent, so the server also refuses an issue carrying the
+restriction label; see
 [From assignment to pull request](#from-assignment-to-pull-request).
 Everyone else sees the same detail with no controls.
 
