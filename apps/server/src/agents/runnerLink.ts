@@ -608,6 +608,15 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
   }
 
   /**
+   * A connected runner that writes to GitHub, by id, the one an issue's state
+   * change would go to: where a brainstorm's design document is posted and its
+   * issues created. `undefined` with none.
+   */
+  public githubRunner(): string | undefined {
+    return [...this.runners].find(([, runner]) => runner.changesIssues)?.[0];
+  }
+
+  /**
    * Has a runner that can close or reopen an issue on GitHub do it, for
    * `requestedBy`, and resolves to what came of it: `undefined` when GitHub
    * made the change, or why not. Never rejects.

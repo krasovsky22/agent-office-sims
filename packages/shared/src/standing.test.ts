@@ -4,6 +4,7 @@
  * hold still fits inside the route's body limit.
  */
 
+import { MAX_BRAINSTORM_TEXT_BYTES } from "./brainstorm.js";
 import { describe, expect, it } from "vitest";
 
 import { MAX_AGENT_DESCRIPTION_BYTES, MAX_AGENT_TITLE_BYTES } from "./agentProfile.js";
@@ -403,7 +404,7 @@ describe("standing state on a sync", () => {
    * whose JSON escapes are as long as any: a sync the parser takes, and the
    * largest one it would.
    */
-  it("keeps a maximal sync, four standing tasks with it, under the route's limit", () => {
+  it("keeps a maximal sync, four standing tasks and a write-up with it, under the route's limit", () => {
     // Two bytes a character, so a string of them is its whole budget in half the characters.
     const bytes = (budget: number): string => "é".repeat(Math.floor(budget / 2));
     const id64 = "i".repeat(64);
@@ -457,7 +458,11 @@ describe("standing state on a sync", () => {
           // A slot holds an issue or a standing run, never both; the issue's is the larger.
           ...(index % 2 === 0 ? { issueNumber: 0xffffffff, pr } : { standing: { taskId: `st-${"z".repeat(16)}`, pr: 0xffffffff } }),
         })),
-        events: Array.from({ length: MAX_RUNNER_EVENTS }, () => event),
+        // One brainstorm event a sync, its write-up at its budget, in place of one of the others.
+        events: [
+          ...Array.from({ length: MAX_RUNNER_EVENTS - 1 }, () => event),
+          { id: id64, kind: "brainstorm", issueNumber: 0xffffffff, part: "take", slotId: slot32, text: bytes(MAX_BRAINSTORM_TEXT_BYTES) },
+        ],
         spend: { spentUsd: usd, budgetUsd: usd },
         prompts: Array.from({ length: MAX_RUNNER_PROMPT_OUTCOMES }, () => ({ commandId: id64, slotId: slot32, outcome: "answered", text: bytes(MAX_RUNNER_ANSWER_BYTES) })),
         standing: tasks,

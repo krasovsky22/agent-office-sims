@@ -129,6 +129,7 @@ import {
   releaseGoneWork,
 } from "@sim/shared";
 
+import type { BrainstormRunner } from "../agents/brainstorms.js";
 import { type DeskRunner } from "../agents/deskTerminal.js";
 import type { LiveAgentSource } from "../agents/registry.js";
 import type {
@@ -236,6 +237,8 @@ export interface OfficeRoomOptions {
   readonly standing?: StandingMirror;
   /** Where a standup is said to be on, so the runners pause their agents; absent when no runner is configured. */
   readonly runnerStandup?: RunnerStandupHold;
+  /** Which runner writes brainstorm tickets' design documents and issues to GitHub; absent when no runner is configured. */
+  readonly brainstormRunner?: BrainstormRunner;
   /** Where the AI Manager hires new agents, with the office's cap on them; absent when no runner is configured. */
   readonly agentHiring?: AgentHiring;
   /** How a YouTube link for the radio or the TV is checked; YouTube's own oEmbed endpoint unless a test stands in. */
@@ -540,6 +543,7 @@ export class OfficeRoom extends Room<OfficeState> {
     }
     this.crew.step(now, Math.min(Math.max(deltaMs, 0), MAX_AGENT_STEP_MS) / 1000);
     this.runners.standup.step();
+    this.runners.brainstorms.step();
     // A runner comes and goes; the board offers its drops only while one is here.
     this.state.issuesWritable = this.runners.issueStates?.canChangeIssues() === true;
     // Drained every tick so a room's inbox never holds more than a tick's
@@ -548,6 +552,7 @@ export class OfficeRoom extends Room<OfficeState> {
     const events = this.runners.runnerEvents?.drain();
     if (events !== undefined && events.length > 0) {
       this.runners.runnerWork?.receive(events);
+      this.runners.brainstorms.receive(events);
       this.runners.standingAnnouncer?.receive(events);
       this.runners.deskTerminal.receive(events);
     }
@@ -567,6 +572,7 @@ export class OfficeRoom extends Room<OfficeState> {
     // its runner never answered is given up on.
     if (this.tickCount % TICK_RATE_HZ === 0) {
       this.runners.runnerWork?.reconcile();
+      this.runners.brainstorms.reconcile();
       this.runners.agentPrompts.expire();
     }
     const runnerSpend = this.runners.runnerSpend;
@@ -721,6 +727,8 @@ export class OfficeRoom extends Room<OfficeState> {
   /** Says something out loud on an occupant's behalf, through the chat everyone reads. */
   private say(occupantId: string, text: string): void {
     this.broadcast(SERVER_MESSAGE.chat, { occupantId, text } satisfies ChatEvent);
+    // A player in the meeting room while an idea's meeting is on is part of the discussion.
+    this.runners?.brainstorms.heard(occupantId, text);
   }
 
   /** Waves on an occupant's behalf, as a greeting. */

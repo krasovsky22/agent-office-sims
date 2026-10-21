@@ -51,6 +51,7 @@
  * the game loop when it is time to repaint one; nothing is notified.
  */
 
+import type { BrainstormData } from "@sim/shared";
 import {
   type AnimationState,
   NO_STANDUP,
@@ -462,6 +463,21 @@ export class RoomConnection extends RoomCommands {
     });
     $(room.state).work.onRemove(workChanged);
 
+    // An idea and everything in it, down to one write-up's verdict, comes out as one fresh copy.
+    const brainstormsChanged = (): void => this.queue(room, this.publishBrainstorms);
+    $(room.state).brainstorms.onAdd((brainstorm) => {
+      const idea = $(brainstorm);
+      idea.onChange(brainstormsChanged);
+      idea.takes.onAdd((take) => {
+        $(take).onChange(brainstormsChanged);
+        brainstormsChanged();
+      });
+      idea.takes.onRemove(brainstormsChanged);
+      idea.created.onAdd(brainstormsChanged);
+      brainstormsChanged();
+    });
+    $(room.state).brainstorms.onRemove(brainstormsChanged);
+
     const standingChanged = (): void => this.queue(room, this.publishStanding);
     $(room.state).standing.onAdd((task) => {
       $(task).onChange(standingChanged);
@@ -520,6 +536,7 @@ export class RoomConnection extends RoomCommands {
       this.screens.clear();
       this.events.onOccupantsChanged?.();
       this.events.onWorkChanged?.([]);
+      this.events.onBrainstormsChanged?.([]);
       this.events.onStandingChanged?.([]);
       this.events.onStandupChanged?.(NO_STANDUP);
       this.room = undefined;
@@ -631,6 +648,10 @@ export class RoomConnection extends RoomCommands {
   // Plain copies, so React never holds a schema object that mutates under it.
   private readonly publishWork = (state: OfficeState): void => {
     this.events.onWorkChanged?.([...state.work.values()].map((work) => work.toJSON()));
+  };
+
+  private readonly publishBrainstorms = (state: OfficeState): void => {
+    this.events.onBrainstormsChanged?.([...state.brainstorms.values()].map((brainstorm) => brainstorm.toJSON() as BrainstormData));
   };
 
   private readonly publishStanding = (state: OfficeState): void => {

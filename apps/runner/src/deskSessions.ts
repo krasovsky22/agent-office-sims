@@ -77,7 +77,7 @@ export interface DeskSessionsHost {
   readonly ledger: SpendLedger;
   readonly redactor: Redactor;
   /** The pool's events, where a `desk-ended` waits for a sync with the rest. */
-  readonly events: EventOutbox<RunnerWorkEvent | RunnerDeskEndedEvent>;
+  readonly events: Pick<EventOutbox<RunnerWorkEvent | RunnerDeskEndedEvent>, "push">;
   readonly eventId: () => string;
   readonly log: (line: string) => void;
   readonly debug: (line: string) => void;

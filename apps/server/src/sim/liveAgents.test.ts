@@ -851,6 +851,28 @@ describe("a standup", () => {
     expect(office.said).toEqual([]);
   });
 
+  it("gathers only the agents an idea's meeting calls, the rest carrying on at their desks", () => {
+    const office = createOffice();
+    office.crew.sync(
+      [record("alpha", LIVE_AGENT_STATUS.idle), record("bravo", LIVE_AGENT_STATUS.working, "Live agents")],
+      office.now,
+    );
+    const alpha = agent(office, "alpha");
+    const bravo = agent(office, "bravo");
+    expect(runUntil(office, 30, () => bravo.interactableId !== "")).toBeDefined();
+    const desk = bravo.interactableId;
+
+    office.crew.gather(SPOTS, office.now, new Set([alpha.id]));
+    expect(runUntil(office, 60, () => office.crew.isGathered(alpha.id))).toBeDefined();
+    expect(roomAt(OFFICE_LAYOUT, alpha)?.id).toBe(CONFERENCE_ROOM_ID);
+    runUntil(office, 5, () => false);
+    expect(office.crew.isGathered(bravo.id)).toBe(false);
+    expect(bravo.interactableId).toBe(desk);
+    office.crew.dismiss(office.now);
+    expect(office.crew.isGathered(alpha.id)).toBe(false);
+    expect(bravo.interactableId).toBe(desk);
+  });
+
   it("sends a working agent back to the chair it left once it ends, and an idle one off wandering", () => {
     const office = createOffice();
     office.crew.sync(

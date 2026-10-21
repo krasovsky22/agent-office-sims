@@ -615,6 +615,69 @@ until the next is called, so a direction kept for after it is seen to arrive.
 Calling and ending are limited to four in a burst, one more every five seconds,
 and directions as prompts are.
 
+### Brainstorm tickets
+
+An issue labelled `brainstorm` on GitHub (compared without regard to case) is
+an idea for the office to think about, not work to code. Its board card is
+marked `Idea`, with how far the office has got with it, and its detail, which
+anyone can open, shows who researched it, each write-up and the design document
+in place of an ordinary issue's work. The rules are in
+`packages/shared/src/brainstorm.ts`; the server runs them in
+`apps/server/src/agents/brainstorms.ts`.
+
+- **Hand it out.** The CEO picks two to four of the runners' agents, none busy
+  with an issue or another idea, and a mode: **each writes a take of its own**,
+  or **the first picked researches and the others review and challenge it**.
+  An ordinary `Assign…`, from the board or the AI Manager, is refused on an
+  idea, so nothing ever codes one.
+- **Research, read-only.** Each agent's slot gets a `start` marked as a
+  brainstorm's. The runner checks the issue on GitHub as it checks any
+  (`brainstorm` must be on it now, and the restriction label must not; an
+  ordinary start on an issue labelled `brainstorm` is refused the same way),
+  then runs one headless Claude Code run in a scratch checkout of the default
+  branch, detached so there is no branch to commit on, with `--restricted`,
+  `--tools Read,Grep,Glob`, every tool that writes or reaches out denied in
+  its settings, `dontAsk`, no MCP servers and no GitHub identity, whatever
+  `RUNNER_AGENT_PERMISSIONS` says, capped at $1.50 and the task timeout
+  (`apps/runner/src/agents/brainstorm.ts`). The runner writes the issue, and
+  the researcher's write-up for a critic, into the checkout for it; the
+  agent's final message is its write-up, which the slot reports as a
+  `brainstorm` event and is then done with the issue, with no worktree, branch
+  or pull request left behind. A write-up opens with `Verdict: doable`,
+  `doable with caveats` or `not doable`, shown on the card. The mock writes a
+  scripted one after a few seconds.
+- **The design document.** Once every write-up is in, or given up on, the
+  first agent that wrote one merges them all into the recommendation: the best
+  set of features to build, the alternatives and the open questions. The
+  document is that recommendation, the meeting's summary once there is one,
+  and every write-up, built from the replicated record (`designDocument`), so
+  every tab reads the same one. A runner that writes to GitHub then comments it
+  on the issue (`brainstorm-post`); without one it stays in the office, and
+  the card says so. An idea none of whose research came back can be handed out
+  again.
+- **The meeting.** The CEO's `Discuss in meeting room` walks the idea's agents,
+  and nobody else, to the conference room the standup uses, where they sit as
+  they do for one; it is refused while a standup is on, and a standup while it
+  is. It is refused too once the idea is being or has been converted. Each
+  speaks in turn for two rounds, a line in a speech bubble from a short
+  run with no tools (`brainstorm-speak`, capped as a standup answer is) that
+  hears everything said before it, including what players standing in the
+  room say in the chat. Then the first of them sums it up; the summary goes
+  into the document, which is posted again, and everyone goes back to what
+  they were doing. A line not said within 75 seconds is skipped.
+- **Review and convert.** Anyone marks the document reviewed, then anyone
+  converts it: `Convert…` drafts an implementation issue from the
+  recommendation, which can be edited, and more added, up to five. A runner
+  that writes to GitHub creates them, then closes the idea with a comment
+  linking them (`brainstorm-convert`); the card links them too. Hand them out
+  from the board as any issue, to build them.
+
+An agent is held by an idea while it researches it, merges it or meets about
+it, and takes no other work meanwhile; the desk terminal lends none of them
+either. What its runs spend is booked in its runner's daily budget, which
+refuses a start or a line once it is spent, as it refuses any. The commands
+share one allowance, as calling a standup does.
+
 ### The desk terminal
 
 Every desk with a monitor is a computer the CEO can use. Sitting down at one
@@ -710,7 +773,13 @@ instead of an issue or a standing run, its status and activity then the desk
 session's. `events` lists what happened since the last answered sync, at most 8, each
 `started`, `pr-opened`, `failed` or `finished`, with an optional `pr` and
 `message`, or `desk-ended` (`slotId`, `seatId`, `message`) for a desk session
-that ended, or was refused, without the server asking; `prompts` says what came of the CEO's prompts, at most 8, each a
+that ended, or was refused, without the server asking, or `brainstorm`
+(`issueNumber`, `part`, `text`, a `slotId` for a slot's agent's words, and
+`created`, the issues a conversion made) for what came of a
+[brainstorm](#brainstorm-tickets)'s write-up (`take`, `synthesis`, at most
+4,000 bytes), meeting line (`line`, at most 800, `summary`, or `unanswered`
+with why), post (`posted` or `post-failed`) or conversion (`converted` or
+`convert-failed`), at most one a sync; `prompts` says what came of the CEO's prompts, at most 8, each a
 `commandId`, its `slotId` and an `outcome`, `delivered`, `busy`, `needs-input`,
 `unavailable` or, for a key, `not-waiting`, or, for a standup's direction the
 runner keeps for later, `queued` and then `delivered` under the same command
@@ -723,7 +792,7 @@ UTF-8 of the string as `JSON.stringify` writes it, escapes included and quotes
 not. A `name` is at most 18 bytes, a `title` 40, an `activity` or a `pr` title
 90, a `message` 280, a `pr` link 300 and a `description` 400; a sync with a
 longer one is refused rather than cut,
-which keeps every sync the server takes under 32 KB whatever its characters,
+which keeps every sync the server takes under 40 KB whatever its characters,
 sent as `JSON.stringify` writes it. A runner re-sends an event, or a prompt's
 outcome, until a sync carrying it is answered, and the server passes each event
 id on once and takes each prompt's first outcome. A runner holding standing
@@ -792,7 +861,8 @@ steward](#the-pull-request-steward) the CEO set up, once every required
 check is green.
 
 The reply carries every command queued for that runner that it has not acked
-yet: `start` (`issueNumber`, `title`, `url`, `note`, `requestedBy`), `stop`
+yet: `start` (`issueNumber`, `title`, `url`, `note`, `requestedBy`, and
+`brainstorm` (`role`, `prior`) for an idea's read-only research), `stop`
 (`reason`, and the `issueNumber` it is for, so a stop that arrives after the
 slot moved on ends nothing else, and `discard: true` for a task the CEO
 cancelled, whose worktree, branch and pull request go whatever is in them) or `prompt` (`text`, `requestedBy`, and
@@ -815,8 +885,14 @@ the slot ends whatever it runs, a task discarded as a cancelled one is, and is
 reported no more), or `hire` (`name`, `title`, `description`, `requestedBy`:
 the AI Manager hired an agent, so the runner adds a slot under this new
 `slotId`, which no slot of its has had, with this profile, unless it already
-has 4; its task follows as a `start` once it is reported), each
-with an `id` and a `slotId`. A command comes back in every reply until a sync lists its id in
+has 4; its task follows as a `start` once it is reported), or
+`brainstorm-speak` (`issueNumber`, `part`, `line` or `summary`, and `text`,
+the meeting so far: the slot's agent speaks at a
+[brainstorm](#brainstorm-tickets)'s meeting in a short run of its own), each
+with an `id` and a `slotId`; or, addressing no slot, for a runner that writes
+to GitHub, `brainstorm-post` (`issueNumber`, `body`: comment the design
+document on the issue) or `brainstorm-convert` (`issueNumber`, `drafts`, each
+a `title` and `body`: create them, then close the idea linking them). A command comes back in every reply until a sync lists its id in
 `acked`, and never after, so a lost reply loses nothing and a runner tells a
 repeat by its id. The one exception is a CEO's prompt or key the runner has not
 answered within 30 seconds: the server withdraws it if it is not yet acked,
@@ -828,7 +904,7 @@ reply also carries `"standup": true`, and the runner pauses its agents for it
 until a reply leaves it out; see [The standup](#the-standup).
 
 The route is refused as the report route is: `405` for anything but `POST`,
-`401` without the secret, `413` over 32 KB, `429` past about ten syncs a
+`401` without the secret, `413` over 40 KB, `429` past about ten syncs a
 second, `400` for a body that is not a sync or lists too many slots, `403` for
 a runner whose `repo` is not `PROJECT_BOARD_REPO`, and `409` when the floor has
 no room for its slots.
@@ -1258,8 +1334,9 @@ To set one up, as the repository's owner:
 2. **Give it these repository permissions and no others:** **Contents: Read
    and write** (to push its branches), **Pull requests: Read and write** (to
    open them), **Issues: Read and write** (to read the issue and its labels,
-   and to close or reopen one the CEO drags across the board; Read-only
-   is enough if nobody will), and
+   to close or reopen one the CEO drags across the board, and to post a
+   brainstorm's design document and create the issues it is converted into;
+   Read-only is enough if nobody will), and
    Metadata: Read-only, which GitHub adds itself. Under **Where can this GitHub
    App be installed?** choose **Only on this account**, and create it.
 3. **Note its App ID** at the top of the App's General page, and under
@@ -2043,7 +2120,7 @@ Then confirm all twenty-nine:
 
 ```sh
 pnpm typecheck   # strict TypeScript, every package
-pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the agents' profiles: their default names, gate, sanitising, runner store and system prompt, in a live room too, the standup's gate, places, turns, updates, directions and blockers, in a live room too, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue restriction label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, closing and reopening issues from the board: the gate, the drops it takes, the cards shown moved, the runner's command, its gh call and the answer back, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the pull request steward's merge gate, its merges, holds and conflict resolves against real git, a hired agent's task on its slot alone, new schedules, the runs' records and the server's history of them, the server's mirror, gate, announcements and the AI Manager's words for them, standing hires, the recurring tasks board's rows and schedule choices, and their round trip from the AI Manager to the runner and back
+pnpm test        # collision, floor plan, pathfinding, interaction, issue work, CEO authority and the board's move planner, the in-game clock, messages, expression limits, CEO succession and reconnection, server origins, avatar animation, the day's light curve, the project board's GitHub feed and filters, the sticker boards' notes and their look, live agents' reports and bodies, the runner link's syncs, commands and events, the runner slots' screens and their route, the screens a client holds, the seat-to-monitor map, the desk screens' painter and repaint throttle, the terminal panel's links and its scrollable view, the AI manager's answers, assignments, updates and orchestrator queue, its round trip with the mock runner's coding agents, the CEO's prompts and keys to the coding agents, their gate and their delivery, the agents' profiles: their default names, gate, sanitising, runner store and system prompt, in a live room too, the standup's gate, places, turns, updates, directions and blockers, in a live room too, the runner's work loop between the board and the slots, the runner's configuration, sync client and loop, slots and mock agent, its transcript meter and daily budget, the issue restriction label check and pull requests, the GitHub App's tokens, the personal GitHub login, the Claude adapter, its hook server, child environment and prompt, the PTY agent and its screen reading, task worktrees, terminal mirrors, secret masking and screen posts, and its round trip with the runner link and screen store, closing and reopening issues from the board: the gate, the drops it takes, the cards shown moved, the runner's command, its gh call and the answer back, and standing tasks: their contract and cron schedules, the runner's scheduler, ledger, caps, preemption and store, its headless and mock runs, the review's read-only run, marker and comment, the pull request steward's merge gate, its merges, holds and conflict resolves against real git, a hired agent's task on its slot alone, new schedules, the runs' records and the server's history of them, the server's mirror, gate, announcements and the AI Manager's words for them, standing hires, the recurring tasks board's rows and schedule choices, and their round trip from the AI Manager to the runner and back, and brainstorm tickets: the label, the gates, the design document and drafts, the read-only research run and its GitHub check, one write-up a sync, the meeting's turns and the crew gathered for it, posting and converting with gh
 pnpm lint
 pnpm build       # production client bundle; needs VITE_SERVER_URL
 ```
@@ -2211,6 +2288,7 @@ packages/shared/   @sim/shared   the contract both sides import
   src/text.ts         the one text-cleaning policy: control and bidi characters, code-point truncation, shared parse helpers
   src/env.ts          the settings rules the server and the runner both boot by: repository pattern, secret minimum, default repository, whole-number and choice readers
   src/work.ts         the rules of the agents' work on GitHub issues: transitions, authority, commands
+  src/brainstorm.ts   brainstorm tickets: the label, the modes, the gates for handing one out, meeting, reviewing and converting, the design document
   src/issueState.ts   closing and reopening issues from the board: the one gate, which drops it takes, why one was refused
   src/clock.ts        the in-game clock's start and speed, which the lighting reads
   src/projectBoard.ts the project board's GitHub snapshot, and which issues are open or gone
@@ -2271,6 +2349,8 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/liftHandlers.ts  calling the lift and riding it from beside it, and the refusals sent back
   src/sim/youtube.ts      asking YouTube's oEmbed endpoint whether the radio or the TV may play a link
   src/rooms/standupHandlers.ts  the CEO's standup commands: call, end, direct, and the refusals sent back
+  src/rooms/brainstormHandlers.ts  brainstorm commands: hand out, meet, review, convert, and the refusals sent back
+  src/agents/brainstorms.ts     brainstorm tickets: their research and recommendation, the posted design document, the meeting's turns, the conversion
   src/sim/standup.ts      the standup: gathering, the turns and each update read off an agent's real state, directions, blockers, the end
   src/sim/liveAgents.ts   the live agents' bodies: seat, wander, talk, and carry the sticky notes between boards and desk
 apps/runner/       @sim/runner   the agent runner: slots, agents, their screens, and the sync with the server
@@ -2279,6 +2359,8 @@ apps/runner/       @sim/runner   the agent runner: slots, agents, their screens,
   src/shutdown.ts         stopping on a signal or a crash: agents waited for up to a grace, then killed
   src/syncClient.ts       one sync over HTTP, and reading back its commands
   src/issueStates.ts      closing and reopening issues for the CEO with gh, and what came of each
+  src/brainstormDesk.ts   posting a brainstorm's design document and creating the issues it is converted into, with gh
+  src/agents/brainstorm.ts  a brainstorm's read-only research in a scratch checkout, and its meeting lines, with Claude Code or the mock
   src/slots.ts            the slot pool: commands to agent runs, runs to status and events, pausing for a standup and the directions kept for after it, and each slot's agent's profile
   src/deskSessions.ts     a slot lent to the CEO's desk: its session, from the worktree made to the worktree discarded
   src/slotRuns.ts         what a task, a desk session and a standing run share: the spend, the screen, when a prompt or a key is taken
@@ -2357,6 +2439,8 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/net/screens.ts      the live agents' terminals, built up from the server's frames
   src/projectBoard.ts     the project board's columns, filters, how an issue's work reads, and which column takes a dragged card
   src/ui/ProjectBoardPanel.tsx  the project board's close-up, with the agents' work and the CEO's controls
+  src/brainstormBoard.ts  how a brainstorm ticket reads on the board, and which of its controls are open, by the shared gates
+  src/ui/BrainstormDetail.tsx  a brainstorm ticket up close: handing it out, its write-ups and design document, the meeting, review and conversion
   src/ui/RecurringTasksPanel.tsx  the recurring tasks board's close-up: each task's runs and logs, and the CEO's schedule and delete
   src/managerAccess.ts    what the local player may say to the manager, and why
   src/standingAccess.ts   how a standing task reads in the roster and on the recurring tasks board, its schedule choices, and whether its buttons are the local player's

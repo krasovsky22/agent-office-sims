@@ -15,6 +15,15 @@
 
 import { type AgentKey, isAgentKey } from "./agentPrompt.js";
 import {
+  type BrainstormDraft,
+  type BrainstormRole,
+  MAX_BRAINSTORM_DRAFTS,
+  MAX_BRAINSTORM_TEXT_BYTES,
+  MAX_DRAFT_BODY_LENGTH,
+  MAX_DRAFT_TITLE_LENGTH,
+  isBrainstormRole,
+} from "./brainstorm.js";
+import {
   type AgentProfile,
   MAX_AGENT_DESCRIPTION_BYTES,
   MAX_AGENT_TITLE_BYTES,
@@ -31,6 +40,7 @@ import { MAX_LABEL_LENGTH } from "./projectBoard.js";
 import {
   MAX_NAME_LENGTH,
   MAX_TITLE_LENGTH,
+  sanitizeBody,
   sanitizeManagerReply,
   sanitizeManagerText,
   sanitizeName,
@@ -77,8 +87,10 @@ export const RUNNER_SYNC_PATH = "/agents/runner/sync";
  * cap and any string past its budget in UTF-8 bytes as `JSON.stringify`
  * writes it, so a sync it would take, every list full and every string at its
  * budget, fits inside this whatever characters it holds; a test holds it to that.
+ * Its one brainstorm event, a write-up of {@link MAX_BRAINSTORM_TEXT_BYTES}, is
+ * what takes it past 32 KB.
  */
-export const MAX_RUNNER_SYNC_BYTES = 32 * 1024;
+export const MAX_RUNNER_SYNC_BYTES = 40 * 1024;
 
 /**
  * The label a maintainer puts on an issue to keep the real coding agents off
@@ -144,6 +156,8 @@ export const RUNNER_EVENT_KIND = {
   standingRefused: "standing-refused",
   /** A desk session ended, or never started, without the server asking; see {@link RunnerDeskEndedEvent}. */
   deskEnded: "desk-ended",
+  /** What came of a brainstorm's run, line, post or conversion; see {@link RunnerBrainstormEvent}. */
+  brainstorm: "brainstorm",
 } as const;
 
 export type RunnerEventKind = (typeof RUNNER_EVENT_KIND)[keyof typeof RUNNER_EVENT_KIND];
@@ -151,7 +165,10 @@ export type RunnerEventKind = (typeof RUNNER_EVENT_KIND)[keyof typeof RUNNER_EVE
 /** The kinds of event about a slot's work on an issue. */
 export type RunnerWorkEventKind = Exclude<
   RunnerEventKind,
-  typeof RUNNER_EVENT_KIND.standingRun | typeof RUNNER_EVENT_KIND.standingRefused | typeof RUNNER_EVENT_KIND.deskEnded
+  | typeof RUNNER_EVENT_KIND.standingRun
+  | typeof RUNNER_EVENT_KIND.standingRefused
+  | typeof RUNNER_EVENT_KIND.deskEnded
+  | typeof RUNNER_EVENT_KIND.brainstorm
 >;
 
 /**
@@ -197,6 +214,12 @@ export const RUNNER_COMMAND_KIND = {
   fire: "fire",
   /** The CEO had the AI Manager hire an agent: add a slot with this id and profile; see {@link RunnerHireCommand}. */
   hire: "hire",
+  /** Have the slot's agent say one line at an idea's meeting, or sum it up; see {@link RunnerBrainstormSpeakCommand}. */
+  brainstormSpeak: "brainstorm-speak",
+  /** Post an idea's design document on its issue; see {@link RunnerBrainstormPostCommand}. */
+  brainstormPost: "brainstorm-post",
+  /** Create an idea's implementation issues and close it; see {@link RunnerBrainstormConvertCommand}. */
+  brainstormConvert: "brainstorm-convert",
 } as const;
 
 export type RunnerCommandKind = (typeof RUNNER_COMMAND_KIND)[keyof typeof RUNNER_COMMAND_KIND];
@@ -423,14 +446,88 @@ export interface RunnerDeskEndedEvent {
   readonly message: string;
 }
 
-export type RunnerEvent = RunnerWorkEvent | RunnerStandingRunEvent | RunnerStandingRefusedEvent | RunnerDeskEndedEvent;
+/** What a brainstorm event says came of the runner's part in an idea. */
+export const BRAINSTORM_PART = {
+  /** A slot's agent wrote its write-up: a take, a researcher's or a critic's. */
+  take: "take",
+  /** A slot's agent merged the write-ups into a recommendation. */
+  synthesis: "synthesis",
+  /** A slot's agent said its line at the meeting. */
+  line: "line",
+  /** A slot's agent summed the meeting up. */
+  summary: "summary",
+  /** A slot's agent could not say its line or summary; `text` says why. */
+  unanswered: "unanswered",
+  /** The design document is posted on the issue. */
+  posted: "posted",
+  /** It could not be posted; `text` says why. */
+  postFailed: "post-failed",
+  /** The implementation issues are created, listed in `created`, and the idea closed. */
+  converted: "converted",
+  /** They could not all be created; `text` says why, and `created` lists any that were. */
+  convertFailed: "convert-failed",
+} as const;
 
-/** Whether an event is about a slot's work on an issue, rather than a standing task or a desk session. */
+export type BrainstormPart = (typeof BRAINSTORM_PART)[keyof typeof BRAINSTORM_PART];
+
+const BRAINSTORM_PARTS: ReadonlySet<string> = new Set(Object.values(BRAINSTORM_PART));
+
+/** The parts a slot's agent wrote, as opposed to the runner's own GitHub calls. */
+const SLOT_PARTS: ReadonlySet<string> = new Set([
+  BRAINSTORM_PART.take,
+  BRAINSTORM_PART.synthesis,
+  BRAINSTORM_PART.line,
+  BRAINSTORM_PART.summary,
+  BRAINSTORM_PART.unanswered,
+]);
+
+/** Longest text each part carries, in bytes: a write-up, a line said aloud, or a reason. */
+function brainstormPartBytes(part: BrainstormPart): number {
+  switch (part) {
+    case BRAINSTORM_PART.take:
+    case BRAINSTORM_PART.synthesis:
+    case BRAINSTORM_PART.summary:
+      return MAX_BRAINSTORM_TEXT_BYTES;
+    case BRAINSTORM_PART.line:
+      return MAX_RUNNER_ANSWER_BYTES;
+    default:
+      return MAX_WORK_NOTE_LENGTH;
+  }
+}
+
+/**
+ * What came of the runner's part in an idea (`./brainstorm.ts`), reported until
+ * a sync carrying it is answered, as any event is. A slot's agent's write-up,
+ * line or summary names its slot; the runner's posting and conversion name
+ * none. A sync carries one at most, since a write-up is the largest thing it
+ * holds.
+ */
+export interface RunnerBrainstormEvent {
+  readonly id: string;
+  readonly kind: typeof RUNNER_EVENT_KIND.brainstorm;
+  readonly issueNumber: number;
+  readonly part: BrainstormPart;
+  readonly slotId: string | undefined;
+  /** Markdown for a write-up, one paragraph for a line, a reason for a failure; `""` for nothing to say. */
+  readonly text: string;
+  /** The issues a conversion created, in the order drafted; none for any other part. */
+  readonly created: readonly { readonly number: number; readonly url: string }[];
+}
+
+export type RunnerEvent =
+  | RunnerWorkEvent
+  | RunnerStandingRunEvent
+  | RunnerStandingRefusedEvent
+  | RunnerDeskEndedEvent
+  | RunnerBrainstormEvent;
+
+/** Whether an event is about a slot's work on an issue, rather than a standing task, a desk session or an idea. */
 export function isRunnerWorkEvent(event: RunnerEvent): event is RunnerWorkEvent {
   return (
     event.kind !== RUNNER_EVENT_KIND.standingRun &&
     event.kind !== RUNNER_EVENT_KIND.standingRefused &&
-    event.kind !== RUNNER_EVENT_KIND.deskEnded
+    event.kind !== RUNNER_EVENT_KIND.deskEnded &&
+    event.kind !== RUNNER_EVENT_KIND.brainstorm
   );
 }
 
@@ -504,6 +601,70 @@ export interface RunnerStartCommand {
   /** The CEO's words, for the agent. */
   readonly note: string;
   /** The CEO who asked, by name. */
+  readonly requestedBy: string;
+  /**
+   * Set for a brainstorm ticket's research: the agent reads, writes a
+   * write-up and changes nothing, on no branch, and its slot reports the
+   * write-up as a {@link RunnerBrainstormEvent} rather than any pull request.
+   */
+  readonly brainstorm?: RunnerBrainstormTask;
+}
+
+/** What one agent's research on an idea is for, and what it reads besides the issue. */
+export interface RunnerBrainstormTask {
+  readonly role: BrainstormRole;
+  /** The write-ups a critic reviews or a synthesis merges, in Markdown; `""` for none. */
+  readonly prior: string;
+}
+
+/** Longest set of earlier write-ups a brainstorm's start carries: every agent's, with their headings. */
+export const MAX_BRAINSTORM_PRIOR_LENGTH = 20_000;
+
+/** Longest meeting prompt: the idea, its recommendation and what has been said so far. */
+export const MAX_BRAINSTORM_SPEAK_LENGTH = 12_000;
+
+/** Longest design document posted on an issue, under GitHub's own limit for a comment. */
+export const MAX_BRAINSTORM_POST_LENGTH = 60_000;
+
+/**
+ * Have the slot's agent speak at an idea's meeting: one line in its turn, or
+ * the meeting's summary, from what the office says has been said. A short run
+ * of its own with no tools, as an answer to a standup's direction is, that
+ * holds no task; its slot reports what it said as a {@link RunnerBrainstormEvent}.
+ */
+export interface RunnerBrainstormSpeakCommand {
+  readonly id: string;
+  readonly slotId: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.brainstormSpeak;
+  readonly issueNumber: number;
+  readonly part: typeof BRAINSTORM_PART.line | typeof BRAINSTORM_PART.summary;
+  /** The idea, its recommendation and the meeting so far, as the server put them. */
+  readonly text: string;
+  readonly requestedBy: string;
+}
+
+/**
+ * Post an idea's design document on its issue as a comment, with the runner's
+ * own GitHub identity, since the game server never writes to GitHub.
+ */
+export interface RunnerBrainstormPostCommand {
+  readonly id: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.brainstormPost;
+  readonly issueNumber: number;
+  readonly body: string;
+  readonly requestedBy: string;
+}
+
+/**
+ * Turn an idea into its implementation issues: create each drafted issue,
+ * then comment on the idea with their links and close it. Reported as a
+ * {@link RunnerBrainstormEvent}.
+ */
+export interface RunnerBrainstormConvertCommand {
+  readonly id: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.brainstormConvert;
+  readonly issueNumber: number;
+  readonly drafts: readonly BrainstormDraft[];
   readonly requestedBy: string;
 }
 
@@ -719,7 +880,8 @@ export type RunnerSlotCommand =
   | RunnerDeskCloseCommand
   | RunnerDeskResizeCommand
   | RunnerFireCommand
-  | RunnerHireCommand;
+  | RunnerHireCommand
+  | RunnerBrainstormSpeakCommand;
 
 /** The commands for the runner's standing tasks, which address no slot. */
 export type RunnerStandingCommand =
@@ -728,7 +890,10 @@ export type RunnerStandingCommand =
   | RunnerStandingRescheduleCommand
   | RunnerStandingAssignCommand;
 
-export type RunnerCommand = RunnerSlotCommand | RunnerStandingCommand | RunnerIssueStateCommand;
+/** The commands for the runner's own GitHub calls about an idea, which address no slot. */
+export type RunnerBrainstormGithubCommand = RunnerBrainstormPostCommand | RunnerBrainstormConvertCommand;
+
+export type RunnerCommand = RunnerSlotCommand | RunnerStandingCommand | RunnerIssueStateCommand | RunnerBrainstormGithubCommand;
 
 /** Whether a command is for one of the runner's slots, rather than its standing tasks. */
 export function isRunnerSlotCommand<T extends { readonly kind: RunnerCommandKind }>(
@@ -744,7 +909,8 @@ export function isRunnerSlotCommand<T extends { readonly kind: RunnerCommandKind
     command.kind === RUNNER_COMMAND_KIND.deskClose ||
     command.kind === RUNNER_COMMAND_KIND.deskResize ||
     command.kind === RUNNER_COMMAND_KIND.fire ||
-    command.kind === RUNNER_COMMAND_KIND.hire
+    command.kind === RUNNER_COMMAND_KIND.hire ||
+    command.kind === RUNNER_COMMAND_KIND.brainstormSpeak
   );
 }
 
@@ -759,7 +925,8 @@ export type RunnerSlotCommandDraft =
   | Omit<RunnerDeskCloseCommand, "id">
   | Omit<RunnerDeskResizeCommand, "id">
   | Omit<RunnerFireCommand, "id">
-  | Omit<RunnerHireCommand, "id">;
+  | Omit<RunnerHireCommand, "id">
+  | Omit<RunnerBrainstormSpeakCommand, "id">;
 
 /** A command before the server has given it an id. */
 export type RunnerCommandDraft =
@@ -768,7 +935,9 @@ export type RunnerCommandDraft =
   | Omit<RunnerStandingTaskCommand, "id">
   | Omit<RunnerStandingRescheduleCommand, "id">
   | Omit<RunnerStandingAssignCommand, "id">
-  | Omit<RunnerIssueStateCommand, "id">;
+  | Omit<RunnerIssueStateCommand, "id">
+  | Omit<RunnerBrainstormPostCommand, "id">
+  | Omit<RunnerBrainstormConvertCommand, "id">;
 
 /**
  * The server's reply to a sync: every command the runner has not yet acked,
@@ -1038,6 +1207,9 @@ function parseEvent(raw: unknown): RunnerEvent | undefined {
   if (candidate["kind"] === RUNNER_EVENT_KIND.deskEnded) {
     return parseDeskEndedEvent(candidate);
   }
+  if (candidate["kind"] === RUNNER_EVENT_KIND.brainstorm) {
+    return parseBrainstormEvent(candidate);
+  }
   const { id, kind, slotId, issueNumber } = candidate;
   if (!isItemId(id) || !isEventKind(kind) || !isRunnerName(slotId) || !isIssueNumber(issueNumber)) {
     return undefined;
@@ -1111,6 +1283,49 @@ function parseDeskEndedEvent(candidate: Record<string, unknown>): RunnerDeskEnde
     return undefined;
   }
   return { id, kind: RUNNER_EVENT_KIND.deskEnded, slotId, seatId, message };
+}
+
+/** A write-up, line or reason from a runner: paragraphs kept, nothing else that is not text. */
+export function sanitizeBrainstormText(raw: unknown): string {
+  return sanitizeBody(raw, MAX_BRAINSTORM_TEXT_BYTES);
+}
+
+function parseBrainstormEvent(candidate: Record<string, unknown>): RunnerBrainstormEvent | undefined {
+  const { id, issueNumber, part } = candidate;
+  const slotId = candidate["slotId"] ?? undefined;
+  if (!isItemId(id) || !isIssueNumber(issueNumber) || typeof part !== "string" || !BRAINSTORM_PARTS.has(part)) {
+    return undefined;
+  }
+  const kind = part as BrainstormPart;
+  // A slot's agent's words name its slot; the runner's own calls name none.
+  if (SLOT_PARTS.has(kind) ? !isRunnerName(slotId) : slotId !== undefined) {
+    return undefined;
+  }
+  const text = parseText(candidate["text"], brainstormPartBytes(kind), sanitizeBrainstormText);
+  const created = parseList(candidate["created"], MAX_BRAINSTORM_DRAFTS, (raw) => {
+    const record = asRecord(raw);
+    const url = record === undefined ? undefined : parseText(record["url"], MAX_TASK_URL_LENGTH, (value) => value);
+    const link = url === undefined ? undefined : parseTaskUrl(url);
+    return record !== undefined && isIssueNumber(record["number"]) && link !== undefined && link !== ""
+      ? { number: record["number"], url: link }
+      : undefined;
+  });
+  if (text === undefined || created === undefined) {
+    return undefined;
+  }
+  // Words are what a write-up, a line and a summary are; one with none is not one.
+  if (text === "" && (kind === BRAINSTORM_PART.take || kind === BRAINSTORM_PART.synthesis || kind === BRAINSTORM_PART.line || kind === BRAINSTORM_PART.summary)) {
+    return undefined;
+  }
+  return {
+    id,
+    kind: RUNNER_EVENT_KIND.brainstorm,
+    issueNumber,
+    part: kind,
+    slotId: isRunnerName(slotId) ? slotId : undefined,
+    text,
+    created,
+  };
 }
 
 /**
@@ -1333,6 +1548,10 @@ export function parseRunnerSync(raw: unknown): RunnerSync | undefined {
   if (new Set(slots.map((slot) => slot.id)).size !== slots.length || new Set(standing.map((task) => task.id)).size !== standing.length) {
     return undefined;
   }
+  // One write-up a sync at most, which is what keeps a sync inside the route's limit.
+  if (events.filter((event) => event.kind === RUNNER_EVENT_KIND.brainstorm).length > 1) {
+    return undefined;
+  }
   return {
     runnerId,
     repo,
@@ -1369,6 +1588,20 @@ export function toRunnerCommand(id: string, draft: RunnerCommandDraft): RunnerCo
       ? { id, kind: draft.kind, issueNumber: draft.issueNumber, state: draft.state, requestedBy: sanitizeName(draft.requestedBy) }
       : undefined;
   }
+  if (draft.kind === RUNNER_COMMAND_KIND.brainstormPost) {
+    const body = sanitizeBody(draft.body, MAX_BRAINSTORM_POST_LENGTH);
+    return isIssueNumber(draft.issueNumber) && body !== ""
+      ? { id, kind: draft.kind, issueNumber: draft.issueNumber, body, requestedBy: sanitizeName(draft.requestedBy) }
+      : undefined;
+  }
+  if (draft.kind === RUNNER_COMMAND_KIND.brainstormConvert) {
+    const drafts = draft.drafts
+      .slice(0, MAX_BRAINSTORM_DRAFTS)
+      .map((each) => ({ title: sanitizeTitle(each.title, MAX_DRAFT_TITLE_LENGTH), body: sanitizeBody(each.body, MAX_DRAFT_BODY_LENGTH) }));
+    return isIssueNumber(draft.issueNumber) && drafts.length > 0 && drafts.every((each) => each.title !== "")
+      ? { id, kind: draft.kind, issueNumber: draft.issueNumber, drafts, requestedBy: sanitizeName(draft.requestedBy) }
+      : undefined;
+  }
   if (draft.kind === RUNNER_COMMAND_KIND.standingReschedule) {
     const schedule = parseStandingSchedule(draft.schedule);
     return isStandingTaskId(draft.taskId) && schedule !== undefined
@@ -1401,6 +1634,9 @@ function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCom
       if (!isIssueNumber(draft.issueNumber) || url === undefined || url === "" || title === "") {
         return undefined;
       }
+      if (draft.brainstorm !== undefined && !isBrainstormRole(draft.brainstorm.role)) {
+        return undefined;
+      }
       return {
         id,
         slotId: draft.slotId,
@@ -1410,6 +1646,9 @@ function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCom
         url,
         note: sanitizeManagerText(draft.note),
         requestedBy: sanitizeName(draft.requestedBy),
+        ...(draft.brainstorm === undefined
+          ? {}
+          : { brainstorm: { role: draft.brainstorm.role, prior: sanitizeBody(draft.brainstorm.prior, MAX_BRAINSTORM_PRIOR_LENGTH) } }),
       };
     }
     case RUNNER_COMMAND_KIND.stop: {
@@ -1470,6 +1709,13 @@ function toSlotCommand(id: string, draft: RunnerSlotCommandDraft): RunnerSlotCom
       return profile === undefined
         ? undefined
         : { id, slotId: draft.slotId, kind: draft.kind, ...profile, requestedBy: sanitizeName(draft.requestedBy) };
+    }
+    case RUNNER_COMMAND_KIND.brainstormSpeak: {
+      const text = sanitizeBody(draft.text, MAX_BRAINSTORM_SPEAK_LENGTH);
+      const spoken = draft.part === BRAINSTORM_PART.line || draft.part === BRAINSTORM_PART.summary;
+      return isIssueNumber(draft.issueNumber) && spoken && text !== ""
+        ? { id, slotId: draft.slotId, kind: draft.kind, issueNumber: draft.issueNumber, part: draft.part, text, requestedBy: sanitizeName(draft.requestedBy) }
+        : undefined;
     }
   }
 }

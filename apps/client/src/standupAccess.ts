@@ -62,6 +62,8 @@ export function standupRejectionText(event: StandupRejectedEvent): string {
       return "There are no agents on the floor to gather for a standup.";
     case STANDUP_REJECTION.noAgent:
       return "That agent is not at the standup any more.";
+    case STANDUP_REJECTION.roomTaken:
+      return "A brainstorm meeting has the conference room; call the standup once it is over.";
   }
 }
 

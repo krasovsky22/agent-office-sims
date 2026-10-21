@@ -17,6 +17,11 @@ import {
   type AgentPromptMessage,
   ANIMATION_STATE,
   type BoardRefreshMessage,
+  type BrainstormAssignMessage,
+  type BrainstormConvertMessage,
+  type BrainstormDraft,
+  type BrainstormIssueMessage,
+  type BrainstormMode,
   type ChatMessage,
   CLIENT_MESSAGE,
   type DeskTerminalOffMessage,
@@ -100,6 +105,26 @@ export abstract class RoomCommands {
   /** Moves an issue's work a step: approve it, send it back, have it tried again. */
   public sendWorkMove(issueNumber: number, status: WorkStatus): void {
     this.room?.send(CLIENT_MESSAGE.workMove, { issueNumber, status } satisfies WorkMoveMessage);
+  }
+
+  /** Hands a brainstorm ticket to several agents to research; the state patch is the reply, or a `brainstorm:rejected`. */
+  public sendBrainstormAssign(issueNumber: number, agentIds: readonly string[], mode: BrainstormMode): void {
+    this.room?.send(CLIENT_MESSAGE.brainstormAssign, { issueNumber, agentIds, mode } satisfies BrainstormAssignMessage);
+  }
+
+  /** Gathers an idea's agents in the meeting room to discuss it. */
+  public sendBrainstormMeet(issueNumber: number): void {
+    this.room?.send(CLIENT_MESSAGE.brainstormMeet, { issueNumber } satisfies BrainstormIssueMessage);
+  }
+
+  /** Marks an idea's design document reviewed. */
+  public sendBrainstormReview(issueNumber: number): void {
+    this.room?.send(CLIENT_MESSAGE.brainstormReview, { issueNumber } satisfies BrainstormIssueMessage);
+  }
+
+  /** Converts a reviewed idea into these implementation issues, which a runner creates. */
+  public sendBrainstormConvert(issueNumber: number, drafts: readonly BrainstormDraft[]): void {
+    this.room?.send(CLIENT_MESSAGE.brainstormConvert, { issueNumber, drafts } satisfies BrainstormConvertMessage);
   }
 
   /** Closes or reopens an issue on GitHub; the answer comes as an `issue:state-result`. */

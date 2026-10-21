@@ -199,6 +199,40 @@ describe("readCommands", () => {
     expect(reply.unreadable).toEqual(["command-2"]);
   });
 
+  it("reads a brainstorm's research start, and never takes one that does not read as an ordinary start", () => {
+    const start = {
+      id: "command-1",
+      slotId: "slot-1",
+      kind: "start",
+      issueNumber: 191,
+      title: "Idea tasks",
+      url: "https://github.com/krasovsky22/agent-office-sims/issues/191",
+      note: "",
+      requestedBy: "Dana",
+      brainstorm: { role: "critic", prior: "## Maya\n\nBuild it." },
+    };
+    const reply = readCommands([
+      start,
+      { ...start, id: "command-2", brainstorm: { role: "coder", prior: "" } },
+      { ...start, id: "command-3", brainstorm: "yes" },
+    ]);
+    expect(reply.commands).toEqual([start]);
+    expect(reply.unreadable).toEqual(["command-2", "command-3"]);
+  });
+
+  it("reads a meeting's line for a slot, and the brainstorm posts and conversions that name none", () => {
+    const reply = readCommands([
+      { id: "command-1", slotId: "slot-2", kind: "brainstorm-speak", issueNumber: 191, part: "summary", text: "The meeting so far.", requestedBy: "Dana" },
+      { id: "command-2", kind: "brainstorm-post", issueNumber: 191, body: "# Design document", requestedBy: "Dana" },
+      { id: "command-3", kind: "brainstorm-convert", issueNumber: 191, drafts: [{ title: "Ideas", body: "Build it." }], requestedBy: "Milo" },
+      { id: "command-4", kind: "brainstorm-convert", issueNumber: 191, drafts: [{ title: "", body: "" }], requestedBy: "Milo" },
+      { id: "command-5", slotId: "slot-2", kind: "brainstorm-speak", issueNumber: 191, part: "vote", text: "x", requestedBy: "Dana" },
+    ]);
+    expect(reply.commands.map((command) => command.id)).toEqual(["command-1", "command-2", "command-3"]);
+    expect(reply.commands[2]).toEqual({ id: "command-3", kind: "brainstorm-convert", issueNumber: 191, drafts: [{ title: "Ideas", body: "Build it." }], requestedBy: "Milo" });
+    expect(reply.unreadable).toEqual(["command-4", "command-5"]);
+  });
+
   it("reads the commands that lend a slot to a desk and take it back", () => {
     const reply = readCommands([
       { id: "command-1", slotId: "slot-1", kind: "desk-open", seatId: "seat-desk-north-1-1", requestedBy: "Dana" },

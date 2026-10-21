@@ -38,7 +38,8 @@
  * end of the table facing it once every chair is taken; nobody chats. Once it
  * ends ({@link LiveAgentCrew.dismiss}) everyone gets up: a working agent goes
  * back to the chair it left, if nobody has taken it meanwhile, and an idle one
- * wanders off again.
+ * wanders off again. A brainstorm ticket's meeting gathers only that idea's
+ * agents the same way, everyone else carrying on as before.
  *
  * An agent the CEO fires ({@link LiveAgentCrew.fire}) is let go on the spot:
  * it says something sad, gets up, and walks out through the lobby onto the
@@ -286,6 +287,8 @@ export class LiveAgentCrew {
   private entranceCursor = 0;
   /** The places in the conference room while a standup is on; `undefined` otherwise. */
   private standupSpots: readonly StandupSpot[] | undefined;
+  /** The agents called to the conference room, by occupant key; `undefined` for every one, as a standup calls them. */
+  private gathering: ReadonlySet<string> | undefined;
   /**
    * Agents fired and already gone whose source still reports them, not to be
    * let back in; each is forgotten once a sync leaves it out, so one that
@@ -385,13 +388,22 @@ export class LiveAgentCrew {
    * Calls every agent to the standup: from the next tick each one gets up,
    * walks to a place in the conference room and waits there, an agent
    * that arrives meanwhile included. Its work carries on as its runner or
-   * orchestrator says; only the body moves.
+   * orchestrator says; only the body moves. Given `only`, it calls those
+   * agents alone, by occupant key, as an idea's meeting does.
    */
-  public gather(spots: readonly StandupSpot[], now: number): void {
+  public gather(spots: readonly StandupSpot[], now: number, only?: ReadonlySet<string>): void {
     this.standupSpots = spots;
+    this.gathering = only;
     for (const conversation of [...this.conversations]) {
-      this.endConversation(conversation, now);
+      if (this.isCalled(conversation.first) || this.isCalled(conversation.second)) {
+        this.endConversation(conversation, now);
+      }
     }
+  }
+
+  /** Whether an agent is called to the conference room now. */
+  private isCalled(body: AgentBody): boolean {
+    return this.standupSpots !== undefined && (this.gathering === undefined || this.gathering.has(body.key));
   }
 
   /** Ends the standup: a working agent goes back to its desk, an idle one wanders. */
@@ -399,8 +411,10 @@ export class LiveAgentCrew {
     if (this.standupSpots === undefined) {
       return;
     }
+    const called = [...this.bodies.values()].filter((body) => this.isCalled(body));
     this.standupSpots = undefined;
-    for (const body of this.bodies.values()) {
+    this.gathering = undefined;
+    for (const body of called) {
       body.spot = undefined;
       body.atSpot = false;
       body.refusedSpots.clear();
@@ -435,14 +449,16 @@ export class LiveAgentCrew {
     }
     if (this.standupSpots !== undefined) {
       for (const body of this.bodies.values()) {
-        if (!body.leaving && body.arrival === undefined) {
+        if (!body.leaving && body.arrival === undefined && this.isCalled(body)) {
           this.stepStandup(body, now, deltaSeconds);
         }
       }
-      return;
+      if (this.gathering === undefined) {
+        return;
+      }
     }
     for (const body of this.bodies.values()) {
-      if (body.leaving || body.arrival !== undefined) {
+      if (body.leaving || body.arrival !== undefined || this.isCalled(body)) {
         continue;
       }
       if (this.stepErrand(body, now, deltaSeconds)) {
@@ -1117,6 +1133,7 @@ export class LiveAgentCrew {
         !body.leaving &&
         body.arrival === undefined &&
         body.status === LIVE_AGENT_STATUS.idle &&
+        !this.isCalled(body) &&
         body.conversation === undefined &&
         body.errand === undefined &&
         body.occupant.interactableId === "" &&

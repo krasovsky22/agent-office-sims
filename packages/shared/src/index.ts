@@ -34,3 +34,4 @@ export * from "./deskTerminal.js";
 export * from "./radio.js";
 export * from "./tv.js";
 export * from "./lift.js";
+export * from "./brainstorm.js";

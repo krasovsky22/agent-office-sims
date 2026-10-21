@@ -26,6 +26,11 @@
  * pull requests, each run a fresh, short, capped agent run on a free slot,
  * held to `RUNNER_STANDING_DAILY_BUDGET_USD` together while it is set.
  *
+ * A brainstorm ticket's agents research it read-only, in scratch checkouts
+ * of their own, and speak at its meeting (`./agents/brainstorm.ts`); the same
+ * GitHub identity posts its design document and creates the issues it is
+ * converted into (`./brainstormDesk.ts`).
+ *
  * A slot holding nothing can also be lent to a desk in the office, where the
  * CEO sitting there prompts a fresh session of its agent directly; its
  * worktree is a scratch one, discarded as the session ends
@@ -34,18 +39,21 @@
  * A misconfigured runner exits at once with the reason; see `./config.ts`.
  */
 
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { formatUsd, retiredAgentIssueLabelNotice } from "@sim/shared";
 
 import { type Answerer, createClaudeAnswerer, createMockAnswerer } from "./agents/answer.js";
+import { type Brainstormer, createClaudeBrainstormer, createMockBrainstormer } from "./agents/brainstorm.js";
 import { claudeAdapter } from "./agents/claude.js";
 import { HookServer } from "./agents/hookServer.js";
 import { createMockAgent } from "./agents/mock.js";
 import { killLiveGroups } from "./agents/processGroups.js";
 import { createPtyAgent, findOnPath } from "./agents/ptyAgent.js";
 import type { Agent } from "./agents/types.js";
+import { BrainstormDesk, ghBrainstorm } from "./brainstormDesk.js";
 import { SpendLedger } from "./budget.js";
 import { type RunnerConfig, readConfig } from "./config.js";
 import { deskWorktrees } from "./deskWorktrees.js";
@@ -232,6 +240,31 @@ function createAnswerer(runnerConfig: RunnerConfig): Answerer {
   return createClaudeAnswerer({ command, cwd, model: runnerConfig.model, scrub: GITHUB_TOKEN_ENV });
 }
 
+/** How an agent researches a brainstorm ticket and speaks at its meeting: the mock's script, or Claude Code, read-only. */
+function createBrainstormer(runnerConfig: RunnerConfig): Brainstormer {
+  if (runnerConfig.agent === "mock" || credentials === undefined) {
+    return createMockBrainstormer();
+  }
+  const app = credentials;
+  const command = findOnPath("claude");
+  if (command === undefined) {
+    throw new Error("claude is not on PATH; install it or put it there");
+  }
+  return createClaudeBrainstormer({
+    command,
+    dataDir: runnerConfig.dataDir,
+    model: runnerConfig.model,
+    worktrees,
+    // The runner reads the issue with its own identity; the agent is given none.
+    issue: async (issueNumber) =>
+      runCommand("gh", ["issue", "view", String(issueNumber), "--repo", runnerConfig.repo, "--json", "number,title,body,labels,comments"], {
+        env: await githubEnv(app),
+      }),
+    scrub: GITHUB_TOKEN_ENV,
+    log,
+  });
+}
+
 // One set of books for issue work, answers and standing tasks alike.
 const ledger = new SpendLedger({ budgetUsd: config.dailyBudgetUsd });
 const pool = new SlotPool({
@@ -248,6 +281,7 @@ const pool = new SlotPool({
   redactor,
   ledger,
   answerer: createAnswerer(config),
+  brainstormer: createBrainstormer(config),
   log,
   debug,
 });
@@ -286,12 +320,22 @@ const issueDesk =
   config.agent === "mock" || credentials === undefined
     ? undefined
     : new IssueStateDesk({ set: ghIssueState({ repo: config.repo, env: () => githubEnv(credentials) }), log });
+// The same identity posts brainstorms' design documents and creates the issues they become.
+const brainstormDesk =
+  config.agent === "mock" || credentials === undefined
+    ? undefined
+    : new BrainstormDesk({
+        github: ghBrainstorm({ repo: config.repo, env: () => githubEnv(credentials) }),
+        eventId: () => `event-${randomUUID()}`,
+        log,
+      });
 const loop = new SyncLoop({
   runnerId: config.runnerId,
   repo: config.repo,
   pool,
   standing,
   ...(issueDesk === undefined ? {} : { issues: issueDesk }),
+  ...(brainstormDesk === undefined ? {} : { brainstorms: brainstormDesk }),
   client: createSyncClient({ serverUrl: config.serverUrl, secret: config.secret }),
   log,
 });

@@ -113,6 +113,8 @@ export type ExpressionBudget = Readonly<Record<ThrottledEvent["command"], TokenB
 export function createExpressionBudget(now: number): ExpressionBudget {
   // One allowance for every standing task command: they all queue for a runner alike.
   const standing = createTokenBucket(STANDING_BURST_ALLOWANCE, STANDING_REFILL_PER_SECOND, now);
+  // One for every brainstorm command, as tight as calling a standup: each starts agents' runs or a call to GitHub.
+  const brainstorm = createTokenBucket(STANDUP_CALL_BURST_ALLOWANCE, STANDUP_CALL_REFILL_PER_SECOND, now);
   return {
     [CLIENT_MESSAGE.standingPause]: standing,
     [CLIENT_MESSAGE.standingResume]: standing,
@@ -135,5 +137,9 @@ export function createExpressionBudget(now: number): ExpressionBudget {
     [CLIENT_MESSAGE.standupDirect]: createTokenBucket(AGENT_PROMPT_BURST_ALLOWANCE, AGENT_PROMPT_REFILL_PER_SECOND, now),
     [CLIENT_MESSAGE.radioTune]: createTokenBucket(RADIO_TUNE_BURST_ALLOWANCE, RADIO_TUNE_REFILL_PER_SECOND, now),
     [CLIENT_MESSAGE.tvTune]: createTokenBucket(TV_TUNE_BURST_ALLOWANCE, TV_TUNE_REFILL_PER_SECOND, now),
+    [CLIENT_MESSAGE.brainstormAssign]: brainstorm,
+    [CLIENT_MESSAGE.brainstormMeet]: brainstorm,
+    [CLIENT_MESSAGE.brainstormReview]: brainstorm,
+    [CLIENT_MESSAGE.brainstormConvert]: brainstorm,
   };
 }

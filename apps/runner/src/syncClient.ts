@@ -142,6 +142,14 @@ function readStandingDraft(raw: Record<string, unknown>): RunnerCommandDraft | u
   if (kind === RUNNER_COMMAND_KIND.issueState) {
     return { kind, issueNumber: raw["issueNumber"] as number, state: raw["state"] as never, requestedBy };
   }
+  if (kind === RUNNER_COMMAND_KIND.brainstormPost && typeof raw["body"] === "string") {
+    return { kind, issueNumber: raw["issueNumber"] as number, body: raw["body"], requestedBy };
+  }
+  // Each draft's title and body are proved by `toRunnerCommand`.
+  if (kind === RUNNER_COMMAND_KIND.brainstormConvert && Array.isArray(raw["drafts"])) {
+    const drafts = raw["drafts"].filter(isRecord).map((draft) => ({ title: String(draft["title"] ?? ""), body: String(draft["body"] ?? "") }));
+    return drafts.length === raw["drafts"].length ? { kind, issueNumber: raw["issueNumber"] as number, drafts, requestedBy } : undefined;
+  }
   return undefined;
 }
 
@@ -159,7 +167,22 @@ function readDraft(raw: Record<string, unknown>, slotId: string): RunnerCommandD
       ) {
         return undefined;
       }
-      return { kind, slotId, issueNumber, title, url, note, requestedBy };
+      const { brainstorm } = raw;
+      if (brainstorm === undefined) {
+        return { kind, slotId, issueNumber, title, url, note, requestedBy };
+      }
+      // An idea's research is never read as an ordinary start: one that does not read is not taken at all.
+      if (!isRecord(brainstorm) || typeof brainstorm["prior"] !== "string") {
+        return undefined;
+      }
+      return { kind, slotId, issueNumber, title, url, note, requestedBy, brainstorm: { role: brainstorm["role"] as never, prior: brainstorm["prior"] } };
+    }
+    case RUNNER_COMMAND_KIND.brainstormSpeak: {
+      // Its part and number are proved by `toRunnerCommand`.
+      const { issueNumber, part, text, requestedBy } = raw;
+      return typeof text === "string" && typeof requestedBy === "string"
+        ? { kind, slotId, issueNumber: issueNumber as number, part: part as never, text, requestedBy }
+        : undefined;
     }
     case RUNNER_COMMAND_KIND.stop: {
       const { reason, issueNumber } = raw;

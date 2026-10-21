@@ -52,6 +52,7 @@ import {
   type RunnerCommand,
   type RunnerCommandDraft,
   WORK_STATUS,
+  brainstormHeld,
   actorOf,
   deskTerminalRefusal,
   deskTerminalSeat,
@@ -327,7 +328,8 @@ export class DeskTerminal {
         return true;
       }
     }
-    return false;
+    // An idea's research or meeting holds its agents as an issue does.
+    return brainstormHeld(agentId, this.options.state.brainstorms.values()) !== undefined;
   }
 
   /** Gives the session's slot back, if it has one, and forgets the session. */

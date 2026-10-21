@@ -87,6 +87,22 @@ describe("refusal", () => {
   });
 });
 
+describe("refusal of a brainstorm ticket", () => {
+  const idea = { "gh issue view": JSON.stringify({ state: "OPEN", labels: [{ name: "Brainstorm" }] }) };
+  const plain = { "gh issue view": JSON.stringify({ state: "OPEN", labels: [{ name: "client" }] }) };
+
+  it("keeps code off an idea: an ordinary start on one is refused, and research takes one", async () => {
+    expect(await github(idea).github.refusal(191)).toBe("#191 is labelled brainstorm on GitHub: its agents research it and write no code");
+    expect(await github(idea).github.refusal(191, true)).toBeUndefined();
+  });
+
+  it("researches only an idea, and an idea no agent is kept from", async () => {
+    expect(await github(plain).github.refusal(39, true)).toBe("#39 is not labelled brainstorm on GitHub, so it is not researched as an idea");
+    const restricted = { "gh issue view": JSON.stringify({ state: "OPEN", labels: [{ name: "brainstorm" }, { name: "agent-restricted" }] }) };
+    expect(await github(restricted).github.refusal(191, true)).toBe("#191 is labelled agent-restricted on GitHub, so no agent may work it");
+  });
+});
+
 describe("pullRequest", () => {
   it("finds the open pull request for the task's branch", async () => {
     const { github: gh, calls } = github({

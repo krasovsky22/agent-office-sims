@@ -20,7 +20,11 @@
  *
  * So does closing and reopening issues for the CEO (`./issueStates.ts`): the
  * sync says whether this runner can, its commands go to the issue desk, and
- * what came of them rides back like a prompt's outcome.
+ * what came of them rides back like a prompt's outcome. Posting a brainstorm's
+ * design document and converting it into issues (`./brainstormDesk.ts`) go to
+ * the brainstorm desk, and what came of them rides back as events. A sync
+ * carries one brainstorm event at most, a write-up being the largest thing it
+ * holds, and never one ahead of an event queued before it.
  *
  * Syncs run one at a time, never overlapping, so an answer always settles
  * exactly what its own request carried. A failed sync is retried with backoff
@@ -36,6 +40,7 @@ import {
   MAX_RUNNER_PROMPT_OUTCOMES,
   MAX_RUNNER_STANDING_RUNS,
   RUNNER_COMMAND_KIND,
+  RUNNER_EVENT_KIND,
   type RunnerEvent,
   type RunnerStandingCommand,
   type RunnerSync,
@@ -44,6 +49,7 @@ import {
   isRunnerSlotCommand,
 } from "@sim/shared";
 
+import type { BrainstormDesk } from "./brainstormDesk.js";
 import type { IssueStateDesk } from "./issueStates.js";
 import type { SlotPool } from "./slots.js";
 import type { SyncClient } from "./syncClient.js";
@@ -56,6 +62,16 @@ export interface StandingSyncSource {
   pendingRuns(): readonly StandingRunRecord[];
   delivered(ids: ReadonlySet<string>): void;
   handle(command: RunnerStandingCommand): void;
+}
+
+/**
+ * The longest run of `events` from the first holding one brainstorm event at
+ * most: what a sync may carry, in the order they were queued.
+ */
+export function upToOneBrainstorm<T extends { readonly kind: string }>(events: readonly T[]): readonly T[] {
+  const first = events.findIndex((event) => event.kind === RUNNER_EVENT_KIND.brainstorm);
+  const second = first === -1 ? -1 : events.findIndex((event, index) => index > first && event.kind === RUNNER_EVENT_KIND.brainstorm);
+  return second === -1 ? events : events.slice(0, second);
 }
 
 /** Places in a sync's events kept for the standing tasks' while they have any. */
@@ -76,6 +92,8 @@ export interface SyncLoopOptions {
   readonly standing?: StandingSyncSource;
   /** Closes and reopens issues for the CEO; absent for a runner with no GitHub identity, which then says it cannot. */
   readonly issues?: Pick<IssueStateDesk, "handle" | "pending" | "delivered">;
+  /** Posts brainstorms' design documents and converts them; absent for a runner with no GitHub identity. */
+  readonly brainstorms?: Pick<BrainstormDesk, "handle" | "pendingEvents" | "delivered">;
   readonly client: SyncClient;
   readonly intervalMs?: number;
   readonly maxBackoffMs?: number;
@@ -118,11 +136,14 @@ export class SyncLoop {
    * @returns whether the server answered it.
    */
   public async syncOnce(): Promise<boolean> {
-    const { pool, standing, issues } = this.options;
+    const { pool, standing, issues, brainstorms } = this.options;
     const acked = this.acks.slice(0, MAX_RUNNER_ACKS);
     const standingEvents = standing?.pendingEvents() ?? [];
-    const slotEvents = pool.pendingEvents().slice(0, MAX_RUNNER_EVENTS - Math.min(standingEvents.length, STANDING_EVENT_PLACES));
-    const events = [...slotEvents, ...standingEvents.slice(0, MAX_RUNNER_EVENTS - slotEvents.length)];
+    const slotEvents = upToOneBrainstorm(pool.pendingEvents()).slice(0, MAX_RUNNER_EVENTS - Math.min(standingEvents.length, STANDING_EVENT_PLACES));
+    const deskEvents = slotEvents.some((event) => event.kind === RUNNER_EVENT_KIND.brainstorm)
+      ? []
+      : (brainstorms?.pendingEvents() ?? []).slice(0, Math.min(1, MAX_RUNNER_EVENTS - slotEvents.length));
+    const events = [...slotEvents, ...deskEvents, ...standingEvents.slice(0, MAX_RUNNER_EVENTS - slotEvents.length - deskEvents.length)];
     const prompts = pool.pendingPromptOutcomes().slice(0, MAX_RUNNER_PROMPT_OUTCOMES);
     const issueStates = issues?.pending().slice(0, MAX_RUNNER_ISSUE_STATE_OUTCOMES) ?? [];
     const standingRuns = standing?.pendingRuns().slice(0, MAX_RUNNER_STANDING_RUNS) ?? [];
@@ -160,6 +181,7 @@ export class SyncLoop {
     // carried is settled.
     pool.delivered(delivered, prompts);
     standing?.delivered(delivered);
+    brainstorms?.delivered(delivered);
     issues?.delivered(new Set(issueStates.map((outcome) => outcome.commandId)));
 
     for (const id of reply.unreadable) {
@@ -173,6 +195,12 @@ export class SyncLoop {
       }
       if (isRunnerSlotCommand(command)) {
         pool.handle(command);
+      } else if (command.kind === RUNNER_COMMAND_KIND.brainstormPost || command.kind === RUNNER_COMMAND_KIND.brainstormConvert) {
+        if (brainstorms === undefined) {
+          this.log(`command ${command.id} would write a brainstorm to GitHub, which this runner cannot; acked without acting on it`);
+        } else {
+          void brainstorms.handle(command);
+        }
       } else if (command.kind === RUNNER_COMMAND_KIND.issueState) {
         if (issues === undefined) {
           this.log(`command ${command.id} would change an issue on GitHub, which this runner cannot; acked without acting on it`);

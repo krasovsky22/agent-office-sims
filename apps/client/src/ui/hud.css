@@ -991,6 +991,62 @@
   color: #f08a7a;
 }
 
+/* A brainstorm ticket's detail: its write-ups, its design document, and the
+   forms to hand it out and convert it. */
+.brainstorm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.brainstorm__takes {
+  margin: 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.brainstorm__doc,
+.brainstorm__takes details {
+  min-width: 0;
+}
+
+.brainstorm__doc > .work__text,
+.brainstorm__takes .work__text {
+  padding: 6px 8px;
+  border-left: 2px solid #c9a3ff;
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 12px;
+}
+
+.brainstorm__assign,
+.brainstorm__convert {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  min-width: 0;
+}
+
+.brainstorm__choice {
+  overflow-wrap: anywhere;
+}
+
+.brainstorm__draft {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.brainstorm__body {
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
 .work__artifact {
   padding: 6px 8px;
   border-left: 2px solid #7fd18b;

@@ -462,7 +462,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
           caption: captionOf(view),
           needsInput: view.agentStatus === LIVE_AGENT_STATUS.needsInput,
         })),
-        boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name, room.issuesWritable()),
+        boardAccess: local === undefined ? undefined : boardAccessFor(local, ceo?.name, room.issuesWritable(), room.agentRestrictLabel()),
         managerAccess: local === undefined ? undefined : managerAccessFor(local, ceo?.name),
         agentPromptAccess: local === undefined ? undefined : agentPromptAccessFor(local, ceo?.name),
         standingAccess: local === undefined ? undefined : standingAccessFor(local, ceo?.name),

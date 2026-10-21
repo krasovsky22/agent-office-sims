@@ -47,6 +47,12 @@ export interface BoardAccess {
    * the shared planner's answer.
    */
   readonly movesFor: (work: WorkData, people: readonly { readonly id: string }[]) => WorkMove[];
+  /** The local player as the rules judge them, for the brainstorm controls' own gates (`brainstormBoard.ts`). */
+  readonly actor: OfficeActor;
+  /** The replicated `issuesWritable`: whether a runner that writes to GitHub is connected. */
+  readonly issuesWritable: boolean;
+  /** The replicated `agentRestrictLabel`, which keeps every agent off an issue, an idea included. */
+  readonly restrictLabel: string;
 }
 
 /**
@@ -59,11 +65,13 @@ export interface BoardAccess {
  * @param ceoName `undefined` while the roster has not shown who holds the role.
  * @param issuesWritable the replicated `issuesWritable`: whether an agent
  *   runner that can close and reopen issues is connected.
+ * @param restrictLabel the replicated `agentRestrictLabel`.
  */
 export function boardAccessFor(
   actor: OfficeActor,
   ceoName: string | undefined,
   issuesWritable = false,
+  restrictLabel = "",
 ): BoardAccess {
   const mayAssign = mayAssignWork(actor);
   const mayChange = issuesWritable && mayChangeIssueState(actor);
@@ -85,6 +93,9 @@ export function boardAccessFor(
       mayChangeIssueState: mayChange,
       issueStateNote,
       movesFor,
+      actor,
+      issuesWritable,
+      restrictLabel,
     };
   }
   const who = ceoName === undefined ? "the CEO" : `the CEO, ${ceoName},`;
@@ -94,6 +105,9 @@ export function boardAccessFor(
     mayChangeIssueState: mayChange,
     issueStateNote,
     movesFor,
+    actor,
+    issuesWritable,
+    restrictLabel,
     summary:
       `The project board is read-only for you: only ${who} can hand issues to agents, ` +
       "approve their work or send it back. You can read it and ask the manager about it.",
@@ -108,7 +122,8 @@ const REJECTION_TEXT: Readonly<Record<WorkRejection, string>> = {
   [WORK_REJECTION.unknownAssignee]: "That agent is no longer in the office.",
   [WORK_REJECTION.missingArtifact]: "That work has no deliverable to hand in yet.",
   [WORK_REJECTION.restricted]: "That issue is restricted from the coding agents.",
-  [WORK_REJECTION.busy]: "That agent is already working on another issue.",
+  [WORK_REJECTION.busy]: "That agent is already working on another issue, or an idea.",
+  [WORK_REJECTION.brainstorm]: "That issue is a brainstorm ticket: hand it to several agents to research from its card.",
 };
 
 /**

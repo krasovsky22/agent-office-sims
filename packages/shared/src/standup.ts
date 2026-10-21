@@ -34,6 +34,8 @@ export const STANDUP_REJECTION = {
   noAgents: "no-agents",
   /** The direction names no agent at the standup. */
   noAgent: "no-agent",
+  /** A brainstorm ticket's meeting has the conference room; see `./brainstorm.ts`. */
+  roomTaken: "room-taken",
 } as const;
 
 export type StandupRejection = (typeof STANDUP_REJECTION)[keyof typeof STANDUP_REJECTION];
