@@ -4,8 +4,14 @@
  * The loop is imperative and runs every frame: read input, predict the local
  * player, reconcile against the server, interpolate everyone else, draw. Its
  * room handlers are the ones that move the scene: who is in the office, what
- * they do, the boards and the clock. React never hears of the loop; it only
- * hears about things that change a few times a session.
+ * they do, the boards and the clock, and which floor of the building it is.
+ * React never hears of the loop; it only hears about things that change a few
+ * times a session.
+ *
+ * Every floor's plan is drawn from the state's floor and count of floors, by
+ * the same `floorLayout` the server's room walks. The lift arriving on a floor
+ * of another plan swaps the floor's own scene (`scene/floorScene.ts`) and
+ * the plan the player walks; the rest of the scene stays up.
  *
  * Kept apart from `main.ts`, which wires the HUD, the room and this together,
  * so a new piece of the scene is added here.
@@ -20,7 +26,6 @@ import {
   MANAGER_INTERACTABLE_ID,
   OFFICE_DECOR,
   OFFICE_LAYOUT,
-  OFFICE_PROPS,
   type OfficeLayout,
   PROJECT_BOARD_ID,
   RADIO_INTERACTABLE_ID,
@@ -33,6 +38,7 @@ import {
   deskTerminalSeat,
   heldAnimationFor,
   distanceToInteractable,
+  floorLayout,
   interactableById,
   nearestInteractable,
   promptFor,
@@ -71,16 +77,14 @@ import { type CameraFocus, PlayerController, shoulderView } from "./player/contr
 import { AgentScreens } from "./scene/agentScreen.js";
 import { Avatar } from "./scene/avatar.js";
 import { type AvatarModel, loadAvatarModel } from "./scene/avatarModel.js";
-import { Doors } from "./scene/doors.js";
 import { buildRecurringBoard } from "./scene/recurringBoard.js";
 import { buildWallBoard } from "./scene/wallBoard.js";
 import { buildWallDecor } from "./scene/wallDecor.js";
 import { buildLighting } from "./scene/lighting.js";
-import { buildOffice } from "./scene/office.js";
-import { loadPropKit, screenFaceOf, screenMaterialOf } from "./scene/propKit.js";
-import { buildProps } from "./scene/props.js";
+import { buildFloorScene } from "./scene/floorScene.js";
+import { type PropKit, loadPropKit, screenFaceOf, screenMaterialOf } from "./scene/propKit.js";
 import { StickerBoards } from "./scene/stickerBoards.js";
-import { buildStreet, streetReach } from "./scene/street.js";
+import { streetReach } from "./scene/street.js";
 import type { HudPrompt, HudSnapshot } from "./ui/hudStore.js";
 
 /**
@@ -114,6 +118,9 @@ const CLOSE_RADIO_LABEL = "Close the radio";
 /** What it reads while the player is watching a live agent's terminal. */
 const CLOSE_TERMINAL_LABEL = "Close the terminal";
 
+/** What it reads while the player has the lift's floors open. */
+const CLOSE_LIFT_LABEL = "Close the lift";
+
 /** The prompt shown while the player is sitting, so standing up is discoverable. */
 const STAND_UP_PROMPT: HudPrompt = { keys: "W A S D", label: "Stand up", blocked: false };
 
@@ -137,29 +144,32 @@ function captionOf(view: OccupantView): string {
 }
 
 /** Whether a panel takes the keyboard, and so is closed with `Esc` rather than `E`. */
-function takesKeyboard(interactableId: string): boolean {
-  return interactableId === MANAGER_INTERACTABLE_ID || interactableId === RADIO_INTERACTABLE_ID;
+function takesKeyboard(layout: OfficeLayout, interactableId: string): boolean {
+  return (
+    interactableId === MANAGER_INTERACTABLE_ID ||
+    interactableId === RADIO_INTERACTABLE_ID ||
+    interactableById(layout, interactableId)?.kind === INTERACTION_KIND.lift
+  );
 }
 
 /** Whether `Esc` closes a panel: one that takes the keyboard, and an agent's terminal. */
-function closesWithEscape(interactableId: string): boolean {
+function closesWithEscape(layout: OfficeLayout, interactableId: string): boolean {
   return (
-    takesKeyboard(interactableId) ||
-    interactableById(OFFICE_LAYOUT, interactableId)?.kind === INTERACTION_KIND.screen
+    takesKeyboard(layout, interactableId) ||
+    interactableById(layout, interactableId)?.kind === INTERACTION_KIND.screen
   );
 }
 
 /** What the prompt reads at the interactable whose panel is open. */
-function closeLabelFor(interactableId: string): string {
+function closeLabelFor(layout: OfficeLayout, interactableId: string): string {
   if (interactableId === MANAGER_INTERACTABLE_ID) {
     return CLOSE_CONVERSATION_LABEL;
   }
   if (interactableId === RADIO_INTERACTABLE_ID) {
     return CLOSE_RADIO_LABEL;
   }
-  return interactableById(OFFICE_LAYOUT, interactableId)?.kind === INTERACTION_KIND.screen
-    ? CLOSE_TERMINAL_LABEL
-    : CLOSE_BOARD_LABEL;
+  const kind = interactableById(layout, interactableId)?.kind;
+  return kind === INTERACTION_KIND.screen ? CLOSE_TERMINAL_LABEL : kind === INTERACTION_KIND.lift ? CLOSE_LIFT_LABEL : CLOSE_BOARD_LABEL;
 }
 
 function createCamera(canvas: HTMLCanvasElement, layout: OfficeLayout): THREE.PerspectiveCamera {
@@ -187,7 +197,16 @@ export interface GameLoop {
   readonly events: Required<
     Pick<
       RoomConnectionEvents,
-      "onLocalSpawn" | "onOccupantsChanged" | "onJump" | "onEmote" | "onChat" | "onProjectBoard" | "onClockChanged" | "onWorkChanged"
+      | "onLocalSpawn"
+      | "onOccupantsChanged"
+      | "onJump"
+      | "onEmote"
+      | "onChat"
+      | "onProjectBoard"
+      | "onClockChanged"
+      | "onWorkChanged"
+      | "onFloorChanged"
+      | "onRide"
     >
   >;
   /** Looks through the other camera, and keeps the choice for the next visit. */
@@ -215,11 +234,13 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
-  const office = buildOffice(scene, OFFICE_LAYOUT);
-  const lighting = buildLighting(scene, OFFICE_LAYOUT);
-  const street = buildStreet(scene, OFFICE_LAYOUT);
-  const wallDecor = buildWallDecor(scene, OFFICE_LAYOUT, OFFICE_DECOR, renderer.capabilities.getMaxAnisotropy());
-  const doors = new Doors(scene, OFFICE_LAYOUT);
+  // The ground floor's until the state says which floor this is.
+  let layout: OfficeLayout = OFFICE_LAYOUT;
+  let shownFloor = 1;
+  let shownFloors = 1;
+  let floorScene = buildFloorScene(scene, layout, shownFloor);
+  const lighting = buildLighting(scene, layout);
+  const wallDecor = buildWallDecor(scene, layout, OFFICE_DECOR, renderer.capabilities.getMaxAnisotropy());
   // Where everyone is drawn this frame, which is what swings the doors open.
   const bodies: { x: number; z: number }[] = [];
   // Lit for opening time until the first patch says what time it really is.
@@ -227,13 +248,13 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
   lighting.showMinute(STARTING_MINUTE_OF_DAY);
   wallDecor.showMinute(STARTING_MINUTE_OF_DAY);
 
-  const boardSpec = OFFICE_LAYOUT.boards.find((spec) => spec.id === PROJECT_BOARD_ID);
+  const boardSpec = layout.boards.find((spec) => spec.id === PROJECT_BOARD_ID);
   const wallBoard =
     boardSpec === undefined
       ? undefined
       : buildWallBoard(scene, boardSpec, renderer.capabilities.getMaxAnisotropy());
-  const stickerBoards = new StickerBoards(scene, OFFICE_LAYOUT, renderer.capabilities.getMaxAnisotropy());
-  const recurringSpec = OFFICE_LAYOUT.boards.find((spec) => spec.id === RECURRING_TASKS_BOARD_ID);
+  const stickerBoards = new StickerBoards(scene, layout, renderer.capabilities.getMaxAnisotropy());
+  const recurringSpec = layout.boards.find((spec) => spec.id === RECURRING_TASKS_BOARD_ID);
   const recurringBoard =
     recurringSpec === undefined ? undefined : buildRecurringBoard(scene, recurringSpec, renderer.capabilities.getMaxAnisotropy());
   // What the recurring tasks board last painted, so it repaints only when a line on it changes.
@@ -243,7 +264,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
   let boardSnapshot: ProjectBoardSnapshot | undefined;
   let officeWork: readonly WorkData[] = [];
 
-  const camera = createCamera(canvas, OFFICE_LAYOUT);
+  const camera = createCamera(canvas, layout);
   const controller = new PlayerController(camera, canvas);
   controller.attach();
   controller.setCameraMode(readCameraMode(browserStorage()));
@@ -268,7 +289,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
 
   host.publish({ cameraMode: controller.mode });
 
-  const radioSpot = interactableById(OFFICE_LAYOUT, RADIO_INTERACTABLE_ID);
+  let radioSpot = interactableById(layout, RADIO_INTERACTABLE_ID);
   const radioPlayer = new RadioPlayer(() => host.radioNotice(UNPLAYABLE_HERE));
   // The radio as last published, so React hears only of a retune.
   let radioShownAt = -1;
@@ -296,7 +317,8 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
    * same exit as the flag being off — the grey office is already standing and
    * walkable, and the HUD says which of the two happened.
    */
-  let placedProps = 0;
+  // Kept for furnishing each floor the lift brings the player to; undefined while it loads, or in the grey office.
+  let propKit: PropKit | undefined;
   // Live agents' terminals go on the kit's monitors, so there are none to show
   // them on in the grey office.
   let agentScreens: AgentScreens | undefined;
@@ -307,7 +329,8 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     }
     try {
       const kit = await loadPropKit();
-      placedProps = buildProps(scene, OFFICE_PROPS, kit).instances;
+      propKit = kit;
+      floorScene.furnish(kit);
       const screen = screenMaterialOf(kit);
       if (screen !== undefined) {
         lighting.lightScreens(screen);
@@ -315,9 +338,8 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
       const monitor = kit.get("monitor");
       const face = screenFaceOf(kit);
       if (monitor !== undefined && face !== undefined) {
-        agentScreens = new AgentScreens(scene, OFFICE_LAYOUT, monitor, face, renderer.capabilities.getMaxAnisotropy());
+        agentScreens = new AgentScreens(scene, layout, monitor, face, renderer.capabilities.getMaxAnisotropy());
       }
-      office.setGreyDesksVisible(false);
       host.publish({ assets: "ready" });
     } catch {
       host.publish({ assets: "failed" });
@@ -468,6 +490,40 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
       showWallBoard();
       refreshStickerNotes();
     },
+
+    // The lift leaving: nothing open on the floor left is any use on the next.
+    onRide: () => {
+      readingBoard = "";
+      answeringAgentId = undefined;
+      agentMenuId = undefined;
+    },
+
+    onFloorChanged: (floor, floors) => {
+      showFloor(floor, floors);
+    },
+  };
+
+  /**
+   * Draws the floor the state says this office is, and walks its plan.
+   *
+   * The floor's own scene is rebuilt for any other floor, even one of the same
+   * plan, since the street is seen from a different height on each.
+   */
+  const showFloor = (floor: number, floors: number) => {
+    if (floor === shownFloor && floors === shownFloors) {
+      return;
+    }
+    shownFloor = floor;
+    shownFloors = floors;
+    layout = floorLayout(floor, floors);
+    floorScene.dispose();
+    floorScene = buildFloorScene(scene, layout, floor);
+    if (propKit !== undefined) {
+      floorScene.furnish(propKit);
+    }
+    controller.setLayout(layout);
+    radioSpot = interactableById(layout, RADIO_INTERACTABLE_ID);
+    shoulderViews.clear();
   };
 
   // The wall board, manager's desk or agent's screen whose panel is open, or
@@ -523,9 +579,9 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
       return undefined;
     }
     if (!shoulderViews.has(screen.id)) {
-      const seat = interactableById(OFFICE_LAYOUT, screen.seatId);
+      const seat = interactableById(layout, screen.seatId);
       const centre = agentScreens.screenCentre(screen.seatId);
-      shoulderViews.set(screen.id, seat === undefined || centre === undefined ? undefined : shoulderView(seat.anchor, centre));
+      shoulderViews.set(screen.id, seat === undefined || centre === undefined ? undefined : shoulderView(seat.anchor, centre, layout));
     }
     return shoulderViews.get(screen.id);
   };
@@ -581,16 +637,16 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     let target: InteractableSpec | undefined;
 
     if (engagedWith !== "") {
-      const held = interactableById(OFFICE_LAYOUT, engagedWith);
+      const held = interactableById(layout, engagedWith);
       // Only a seat is worth a prompt: a coffee break ends on its own.
       prompt = held?.kind === INTERACTION_KIND.seat ? STAND_UP_PROMPT : undefined;
     } else {
       // A screen nobody is working at is not offered, so behind an empty chair
       // this is the chair.
-      target = nearestInteractable(OFFICE_LAYOUT, controller.pose, INTERACT_RANGE, holderOf);
+      target = nearestInteractable(layout, controller.pose, INTERACT_RANGE, holderOf);
       if (target !== undefined) {
         const decision = authorizeInteract(
-          OFFICE_LAYOUT,
+          layout,
           {
             id: room.sessionId,
             x: controller.pose.x,
@@ -602,10 +658,10 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
           holderOf,
         );
         prompt = {
-          keys: target.id === readingBoard && takesKeyboard(readingBoard) ? "Esc" : "E",
+          keys: target.id === readingBoard && takesKeyboard(layout, readingBoard) ? "Esc" : "E",
           label:
             target.id === readingBoard
-              ? closeLabelFor(readingBoard)
+              ? closeLabelFor(layout, readingBoard)
               : decision.allowed
                 ? promptFor(target)
                 : `${promptFor(target)} — taken`,
@@ -644,7 +700,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
 
     // Before the controller moves: a hold the server granted or let lapse has to
     // be in effect for this frame's prediction, not the next one's.
-    controller.setHold(interactableById(OFFICE_LAYOUT, engagedWith));
+    controller.setHold(interactableById(layout, engagedWith));
     if (controller.takeCameraToggleRequest()) {
       toggleCameraMode();
     }
@@ -695,7 +751,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
         agentMenuId = undefined;
       }
       interactPressed = false;
-    } else if (closeRequested && closesWithEscape(readingBoard)) {
+    } else if (closeRequested && closesWithEscape(layout, readingBoard)) {
       readingBoard = "";
     } else if (closeRequested) {
       answeringAgentId = undefined;
@@ -739,9 +795,14 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
           target.kind === INTERACTION_KIND.board ||
           target.kind === INTERACTION_KIND.manager ||
           target.kind === INTERACTION_KIND.screen ||
-          target.kind === INTERACTION_KIND.radio
+          target.kind === INTERACTION_KIND.radio ||
+          target.kind === INTERACTION_KIND.lift
         ) {
           readingBoard = target.id;
+        }
+        // The floors, with who is on each, as of now.
+        if (target.kind === INTERACTION_KIND.lift) {
+          room.sendLiftFloors();
         }
         room.sendInteract(target.id);
       }
@@ -749,7 +810,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     // The sticker boards are the project board's too, and open the same close-up;
     // the recurring tasks board opens its own.
     const recurringOpen = readingBoard === RECURRING_TASKS_BOARD_ID;
-    const closeUp = interactableById(OFFICE_LAYOUT, readingBoard)?.kind === INTERACTION_KIND.board && !recurringOpen;
+    const closeUp = interactableById(layout, readingBoard)?.kind === INTERACTION_KIND.board && !recurringOpen;
     if (closeUp !== host.hud().boardCloseUp) {
       host.publish({ boardCloseUp: closeUp });
     }
@@ -759,6 +820,10 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     const radioOpen = readingBoard === RADIO_INTERACTABLE_ID;
     if (radioOpen !== host.hud().radioOpen) {
       host.publish({ radioOpen, radioNotice: undefined });
+    }
+    const liftOpen = interactableById(layout, readingBoard)?.kind === INTERACTION_KIND.lift;
+    if (liftOpen !== host.hud().liftOpen) {
+      host.publish({ liftOpen, liftNotice: undefined });
     }
     // The radio plays from the replicated state in every tab, louder the nearer the player stands.
     const radio = room.radio();
@@ -785,7 +850,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     ) {
       answeringAgentId = undefined;
     }
-    const watchedSeat = interactableById(OFFICE_LAYOUT, readingBoard)?.seatId;
+    const watchedSeat = interactableById(layout, readingBoard)?.seatId;
     const terminalAgentId = watchedSeat === undefined ? answeringAgentId : room.holderOf(watchedSeat);
     if (terminalAgentId !== host.hud().terminalAgentId) {
       host.publish({ terminalAgentId });
@@ -807,7 +872,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     if (!sameDeskPanel(deskPanel, host.hud().desk)) {
       host.publish({ desk: deskPanel });
     }
-    const deskSeat = deskTerminalSeat(OFFICE_LAYOUT, locallyHeldWith);
+    const deskSeat = deskTerminalSeat(layout, locallyHeldWith);
     if (deskSeat === undefined) {
       toldDeskForbidden = "";
     } else if (room.viewOf(localId)?.isCeo === false && toldDeskForbidden !== deskSeat.id) {
@@ -828,7 +893,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
       // The local player is drawn from the predicted hold, so standing up shows
       // on the frame the key goes down rather than a round trip later.
       const held = interactableById(
-        OFFICE_LAYOUT,
+        layout,
         id === localId ? locallyHeldWith : room.viewOf(id)?.interactableId ?? "",
       );
       avatar.setCoffee(room.viewOf(id)?.coffeeSips ?? 0, held?.kind === INTERACTION_KIND.coffee, nowMs);
@@ -869,7 +934,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     for (const avatar of avatars.values()) {
       bodies.push(avatar.group.position);
     }
-    doors.update(deltaSeconds, bodies);
+    floorScene.doors.update(deltaSeconds, bodies);
 
     // Carried sticky notes follow their agents, after the agents have moved.
     stickerBoards.update(nowMs, (id) => avatars.get(id));
@@ -912,13 +977,13 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
       lighting.showMinute(minuteOfDay);
       wallDecor.showMinute(minuteOfDay);
     }
-    street?.update(deltaSeconds, lighting.daylight.interior);
+    floorScene.street?.update(deltaSeconds, lighting.daylight.interior);
 
     renderer.render(scene, camera);
 
     if (debugEnabled && nowMs >= nextDebugMs) {
       nextDebugMs = nowMs + DEBUG_INTERVAL_MS;
-      host.publish({ debug: { drawCalls: renderer.info.render.calls, props: placedProps } });
+      host.publish({ debug: { drawCalls: renderer.info.render.calls, props: floorScene.placedProps } });
     }
 
     requestAnimationFrame(frame);

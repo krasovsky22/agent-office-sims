@@ -12,8 +12,13 @@
  * configuration: the one thing that does change is the URL the client is built
  * with.
  *
- * The project board's GitHub feed is made here, once, rather than per room: one
- * poll loop serves every room, and its token stays in this process. The live
+ * The project board's GitHub feed is made here, once per floor rather than
+ * per room: one poll loop serves every room of a floor, and its token stays in
+ * this process. Each floor is one repository's office and its own room type,
+ * floor 1 `PROJECT_BOARD_REPO`'s and the rest `FLOOR_REPOS`'; the floors above
+ * the ground floor get their board and the manager, and no agents yet, so
+ * nothing can start work on one. The building opens every floor's room, keeps
+ * the lift's directory of them, and has one clock they all step. The live
  * agents' registry is made here for the same reason, and its report route is
  * only attached when a secret is configured.
  *
@@ -42,6 +47,7 @@ import {
   RUNNER_SCREENS_PATH,
   RUNNER_SYNC_PATH,
   TICK_RATE_HZ,
+  floorRoomName,
   retiredAgentIssueLabelNotice,
 } from "@sim/shared";
 
@@ -67,19 +73,31 @@ import { LiveAssignmentQueue } from "./manager/liveAssignments.js";
 import { ProjectFeed } from "./github/feed.js";
 import { type RouteHandler, createHealthServer } from "./http.js";
 import { restrictMatchmakingOrigins, verifyOrigin } from "./origins.js";
+import { Building } from "./rooms/building.js";
 import { type OfficeRoomOptions, officeRoom } from "./rooms/OfficeRoom.js";
-import { openOnlyOffice } from "./rooms/onlyOffice.js";
 import type { IssueStates } from "./rooms/issueStateHandlers.js";
+import { createSimClock } from "./sim/clock.js";
 
-const { port, allowedOrigins, projectBoard, liveAgents, runner, manager, dataDir } = readConfig();
+const { port, allowedOrigins, projectBoard, floors, liveAgents, runner, manager, dataDir } = readConfig();
 
-const projectFeed = new ProjectFeed({
-  repository: projectBoard.repository,
-  load: createGithubLoader({ repository: projectBoard.repository, token: projectBoard.token }),
-  intervalMs: projectBoard.pollIntervalMs,
-  // eslint-disable-next-line no-console -- a stale or recovered feed is an operator's business
-  log: (line) => console.warn(line),
-});
+/** A floor's board, polling its own repository with the server's token. */
+function feedFor(repository: string): ProjectFeed {
+  return new ProjectFeed({
+    repository,
+    load: createGithubLoader({ repository, token: projectBoard.token }),
+    intervalMs: projectBoard.pollIntervalMs,
+    // eslint-disable-next-line no-console -- a stale or recovered feed is an operator's business
+    log: (line) => console.warn(floors.length > 1 ? `${repository}: ${line}` : line),
+  });
+}
+
+const projectFeed = feedFor(projectBoard.repository);
+// Floor 2 first.
+const upperFeeds = floors.slice(1).map(feedFor);
+const building = new Building(floors.map((repository, index) => ({ floor: index + 1, repository })));
+// The lifts go somewhere only in a building of more than one floor.
+const lifts = floors.length > 1 ? { lifts: building } : {};
+const clock = createSimClock(Date.now());
 
 const liveAgentRegistry =
   liveAgents.secret === undefined
@@ -171,11 +189,15 @@ const server = new Server({
 // Handed to the room type, not as Colyseus room options, which a client's join
 // options are merged into: a client can never supply the feeds or the way the
 // manager thinks. The manager's advisor is made once, so its call budget is the
-// whole server's.
+// whole server's, every floor's together.
+const advisor = createConfiguredManager(manager);
 server.define(OFFICE_ROOM_NAME, officeRoom({
   projectBoard: projectFeed,
+  floor: { floor: 1, floors: floors.length },
+  ...lifts,
+  clock,
   reconnectGraceSeconds: RECONNECT_GRACE_SECONDS,
-  manager: createConfiguredManager(manager),
+  manager: advisor,
   ...(floor === undefined ? {} : { liveAgents: floor }),
   ...(liveAssignments === undefined ? {} : { liveAssignments }),
   ...(runnerLink === undefined ? {} : { runnerEvents: runnerLink, runnerCommands: runnerLink, runnerSpend: runnerLink, runnerStandup: runnerLink }),
@@ -194,10 +216,23 @@ server.define(OFFICE_ROOM_NAME, officeRoom({
         },
       }),
 } satisfies OfficeRoomOptions));
+upperFeeds.forEach((feed, index) => {
+  const floor = index + 2;
+  server.define(floorRoomName(floor), officeRoom({
+    projectBoard: feed,
+    floor: { floor, floors: floors.length },
+    ...lifts,
+    clock,
+    reconnectGraceSeconds: RECONNECT_GRACE_SECONDS,
+    manager: advisor,
+    agentRestrictLabel: runner.restrictLabel,
+  } satisfies OfficeRoomOptions));
+});
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     projectFeed.stop();
+    upperFeeds.forEach((feed) => feed.stop());
     liveAgentRegistry?.stop();
     liveAssignments?.stop();
     runnerLink?.stop();
@@ -208,8 +243,9 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 await server.listen(port);
-await openOnlyOffice();
+await building.open();
 projectFeed.start();
+upperFeeds.forEach((feed) => feed.start());
 liveAgentRegistry?.start();
 runnerLink?.start();
 /* eslint-disable no-console -- the lines a developer or a platform log needs on boot */
@@ -219,6 +255,12 @@ console.log(
   `project board: ${projectBoard.repository} every ${projectBoard.pollIntervalMs / 1000}s, ` +
     (projectBoard.token === undefined ? "anonymous" : "with a token"),
 );
+if (floors.length > 1) {
+  console.log(
+    `building: ${floors.map((repository, index) => `floor ${index + 1} ${repository}`).join(", ")}; ` +
+      "the lifts ride between them, and floors above the first have no agents yet",
+  );
+}
 console.log(describeManager(manager));
 console.log(
   liveAgents.secret === undefined

@@ -20,7 +20,10 @@ import {
   TICK_RATE_HZ,
   WALK_SPEED,
 } from "./constants.js";
+import { OFFICE_DECOR, describeDecorProblems } from "./decor.js";
+import { describePropProblems, derivedProps } from "./props.js";
 import {
+  GROUND_FLOOR_LAYOUT,
   INTERACTION_KIND,
   ISSUES_STICKER_BOARD_ID,
   LOBBY_ROOM_ID,
@@ -40,6 +43,9 @@ import {
   propAabb,
   roomAt,
   SIDEWALK_ROOM_ID,
+  UPPER_FLOOR_LAYOUT,
+  floorLayout,
+  liftCallId,
 } from "./layout.js";
 import { nearestWaypoint } from "./nav.js";
 
@@ -60,7 +66,7 @@ const ARRIVAL_TOLERANCE = 0.05;
  * between two waypoints. A link a naive walk cannot follow is a link the
  * floor plan should not be claiming.
  */
-function walkTo(from: Vec2, target: Vec2): Vec2 {
+function walkTo(from: Vec2, target: Vec2, layout: OfficeLayout = OFFICE_LAYOUT): Vec2 {
   let position: Vec2 = { x: from.x, z: from.z };
   // Generous enough for the longest link in the office, and bounded so a body
   // that has stopped against geometry fails the assertion rather than hangs.
@@ -78,7 +84,7 @@ function walkTo(from: Vec2, target: Vec2): Vec2 {
       position,
       { x: (toTargetX / distance) * travel, z: (toTargetZ / distance) * travel },
       R,
-      OFFICE_LAYOUT,
+      layout,
     );
   }
 
@@ -89,8 +95,8 @@ function distanceBetween(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
-function waypoint(id: string): WaypointSpec {
-  const node = OFFICE_LAYOUT.waypoints.find((candidate) => candidate.id === id);
+function waypoint(id: string, layout: OfficeLayout = OFFICE_LAYOUT): WaypointSpec {
+  const node = layout.waypoints.find((candidate) => candidate.id === id);
   if (node === undefined) {
     throw new Error(`no waypoint ${id}`);
   }
@@ -103,18 +109,18 @@ function waypoint(id: string): WaypointSpec {
  * Every hop is asserted on arrival, so a route that fails names the hop that
  * failed rather than only the destination.
  */
-function walkRoute(from: Vec2, ids: readonly string[]): Vec2 {
+function walkRoute(from: Vec2, ids: readonly string[], layout: OfficeLayout = OFFICE_LAYOUT): Vec2 {
   let position = from;
   for (const id of ids) {
-    const node = waypoint(id);
-    position = walkTo(position, node);
+    const node = waypoint(id, layout);
+    position = walkTo(position, node, layout);
     expect(distanceBetween(position, node), `walking to ${id}`).toBeLessThanOrEqual(ARRIVAL_TOLERANCE);
   }
   return position;
 }
 
 /** Breadth-first route between two nodes. The real search is a later issue. */
-function routeBetween(fromId: string, toId: string): readonly string[] {
+function routeBetween(fromId: string, toId: string, layout: OfficeLayout = OFFICE_LAYOUT): readonly string[] {
   const previous = new Map<string, string>([[fromId, fromId]]);
   const queue = [fromId];
 
@@ -131,7 +137,7 @@ function routeBetween(fromId: string, toId: string): readonly string[] {
       }
       return route.slice(1);
     }
-    for (const link of waypoint(id).links) {
+    for (const link of waypoint(id, layout).links) {
       if (!previous.has(link)) {
         previous.set(link, id);
         queue.push(link);
@@ -646,5 +652,134 @@ describe("OFFICE_LAYOUT building", () => {
     expect(manager.bounds.minX - ceo.bounds.maxX).toBeCloseTo(MIN_OBSTACLE_THICKNESS);
     expect(doorway("door-ceo").connects).toContain(OPEN_FLOOR_ROOM_ID);
     expect(doorway("door-manager").connects).toContain(OPEN_FLOOR_ROOM_ID);
+  });
+});
+
+describe("the building's floors", () => {
+  it("are the office as it always was in a building of one floor, and its ground floor with lifts called in a bigger one", () => {
+    expect(floorLayout(1, 1)).toBe(OFFICE_LAYOUT);
+    expect(floorLayout(1, 3)).toBe(GROUND_FLOOR_LAYOUT);
+    expect(floorLayout(2, 3)).toBe(UPPER_FLOOR_LAYOUT);
+    expect(floorLayout(3, 3)).toBe(UPPER_FLOOR_LAYOUT);
+    expect(interactables(OFFICE_LAYOUT).some((spec) => spec.kind === INTERACTION_KIND.lift)).toBe(false);
+  });
+
+  // The invariants the shipped office is held to, for the plans derived from it.
+  describe.each([
+    ["the ground floor with its lifts called", GROUND_FLOOR_LAYOUT],
+    ["an upper floor", UPPER_FLOOR_LAYOUT],
+  ] as const)("%s", (_name, layout) => {
+    it("is a sound floor plan, furnished and hung as soundly", () => {
+      expect(describeLayoutProblems(layout)).toEqual([]);
+      expect(describePropProblems(layout, derivedProps(layout))).toEqual([]);
+      expect(describeDecorProblems(layout, OFFICE_DECOR)).toEqual([]);
+    });
+
+    it("calls each lift from just in front of its doors, facing them, within reach from the hall", () => {
+      for (const lift of layout.lifts) {
+        const call = interactables(layout).find((spec) => spec.id === liftCallId(lift.id));
+        expect(call?.kind, lift.id).toBe(INTERACTION_KIND.lift);
+        if (call === undefined) {
+          continue;
+        }
+        expect(roomAt(layout, call.anchor)?.id, lift.id).toBe(LOBBY_ROOM_ID);
+        expect(Math.abs(call.anchor.yaw - lift.yaw), lift.id).toBeCloseTo(Math.PI);
+        const node = nearestWaypoint(call.anchor, layout);
+        expect(node, lift.id).toBeDefined();
+        if (node !== undefined) {
+          expect(distanceBetween(walkTo(node, call.anchor, layout), call.anchor), lift.id).toBeLessThanOrEqual(ARRIVAL_TOLERANCE);
+        }
+      }
+    });
+
+    it("can be walked along every link, in both directions", () => {
+      for (const node of layout.waypoints) {
+        for (const link of node.links) {
+          const target = waypoint(link, layout);
+          expect(distanceBetween(walkTo(node, target, layout), target), `${node.id} to ${link}`).toBeLessThanOrEqual(ARRIVAL_TOLERANCE);
+        }
+      }
+    });
+  });
+
+  describe("an upper floor", () => {
+    const layout = UPPER_FLOOR_LAYOUT;
+
+    it("has no reception, no main entrance and no pavement: it is up off the street", () => {
+      expect(layout.props.some((spec) => spec.kind === "reception")).toBe(false);
+      expect(layout.rooms.some((room) => room.id === SIDEWALK_ROOM_ID)).toBe(false);
+      expect(layout.doorways.some((door) => door.connects.includes(SIDEWALK_ROOM_ID))).toBe(false);
+      expect(layout.walls.some((spec) => spec.style === "railing")).toBe(false);
+      for (const node of layout.waypoints) {
+        for (const link of node.links) {
+          expect(layout.waypoints.some((candidate) => candidate.id === link), `${node.id} to ${link}`).toBe(true);
+        }
+      }
+    });
+
+    it("glazes the street front from end to end", () => {
+      const glazed = layout.walls.filter((spec) => spec.style === "window");
+      expect(glazed.length).toBe(1);
+      expect(glazed[0]?.footprint.minZ).toBe(layout.floor.minZ);
+      expect(glazed[0]?.footprint.maxZ).toBe(layout.floor.maxZ);
+    });
+
+    it("keeps the office itself where the ground floor has it", () => {
+      expect(layout.desks).toBe(OFFICE_LAYOUT.desks);
+      expect(layout.boards).toBe(OFFICE_LAYOUT.boards);
+      expect(layout.lifts).toBe(OFFICE_LAYOUT.lifts);
+    });
+
+    it("brings arrivals out of the lifts into the lobby, turned down the hall to the office door, clear of one another", () => {
+      const door = layout.doorways.find((candidate) => candidate.id === "door-office");
+      expect(door).toBeDefined();
+      expect(layout.spawnPoints.length).toBeGreaterThanOrEqual(2 * layout.lifts.length);
+      for (const spawn of layout.spawnPoints) {
+        const label = `spawn (${spawn.x}, ${spawn.z})`;
+        expect(roomAt(layout, spawn)?.id, label).toBe(LOBBY_ROOM_ID);
+        expect(layout.lifts.some((lift) => Math.abs(lift.x - spawn.x) < lift.width / 2), label).toBe(true);
+        const toDoor = { x: (door?.centre.x ?? 0) - spawn.x, z: (door?.centre.z ?? 0) - spawn.z };
+        const facing = { x: -Math.sin(spawn.yaw), z: -Math.cos(spawn.yaw) };
+        expect((toDoor.x * facing.x + toDoor.z * facing.z) / Math.hypot(toDoor.x, toDoor.z), label).toBeGreaterThan(0.6);
+        expect(Math.abs(Math.sin(spawn.yaw)), `${label} is square to the hall`).toBeCloseTo(1);
+      }
+      for (const [i, a] of layout.spawnPoints.entries()) {
+        for (const b of layout.spawnPoints.slice(i + 1)) {
+          expect(distanceBetween(a, b)).toBeGreaterThanOrEqual(2 * OCCUPANT_RADIUS);
+        }
+      }
+    });
+
+    it("leaves every room and every interactable reachable on foot from the first arrival", () => {
+      const spawn = layout.spawnPoints[0];
+      expect(spawn).toBeDefined();
+      if (spawn === undefined) {
+        return;
+      }
+      const start = nearestWaypoint(spawn, layout);
+      expect(start).toBeDefined();
+      if (start === undefined) {
+        return;
+      }
+      const atStart = walkTo(spawn, start, layout);
+      expect(distanceBetween(atStart, start)).toBeLessThanOrEqual(ARRIVAL_TOLERANCE);
+      for (const room of layout.rooms) {
+        const inside = layout.waypoints.find((node) => roomAt(layout, node)?.id === room.id);
+        expect(inside, room.id).toBeDefined();
+        if (inside !== undefined) {
+          expect(roomAt(layout, walkRoute(atStart, routeBetween(start.id, inside.id, layout), layout))?.id, room.id).toBe(room.id);
+        }
+      }
+      for (const spec of interactables(layout)) {
+        const target = spec.exit ?? spec.anchor;
+        const node = nearestWaypoint(target, layout);
+        expect(node, spec.id).toBeDefined();
+        if (node === undefined) {
+          continue;
+        }
+        const arrived = walkTo(walkRoute(atStart, routeBetween(start.id, node.id, layout), layout), target, layout);
+        expect(distanceBetween(arrived, spec.anchor), `reaching ${spec.id}`).toBeLessThanOrEqual(INTERACT_RANGE);
+      }
+    });
   });
 });

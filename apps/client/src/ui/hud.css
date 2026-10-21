@@ -1691,3 +1691,56 @@
 .radio__volume {
   width: 90px;
 }
+
+/* The lift's panel lists the building's floors, one line each. */
+.lift {
+  bottom: auto;
+  width: min(520px, calc(100vw - 32px));
+}
+
+.lift__floors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lift__floor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.lift__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.lift__people,
+.lift__here {
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+/* The ride itself: the doors shut on one floor and open on the next. */
+.lift-ride {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(14, 14, 18, 0.92);
+  color: #f4efe2;
+  font-size: 18px;
+  pointer-events: none;
+  animation: lift-doors 220ms ease-out;
+}
+
+@keyframes lift-doors {
+  from {
+    opacity: 0;
+  }
+}

@@ -17,6 +17,7 @@ import { hudActions } from "./hudActions.js";
 import { hudRoomEvents } from "./hudRoomEvents.js";
 import { PendingIssueMoves } from "./pendingIssueMoves.js";
 import { boardRefreshRefusal } from "./projectBoard.js";
+import { rideLine } from "./lift.js";
 import { keepAcceptedName, readPlayerName } from "./playerName.js";
 import { readRadioSettings } from "./radio.js";
 import { timedNotice } from "./timedNotice.js";
@@ -64,6 +65,9 @@ function start(): void {
   const showRadioPanelNotice = timedNotice((radioNotice) => publishHud({ radioNotice }), BOARD_NOTICE_DURATION_MS);
   /** Shows a line about the radio in its panel, or as a notice while the panel is closed. */
   const showRadioNotice = (text: string) => (hud.radioOpen ? showRadioPanelNotice(text) : showNotice(text));
+  const showLiftPanelNotice = timedNotice((liftNotice) => publishHud({ liftNotice }), NOTICE_DURATION_MS);
+  /** Shows a line about the lift in its panel, or as a notice while the panel is closed. */
+  const showLiftNotice = (text: string) => (hud.liftOpen ? showLiftPanelNotice(text) : showNotice(text));
 
   const issueMoves = new PendingIssueMoves({
     publish: (moves) => publishHud({ issueMoves: moves }),
@@ -94,6 +98,7 @@ function start(): void {
       notice: showNotice,
       standupNotice: showStandupNotice,
       radioNotice: showRadioNotice,
+      liftNotice: showLiftNotice,
       nameOf: (id) => room.occupantName(id),
       localId: () => room.sessionId,
       restrictLabel: () => room.agentRestrictLabel(),
@@ -149,6 +154,28 @@ function start(): void {
     onProjectBoard: (snapshot) => {
       issueMoves.snapshot(snapshot);
       scene.onProjectBoard(snapshot);
+    },
+
+    // Everything the HUD keeps of one floor goes with it; the floor ridden to
+    // sends its own as it is joined. The chat log is the player's, and says
+    // where they went.
+    onRide: (floor) => {
+      scene.onRide(floor);
+      appendChatLine({ id: nextChatId++, author: "Office", text: rideLine(floor, hud.liftFloors ?? []), isLocal: false, isSystem: true });
+      publishHud({
+        riding: floor,
+        liftFloors: undefined,
+        boardRefreshing: false,
+        managerLog: [],
+        managerUnread: 0,
+        agentPrompts: [],
+        standingHistory: {},
+      });
+    },
+
+    onFloorChanged: (floor, floors) => {
+      scene.onFloorChanged(floor, floors);
+      publishHud({ floor, floors, riding: undefined });
     },
   });
 

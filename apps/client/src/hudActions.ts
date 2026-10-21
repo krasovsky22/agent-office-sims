@@ -135,6 +135,10 @@ export function hudActions(host: HudActionsHost): HudActions {
       toggleMute: () => setRadio({ muted: !host.hud().radioSettings.muted }),
       close: host.closePanel,
     },
+    lift: {
+      ride: (floor) => room.sendLiftRide(floor),
+      close: host.closePanel,
+    },
     standup: {
       start: () => room.sendStandupStart(),
       end: () => room.sendStandupEnd(),

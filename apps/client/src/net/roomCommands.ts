@@ -26,6 +26,7 @@ import {
   type InteractMessage,
   type IssueState,
   type IssueStateMessage,
+  type LiftRideMessage,
   type ManagerSayMessage,
   type OfficeState,
   POSE_SEND_INTERVAL_MS,
@@ -264,6 +265,16 @@ export abstract class RoomCommands {
   /** Asks for a new display name. The state patch is the reply, or a rejection to this client alone. */
   public sendRename(name: string): void {
     this.room?.send(CLIENT_MESSAGE.rename, { name } satisfies RenameMessage);
+  }
+
+  /** Asks for the building's floors, from beside a lift; they come back to this client alone. */
+  public sendLiftFloors(): void {
+    this.room?.send(CLIENT_MESSAGE.liftFloors, {});
+  }
+
+  /** Rides the lift to a floor; the reply is a seat there, which the connection takes, or a rejection. */
+  public sendLiftRide(floor: number): void {
+    this.room?.send(CLIENT_MESSAGE.liftRide, { floor } satisfies LiftRideMessage);
   }
 
   /** Tunes the office radio to a station id or a raw link; the next patch is the reply, or a rejection to this client alone. */

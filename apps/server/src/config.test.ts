@@ -19,6 +19,7 @@ import {
   readManagerConfig,
   readPort,
   readDataDir,
+  readFloors,
   readProjectBoardConfig,
   readRunnerConfig,
 } from "./config.js";
@@ -138,6 +139,38 @@ describe("readProjectBoardConfig", () => {
     expect(() => readProjectBoardConfig({ PROJECT_BOARD_POLL_SECONDS: value })).toThrow(
       /PROJECT_BOARD_POLL_SECONDS/,
     );
+  });
+});
+
+describe("readFloors", () => {
+  const board = (env: NodeJS.ProcessEnv) => readFloors(env, readProjectBoardConfig(env));
+  const TOKEN = { PROJECT_BOARD_TOKEN: "ghp_example", PROJECT_BOARD_REPO: "acme/office" };
+
+  it("is the ground floor alone, PROJECT_BOARD_REPO's office, with FLOOR_REPOS unset or blank", () => {
+    expect(board({})).toEqual(["krasovsky22/agent-office-sims"]);
+    expect(board({ FLOOR_REPOS: " , " })).toEqual(["krasovsky22/agent-office-sims"]);
+  });
+
+  it("puts each listed repository on the next floor up", () => {
+    expect(board({ ...TOKEN, FLOOR_REPOS: " acme/site , acme/api" })).toEqual(["acme/office", "acme/site", "acme/api"]);
+  });
+
+  it("refuses to start with more than one floor and no token, since every floor polls GitHub", () => {
+    expect(() => board({ PROJECT_BOARD_REPO: "acme/office", FLOOR_REPOS: "acme/site" })).toThrow(/PROJECT_BOARD_TOKEN/);
+  });
+
+  it.each(["acme", "acme/site/extra", "https://github.com/acme/site"])("refuses to start on repository %j", (value) => {
+    expect(() => board({ ...TOKEN, FLOOR_REPOS: value })).toThrow(/FLOOR_REPOS/);
+  });
+
+  it("refuses a repository on two floors, the ground floor's included, whatever its case", () => {
+    expect(() => board({ ...TOKEN, FLOOR_REPOS: "acme/site,Acme/Site" })).toThrow(/twice/);
+    expect(() => board({ ...TOKEN, FLOOR_REPOS: "ACME/office" })).toThrow(/twice/);
+  });
+
+  it("refuses more floors than the building has", () => {
+    const upper = Array.from({ length: 8 }, (_, index) => `acme/floor-${index + 2}`).join(",");
+    expect(() => board({ ...TOKEN, FLOOR_REPOS: upper })).toThrow(/at most 7/);
   });
 });
 

@@ -41,8 +41,9 @@ import { ANIMATION_STATE, type AnimationState } from "./state.js";
  * A held anchor is an exclusive one: the occupant is standing or sitting in it,
  * so a second occupant cannot be. That is what stops two players sharing a
  * chair. A wall board is not held — it is a glance, not a station — and nor
- * is the manager's desk, where a conversation holds nobody in place, or an
- * agent's screen, which anyone may read over its shoulder.
+ * is the manager's desk, where a conversation holds nobody in place, an
+ * agent's screen, which anyone may read over its shoulder, or a lift, which
+ * anyone may call while someone else is choosing a floor.
  */
 const HOLDS_ANCHOR: Record<InteractionKind, boolean> = {
   [INTERACTION_KIND.seat]: true,
@@ -51,6 +52,7 @@ const HOLDS_ANCHOR: Record<InteractionKind, boolean> = {
   [INTERACTION_KIND.manager]: false,
   [INTERACTION_KIND.screen]: false,
   [INTERACTION_KIND.radio]: false,
+  [INTERACTION_KIND.lift]: false,
 };
 
 /** How long a hold lasts on its own; `0` means until the occupant releases it. */
@@ -61,6 +63,7 @@ const HOLD_MS: Record<InteractionKind, number> = {
   [INTERACTION_KIND.manager]: 0,
   [INTERACTION_KIND.screen]: 0,
   [INTERACTION_KIND.radio]: 0,
+  [INTERACTION_KIND.lift]: 0,
 };
 
 /**
@@ -78,6 +81,7 @@ const HELD_ANIMATION: Record<InteractionKind, AnimationState> = {
   [INTERACTION_KIND.manager]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.screen]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.radio]: ANIMATION_STATE.idle,
+  [INTERACTION_KIND.lift]: ANIMATION_STATE.idle,
 };
 
 /** What the proximity prompt reads. Names the action, not the object. */
@@ -88,6 +92,7 @@ const PROMPT: Record<InteractionKind, string> = {
   [INTERACTION_KIND.manager]: "Talk to the manager",
   [INTERACTION_KIND.screen]: "Watch the agent's terminal",
   [INTERACTION_KIND.radio]: "Change the radio",
+  [INTERACTION_KIND.lift]: "Call the lift",
 };
 
 export function holdsAnchor(spec: InteractableSpec): boolean {

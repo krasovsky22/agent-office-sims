@@ -20,6 +20,8 @@ import {
   type EmoteEvent,
   type IssueStateResultEvent,
   type JumpEvent,
+  type LiftFloorsEvent,
+  type LiftRejectedEvent,
   type ManagerEntry,
   type ManagerHistoryEvent,
   type ManagerRejectedEvent,
@@ -102,6 +104,14 @@ export interface RoomConnectionEvents {
   onStandupRejected?: (event: StandupRejectedEvent) => void;
   /** The radio did not take the local client's own tune, and kept playing. */
   onRadioRejected?: (event: RadioRejectedEvent) => void;
+  /** Which floor of how many the office is, as the state first says and whenever the lift changes it. */
+  onFloorChanged?: (floor: number, floors: number) => void;
+  /** The building's floors, which the local client asked for at a lift. */
+  onLiftFloors?: (event: LiftFloorsEvent) => void;
+  /** The lift would not take the local client, who stays where they are. */
+  onLiftRejected?: (event: LiftRejectedEvent) => void;
+  /** The lift is taking the local client to another floor; the floor left is cleared away as it goes. */
+  onRide?: (floor: number) => void;
 }
 
 /** The server events handed to the caller whole, by the handler each one goes to. */
@@ -126,6 +136,8 @@ const FORWARDED = {
   [SERVER_MESSAGE.standingHistory]: "onStandingHistory",
   [SERVER_MESSAGE.standupRejected]: "onStandupRejected",
   [SERVER_MESSAGE.radioRejected]: "onRadioRejected",
+  [SERVER_MESSAGE.liftFloors]: "onLiftFloors",
+  [SERVER_MESSAGE.liftRejected]: "onLiftRejected",
 } as const satisfies Partial<Record<ServerMessageType, keyof RoomConnectionEvents>>;
 
 /** Passes every event-borne message on to the caller's handler for it, looked up as each one arrives. */

@@ -32,3 +32,4 @@ export * from "./standing.js";
 export * from "./standup.js";
 export * from "./deskTerminal.js";
 export * from "./radio.js";
+export * from "./lift.js";
