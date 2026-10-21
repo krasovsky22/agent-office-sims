@@ -33,6 +33,7 @@ import {
   type PoseMessage,
   type RenameMessage,
   type RadioTuneMessage,
+  type TvChannel,
   type ReportedAnimation,
   STANDING_ACTION,
   type StandingClientMessage,
@@ -280,6 +281,14 @@ export abstract class RoomCommands {
   /** Tunes the office radio to a station id or a raw link; the next patch is the reply, or a rejection to this client alone. */
   public sendRadioTune(source: string): void {
     this.room?.send(CLIENT_MESSAGE.radioTune, { source } satisfies Record<keyof RadioTuneMessage, string>);
+  }
+
+  /**
+   * Switches the conference room's TV, with a raw link for its YouTube
+   * channel; the next patch is the reply, or a rejection to this client alone.
+   */
+  public sendTvTune(channel: TvChannel, link?: string): void {
+    this.room?.send(CLIENT_MESSAGE.tvTune, link === undefined ? { channel } : { channel, link });
   }
 
   /**

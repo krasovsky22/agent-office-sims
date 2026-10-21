@@ -50,6 +50,8 @@ import {
   STANDING_REFILL_PER_SECOND,
   STANDUP_CALL_BURST_ALLOWANCE,
   STANDUP_CALL_REFILL_PER_SECOND,
+  TV_TUNE_BURST_ALLOWANCE,
+  TV_TUNE_REFILL_PER_SECOND,
   type ThrottledEvent,
 } from "@sim/shared";
 
@@ -132,5 +134,6 @@ export function createExpressionBudget(now: number): ExpressionBudget {
     // A direction may start a real agent's turn, as a prompt does.
     [CLIENT_MESSAGE.standupDirect]: createTokenBucket(AGENT_PROMPT_BURST_ALLOWANCE, AGENT_PROMPT_REFILL_PER_SECOND, now),
     [CLIENT_MESSAGE.radioTune]: createTokenBucket(RADIO_TUNE_BURST_ALLOWANCE, RADIO_TUNE_REFILL_PER_SECOND, now),
+    [CLIENT_MESSAGE.tvTune]: createTokenBucket(TV_TUNE_BURST_ALLOWANCE, TV_TUNE_REFILL_PER_SECOND, now),
   };
 }

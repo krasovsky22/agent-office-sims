@@ -9,6 +9,7 @@
 import {
   type AgentPromptEntry,
   DEFAULT_RADIO_STATION_ID,
+  DEFAULT_TV_CHANNEL,
   type Emote,
   type LiftFloor,
   NO_STANDUP,
@@ -37,6 +38,7 @@ import type { ConnectionStatus, OccupantHudFields } from "../net/room.js";
 import { CAMERA_MODE, type CameraMode } from "../player/cameraMode.js";
 import { DEFAULT_RADIO_SETTINGS, type RadioSettings, type RadioView } from "../radio.js";
 import type { StandupAccess } from "../standupAccess.js";
+import type { TvView } from "../tv.js";
 import type { AgentMenuActions } from "./AgentMenu.js";
 import type { AgentProfileActions, AgentProfileNotice } from "./AgentProfileCard.js";
 import type { AgentPromptRefusal, AgentTerminalActions } from "./AgentTerminalPanel.js";
@@ -45,6 +47,7 @@ import type { ProjectBoardActions } from "./ProjectBoardPanel.js";
 import type { LiftActions } from "./LiftPanel.js";
 import type { RadioActions } from "./RadioPanel.js";
 import type { StandupActions } from "./StandupPanel.js";
+import type { TvActions } from "./TvPanel.js";
 
 /** One occupant on the roster: its {@link OccupantHudFields}, and what the HUD makes of them. */
 export interface RosterEntry extends Readonly<OccupantHudFields> {
@@ -208,6 +211,14 @@ export interface HudSnapshot {
   readonly radioSettings: RadioSettings;
   /** Why the local player's latest tune was not taken, or why this tab is not playing it. */
   readonly radioNotice?: string | undefined;
+  /** Whether the local player opened the conference room's TV with `E` in front of it. */
+  readonly tvOpen: boolean;
+  /** What the TV shows, as last replicated. */
+  readonly tv: TvView;
+  /** The local player's own volume and mute for the TV, apart from the radio's. */
+  readonly tvSettings: RadioSettings;
+  /** Why the local player's latest change to the TV was not taken, or why this tab is not playing its video. */
+  readonly tvNotice?: string | undefined;
   /** Which floor of the building the office is, from 1 at the street, and how many it has. */
   readonly floor: number;
   readonly floors: number;
@@ -258,6 +269,7 @@ export interface HudActions {
   readonly profile: AgentProfileActions;
   readonly agentMenu: AgentMenuActions;
   readonly radio: RadioActions;
+  readonly tv: TvActions;
   readonly lift: LiftActions;
 }
 
@@ -290,6 +302,9 @@ const INITIAL: HudSnapshot = {
   radioOpen: false,
   radio: { stationId: DEFAULT_RADIO_STATION_ID, videoId: "", listId: "", title: "", startedAt: 0, tunedBy: "" },
   radioSettings: DEFAULT_RADIO_SETTINGS,
+  tvOpen: false,
+  tv: { channel: DEFAULT_TV_CHANNEL, videoId: "", listId: "", title: "", startedAt: 0, changedBy: "" },
+  tvSettings: DEFAULT_RADIO_SETTINGS,
   floor: 1,
   floors: 1,
   liftOpen: false,

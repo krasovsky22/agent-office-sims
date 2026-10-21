@@ -1,9 +1,11 @@
 /** What the HUD's buttons do: send the office a command, or tell the loop to close a panel. */
 
+import { TV_CHANNEL } from "@sim/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import { type HudActionsHost, hudActions } from "./hudActions.js";
 import { NOT_A_YOUTUBE_LINK, readRadioSettings } from "./radio.js";
+import { TV_SETTINGS_STORAGE_KEY } from "./tv.js";
 import type { RoomConnection } from "./net/room.js";
 import { type HudSnapshot, createHudStore } from "./ui/hudStore.js";
 
@@ -20,6 +22,7 @@ function harness() {
     sendAgentKey: vi.fn(() => true),
     sendAgentAction: vi.fn(),
     sendRadioTune: vi.fn(),
+    sendTvTune: vi.fn(),
   };
   const host: HudActionsHost = {
     room: room as unknown as RoomConnection,
@@ -40,6 +43,7 @@ function harness() {
     standUp: vi.fn(),
     closeAgentMenu: vi.fn(),
     radioNotice: vi.fn(),
+    tvNotice: vi.fn(),
   };
   return { actions: hudActions(host), host, room, hud: () => hud, storage };
 }
@@ -82,5 +86,23 @@ describe("hudActions", () => {
     actions.radio.setVolume(0.8);
     expect(hud().radioSettings).toEqual({ volume: 0.8, muted: false });
     expect(readRadioSettings(storage)).toEqual({ volume: 0.8, muted: false });
+  });
+
+  it("switches the TV's channel, and gives its YouTube channel only a YouTube link", () => {
+    const { actions, host, room } = harness();
+    actions.tv.tune(TV_CHANNEL.sprint);
+    actions.tv.play("https://youtu.be/dQw4w9WgXcQ");
+    actions.tv.play("rp-mellow");
+    expect(room.sendTvTune.mock.calls).toEqual([[TV_CHANNEL.sprint], [TV_CHANNEL.youtube, "https://youtu.be/dQw4w9WgXcQ"]]);
+    expect(host.tvNotice).toHaveBeenCalledWith(NOT_A_YOUTUBE_LINK);
+  });
+
+  it("keeps the TV's volume apart from the radio's", () => {
+    const { actions, hud, storage } = harness();
+    actions.tv.setVolume(0.3);
+    expect(hud().tvSettings).toEqual({ volume: 0.3, muted: false });
+    expect(hud().radioSettings.volume).toBe(0.5);
+    expect(readRadioSettings(storage, TV_SETTINGS_STORAGE_KEY)).toEqual({ volume: 0.3, muted: false });
+    expect(readRadioSettings(storage).volume).toBe(0.5);
   });
 });

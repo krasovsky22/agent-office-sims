@@ -65,6 +65,11 @@ describe("SlotPool spend", () => {
     slots.handle({ id: "command-3", slotId: "slot-1", kind: "stop", reason: "" });
     first?.spent(1.5);
     expect(slots.spend().spentUsd).toBe(1.75);
+    // Each slot reports its own agent's share, for the office's status board.
+    expect(slots.report().map((slot) => [slot.id, slot.spentTodayUsd])).toEqual([
+      ["slot-1", 1.5],
+      ["slot-2", 0.25],
+    ]);
   });
 
   it("counts the mock's pretend spend, step by step", async () => {

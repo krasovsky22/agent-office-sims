@@ -57,6 +57,21 @@ describe("SpendLedger", () => {
     ledger.add(-5);
     expect(ledger.report().spentUsd).toBe(0);
   });
+
+  it("keeps each slot's share of today's spend, and starts it again with the day", () => {
+    const time = clock(new Date(2026, 9, 16, 23, 0));
+    const ledger = new SpendLedger({ budgetUsd: undefined, now: time.now });
+    ledger.add(1, "slot-1");
+    ledger.add(0.5, "slot-2");
+    ledger.add(0.25, "slot-1");
+    ledger.add(2);
+    expect(ledger.slotSpent("slot-1")).toBe(1.25);
+    expect(ledger.slotSpent("slot-2")).toBe(0.5);
+    expect(ledger.slotSpent("slot-3")).toBe(0);
+    expect(ledger.report().spentUsd).toBe(3.75);
+    time.set(new Date(2026, 9, 17, 0, 1));
+    expect(ledger.slotSpent("slot-1")).toBe(0);
+  });
 });
 
 describe("localDay", () => {

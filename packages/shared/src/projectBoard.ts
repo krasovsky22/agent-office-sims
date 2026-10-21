@@ -58,6 +58,12 @@ export interface BoardIssue {
   readonly pullRequests: readonly number[];
   /** Epoch milliseconds, for a closed issue; `null` for an open one. */
   readonly closedAt: number | null;
+  /**
+   * Epoch milliseconds of its latest change on GitHub, which opening and
+   * closing it both are; absent when GitHub did not say. What the TV's
+   * sprint board picks this week's issues by.
+   */
+  readonly updatedAt?: number;
 }
 
 /** One open pull request, reduced to what a board card shows. */

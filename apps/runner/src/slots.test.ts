@@ -53,8 +53,8 @@ describe("SlotPool", () => {
   it("starts with every slot idle, its agent named and titled by its default profile", () => {
     expect(FIRST).not.toBe(SECOND);
     expect(pool().report()).toEqual([
-      { id: "slot-1", name: FIRST, ...DEFAULT_PROFILE, status: "idle", issueNumber: undefined, activity: "", pr: undefined },
-      { id: "slot-2", name: SECOND, ...DEFAULT_PROFILE, status: "idle", issueNumber: undefined, activity: "", pr: undefined },
+      { id: "slot-1", name: FIRST, ...DEFAULT_PROFILE, status: "idle", issueNumber: undefined, activity: "", pr: undefined, spentTodayUsd: 0 },
+      { id: "slot-2", name: SECOND, ...DEFAULT_PROFILE, status: "idle", issueNumber: undefined, activity: "", pr: undefined, spentTodayUsd: 0 },
     ]);
   });
 

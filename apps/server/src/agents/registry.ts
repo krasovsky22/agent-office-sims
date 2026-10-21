@@ -58,6 +58,8 @@ export interface LiveAgentRecord {
    * runner, sets it, and absent means it cannot.
    */
   readonly profileEditable?: boolean;
+  /** What it has spent today, in US dollars, when its source meters it; see `RunnerSlotReport`. */
+  readonly spentTodayUsd?: number;
   /**
    * It has just been hired, and this is its first appearance: it walks in
    * from the street and waves before anything else. Only a runner's slot the

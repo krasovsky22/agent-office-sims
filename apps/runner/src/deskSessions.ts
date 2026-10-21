@@ -174,7 +174,7 @@ export class DeskSessions {
         slot.activity = fitJsonBytes(this.host.redactor.redactText(activity), MAX_TITLE_LENGTH);
       }
     };
-    const books = { ledger: this.host.ledger, debug: this.host.debug, on: `${slot.id} at ${desk.requestedBy}'s desk` };
+    const books = { ledger: this.host.ledger, debug: this.host.debug, on: `${slot.id} at ${desk.requestedBy}'s desk`, slotId: slot.id };
     const reporter = runReporter(slot.screen, desk, books, {
       started: () => report(RUNNER_SLOT_STATUS.idle, ""),
       progress: (activity) => report(RUNNER_SLOT_STATUS.working, activity),

@@ -312,6 +312,11 @@ interface Inbox {
 const NOTHING: readonly RunnerEventRecord[] = [];
 const NO_PROMPTS: readonly RunnerPromptRecord[] = [];
 
+/** A slot's spend today, for its record, when its runner meters it. */
+function spentOf(slot: RunnerSlotReport): Pick<LiveAgentRecord, "spentTodayUsd"> {
+  return slot.spentTodayUsd === undefined ? {} : { spentTodayUsd: slot.spentTodayUsd };
+}
+
 function sameRecord(a: LiveAgentRecord, b: LiveAgentRecord): boolean {
   return (
     a.id === b.id &&
@@ -322,6 +327,7 @@ function sameRecord(a: LiveAgentRecord, b: LiveAgentRecord): boolean {
     a.activity === b.activity &&
     a.canTakeIssues === b.canTakeIssues &&
     a.hired === b.hired &&
+    a.spentTodayUsd === b.spentTodayUsd &&
     a.task?.title === b.task?.title &&
     a.task?.url === b.task?.url
   );
@@ -848,6 +854,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
         activity: LENT_TO_DESK_ACTIVITY,
         canTakeIssues: false,
         profileEditable: true,
+        ...spentOf(slot),
       };
     }
     return {
@@ -862,6 +869,7 @@ export class RunnerLink implements LiveAgentSource, RunnerEventSource, RunnerSpe
       canTakeIssues: true,
       // Its runner keeps its profile and prompts its agent with it.
       profileEditable: true,
+      ...spentOf(slot),
       ...(runner.arriving.has(slot.id) ? { hired: true } : {}),
     };
   }

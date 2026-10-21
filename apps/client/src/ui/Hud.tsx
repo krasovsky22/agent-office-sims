@@ -40,6 +40,7 @@ import { NameCard } from "./NameCard.js";
 import { ProjectBoardPanel } from "./ProjectBoardPanel.js";
 import { LiftPanel } from "./LiftPanel.js";
 import { RadioControls, RadioPanel } from "./RadioPanel.js";
+import { TvPanel } from "./TvPanel.js";
 import { RecurringTasksPanel } from "./RecurringTasksPanel.js";
 import { StandupPanel } from "./StandupPanel.js";
 import { ChatComposer, ChatLog, EmoteBar } from "./Chat.js";
@@ -103,6 +104,10 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
     radio,
     radioSettings,
     radioNotice,
+    tvOpen,
+    tv,
+    tvSettings,
+    tvNotice,
     floor,
     liftOpen,
     liftFloors,
@@ -241,6 +246,8 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
       ) : null}
 
       {radioOpen ? <RadioPanel radio={radio} settings={radioSettings} notice={radioNotice} actions={actions.radio} /> : null}
+
+      {tvOpen ? <TvPanel tv={tv} settings={tvSettings} notice={tvNotice} actions={actions.tv} /> : null}
 
       {liftOpen ? <LiftPanel floors={liftFloors} current={floor} notice={liftNotice} actions={actions.lift} /> : null}
 

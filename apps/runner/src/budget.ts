@@ -32,6 +32,8 @@ export interface SpendLedgerOptions {
 export class SpendLedger {
   private day: string;
   private spent = 0;
+  /** Today's spend by the slot whose agent spent it, for what a sync reports of each. */
+  private readonly bySlot = new Map<string, number>();
   private readonly now: () => Date;
 
   public constructor(private readonly options: SpendLedgerOptions) {
@@ -39,13 +41,25 @@ export class SpendLedger {
     this.day = localDay(this.now());
   }
 
-  /** Books spend on today. A negative amount is a correction to what was booked before. */
-  public add(usd: number): void {
+  /**
+   * Books spend on today, and on `slotId`'s agent when a slot spent it. A
+   * negative amount is a correction to what was booked before.
+   */
+  public add(usd: number, slotId?: string): void {
     if (!Number.isFinite(usd) || usd === 0) {
       return;
     }
     this.rollOver();
     this.spent = Math.max(this.spent + usd, 0);
+    if (slotId !== undefined) {
+      this.bySlot.set(slotId, Math.max((this.bySlot.get(slotId) ?? 0) + usd, 0));
+    }
+  }
+
+  /** What one slot's agent has spent today, all its runs together. */
+  public slotSpent(slotId: string): number {
+    this.rollOver();
+    return this.bySlot.get(slotId) ?? 0;
   }
 
   /** Today's spend against the budget, as a sync reports it. */
@@ -66,6 +80,7 @@ export class SpendLedger {
     if (today !== this.day) {
       this.day = today;
       this.spent = 0;
+      this.bySlot.clear();
     }
   }
 }

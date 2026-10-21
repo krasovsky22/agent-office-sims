@@ -345,6 +345,8 @@ export interface RunnerSlotReport {
   readonly standing?: RunnerSlotStanding | undefined;
   /** Set while the slot is lent to a desk, which it holds instead of an issue or a standing run. */
   readonly desk?: RunnerSlotDesk | undefined;
+  /** What its agent has spent today, in US dollars, all its runs together; left out by a runner that does not meter. */
+  readonly spentTodayUsd?: number | undefined;
 }
 
 /**
@@ -978,6 +980,10 @@ function parseSlot(raw: unknown): RunnerSlotReport | undefined {
   if ((standing !== undefined && holdsIssue) || (desk !== undefined && (holdsIssue || standing !== undefined))) {
     return undefined;
   }
+  const spent = candidate["spentTodayUsd"] ?? undefined;
+  if (spent !== undefined && !isUsd(spent)) {
+    return undefined;
+  }
   return {
     id,
     name: name === "" ? sanitizeName(id) : name,
@@ -989,6 +995,7 @@ function parseSlot(raw: unknown): RunnerSlotReport | undefined {
     pr,
     standing,
     ...(desk === undefined ? {} : { desk }),
+    ...(spent === undefined ? {} : { spentTodayUsd: spent }),
   };
 }
 

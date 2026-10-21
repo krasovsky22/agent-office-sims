@@ -32,7 +32,7 @@ import {
  * - `poster`: an unframed print pinned flat; `art` says which.
  * - `clock`: a round wall clock showing the office's own time of day.
  * - `whiteboard`: a whiteboard with the last meeting still on it.
- * - `tv`: a flat screen showing a slide.
+ * - `tv`: a flat screen showing whichever channel it is switched to; see `tv.ts`.
  * - `shelf`: a floating shelf with books and a trophy stood on it; `height`
  *   is how tall its load stands.
  */

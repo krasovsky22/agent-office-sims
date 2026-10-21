@@ -174,6 +174,12 @@ describe("issue descriptions", () => {
     expect(body.length).toBe(MAX_ISSUE_BODY_LENGTH);
     expect(lists.closed[0]?.body).toBe("");
   });
+
+  it("carries when an issue last changed onto its card, and leaves it off when GitHub did not say", () => {
+    const lists = bucketIssues([issue(1, { updatedAt: 42 }), issue(3)], [issue(2, { open: false, closedAt: 5, updatedAt: 6 })], REPO);
+    expect(lists.open.map((card) => card.updatedAt)).toEqual([42, undefined]);
+    expect(lists.closed[0]?.updatedAt).toBe(6);
+  });
 });
 
 describe("parseIssueItem", () => {
@@ -185,6 +191,7 @@ describe("parseIssueItem", () => {
     user: { login: "krasovsky22" },
     assignees: [{ login: "milo" }, { nope: true }],
     closed_at: null,
+    updated_at: "2026-10-19T08:30:00Z",
     body: "The board on the lobby wall.\r\n\r\n\r\nShows open issues.",
   };
 
@@ -201,6 +208,7 @@ describe("parseIssueItem", () => {
       author: "krasovsky22",
       assignees: ["milo"],
       closedAt: null,
+      updatedAt: Date.parse("2026-10-19T08:30:00Z"),
       pullRequest: null,
     });
   });

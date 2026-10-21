@@ -1,6 +1,6 @@
 /** The room's events the HUD alone hears of, each said where this player will look for it. */
 
-import { AGENT_PROMPT_REJECTION, CLIENT_MESSAGE, LIFT_REJECTION, MANAGER_ENTRY_KIND, type ManagerEntry, RADIO_REJECTION } from "@sim/shared";
+import { AGENT_PROMPT_REJECTION, CLIENT_MESSAGE, LIFT_REJECTION, MANAGER_ENTRY_KIND, type ManagerEntry, RADIO_REJECTION, TV_REJECTION } from "@sim/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { type HudRoomEventsHost, hudRoomEvents } from "./hudRoomEvents.js";
@@ -25,6 +25,7 @@ describe("hudRoomEvents", () => {
       notice: (text) => notices.push(text),
       standupNotice: (text) => notices.push(`standup: ${text}`),
       radioNotice: (text) => notices.push(`radio: ${text}`),
+      tvNotice: (text) => notices.push(`tv: ${text}`),
       liftNotice: (text) => notices.push(`lift: ${text}`),
       nameOf: (id) => (id === "agent-1" ? "Maya" : undefined),
       localId: () => "me",
@@ -75,6 +76,13 @@ describe("hudRoomEvents", () => {
     events.onThrottled?.({ command: CLIENT_MESSAGE.radioTune });
     expect(notices).toHaveLength(2);
     expect(notices.every((text) => text.startsWith("radio: "))).toBe(true);
+  });
+
+  it("says why the TV did not take a change, and a dropped one, where the TV is changed", () => {
+    events.onTvRejected?.({ rejection: TV_REJECTION.unplayable });
+    events.onThrottled?.({ command: CLIENT_MESSAGE.tvTune });
+    expect(notices).toHaveLength(2);
+    expect(notices.every((text) => text.startsWith("tv: "))).toBe(true);
   });
 
   it("lists the floors the lift was called for, and says why it would not take this player where the lift is called", () => {

@@ -526,6 +526,7 @@ export class LiveAgentCrew {
     occupant.title = record.title ?? "";
     occupant.description = record.description ?? "";
     occupant.profileEditable = record.profileEditable === true;
+    occupant.spentTodayUsd = record.spentTodayUsd ?? 0;
     if (body.status !== record.status) {
       body.status = record.status;
       body.restUntil = now;

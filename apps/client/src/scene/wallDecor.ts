@@ -7,8 +7,8 @@
  * collides or is interactive, so it is all set dressing and kept cheap: every
  * frame, bezel, shelf board and book is one instance of a single batch of unit
  * boxes, artwork is painted once into a texture shared by every frame showing
- * it, and nothing casts a shadow. The clocks are the only thing that moves,
- * and they show the office's own time of day.
+ * it, and nothing casts a shadow. The clocks move, showing the office's own
+ * time of day, and the TV's screen is repainted for the channel it is on.
  */
 
 import {
@@ -21,6 +21,7 @@ import {
 } from "@sim/shared";
 import * as THREE from "three";
 
+import { TV_CANVAS_WIDTH } from "./tvScreen.js";
 import { paintArt, paintClockFace, paintTvSlide, paintWhiteboard } from "./wallArt.js";
 
 /** Pixels per metre of artwork, so a big picture is no blurrier than a small one. */
@@ -69,6 +70,8 @@ export interface WallDecorView {
   readonly group: THREE.Group;
   /** Sets every clock's hands to a minute of the day. */
   showMinute(minuteOfDay: number): void;
+  /** Repaints the TV's screen, `TV_CANVAS_WIDTH` texels wide; a layout with no TV ignores it. */
+  paintTv(paint: (context: CanvasRenderingContext2D, width: number, height: number) => void): void;
 }
 
 /** One box, in a piece's own frame, for the shared instanced batch. */
@@ -78,13 +81,13 @@ interface BoxPart {
   readonly colour: number;
 }
 
-/** A canvas texture, painted once. */
+/** A canvas texture, painted once unless the caller keeps it to repaint. */
 function canvasTexture(
   width: number,
   height: number,
   maxAnisotropy: number,
   paint: (ctx: CanvasRenderingContext2D, w: number, h: number) => void,
-): THREE.Texture {
+): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -143,6 +146,7 @@ export function buildWallDecor(
   const artMaterials = new Map<string, THREE.Material>();
   const plane = new THREE.PlaneGeometry(1, 1);
   const hands: { readonly hour: THREE.Object3D; readonly minute: THREE.Object3D }[] = [];
+  const tvTextures: THREE.CanvasTexture[] = [];
 
   const clockFace = new THREE.MeshLambertMaterial({
     map: canvasTexture(256, 256, maxAnisotropy, (ctx, w) => paintClockFace(ctx, w)),
@@ -208,12 +212,10 @@ export function buildWallDecor(
         break;
       case "tv": {
         parts.push(box(0, centreY, TV_DEPTH / 2, spec.width + BEZEL * 2, spec.height + BEZEL * 2, TV_DEPTH, BEZEL_COLOUR));
-        const { w, h } = pixelsFor(spec.width, spec.height);
-        // Lit from within, so it reads as a screen that is on.
-        const screen = new THREE.MeshBasicMaterial({
-          map: canvasTexture(w, h, maxAnisotropy, paintTvSlide),
-          toneMapped: false,
-        });
+        // Lit from within, so it reads as a screen that is on; sharper than art, as it shows boards.
+        const texture = canvasTexture(TV_CANVAS_WIDTH, Math.round((TV_CANVAS_WIDTH * spec.height) / spec.width), maxAnisotropy, paintTvSlide);
+        tvTextures.push(texture);
+        const screen = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false });
         addFace(piece, screen, spec, centreY, TV_DEPTH + FACE_OFFSET);
         break;
       }
@@ -294,6 +296,16 @@ export function buildWallDecor(
         // Clockwise as seen from the front, which looks down the piece's -Z.
         clock.hour.rotation.z = -angles.hour;
         clock.minute.rotation.z = -angles.minute;
+      }
+    },
+    paintTv(paint) {
+      for (const texture of tvTextures) {
+        const canvas = texture.image as HTMLCanvasElement;
+        const context = canvas.getContext("2d");
+        if (context !== null) {
+          paint(context, canvas.width, canvas.height);
+          texture.needsUpdate = true;
+        }
       }
     },
   };

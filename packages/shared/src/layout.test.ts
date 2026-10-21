@@ -301,6 +301,7 @@ describe("OFFICE_LAYOUT seats", () => {
         INTERACTION_KIND.manager,
         INTERACTION_KIND.radio,
         INTERACTION_KIND.screen,
+        INTERACTION_KIND.tv,
       ].sort(),
     );
     for (const spec of others) {

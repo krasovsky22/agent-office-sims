@@ -288,6 +288,16 @@ export const RADIO_TUNE_BURST_ALLOWANCE = 3;
 export const RADIO_TUNE_REFILL_PER_SECOND = 0.1;
 
 /**
+ * Times anyone may change the conference room's TV back to back before the
+ * server starts dropping them: flipping through the channels is a few in a
+ * row, and a YouTube link is checked with YouTube first.
+ */
+export const TV_TUNE_BURST_ALLOWANCE = 6;
+
+/** Rate at which that allowance is restored, in changes/second. */
+export const TV_TUNE_REFILL_PER_SECOND = 0.25;
+
+/**
  * How long the server holds a dropped player's place, in seconds.
  *
  * A socket that closes without the player leaving — a network blip, a laptop

@@ -35,6 +35,7 @@ function person(id: string, isCeo = false): RosterEntry {
     fired: false,
     carriedIssue: 0,
     managerStatus: undefined,
+    agentSpentUsd: 0,
   };
 }
 
@@ -60,6 +61,7 @@ function liveAgent(id: string, canTakeIssues = false): RosterEntry {
     fired: false,
     carriedIssue: 0,
     managerStatus: undefined,
+    agentSpentUsd: 0,
   };
 }
 

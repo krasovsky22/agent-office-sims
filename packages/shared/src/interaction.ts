@@ -52,6 +52,7 @@ const HOLDS_ANCHOR: Record<InteractionKind, boolean> = {
   [INTERACTION_KIND.manager]: false,
   [INTERACTION_KIND.screen]: false,
   [INTERACTION_KIND.radio]: false,
+  [INTERACTION_KIND.tv]: false,
   [INTERACTION_KIND.lift]: false,
 };
 
@@ -63,6 +64,7 @@ const HOLD_MS: Record<InteractionKind, number> = {
   [INTERACTION_KIND.manager]: 0,
   [INTERACTION_KIND.screen]: 0,
   [INTERACTION_KIND.radio]: 0,
+  [INTERACTION_KIND.tv]: 0,
   [INTERACTION_KIND.lift]: 0,
 };
 
@@ -81,6 +83,7 @@ const HELD_ANIMATION: Record<InteractionKind, AnimationState> = {
   [INTERACTION_KIND.manager]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.screen]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.radio]: ANIMATION_STATE.idle,
+  [INTERACTION_KIND.tv]: ANIMATION_STATE.idle,
   [INTERACTION_KIND.lift]: ANIMATION_STATE.idle,
 };
 
@@ -92,6 +95,7 @@ const PROMPT: Record<InteractionKind, string> = {
   [INTERACTION_KIND.manager]: "Talk to the manager",
   [INTERACTION_KIND.screen]: "Watch the agent's terminal",
   [INTERACTION_KIND.radio]: "Change the radio",
+  [INTERACTION_KIND.tv]: "Change the TV's channel",
   [INTERACTION_KIND.lift]: "Call the lift",
 };
 
