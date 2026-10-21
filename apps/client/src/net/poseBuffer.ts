@@ -8,6 +8,7 @@
  */
 
 import {
+  ANIMATION_STATE,
   type AnimationState,
   INTERPOLATION_DELAY_MS,
   POSE_BUFFER_SIZE,
@@ -55,7 +56,8 @@ export function pushPose(buffer: PoseSample[], sample: PoseSample): void {
   }
   lastArrival.set(buffer, arrival);
   if (previous !== undefined) {
-    if (arrival - previous.t > 2 * POSE_SEND_INTERVAL_MS) {
+    // A late packet mid-walk is no standing start; holding there would freeze the walk.
+    if (previous.animation !== ANIMATION_STATE.walking && arrival - previous.t > 2 * POSE_SEND_INTERVAL_MS) {
       append(buffer, { ...previous, t: arrival - POSE_SEND_INTERVAL_MS });
     } else {
       sample = { ...sample, t: Math.max(arrival, previous.t + POSE_SEND_INTERVAL_MS * 0.5) };

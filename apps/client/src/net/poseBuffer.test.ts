@@ -70,7 +70,7 @@ describe("pushPose", () => {
   });
 
   it("starts a walk after standing still from one send interval back, not from the idle pose's time", () => {
-    const buffer = [sample(0, 0)];
+    const buffer = [{ ...sample(0, 0), animation: ANIMATION_STATE.idle }];
     pushPose(buffer, sample(5000, 1));
     expect(buffer.map(({ t, x }) => [t, x])).toEqual([
       [0, 0],
@@ -79,6 +79,15 @@ describe("pushPose", () => {
     ]);
     const out = blank();
     samplePoses(buffer, at(5000 - POSE_SEND_INTERVAL_MS / 2), out);
+    expect(out.x).toBeCloseTo(0.5);
+  });
+
+  it("keeps a late packet mid-walk at its arrival time instead of holding the last pose", () => {
+    const buffer = [sample(0, 0)];
+    pushPose(buffer, sample(110, 1));
+    expect(buffer.map(({ t }) => t)).toEqual([0, 110]);
+    const out = blank();
+    samplePoses(buffer, at(55), out);
     expect(out.x).toBeCloseTo(0.5);
   });
 
