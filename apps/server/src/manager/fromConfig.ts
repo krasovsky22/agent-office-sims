@@ -3,13 +3,14 @@
  *
  * Rules mode gets no call budget, since it spends nothing; it does get a short
  * pause, so the manager's badge visibly reads "thinking" before it answers.
- * Model mode always gets a budget, so a chatty CEO cannot run up an unbounded
- * bill.
+ * A model mode, through the API or the `claude` CLI, always gets a budget, so
+ * a chatty CEO cannot run up an unbounded bill or spend a subscription's limits.
  */
 
 import { type ManagerConfig } from "../config.js";
 import { CallBudget } from "./budget.js";
 import { type ManagerAdvisor, type ManagerPlanner, createManagerAdvisor } from "./advisor.js";
+import { createCliPlanner } from "./cliPlanner.js";
 import { createModelPlanner } from "./modelPlanner.js";
 import { planFromRules } from "./rulePlanner.js";
 
@@ -41,7 +42,7 @@ export function createConfiguredManager(config: ManagerConfig): ManagerAdvisor {
     return createManagerAdvisor({ planner: createRulePlanner(), mode: "rules" });
   }
   return createManagerAdvisor({
-    planner: createModelPlanner({ apiKey: config.apiKey, model: config.model }),
+    planner: config.mode === "cli" ? createCliPlanner({ model: config.model }) : createModelPlanner({ apiKey: config.apiKey, model: config.model }),
     mode: "model",
     budget: new CallBudget({ perDay: config.callsPerDay, perRun: config.callsPerRun, label: "manager" }),
   });
@@ -51,5 +52,5 @@ export function createConfiguredManager(config: ManagerConfig): ManagerAdvisor {
 export function describeManager(config: ManagerConfig): string {
   return config.mode === "mock"
     ? "manager: answers from live state (MOCK_MANAGER on), no model calls"
-    : `manager: ${config.model}, at most ${config.callsPerDay} calls a day and ${config.callsPerRun} this run`;
+    : `manager: ${config.model}${config.mode === "cli" ? " through the signed-in claude CLI" : ""}, at most ${config.callsPerDay} calls a day and ${config.callsPerRun} this run`;
 }
