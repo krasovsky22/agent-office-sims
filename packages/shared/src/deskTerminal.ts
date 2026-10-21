@@ -8,14 +8,15 @@
  * that desk's monitor and in the terminal panel, and prompted from there as the
  * CEO prompts any coding agent. It keeps running when the CEO stands up, its
  * terminal still on the desk's monitor, and sitting there again is back at the
- * same session. Turning the computer off, leaving, or handing the role on ends
- * it, its agent stopped and its worktree discarded, and the slot goes back to
+ * same session. Each desk is its own session, so the CEO may have several on
+ * at once, as many as there are free agents. Turning a desk's computer off,
+ * leaving, or handing the role on ends it, its agent stopped and its worktree discarded, and the slot goes back to
  * the floor for issue work; the next sitting starts a fresh one. What it does
  * runs real commands on the runner's host, so it is held to the rule that gates
  * prompting a coding agent, which is the CEO's alone; anyone else sitting at a
  * desk gets no terminal.
  *
- * What the session is doing is replicated state (`DeskTerminal` in
+ * What each session is doing is replicated state (`desks` in
  * `./state.ts`), run by the server (`apps/server/src/agents/deskTerminal.ts`);
  * this module is what both sides need: the gate, which seats have a computer,
  * and the phases the client says something about.
@@ -29,9 +30,9 @@ import type { OfficeActor } from "./work.js";
 
 /** Where the CEO's desk terminal stands. */
 export const DESK_TERMINAL_PHASE = {
-  /** The CEO's desk's computer is off. */
+  /** The desk's computer is off; what a desk with no record in `desks` reads as. */
   off: "",
-  /** Every runner's coding agent is busy; one is lent as soon as one is free. */
+  /** Every runner's coding agent is busy, or lent to the CEO's other desks; one is lent as soon as one is free. */
   waiting: "waiting",
   /** An agent is lent, and its runner is starting the session. */
   starting: "starting",

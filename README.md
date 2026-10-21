@@ -544,9 +544,14 @@ they leave the office for good or hand the CEO role on, since nobody else may
 use it; a dropped connection inside the reconnection grace period keeps it, but
 reloading the tab leaves the office, so it ends. A sitting with nothing running
 yet (every agent busy, no runner, or the session ended) is given up on standing
-up, so no agent is lent to an empty chair. One desk's computer is on at a time:
-sitting at another while it is on lends nothing there and says
-`Your desk's computer is still on at another desk`.
+up, so no agent is lent to an empty chair. Each desk's computer is its own
+session: sitting at another desk while one is on turns that one on too, with
+its own agent, its own terminal on its own monitor, and its own prompts, and
+sitting back at either reopens the panel on that desk's session. `Turn off`
+ends only the desk it is pressed at. There are as many as there are free
+slots: with every agent busy or lent to the CEO's other desks, the desk waits
+and says `Every coding agent is busy, your other desks' computers included`,
+until one comes free or the CEO turns another desk off.
 
 Which slot is lent is the server's call (`apps/server/src/agents/deskTerminal.ts`),
 made on the tick: the first slot of any runner that is idle, holds no issue,
@@ -1845,8 +1850,12 @@ Then confirm all twenty-seven:
     `Only the CEO, Dana, can use a desk's computer`. Dana stands up: the panel
     closes, but her desk's monitor keeps showing the mock's terminal in both
     tabs; she sits again and the panel reopens on the same session, her prompt
-    still listed. She presses `Turn off`: she stands, her desk's monitor goes
-    dark in both tabs, and the mock is back in the board's `Assign…` list. Stop
+    still listed. She stands and sits at a second empty desk: its panel opens
+    on a second mock's fresh session, both desks' monitors show their own
+    terminals, and sitting back at the first reopens its session. She presses
+    `Turn off` at the second desk: she stands, that desk's monitor goes dark
+    in both tabs while the first keeps its terminal, and the second mock is
+    back in the board's `Assign…` list; she turns the first off the same way. Stop
     the runner and Dana sits again: the panel says `No agent runner is connected`. `apps/server/src/agents/deskTerminal.test.ts`
     checks the lending, the hand-back and the gate against a real runner link,
     and `apps/runner/src/slotsDesks.test.ts` the session on the runner's side.

@@ -21,6 +21,7 @@ import {
   SERVER_MESSAGE,
   type ScreenFramesEvent,
   type ThrottledEvent,
+  parseDeskTerminalOffMessage,
   parseDeskTerminalSizeMessage,
 } from "@sim/shared";
 
@@ -210,8 +211,11 @@ export function wireRunners(
       deskTerminal.resize(client.sessionId, size.cols, size.rows);
     }
   });
-  room.onMessage(CLIENT_MESSAGE.deskTerminalOff, (client) => {
-    deskTerminal.turnOff(client.sessionId);
+  room.onMessage(CLIENT_MESSAGE.deskTerminalOff, (client, raw: unknown) => {
+    const off = parseDeskTerminalOffMessage(raw);
+    if (off !== undefined) {
+      deskTerminal.turnOff(client.sessionId, off.seatId);
+    }
   });
 
   return {

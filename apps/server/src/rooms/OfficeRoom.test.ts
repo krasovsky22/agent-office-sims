@@ -540,26 +540,26 @@ describe("the runners' books", () => {
     if (seated === undefined) {
       throw new Error("Dana is not in the office");
     }
+    const SEAT = "seat-desk-north-1-1";
     // As a granted sit would leave her; the grant itself is `sim/interaction.ts`'s, tested there.
-    seated.interactableId = "seat-desk-north-1-1";
+    seated.interactableId = SEAT;
     for (const tab of [dana, milo]) {
-      await settled(() => tab.room.state.desk?.phase === DESK_TERMINAL_PHASE.noRunner);
-      expect(tab.room.state.desk).toMatchObject({ seatId: "seat-desk-north-1-1", ownerId: dana.room.sessionId, agentId: "" });
+      await settled(() => tab.room.state.desks?.get(SEAT)?.phase === DESK_TERMINAL_PHASE.noRunner);
+      expect(tab.room.state.desks.get(SEAT)).toMatchObject({ seatId: SEAT, ownerId: dana.room.sessionId, agentId: "" });
     }
     seated.interactableId = "";
-    await settled(() => milo.room.state.desk?.phase === DESK_TERMINAL_PHASE.off);
-    expect(milo.room.state.desk.seatId).toBe("");
+    await settled(() => milo.room.state.desks?.size === 0);
 
     // Turned off on her word alone, and kept off while she still sits there.
-    seated.interactableId = "seat-desk-north-1-1";
-    await settled(() => milo.room.state.desk?.phase === DESK_TERMINAL_PHASE.noRunner);
-    milo.room.send(CLIENT_MESSAGE.deskTerminalOff);
+    seated.interactableId = SEAT;
+    await settled(() => milo.room.state.desks?.get(SEAT)?.phase === DESK_TERMINAL_PHASE.noRunner);
+    milo.room.send(CLIENT_MESSAGE.deskTerminalOff, { seatId: SEAT });
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(milo.room.state.desk.phase).toBe(DESK_TERMINAL_PHASE.noRunner);
-    dana.room.send(CLIENT_MESSAGE.deskTerminalOff);
-    await settled(() => milo.room.state.desk?.phase === DESK_TERMINAL_PHASE.off);
+    expect(milo.room.state.desks.get(SEAT)?.phase).toBe(DESK_TERMINAL_PHASE.noRunner);
+    dana.room.send(CLIENT_MESSAGE.deskTerminalOff, { seatId: SEAT });
+    await settled(() => milo.room.state.desks?.size === 0);
     await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(milo.room.state.desk.seatId).toBe("");
+    expect(milo.room.state.desks.size).toBe(0);
 
     await milo.room.leave();
     await dana.room.leave();

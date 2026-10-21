@@ -52,7 +52,7 @@ import {
 } from "./agentMenu.js";
 import { agentProfileAccessFor } from "./agentProfileAccess.js";
 import { agentPromptAccessFor } from "./agentPromptAccess.js";
-import { DESK_ON_ELSEWHERE_TEXT, deskForbiddenText, deskOnElsewhere, deskPanelFor, deskScreenKey, sameDeskPanel } from "./deskTerminalAccess.js";
+import { deskForbiddenText, deskPanelFor, deskScreenKey, sameDeskPanel } from "./deskTerminalAccess.js";
 import { standupAccessFor } from "./standupAccess.js";
 import { boardAccessFor } from "./boardAccess.js";
 import { browserStorage, readDebugEnabled, readPropsEnabled, requireCanvas } from "./browserEnv.js";
@@ -483,10 +483,10 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
 
   // The desk panel's Stand up button, taken by the next frame as `E` would be.
   let standUpRequested = false;
-  // The computer the local player last sat at and was told is the CEO's alone, or that theirs is on elsewhere, so it is said once a sitting.
+  // The computer the local player last sat at and was told is the CEO's alone, so it is said once a sitting.
   let toldDeskForbidden = "";
-  // The last prompt entry id from before the desk's computer was turned on, so its panel lists that session's prompts across sittings.
-  let deskPromptsAfter: number | undefined;
+  // The last prompt entry id from before each desk's computer was turned on, by seat, so its panel lists that session's prompts across sittings.
+  const deskPromptsAfter = new Map<string, number>();
   // The agent whose long-press menu is open, or `undefined`. Local to this tab, like a board's close-up.
   let agentMenuId: string | undefined;
   // `E` went down facing an agent: held long enough it opens the menu, let go sooner it is `E` as always.
@@ -791,14 +791,19 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
       host.publish({ terminalAgentId });
     }
     // The CEO sitting at a computer has its terminal; anyone else is told why not, once.
-    const desk = room.desk();
+    const desks = room.desks();
     // A session lists only the prompts typed after it began.
-    if (desk === undefined || desk.seatId === "") {
-      deskPromptsAfter = undefined;
-    } else {
-      deskPromptsAfter ??= host.hud().agentPrompts.at(-1)?.id ?? 0;
+    for (const seatId of deskPromptsAfter.keys()) {
+      if (desks?.has(seatId) !== true) {
+        deskPromptsAfter.delete(seatId);
+      }
     }
-    const deskPanel = deskPanelFor(desk, localId, locallyHeldWith, deskPromptsAfter ?? 0);
+    for (const seatId of desks?.keys() ?? []) {
+      if (!deskPromptsAfter.has(seatId)) {
+        deskPromptsAfter.set(seatId, host.hud().agentPrompts.at(-1)?.id ?? 0);
+      }
+    }
+    const deskPanel = deskPanelFor(desks, localId, locallyHeldWith, deskPromptsAfter.get(locallyHeldWith) ?? 0);
     if (!sameDeskPanel(deskPanel, host.hud().desk)) {
       host.publish({ desk: deskPanel });
     }
@@ -808,9 +813,6 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     } else if (room.viewOf(localId)?.isCeo === false && toldDeskForbidden !== deskSeat.id) {
       toldDeskForbidden = deskSeat.id;
       host.notice(deskForbiddenText(host.hud().roster.find((entry) => entry.isCeo)?.name));
-    } else if (deskOnElsewhere(desk, localId, deskSeat.id) && toldDeskForbidden !== deskSeat.id) {
-      toldDeskForbidden = deskSeat.id;
-      host.notice(DESK_ON_ELSEWHERE_TEXT);
     }
 
     room.sendPose(controller.pose, nowMs);
@@ -895,10 +897,12 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
           agentScreens.show(id, view.interactableId, room.screenOf(id), nowMs, camera.position);
         }
       }
-      // The CEO's desk shows its lent agent's terminal, in every tab, and is lit while one is on its way.
-      const deskKey = deskScreenKey(desk);
-      if (desk !== undefined && deskKey !== undefined) {
-        agentScreens.show(deskKey, desk.seatId, room.screenOf(deskKey), nowMs, camera.position);
+      // Each of the CEO's desks shows its own lent agent's terminal, in every tab, and is lit while one is on its way.
+      for (const desk of desks?.values() ?? []) {
+        const deskKey = deskScreenKey(desk);
+        if (deskKey !== undefined) {
+          agentScreens.show(deskKey, desk.seatId, room.screenOf(deskKey), nowMs, camera.position);
+        }
       }
       agentScreens.sweep();
     }
