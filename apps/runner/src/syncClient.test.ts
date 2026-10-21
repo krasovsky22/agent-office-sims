@@ -4,7 +4,7 @@
  * back off from rather than a crash.
  */
 
-import type { RunnerSync } from "@sim/shared";
+import { MAX_RUNNER_CONTEXT_LENGTH, type RunnerSync } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
 import { SyncError, createSyncClient, readCommands } from "./syncClient.js";
@@ -156,6 +156,19 @@ describe("readCommands", () => {
     expect(commands).toEqual([
       { id: "command-1", slotId: "slot-1", kind: "prompt", text: "Open the PR.", requestedBy: "Dana", fromCeo: true, queue: true },
       { id: "command-2", slotId: "slot-1", kind: "prompt", text: "rework", requestedBy: "Dana" },
+    ]);
+  });
+
+  it("keeps the status a standup direction carries for an idle agent's answer, capped and stripped", () => {
+    const { commands } = readCommands([
+      { id: "command-1", slotId: "slot-1", kind: "prompt", text: "what the status", requestedBy: "Dana", fromCeo: true, queue: true, context: "On #12.\u001b[2J" },
+      { id: "command-2", slotId: "slot-1", kind: "prompt", text: "what the status", requestedBy: "Dana", fromCeo: true, queue: true, context: "x".repeat(MAX_RUNNER_CONTEXT_LENGTH + 10) },
+      { id: "command-3", slotId: "slot-1", kind: "prompt", text: "what the status", requestedBy: "Dana", fromCeo: true, context: "On #12." },
+    ]);
+    expect(commands).toEqual([
+      { id: "command-1", slotId: "slot-1", kind: "prompt", text: "what the status", requestedBy: "Dana", fromCeo: true, queue: true, context: "On #12.[2J" },
+      { id: "command-2", slotId: "slot-1", kind: "prompt", text: "what the status", requestedBy: "Dana", fromCeo: true, queue: true, context: "x".repeat(MAX_RUNNER_CONTEXT_LENGTH) },
+      { id: "command-3", slotId: "slot-1", kind: "prompt", text: "what the status", requestedBy: "Dana", fromCeo: true },
     ]);
   });
 
