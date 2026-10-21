@@ -17,7 +17,6 @@ import {
   MIN_SECRET_LENGTH,
   REPOSITORY_PATTERN,
   readAgentRestrictLabel,
-  readChoice,
   readEnv,
   readWholeNumber,
 } from "@sim/shared";
@@ -165,12 +164,11 @@ interface ManagerModelConfig {
 }
 
 /**
- * How the AI manager answers: from live state by rule, for free; through the
- * Anthropic API, billed per call; or through the `claude` CLI signed in on the
- * server's host, on that login's plan.
+ * How the AI manager reaches its model: through the Anthropic API, billed per
+ * call, or through the `claude` CLI signed in on the server's host, on that
+ * login's plan.
  */
 export type ManagerConfig =
-  | { readonly mode: "mock" }
   | (ManagerModelConfig & {
       readonly mode: "model";
       /**
@@ -184,19 +182,12 @@ export type ManagerConfig =
 /**
  * Reads how the AI manager answers.
  *
- * - `MOCK_MANAGER`: `on` (the default) or `off`. On, the manager answers from
- *   the office's live state by rule and makes no network call.
- * - `ANTHROPIC_API_KEY`: with `MOCK_MANAGER` off, the manager calls the API
- *   with it; without it, it plans through the `claude` CLI on the server's
- *   host, which must be signed in.
+ * - `ANTHROPIC_API_KEY`: the manager calls the API with it; without it, it
+ *   plans through the `claude` CLI on the server's host, which must be signed in.
  * - `MANAGER_MODEL`: optional, defaulting to {@link DEFAULT_MANAGER_MODEL}.
  * - `MANAGER_CALLS_PER_DAY`, `MANAGER_CALLS_PER_RUN`: optional call budgets.
  */
 export function readManagerConfig(env: NodeJS.ProcessEnv = process.env): ManagerConfig {
-  if (readChoice(env, "MOCK_MANAGER", ["on", "off"], "on") === "on") {
-    return { mode: "mock" };
-  }
-
   const rawModel = env["MANAGER_MODEL"]?.trim() ?? "";
   const calls: ManagerModelConfig = {
     model: rawModel === "" ? DEFAULT_MANAGER_MODEL : rawModel,

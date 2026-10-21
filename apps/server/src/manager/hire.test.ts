@@ -222,7 +222,7 @@ describe("HireDesk", () => {
     expect(hired.map((each) => each.profile.title)).toEqual(["Accessibility Specialist", hireTitle(41)]);
   });
 
-  it("keeps a title the rule planner read from the CEO's words, punctuation and all", () => {
+  it("keeps a title copied from the CEO's words, punctuation and all", () => {
     const { desk, context, hired } = office({ message: "hire a sr. engineer, frontend for #41" });
     desk.carryOut(
       [

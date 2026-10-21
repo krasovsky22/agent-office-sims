@@ -2,10 +2,9 @@
  * Turning what someone wrote — `#39`, `PR 40`, "the lighting cycle", "Ada",
  * "someone" — into the work and the agents it means.
  *
- * The rule planner reads the CEO's message with these, and the manager reads a
- * model's plan with the same ones before carrying it out, so a model never gets
- * a number it invented acted on: whatever it names has to resolve against the
- * live view, or the assignment is refused with the reason.
+ * The manager reads a model's plan with these before carrying it out, so a
+ * model never gets a number it invented acted on: whatever it names has to
+ * resolve against the live view, or the assignment is refused with the reason.
  *
  * All the work there is lives on the project board, so every reference is
  * GitHub's: `#N` is the issue or pull request with that number, `issue N` and
@@ -137,23 +136,6 @@ export function findIssueByTitle(text: string, view: OfficeView): IssueView | un
 }
 
 /**
- * The references a message makes by number that name nothing on the project
- * board, as written: `#999`, `PR #42`. So "status of #999" can be told it does
- * not exist rather than answered about something else.
- */
-export function findUnknownWork(message: string, view: OfficeView): string[] {
-  const unknown: string[] = [];
-  for (const match of message.matchAll(GITHUB_NUMBER)) {
-    const wanted = wantedBy(match[1]);
-    const number = Number(match[2]);
-    if (githubItem(view, number, wanted) === undefined) {
-      unknown.push(wanted === "pull" ? `PR #${number}` : `#${number}`);
-    }
-  }
-  return unknown;
-}
-
-/**
  * The work one reference names, as a planner wrote it: a number, `#N`,
  * `PR #N`, an issue's title, or words only one open issue's title has. `undefined` when it names nothing on the
  * project board.
@@ -185,10 +167,6 @@ function namesOf(agent: IssueAgentView | LiveAgentView, view: OfficeView): strin
   return shared ? [name, agent.id.toLowerCase()] : [name, agent.id.toLowerCase(), first(agent.name)];
 }
 
-function escape(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * The agent one name means, as a planner wrote it, or `undefined`: one that
  * takes issues on the floor before one of the orchestrator's.
@@ -200,25 +178,6 @@ export function resolveAgent(name: string, view: OfficeView): IssueAgentView | L
   }
   const named = (agent: IssueAgentView | LiveAgentView) => namesOf(agent, view).includes(wanted);
   return view.issueAgents.find(named) ?? view.liveAgents.find(named);
-}
-
-/** Every agent a message names, as a whole word, in the order it names them. */
-export function findAgents(message: string, view: OfficeView): (IssueAgentView | LiveAgentView)[] {
-  const lower = message.toLowerCase();
-  const found: { readonly at: number; readonly agent: IssueAgentView | LiveAgentView }[] = [];
-  for (const agent of [...view.issueAgents, ...view.liveAgents]) {
-    let at = Number.POSITIVE_INFINITY;
-    for (const candidate of namesOf(agent, view)) {
-      const match = new RegExp(`(^|[^a-z0-9])${escape(candidate)}($|[^a-z0-9])`).exec(lower);
-      if (match !== null) {
-        at = Math.min(at, match.index);
-      }
-    }
-    if (Number.isFinite(at)) {
-      found.push({ at, agent });
-    }
-  }
-  return found.sort((a, b) => a.at - b.at).map((entry) => entry.agent);
 }
 
 /** How long a title a reply about `count` things quotes: all of it for one, clipped in a list so the list fits. */

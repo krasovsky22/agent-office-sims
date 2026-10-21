@@ -2,9 +2,9 @@
  * The AI manager's thinking: given what the CEO said and what the office looks
  * like, decide what to say back and which work to hand to whom.
  *
- * Where the answer comes from is a {@link ManagerPlanner} — rules over the
- * live state (`./rulePlanner.ts`), or a language model (`./modelPlanner.ts`) —
- * which makes one attempt and may throw. Everything that makes an attempt safe
+ * Where the answer comes from is a {@link ManagerPlanner} — a language model,
+ * through the API (`./modelPlanner.ts`) or the `claude` CLI
+ * (`./cliPlanner.ts`) — which makes one attempt and may throw. Everything that makes an attempt safe
  * lives here once: the call budget, the per-attempt timeout, bounded retry with
  * backoff, and cancellation. And the contract is that **advise always
  * resolves, never rejects**, because whatever calls it sits on the path that
@@ -51,12 +51,15 @@ export interface PlannedAssignment {
  * the pull request watch.
  */
 export type PlannedStanding =
-  | { readonly action: "watch-pull-requests" }
-  | { readonly action: "steward-pull-requests" }
-  | { readonly action: "schedule"; readonly cron: string; readonly instruction: string }
+  /** `agent`, as an assignment's, names the coding agent to run the new task alone; absent for any free one. */
+  | { readonly action: "watch-pull-requests"; readonly agent?: string }
+  | { readonly action: "steward-pull-requests"; readonly agent?: string }
+  | { readonly action: "schedule"; readonly cron: string; readonly instruction: string; readonly agent?: string }
   | { readonly action: "pause" | "resume" | "remove" | "check-now"; readonly task: string }
   /** How often comes from the CEO's own message, never the plan, as a schedule's does. */
-  | { readonly action: "reschedule"; readonly task: string };
+  | { readonly action: "reschedule"; readonly task: string }
+  /** Has the agent `agent` names run an existing task alone. */
+  | { readonly action: "assign"; readonly task: string; readonly agent: string };
 
 /** The recurring tasks an agent can be hired for, rather than an issue. */
 export const STANDING_ROLES = ["pr-steward", "pr-review", "schedule"] as const;
@@ -97,6 +100,17 @@ export interface PlannedWorkMove {
   readonly note: string;
 }
 
+/**
+ * Words the manager wants passed to one of the runners' coding agents, as the
+ * planner wrote them: a task in the CEO's words, or a question. `agent` is
+ * resolved as an assignment's is, and `text` is only passed on when it is the
+ * CEO's own words (`./agentMessages.ts`), never trusted.
+ */
+export interface PlannedMessage {
+  readonly agent: string;
+  readonly text: string;
+}
+
 /** What a plan asks of the standup: call one, or end the one that is on. */
 export type PlannedStandup = "start" | "end";
 
@@ -112,7 +126,9 @@ export interface ManagerPlan {
   readonly standing?: readonly PlannedStanding[];
   /** Absent for a plan that leaves the standup alone. */
   readonly standup?: PlannedStandup | undefined;
-  /** Model tokens spent; `0` for the rules. */
+  /** Words to pass to agents; none when left out. */
+  readonly messages?: readonly PlannedMessage[];
+  /** Model tokens spent. */
   readonly tokensUsed: number;
 }
 
@@ -141,16 +157,13 @@ export type AdviceResult =
     };
 
 export interface ManagerAdvisor {
-  /** Whether a model is behind it, for the boot log and the manager's own words. */
-  readonly mode: "rules" | "model";
   /** Resolves with a plan or a structured failure. Never rejects. */
   advise(request: ManagerRequest, signal?: AbortSignal): Promise<AdviceResult>;
 }
 
 export interface ManagerAdvisorOptions {
   readonly planner: ManagerPlanner;
-  readonly mode: ManagerAdvisor["mode"];
-  /** Absent means unlimited, which only a planner that spends nothing should be given. */
+  /** Absent means unlimited, which only a test's planner, which spends nothing, should be given. */
   readonly budget?: CallBudget | undefined;
   /** How long one attempt may take before it counts as timed out. */
   readonly timeoutMs?: number;
@@ -321,7 +334,6 @@ export function createManagerAdvisor(options: ManagerAdvisorOptions): ManagerAdv
   }
 
   return {
-    mode: options.mode,
     async advise(request, signal) {
       try {
         return await advise(request, signal ?? NEVER);

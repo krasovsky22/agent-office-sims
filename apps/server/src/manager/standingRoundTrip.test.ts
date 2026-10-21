@@ -53,8 +53,7 @@ import { RunnerLink } from "../agents/runnerLink.js";
 import { StandingMirror } from "../agents/standingMirror.js";
 import { createHealthServer } from "../http.js";
 import { officeRoom } from "../rooms/OfficeRoom.js";
-import { createManagerAdvisor } from "./advisor.js";
-import { createRulePlanner } from "./fromConfig.js";
+import { scriptedAdvisor } from "./plannerFixture.js";
 
 const REPO = "acme/office";
 const SECRET = "a-runner-secret-long-enough";
@@ -82,7 +81,12 @@ beforeAll(async () => {
   server = new Server({ transport: new WebSocketTransport(), greet: false });
   server.define(OFFICE_ROOM_NAME, officeRoom({
     projectBoard: { current: () => BOARD, subscribe: () => () => undefined },
-    manager: createManagerAdvisor({ planner: createRulePlanner(0), mode: "rules" }),
+    // What the model would plan for each thing the CEO says here.
+    manager: scriptedAdvisor({
+      "watch for new pull requests": { standing: [{ action: "watch-pull-requests" }] },
+      "stop watching pull requests": { standing: [{ action: "remove", task: "pull requests" }] },
+      [`Assign ${FIRST} to review prs`]: { standing: [{ action: "assign", task: "pull requests", agent: FIRST }] },
+    }),
     liveAgents: link,
     runnerEvents: link,
     runnerCommands: link,
@@ -235,6 +239,12 @@ describe("a standing task from the AI Manager to the mock runner and back", () =
     dana.room.send(CLIENT_MESSAGE.standingReschedule, { taskId, schedule: { intervalSeconds: 600 } });
     await settled(() => eve.room.state.standing.get(taskId)?.intervalSeconds === 600);
     expect(eve.room.state.standing.get(taskId)?.trigger).toBe("every 10 min");
+
+    // The CEO puts one agent on the existing watch by word, and the runner runs it on that agent alone.
+    dana.room.send(CLIENT_MESSAGE.managerSay, { text: `Assign ${FIRST} to review prs` });
+    await settled(() => lines(dana, MANAGER_ENTRY_KIND.reply).length === 2);
+    expect(lines(dana, MANAGER_ENTRY_KIND.reply)[1]).toMatch(new RegExp(`^Here's how that went:\n✓ ${FIRST} now runs “Watch for new pull requests” alone`));
+    await settled(() => eve.room.state.standing.get(taskId)?.agentId === firstAgentId(dana));
 
     // A new task from the board's form: refused to the executive, set up for the CEO on the agent she picked.
     const create = { kind: "schedule", instruction: "List the open pull requests", cron: "0 9 * * 1-5", agentId: firstAgentId(dana) };

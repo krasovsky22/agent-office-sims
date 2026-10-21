@@ -64,7 +64,7 @@ describe("the request", () => {
     };
     const planner = createModelPlanner({ apiKey: "test-key", model: "claude-opus-5-5", send });
 
-    expect(await planner(REQUEST, SIGNAL)).toEqual({ reply: "Ada is idle.", assignments: [], moves: [], hires: [], standing: [], tokensUsed: 1000 });
+    expect(await planner(REQUEST, SIGNAL)).toEqual({ reply: "Ada is idle.", assignments: [], moves: [], hires: [], standing: [], messages: [], tokensUsed: 1000 });
     const params = sent[0];
     expect(params?.model).toBe("claude-opus-5-5");
     expect(params?.output_config).toMatchObject({
@@ -234,7 +234,7 @@ const noSleep = async () => undefined;
 
 describe("createManagerAdvisor", () => {
   it("answers with the planner's plan", async () => {
-    const advisor = createManagerAdvisor({ planner: async () => PLAN, mode: "model" });
+    const advisor = createManagerAdvisor({ planner: async () => PLAN });
     expect(await advisor.advise(REQUEST)).toEqual({ ok: true, plan: PLAN, attempts: 1 });
   });
 
@@ -242,7 +242,6 @@ describe("createManagerAdvisor", () => {
     const budget = new CallBudget({ perDay: 10, perRun: 10, label: "manager" });
     let calls = 0;
     const advisor = createManagerAdvisor({
-      mode: "model",
       budget,
       sleep: noSleep,
       planner: async () => {
@@ -259,7 +258,6 @@ describe("createManagerAdvisor", () => {
   it("refuses without calling once the budget is spent, and says whose budget", async () => {
     let calls = 0;
     const advisor = createManagerAdvisor({
-      mode: "model",
       budget: new CallBudget({ perDay: 0, perRun: 10, label: "manager" }),
       planner: async () => {
         calls += 1;
@@ -274,7 +272,6 @@ describe("createManagerAdvisor", () => {
 
   it("times out a planner that never answers", async () => {
     const advisor = createManagerAdvisor({
-      mode: "model",
       timeoutMs: 20,
       maxAttempts: 1,
       planner: () => new Promise(() => undefined),
@@ -286,7 +283,6 @@ describe("createManagerAdvisor", () => {
     let aborted = false;
     const controller = new AbortController();
     const advisor = createManagerAdvisor({
-      mode: "model",
       planner: (_request, signal) =>
         new Promise((_resolve, reject) => {
           signal.addEventListener("abort", () => {
@@ -305,7 +301,6 @@ describe("createManagerAdvisor", () => {
 
   it("never rejects, whatever the planner throws", async () => {
     const advisor = createManagerAdvisor({
-      mode: "model",
       planner: () => {
         throw new Error("boom");
       },
@@ -314,7 +309,7 @@ describe("createManagerAdvisor", () => {
   });
 
   it("counts an empty answer as a failure", async () => {
-    const advisor = createManagerAdvisor({ mode: "rules", planner: async () => ({ ...PLAN, reply: "  " }) });
+    const advisor = createManagerAdvisor({ planner: async () => ({ ...PLAN, reply: "  " }) });
     expect(await advisor.advise(REQUEST)).toMatchObject({ ok: false, reason: ADVICE_FAILURE.providerError });
   });
 });

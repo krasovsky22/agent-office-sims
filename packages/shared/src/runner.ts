@@ -181,6 +181,8 @@ export const RUNNER_COMMAND_KIND = {
   standingCheckNow: "standing-check-now",
   /** Change how often a standing task runs; see {@link RunnerStandingRescheduleCommand}. */
   standingReschedule: "standing-reschedule",
+  /** Run a standing task on one slot alone; see {@link RunnerStandingAssignCommand}. */
+  standingAssign: "standing-assign",
   /** Take the CEO's edit of a slot's agent's profile, for its next session. */
   profile: "profile",
   /** Close or reopen an issue on GitHub, for the CEO who dragged its card across the board. */
@@ -676,6 +678,22 @@ export interface RunnerStandingRescheduleCommand {
 }
 
 /**
+ * Run one of the runner's standing tasks on one of its slots alone, as a task
+ * set up with a standing hire runs on the agent hired for it: for the CEO who
+ * asked the AI Manager to put that agent on it. The runner holds the
+ * definition, so it makes the change itself, as a new version, and refuses a
+ * slot it does not have.
+ */
+export interface RunnerStandingAssignCommand {
+  readonly id: string;
+  readonly kind: typeof RUNNER_COMMAND_KIND.standingAssign;
+  readonly taskId: string;
+  /** The slot's id. */
+  readonly agent: string;
+  readonly requestedBy: string;
+}
+
+/**
  * Close or reopen an issue on GitHub with the runner's own GitHub identity,
  * for the CEO; the game server never writes to GitHub itself. The runner
  * reports what came of it as a {@link RunnerIssueStateOutcome}.
@@ -702,7 +720,11 @@ export type RunnerSlotCommand =
   | RunnerHireCommand;
 
 /** The commands for the runner's standing tasks, which address no slot. */
-export type RunnerStandingCommand = RunnerStandingSetCommand | RunnerStandingTaskCommand | RunnerStandingRescheduleCommand;
+export type RunnerStandingCommand =
+  | RunnerStandingSetCommand
+  | RunnerStandingTaskCommand
+  | RunnerStandingRescheduleCommand
+  | RunnerStandingAssignCommand;
 
 export type RunnerCommand = RunnerSlotCommand | RunnerStandingCommand | RunnerIssueStateCommand;
 
@@ -743,6 +765,7 @@ export type RunnerCommandDraft =
   | Omit<RunnerStandingSetCommand, "id">
   | Omit<RunnerStandingTaskCommand, "id">
   | Omit<RunnerStandingRescheduleCommand, "id">
+  | Omit<RunnerStandingAssignCommand, "id">
   | Omit<RunnerIssueStateCommand, "id">;
 
 /**
@@ -1343,6 +1366,11 @@ export function toRunnerCommand(id: string, draft: RunnerCommandDraft): RunnerCo
     const schedule = parseStandingSchedule(draft.schedule);
     return isStandingTaskId(draft.taskId) && schedule !== undefined
       ? { id, kind: draft.kind, taskId: draft.taskId, schedule, requestedBy: sanitizeName(draft.requestedBy) }
+      : undefined;
+  }
+  if (draft.kind === RUNNER_COMMAND_KIND.standingAssign) {
+    return isStandingTaskId(draft.taskId) && isRunnerName(draft.agent)
+      ? { id, kind: draft.kind, taskId: draft.taskId, agent: draft.agent, requestedBy: sanitizeName(draft.requestedBy) }
       : undefined;
   }
   if (isStandingTaskCommandKind(draft.kind)) {

@@ -166,6 +166,24 @@ describe("StandingControl's new schedules", () => {
   });
 });
 
+describe("StandingControl putting an agent on a task", () => {
+  it("has a runner's coding agent on the task's own runner run it alone, for the CEO", () => {
+    const { control, link } = setup();
+    link.sync(sync("box", { standing: [report("st-watch1")] }));
+    const onBox = liveAgentKey(runnerSlotAgentId("box", "slot-1"));
+    expect(control.assign(CEO, "Dana", "st-watch1", onBox, "Marcus")).toMatchObject({ ok: true, text: expect.stringMatching(/^✓ Marcus now runs “Watch for new pull requests” alone/) });
+    expect(control.assign(EXEC, "Eve", "st-watch1", onBox, "Marcus")).toMatchObject({ ok: false, rejection: STANDING_REJECTION.forbidden });
+    expect(control.assign(CEO, "Dana", "st-nothing", onBox, "Marcus")).toMatchObject({ ok: false, rejection: STANDING_REJECTION.unknownTask });
+    expect(control.assign(CEO, "Dana", "st-watch1", "crew-1", "Crewmate")).toMatchObject({ ok: false, rejection: STANDING_REJECTION.invalid });
+    expect(control.assign(CEO, "Dana", "st-watch1", liveAgentKey(runnerSlotAgentId("vm", "slot-1")), "Bo")).toMatchObject({
+      ok: false,
+      rejection: STANDING_REJECTION.invalid,
+      text: expect.stringContaining("a task stays on its runner"),
+    });
+    expect(link.pending("box")).toEqual([{ id: "c1", kind: "standing-assign", taskId: "st-watch1", agent: "slot-1", requestedBy: "Dana" }]);
+  });
+});
+
 describe("the recurring tasks' runs", () => {
   const record = (id: string, taskId: string, endedAt: number): StandingRunRecord => ({
     id,

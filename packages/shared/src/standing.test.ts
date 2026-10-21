@@ -164,6 +164,19 @@ describe("a new schedule", () => {
   });
 });
 
+describe("a new agent for a task", () => {
+  it("is a command for the task's runner, naming a slot it could have", () => {
+    expect(toRunnerCommand("c9", { kind: RUNNER_COMMAND_KIND.standingAssign, taskId: "st-abc123", agent: "slot-1", requestedBy: "Dana" })).toEqual({
+      id: "c9",
+      kind: "standing-assign",
+      taskId: "st-abc123",
+      agent: "slot-1",
+      requestedBy: "Dana",
+    });
+    expect(toRunnerCommand("c9", { kind: RUNNER_COMMAND_KIND.standingAssign, taskId: "st-abc123", agent: "../etc", requestedBy: "Dana" })).toBeUndefined();
+  });
+});
+
 describe("a new task from the wall board", () => {
   it("is a kind there is, on any agent or one by key, and a scheduled job's words and cron", () => {
     expect(parseStandingCreateMessage({ kind: "schedule", instruction: " List\u0000 open PRs ", cron: "0  9 * * 1-5", agentId: "agent:runner:box:slot-1" })).toEqual({

@@ -1,5 +1,6 @@
 /**
- * An idle agent's answer to a direction the CEO gave at a standup.
+ * An idle agent's answer to a direction the CEO gave at a standup, or passed
+ * on through the AI Manager.
  *
  * A direction is typed into the agent's session, but an agent free between
  * tasks has none, so rather than refuse it the slot asks the agent to answer
@@ -53,7 +54,7 @@ export interface Answerer {
 /** The answer run's one message: the direction, who gave it, and what the agent knows of itself. */
 export function answerPrompt(request: Pick<AnswerRequest, "context" | "question" | "askedBy">): string {
   const lines = [
-    `You are at the office's standup, free between tasks, and ${request.askedBy}, the CEO, said this to you:`,
+    `You are free between tasks, and ${request.askedBy}, the CEO, said this to you:`,
     "",
     ...request.question.split("\n").map((line) => `> ${line}`.trimEnd()),
     "",
@@ -63,7 +64,7 @@ export function answerPrompt(request: Pick<AnswerRequest, "context" | "question"
     lines.push("What the office knows of you right now:", "", context, "");
   }
   lines.push(
-    "Answer in the first person, as yourself, in plain text: one to three short sentences, since it is said aloud at the standup. Say only what you know from the above; if it asks for something you cannot know, say so. You cannot read files or run anything, and you start no work yourself: an issue the CEO wants done is assigned from the board.",
+    "Answer in the first person, as yourself, in plain text: one to three short sentences, since it is said aloud in the office. Say only what you know from the above; if it asks for something you cannot know, say so. You cannot read files or run anything, and you start no work yourself: an issue the CEO wants done is assigned from the board.",
   );
   return lines.join("\n");
 }

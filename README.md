@@ -103,7 +103,7 @@ That starts both halves: the Colyseus server on `ws://localhost:2567` and the
 Vite client on `http://localhost:5173`. Both have working defaults, so no
 configuration is required; `.env.example` lists the variables (`PORT`,
 `ALLOWED_ORIGINS`, and `VITE_SERVER_URL`, plus the project board's
-`PROJECT_BOARD_*`, the manager's `MOCK_MANAGER`, `ANTHROPIC_API_KEY` and
+`PROJECT_BOARD_*`, the manager's `ANTHROPIC_API_KEY` and
 `MANAGER_*`, the live agents' `LIVE_AGENTS_*`, the runner
 link's `RUNNER_SECRET`, and the runner's own `RUNNER_*`) if you need
 to point the client somewhere else. A deployment
@@ -129,14 +129,14 @@ so no `ALLOWED_ORIGINS` entry is needed. Leave `VITE_SERVER_URL` unset in
 The server polls GitHub for the project board as soon as it starts, anonymously
 unless `PROJECT_BOARD_TOKEN` is set.
 
-The AI manager answers by rule from live state by default (`MOCK_MANAGER` is
-on), so nothing in development calls a model or spends anything.
-`MOCK_MANAGER=off` gives it a real model, on a call budget: with
+The AI manager always plans through a model, on a call budget: with
 `ANTHROPIC_API_KEY` set it calls the Anthropic API, billed per call; without
 it, it plans through the `claude` CLI on the server's host, on whatever login
 that CLI has, the same as the runner's coding agents. Sign it in once with
 `claude` and `/login` (a Claude subscription works) and the whole office runs
-on that one login.
+on that one login. When the model cannot be reached (no `claude` installed, not
+signed in, a spent budget, an outage) the manager does nothing and replies with
+the error, so you know what to fix.
 
 The office opens on a name card: type what everyone should call you and
 press `Enter`. It is prefilled from `?name=` in the URL, or else from the
@@ -302,6 +302,22 @@ At the manager's desk in its office, `E` opens the conversation with the AI Mana
 and puts the keyboard in its message box: `Enter` sends, `Esc` closes, and
 stepping away closes it too. Only the CEO's messages are taken; anyone else's
 panel says who can, and the server refuses theirs with that reason.
+
+The manager plans every message through its model, so the CEO says what they
+want in their own words. Besides handing out issues, moving work, hiring,
+standing tasks and standups, it can put one of the runners' coding agents on a
+standing task, `assign Marcus to review PRs`: the office's pull request watch
+or steward, run from then on by Marcus alone between issues, or a watch set up
+for Marcus when there is none (the steward only when the CEO asks for merging).
+And it passes the CEO's words to an agent, a task or a question, `tell Maya to
+add a test for the empty case` or `ask Marcus what's blocking it`, the way a
+standup's direction travels: typed into its session when it waits at its
+prompt, kept until it next does when it is busy, and, for an agent with nothing
+in hand, answered in a short read-only reply that starts no work. Only the
+CEO's own words are passed on, never text a model took from an issue or a pull
+request (`apps/server/src/manager/agentMessages.ts`), and what came of them is
+posted to the conversation. When it cannot tell what to do, it says what it
+understood and what it needs.
 
 At the project board, `E` opens its close-up, which releases the mouse so its
 links and controls can be clicked; `E` again, or stepping away, closes it. A
@@ -1281,7 +1297,8 @@ resolve conflicts and merge new pull requests` (or `merge pull requests once
 their checks pass`), or a schedule and what to do: `every weekday at 9,
 summarise what changed yesterday`, `every 30 minutes check the open issues
 for anything urgent`, `summarise open PRs every day at 17:30`, or
-`on cron 0 9 * * 1-5 …` for any five-field schedule; `pause the pull request watch`,
+`on cron 0 9 * * 1-5 …` for any five-field schedule; `assign Marcus to review
+PRs` to have one agent run a task alone; `pause the pull request watch`,
 `resume the PR watch`, `stop watching pull requests`, `remove the morning
 summary`, `run the morning summary now`, `run the morning summary every day
 at 8`, `check pull requests every 10 minutes`, and `what are you watching?`.
@@ -1958,8 +1975,7 @@ public.
 | `PROJECT_BOARD_REPO` | server | runtime | No. The `owner/name` the project board shows. Defaults to this repository. |
 | `PROJECT_BOARD_TOKEN` | server | runtime | No, but recommended. A read-only GitHub token; see below. |
 | `PROJECT_BOARD_POLL_SECONDS` | server | runtime | No. Seconds between polls, at least 15. Defaults to 180, or 60 with a token. |
-| `MOCK_MANAGER` | server | runtime | No. `on` (the default) for the AI manager to answer by rule from live state, `off` for a real model: through the API with `ANTHROPIC_API_KEY`, else through the server host's signed-in `claude` CLI. |
-| `ANTHROPIC_API_KEY` | server | runtime | Only with `MOCK_MANAGER=off` on a host without a signed-in `claude` CLI, such as the Docker image. A secret. |
+| `ANTHROPIC_API_KEY` | server | runtime | Only on a host without a signed-in `claude` CLI, such as the Docker image: the AI manager plans through the API with it, else through that CLI. A secret. |
 | `MANAGER_MODEL` | server | runtime | No. The model the manager uses. Defaults to `claude-opus-5-5`. |
 | `MANAGER_CALLS_PER_DAY` / `MANAGER_CALLS_PER_RUN` | server | runtime | No. The manager's model call ceilings per UTC day and per server process. Default 150 and 1000. |
 | `LIVE_AGENTS_SECRET` | server | runtime | No. The shared secret an agent orchestrator reports with and collects the manager's assignments with, at least 16 characters; without it no live agents appear. |
@@ -1994,9 +2010,9 @@ by `Closes #N`. When GitHub refuses or cannot be reached, the board keeps its la
 lists and marks them stale; a spent rate limit also holds the next poll until the
 limit resets.
 
-With `MOCK_MANAGER=off`, each message the CEO sends the manager is one call
-against the `MANAGER_CALLS_*` ceilings, retries included; once those are spent,
-or the model fails, the manager answers by rule from live state and says so. The
+Each message the CEO sends the manager is one call against the
+`MANAGER_CALLS_*` ceilings, retries included; once those are spent, or the
+model fails, the manager changes nothing and replies with the error. The
 counters live in memory, so a restart resets them. The key is sent only to the
 model API.
 
@@ -2129,7 +2145,7 @@ apps/server/       @sim/server   Colyseus room and simulation tick
   src/sim/concierge.ts    the concierge's welcome to each player who steps into the lobby
   src/github/             the project board's feed: fetch, bucket, poll
   src/agents/             the live agents' feeds: the report and assignment routes, the registry, the runner link, the slots' screens, and the loop between the work and the runner's slots
-  src/manager/            the AI manager: its view of the office, rule and model planners, call budget, assignments, updates
+  src/manager/            the AI manager: its view of the office, model planners, call budget, assignments, updates
   src/rooms/managerHandlers.ts  the CEO's messages to the manager
   src/rooms/agentPromptHandlers.ts  the CEO's prompts and keys to a coding agent, and the refusals sent back
   src/rooms/agentProfileHandlers.ts  the CEO's edits to an agent's profile, queued for its runner, and the refusals sent back
@@ -2352,7 +2368,7 @@ Ten things are worth knowing before changing anything:
   the manager is taken synchronously — checked against `mayInstructManager`,
   the CEO-only gate in `shared/manager.ts`, recorded and queued — and answered
   on the manager's own loop in `server/manager/officeManager.ts`, so the tick
-  never waits on a model. A planner, by rule or by model, only proposes: what
+  never waits on a model. The model only proposes: what
   it names is resolved against the live office afterwards, and only for a CEO
   who still holds the role, so the manager can never do what the CEO who asked
   could not. An issue for one of the runner's coding agents goes through

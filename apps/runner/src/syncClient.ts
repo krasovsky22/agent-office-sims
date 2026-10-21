@@ -134,6 +134,10 @@ function readStandingDraft(raw: Record<string, unknown>): RunnerCommandDraft | u
   if (kind === RUNNER_COMMAND_KIND.standingReschedule && typeof raw["taskId"] === "string") {
     return { kind, taskId: raw["taskId"], schedule: raw["schedule"] as never, requestedBy };
   }
+  // Its slot id is proved by `toRunnerCommand`.
+  if (kind === RUNNER_COMMAND_KIND.standingAssign && typeof raw["taskId"] === "string") {
+    return { kind, taskId: raw["taskId"], agent: raw["agent"] as string, requestedBy };
+  }
   // Its number and state are proved by `toRunnerCommand`.
   if (kind === RUNNER_COMMAND_KIND.issueState) {
     return { kind, issueNumber: raw["issueNumber"] as number, state: raw["state"] as never, requestedBy };

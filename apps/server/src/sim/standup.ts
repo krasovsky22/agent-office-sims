@@ -223,7 +223,7 @@ function spokenAnswer(reply: string): string {
 }
 
 /** Why a direction was not typed, in words for its record. */
-function failureReason(rejection: AgentPromptRejection): string {
+export function failureReason(rejection: AgentPromptRejection): string {
   switch (rejection) {
     case AGENT_PROMPT_REJECTION.offline:
       return "its runner could not be reached";

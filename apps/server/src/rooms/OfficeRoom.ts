@@ -637,6 +637,7 @@ export class OfficeRoom extends Room<OfficeState> {
         this.broadcast(SERVER_MESSAGE.managerEntry, entry satisfies ManagerEntry);
       },
       standup: (action, ceo) => this.runners.standup.forManager(action, ceo),
+      message: (ceo, agentId, agentName, text) => this.runners.agentMessages.send(ceo, agentId, agentName, text),
     });
     registerManagerHandlers(this, {
       state: this.state,

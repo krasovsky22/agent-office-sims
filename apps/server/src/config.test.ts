@@ -5,7 +5,7 @@
  * `PROJECT_BOARD_*` variables, which refuse to start the server when they are
  * wrong rather than polling a repository nobody meant, or about the live
  * agents' `LIVE_AGENTS_*`, which refuse a secret too short to be one, as
- * `RUNNER_SECRET` does. The AI manager's `MOCK_MANAGER` and `MANAGER_*`
+ * `RUNNER_SECRET` does. The AI manager's `MANAGER_*`
  * follow the same rule: a bad setting stops the boot, not a question.
  */
 
@@ -142,14 +142,8 @@ describe("readProjectBoardConfig", () => {
 });
 
 describe("readManagerConfig", () => {
-  it("answers by rule unless told otherwise, even with a key present", () => {
-    expect(readManagerConfig({})).toEqual({ mode: "mock" });
-    expect(readManagerConfig({ MOCK_MANAGER: " On " })).toEqual({ mode: "mock" });
-    expect(readManagerConfig({ ANTHROPIC_API_KEY: "k" })).toEqual({ mode: "mock" });
-  });
-
-  it("uses the model, with its own default budgets, when mock is off and a key is present", () => {
-    expect(readManagerConfig({ MOCK_MANAGER: "off", ANTHROPIC_API_KEY: " sk-test " })).toEqual({
+  it("uses the model through the API, with its own default budgets, when a key is present", () => {
+    expect(readManagerConfig({ ANTHROPIC_API_KEY: " sk-test " })).toEqual({
       mode: "model",
       apiKey: "sk-test",
       model: "claude-opus-5-5",
@@ -158,7 +152,6 @@ describe("readManagerConfig", () => {
     });
     expect(
       readManagerConfig({
-        MOCK_MANAGER: "off",
         ANTHROPIC_API_KEY: "k",
         MANAGER_MODEL: "claude-sonnet-5-5",
         MANAGER_CALLS_PER_DAY: "5",
@@ -167,24 +160,25 @@ describe("readManagerConfig", () => {
     ).toMatchObject({ model: "claude-sonnet-5-5", callsPerDay: 5, callsPerRun: 0 });
   });
 
-  it("plans through the signed-in claude CLI when mock is off and no key is set", () => {
+  it("plans through the signed-in claude CLI when no key is set", () => {
     const cli = { mode: "cli", model: "claude-opus-5-5", callsPerDay: 150, callsPerRun: 1000 };
-    expect(readManagerConfig({ MOCK_MANAGER: "off" })).toEqual(cli);
-    expect(readManagerConfig({ MOCK_MANAGER: "off", ANTHROPIC_API_KEY: "  " })).toEqual(cli);
-    expect(readManagerConfig({ MOCK_MANAGER: "off", MANAGER_MODEL: "claude-sonnet-5-5" })).toMatchObject({ mode: "cli", model: "claude-sonnet-5-5" });
+    expect(readManagerConfig({})).toEqual(cli);
+    // A leftover from when the manager could answer without a model changes nothing.
+    expect(readManagerConfig({ MOCK_MANAGER: "on" })).toEqual(cli);
+    expect(readManagerConfig({ ANTHROPIC_API_KEY: "  " })).toEqual(cli);
+    expect(readManagerConfig({ MANAGER_MODEL: "claude-sonnet-5-5" })).toMatchObject({ mode: "cli", model: "claude-sonnet-5-5" });
   });
 
   it.each([
-    [{ MOCK_MANAGER: "sometimes" }, /MOCK_MANAGER/],
-    [{ MOCK_MANAGER: "off", MANAGER_CALLS_PER_DAY: "-1" }, /MANAGER_CALLS_PER_DAY/],
-    [{ MOCK_MANAGER: "off", ANTHROPIC_API_KEY: "k", MANAGER_CALLS_PER_DAY: "1.5" }, /MANAGER_CALLS_PER_DAY/],
+    [{ MANAGER_CALLS_PER_DAY: "-1" }, /MANAGER_CALLS_PER_DAY/],
+    [{ ANTHROPIC_API_KEY: "k", MANAGER_CALLS_PER_DAY: "1.5" }, /MANAGER_CALLS_PER_DAY/],
   ])("rejects %j", (env, pattern) => {
     expect(() => readManagerConfig(env)).toThrow(pattern);
   });
 
   it("never puts the key in an error", () => {
     expect(() =>
-      readManagerConfig({ MOCK_MANAGER: "off", ANTHROPIC_API_KEY: "sk-secret", MANAGER_CALLS_PER_RUN: "x" }),
+      readManagerConfig({ ANTHROPIC_API_KEY: "sk-secret", MANAGER_CALLS_PER_RUN: "x" }),
     ).toThrow(expect.objectContaining({ message: expect.not.stringContaining("sk-secret") }));
   });
 });

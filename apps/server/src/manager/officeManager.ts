@@ -18,9 +18,9 @@
  * against the office and the project board as they are then, not as they were
  * when the question was asked.
  *
- * When a configured model fails — a timeout, a spent budget, an outage — the
- * manager answers by rule instead and says so, so a question about status still
- * gets an answer from the live state.
+ * It always plans through its model. When the model fails — a timeout, a
+ * spent budget, an outage, a CLI that is not signed in — it changes nothing
+ * and says why, in the model's own error, so the CEO knows what to fix.
  *
  * Asked to hire an agent for an issue, it writes the new agent a profile for
  * it and has a runner take it on (`./hire.ts`), up to the office's cap on
@@ -34,6 +34,10 @@
  * Asked to call or end a standup, it does so as the CEO who asked, through
  * the standup's own gate (`../sim/standup.ts`), and adds a line saying how
  * it went, as it does for an assignment.
+ *
+ * Asked to pass the CEO's words to an agent, a task or a question, it does
+ * so through the same path as a standup's direction (`./agentMessages.ts`),
+ * only the CEO's own words, and posts what came of them as an update.
  *
  * Its updates come from its own timer: a look at the office every couple of
  * seconds, compared with the last (`./updates.ts`), and posted to the same
@@ -64,13 +68,13 @@ import type { StandingControl } from "../agents/standingControl.js";
 import type { WorkHost } from "../rooms/workHandlers.js";
 import { recordOfficeEvent } from "../sim/events.js";
 import { type AdviceResult, type ManagerAdvisor, type ManagerRequest, type PlannedStandup } from "./advisor.js";
+import { carryOutMessages } from "./agentMessages.js";
 import { carryOut } from "./assign.js";
 import { type AgentHiring, HireDesk } from "./hire.js";
 import { ManagerConversation } from "./conversation.js";
 import type { LiveAssignmentQueue } from "./liveAssignments.js";
 import { type OfficeView, readLiveAgents, readOfficeView } from "./officeView.js";
 import { ADVICE_FAILURE } from "./plannerError.js";
-import { planFromRules } from "./rulePlanner.js";
 import { carryOutStanding } from "./standingPlan.js";
 import { type Observation, describeChanges, observe } from "./updates.js";
 import { carryOutMoves } from "./workMoves.js";
@@ -106,6 +110,8 @@ export interface ManagerHost {
   readonly publish: (entry: ManagerEntry) => void;
   /** Defaults to {@link UPDATE_INTERVAL_MS}. */
   readonly updateIntervalMs?: number;
+  /** Passes the CEO's words to an agent, and says how that went; absent with no runner. */
+  readonly message?: (ceo: Occupant, agentId: string, agentName: string, text: string) => string;
   /** Calls or ends the standup for the CEO, and says how it went; absent in a room without one. */
   readonly standup?: (action: PlannedStandup, ceo: Occupant) => string;
 }
@@ -242,10 +248,14 @@ export class OfficeManager {
     if (this.stopped || (!result.ok && result.reason === ADVICE_FAILURE.cancelled)) {
       return;
     }
+    if (!result.ok) {
+      this.say(MANAGER_ENTRY_KIND.reply, MANAGER_NAME, failureReply(result));
+      recordOfficeEvent("manager-answer", { ceo: question.ceoName, assignments: 0, tokens: result.tokensUsed, failure: result.reason });
+      return;
+    }
     // Read again now the answer is in: the office has moved on while it was thought about.
     const view = this.look();
-    const plan = result.ok ? result.plan : planFromRules({ ...request, view });
-    const preface = result.ok ? "" : fallbackNote(result);
+    const plan = result.plan;
 
     let outcomes: string[] = [];
     const ceo = this.host.work.state.occupants.get(question.ceoId);
@@ -276,6 +286,19 @@ export class OfficeManager {
           : ["✗ You are no longer the CEO, so I hired nobody."]),
       );
     }
+    const messages = plan.messages ?? [];
+    if (messages.length > 0) {
+      const send = this.host.message;
+      outcomes.push(
+        ...(stillCeo
+          ? carryOutMessages(messages, {
+              message: question.text,
+              view,
+              send: send === undefined ? undefined : (agentId, agentName, text) => send(ceo, agentId, agentName, text),
+            })
+          : ["✗ You are no longer the CEO, so I passed nothing on."]),
+      );
+    }
     if (plan.standup !== undefined && this.host.standup !== undefined) {
       outcomes.push(stillCeo ? this.host.standup(plan.standup, ceo) : "✗ You are no longer the CEO, so I didn't.");
     }
@@ -291,14 +314,12 @@ export class OfficeManager {
     this.say(
       MANAGER_ENTRY_KIND.reply,
       MANAGER_NAME,
-      [preface, plan.reply, ...outcomes, ...standingOutcomes].filter((line) => line !== "").join("\n"),
+      [plan.reply, ...outcomes, ...standingOutcomes].filter((line) => line !== "").join("\n"),
     );
     recordOfficeEvent("manager-answer", {
       ceo: question.ceoName,
-      via: result.ok ? this.host.advisor.mode : "rules",
       assignments: outcomes.filter((line) => line.startsWith("✓")).length,
-      tokens: result.ok ? result.plan.tokensUsed : result.tokensUsed,
-      ...(result.ok ? {} : { failure: result.reason }),
+      tokens: plan.tokensUsed,
     });
   }
 
@@ -355,9 +376,9 @@ export class OfficeManager {
   }
 }
 
-/** The line a rules answer opens with when the model it stood in for failed. */
-function fallbackNote(result: Extract<AdviceResult, { ok: false }>): string {
+/** What the manager says when its model gave no plan: nothing was done, and the model's own error. */
+function failureReply(result: Extract<AdviceResult, { ok: false }>): string {
   return result.reason === ADVICE_FAILURE.budgetExhausted
-    ? `(My model budget is spent — ${result.message} — so this is my quick answer from the board.)`
-    : `(I couldn't reach my model — ${result.message} — so this is my quick answer from the board.)`;
+    ? `✗ My model budget is spent, so I haven't done anything: ${result.message}.`
+    : `✗ My model couldn't answer, so I haven't done anything: ${result.message}.`;
 }

@@ -1,72 +1,36 @@
 /**
- * The AI Manager and standing tasks: what the CEO's words about them mean,
- * how a plan about them is carried out, and how they read.
+ * The AI Manager and standing tasks: how a model's plan about them is carried
+ * out, and the CEO's own words it is checked against.
  *
- * The rule planner (`./rulePlanner.ts`) understands a handful of shapes, by
- * a strict grammar, as it does assignments:
- *
- * - "watch for new pull requests", "review new pull requests": the pull
- *   request watch, which reviews each new one once.
- * - "review, resolve conflicts and merge new pull requests", "merge pull
- *   requests once their checks pass": the pull request steward, which reviews
- *   each new one once, resolves its conflicts and merges it once every
- *   required check is green.
- * - "every weekday at 9, summarise what changed", "every 30 minutes check the
- *   open issues for anything urgent", "summarise open PRs every day at 17:30",
- *   "schedule a job on cron 0 9 * * 1-5 to …": a scheduled job, its schedule
- *   read into cron by {@link readSchedule} on the runner's clock.
- * - "pause / resume the pull request watch", "stop watching pull requests",
- *   "remove the morning summary", "check the PR watch now": the CEO's buttons,
- *   by name.
- * - "what are you watching?", "what's scheduled?": the list.
- * - "run the morning summary every day at 8", "check pull requests every 10
- *   minutes": a new schedule for a task, as the wall board's control sets.
- * - "hire someone to review, resolve conflicts and merge pull requests",
- *   "hire someone to summarise what changed every weekday at 9": a standing
- *   hire (`./hire.ts`), read by {@link readStandingHire}.
- *
- * A model's plan names the same actions (`./modelPlanner.ts`). Either way a
- * plan is carried out by {@link carryOutStanding}, through
- * `../agents/standingControl.ts` and its one gate with the CEO as the actor,
- * and whatever it names is resolved against the office as it is then. A
- * scheduled job runs unattended with the agents' permissions, so one is only
- * set up from the CEO's own message, its schedule and instruction read from
- * it by {@link readSchedule}: never from a board's issue or pull request
- * title a model read and took for an order. A new schedule is read from the
- * CEO's own message the same way, and the steward, which pushes and merges
- * unattended, only when the CEO's own message asks for merging pull requests.
+ * A plan (`./modelPlanner.ts`) is carried out by {@link carryOutStanding},
+ * through `../agents/standingControl.ts` and its one gate with the CEO as the
+ * actor, and whatever it names is resolved against the office as it is then.
+ * A scheduled job runs unattended with the agents' permissions, so one is only
+ * set up from the CEO's own message, its schedule and instruction read from it
+ * by {@link readSchedule} ("every weekday at 9, summarise what changed", "on
+ * cron 15 8 * * 1-5 run the triage"): never from a board's issue or pull
+ * request title a model read and took for an order. A new schedule is read
+ * from the CEO's own message the same way, and the steward, which pushes and
+ * merges unattended, only when the CEO's own message asks for merging pull
+ * requests.
  */
 
 import {
   type OfficeActor,
-  STANDING_ACTION,
   STANDING_KIND,
-  STANDING_OUTCOME_TEXT,
-  STANDING_STATUS_TEXT,
-  type StandingOutcome,
-  type StandingStatus,
-  type StandingTaskAction,
   type StandingSchedule,
-  isStandingOutcome,
-  isStandingStatus,
   parseCron,
   scheduleRefusal,
-  standingSpendText,
 } from "@sim/shared";
 
-import type { StandingControl } from "../agents/standingControl.js";
-import type { PlannedStanding, StandingRole } from "./advisor.js";
-import type { OfficeView, StandingTaskView } from "./officeView.js";
+import { slotOf } from "../agents/runnerWork.js";
+import type { StandingControl, StandingPlacement } from "../agents/standingControl.js";
+import type { PlannedStanding } from "./advisor.js";
+import type { IssueAgentView, OfficeView, StandingTaskView } from "./officeView.js";
+import { resolveAgent } from "./resolve.js";
 
 /** Words that mean the pull request watch when a task is named. */
 const PR_WATCH = /\b(pull requests?|prs?|pull request watch|pr watch|reviews?|reviewer)\b/;
-
-/** "watch for new pull requests", "review every new PR", "keep an eye on incoming pull requests". */
-const WATCH =
-  /^(?:start |keep |begin )?(?:watch(?:ing)?|review(?:ing)?|monitor(?:ing)?|keep an eye on)(?: out)?(?: for)?(?: (?:all|any|every|each|the))?(?: new| incoming| open)? (?:pull requests?|prs?)(?: (?:as they come in|that come in|when they open|that are opened))?$/;
-
-/** What may open a request for the steward: "review, resolve conflicts and merge…", "merge pull requests once…". */
-const STEWARD_LEAD = /^(?:start |keep |begin |please )?(?:watch|review|monitor|merge|steward|look after|take care of|handle|resolve|auto-?merge)/;
 
 /** The steward's words: what sets it apart from the watch is that it merges. */
 const MERGES = /\b(?:merg(?:e|es|ing|er)|auto-?merge|stewards?)\b/;
@@ -80,28 +44,9 @@ export function asksToMerge(message: string): boolean {
   return MERGES.test(text) && PULLS.test(text);
 }
 
-/** "run the morning summary every day at 8", "change the PR watch to every 10 minutes", "check pull requests every 10 minutes". */
-const RESCHEDULE =
-  /^(?:reschedule|change|move|set|switch|make|have|run|check) (.+?) (?:to )?(?:(?:run|check|look|fire|go) )?((?:every|each|daily|hourly|on cron)\b.*)$/;
-
 /** "hire", "we need to hire", "let's recruit", and what is hired up to the words that say what for. */
 const HIRE_LEAD =
   /^(?:(?:please|so|ok|okay) )?(?:(?:we|i) (?:need|want|would like|'d like) to |let'?s |go ahead and )?(?:hire|recruit|bring in) (.*?)(?: (?:to|that will|who will|that'll|who'll|that can|who can|for)\b|$)/;
-
-/** "stop watching pull requests", "stop reviewing PRs". */
-const STOP_WATCHING = /^(?:stop|quit|cancel|end) (?:watching|reviewing|monitoring)(?: for)?(?: (?:new|incoming))? (?:pull requests?|prs?)$/;
-
-const TASK_VERBS: ReadonlyArray<readonly [RegExp, StandingTaskAction]> = [
-  [/^(?:pause|suspend|hold) (.+)$/, STANDING_ACTION.pause],
-  [/^(?:resume|unpause|restart|continue) (.+)$/, STANDING_ACTION.resume],
-  [/^(?:remove|delete|cancel|stop|drop|end) (.+)$/, STANDING_ACTION.remove],
-  // "now" is filler the planner has already dropped, so "run the morning summary" is enough.
-  [/^(?:check|run) (.+?)(?: now)?$/, STANDING_ACTION.checkNow],
-];
-
-/** "what are you watching?", "what's scheduled?", "list the standing tasks". */
-const LIST =
-  /\b(?:what (?:are|is) (?:you|anyone|everyone) watching|watching anything|what'?s scheduled|what is scheduled|standing tasks?|scheduled (?:jobs?|tasks?)|recurring (?:jobs?|tasks?))\b/;
 
 /** What may open a scheduled job's request ahead of its schedule. */
 const SCHEDULE_LEAD = /^(?:(?:schedule|set up|create|add|start|make)(?: a| an)?(?: new)?(?: recurring| scheduled| standing| regular| repeating)?(?: job| task)?(?: that runs| to run| running)? )?/;
@@ -298,39 +243,6 @@ export function readHireSchedule(message: string): { readonly cron: string; read
   return rest === "" ? undefined : readSchedule(rest);
 }
 
-/**
- * A standing hire in the CEO's words, and who they asked for: "hire someone
- * to review, resolve conflicts and merge pull requests" is the steward, "hire
- * a reviewer for new PRs" the watch, and "hire someone to summarise what
- * changed every weekday at 9" a scheduled job. `undefined` for any other
- * message, a hire for an issue among them.
- */
-export function readStandingHire(message: string): { readonly role: StandingRole; readonly who: string } | undefined {
-  const text = message.toLowerCase().replace(/’/g, "'").replace(/\s+/g, " ").trim();
-  const lead = HIRE_LEAD.exec(text);
-  if (lead === null || /#\s?\d|\bissues?\b|\btickets?\b/.test(text)) {
-    return undefined;
-  }
-  const who = (lead[1] ?? "").trim();
-  if (readHireSchedule(message)?.instruction) {
-    return { role: "schedule", who };
-  }
-  if (!PULLS.test(text)) {
-    return undefined;
-  }
-  if (MERGES.test(text)) {
-    return { role: "pr-steward", who };
-  }
-  return /\b(?:review|reviews|reviewing|reviewer|watch|watching|watcher|wait for)\b/.test(text) ? { role: "pr-review", who } : undefined;
-}
-
-/** What a message asks about standing tasks, if it is about them at all. */
-export type StandingInstruction =
-  | { readonly kind: "plan"; readonly standing: readonly PlannedStanding[] }
-  | { readonly kind: "list" }
-  /** A schedule with nothing to do, or a schedule that could not be. */
-  | { readonly kind: "unclear"; readonly reply: string };
-
 /** The task a few words name: the pull request watch, an id, or the one whose name has them all. */
 export function resolveStandingTask(words: string, view: OfficeView): StandingTaskView | undefined {
   const said = words.toLowerCase().replace(/^(?:the|our|my) /, "").replace(/ (?:task|job|watch)$/, "").trim();
@@ -356,92 +268,11 @@ export function resolveStandingTask(words: string, view: OfficeView): StandingTa
   return undefined;
 }
 
-/**
- * What a message asks about standing tasks, by the grammar above; `undefined`
- * for a message that is not about them, which the rest of the planner reads.
- *
- * @param words the message as the planner reads it: lower case, its lead-in,
- * a closing "?" and filler gone.
- */
-export function readStandingInstruction(message: string, words: string, view: OfficeView): StandingInstruction | undefined {
-  // A pull request named by its number is a move on it, not a standing task.
-  if (STEWARD_LEAD.test(words) && MERGES.test(words) && PULLS.test(words) && !/#\s?\d|\b\d+\b/.test(words)) {
-    return { kind: "plan", standing: [{ action: "steward-pull-requests" }] };
-  }
-  const reschedule = RESCHEDULE.exec(words);
-  const renamed = reschedule?.[1]?.replace(/ to$/, "");
-  if (reschedule !== null && renamed !== undefined && resolveStandingTask(renamed, view) !== undefined) {
-    return readEveryIn(message) === undefined
-      ? { kind: "unclear", reply: "How often should it run? Say it like “every 10 minutes” or “every weekday at 9”." }
-      : { kind: "plan", standing: [{ action: "reschedule", task: renamed }] };
-  }
-  if (WATCH.test(words)) {
-    return { kind: "plan", standing: [{ action: "watch-pull-requests" }] };
-  }
-  if (STOP_WATCHING.test(words)) {
-    return { kind: "plan", standing: [{ action: STANDING_ACTION.remove, task: "pull requests" }] };
-  }
-  for (const [pattern, action] of TASK_VERBS) {
-    const match = pattern.exec(words);
-    const named = match?.[1];
-    if (named !== undefined && resolveStandingTask(named, view) !== undefined) {
-      return { kind: "plan", standing: [{ action, task: named }] };
-    }
-  }
-  if (LIST.test(words)) {
-    return { kind: "list" };
-  }
-  const schedule = readSchedule(message);
-  if (schedule === undefined) {
-    return undefined;
-  }
-  const why = scheduleRefusal(schedule.cron);
-  if (why !== undefined) {
-    return { kind: "unclear", reply: `I can't schedule that: ${why}. Say it like “every weekday at 9, summarise what changed yesterday”.` };
-  }
-  if (schedule.instruction === "") {
-    return { kind: "unclear", reply: "What should the job do each time? Say it like “every weekday at 9, summarise what changed yesterday”." };
-  }
-  return { kind: "plan", standing: [{ action: "schedule", cron: parseCron(schedule.cron)?.expression ?? schedule.cron, instruction: schedule.instruction }] };
-}
-
-/** One standing task in a line: `“Watch for new pull requests” (every 2 min) · active; last: reviewed PR #112; $0.20 of $2.00 today`. */
-function describeStandingTask(task: StandingTaskView): string {
-  const status = isStandingStatus(task.status) ? STANDING_STATUS_TEXT[task.status as StandingStatus] : task.status;
-  const parts = [`“${task.name}” (${task.trigger}) · ${status}`];
-  if (task.agent !== undefined) {
-    parts.push(`${task.agent} was hired for it`);
-  }
-  if (task.runningOn !== undefined) {
-    parts.push(`${task.runningOn} is on it now`);
-  }
-  if (task.lastOutcome !== undefined) {
-    const outcome = isStandingOutcome(task.lastOutcome) ? STANDING_OUTCOME_TEXT[task.lastOutcome as StandingOutcome] : task.lastOutcome;
-    parts.push(`last: ${outcome}${task.lastRunPr === undefined ? "" : ` PR #${task.lastRunPr}`}`);
-  }
-  if (task.queued > 0) {
-    parts.push(`${task.queued} waiting for a free coding agent`);
-  }
-  parts.push(standingSpendText(task.spentTodayUsd, task.dailyUsd));
-  if (task.lastError !== undefined) {
-    parts.push(`last error: ${task.lastError}`);
-  }
-  return parts.join("; ");
-}
-
-/** The answer to "what are you watching?". */
-export function standingSummary(view: OfficeView): string {
-  if (view.standing.length === 0) {
-    return "No standing tasks yet. Say “watch for new pull requests”, “review, resolve conflicts and merge new pull requests”, or “every weekday at 9, summarise what changed yesterday”.";
-  }
-  return ["Standing tasks:", ...view.standing.map((task) => `- ${describeStandingTask(task)}`)].join("\n");
-}
-
 export interface StandingContext {
   /** The CEO's message the plan answers. */
   readonly message: string;
   /** Absent when no runner is configured. */
-  readonly control: Pick<StandingControl, "create" | "act" | "reschedule"> | undefined;
+  readonly control: Pick<StandingControl, "create" | "act" | "reschedule" | "assign"> | undefined;
   /** The CEO the manager is acting for. */
   readonly actor: OfficeActor;
   readonly ceoName: string;
@@ -462,6 +293,30 @@ function scheduleFor(kind: string, message: string): StandingSchedule | string {
   return every?.minutes === undefined
     ? "A pull request task checks every so many minutes; say it yourself, like “every 10 minutes”."
     : { intervalSeconds: every.minutes * 60 };
+}
+
+/** The runners' coding agent a plan names, or why it cannot run a standing task. */
+function standingAgent(name: string, view: OfficeView): IssueAgentView | string {
+  const agent = resolveAgent(name, view);
+  if (agent === undefined) {
+    return `I can't find an agent called “${name}”.`;
+  }
+  return slotOf(agent.id) === undefined || !view.issueAgents.includes(agent as IssueAgentView)
+    ? `${agent.name} works through its orchestrator, so it can't run a standing task; only the runners' coding agents can.`
+    : (agent as IssueAgentView);
+}
+
+/** Where a new task for the agent a plan names goes, nowhere in particular for none, or why it cannot. */
+function placementFor(name: string | undefined, view: OfficeView): StandingPlacement | undefined | string {
+  if (name === undefined || name === "") {
+    return undefined;
+  }
+  const agent = standingAgent(name, view);
+  if (typeof agent === "string") {
+    return agent;
+  }
+  const slot = slotOf(agent.id);
+  return slot === undefined ? `${agent.name} can't run a standing task.` : { runnerId: slot.runnerId, agent: slot.slotId };
 }
 
 /** Most standing actions one plan may take, so a runaway model cannot churn every task. */
@@ -487,8 +342,28 @@ export function carryOutStanding(actions: readonly PlannedStanding[], context: S
           lines.push("✗ I only set up the pull request steward when you ask yourself for pull requests to be merged, like “review, resolve conflicts and merge new pull requests”.");
           break;
         }
+        const placement = placementFor(action.agent, context.view);
+        if (typeof placement === "string") {
+          lines.push(`✗ ${placement}`);
+          break;
+        }
         const kind = action.action === "watch-pull-requests" ? STANDING_KIND.prReview : STANDING_KIND.prSteward;
-        const result = control.create(context.actor, context.ceoName, { kind }, "");
+        const result = control.create(context.actor, context.ceoName, { kind }, "", placement);
+        lines.push(result.ok ? result.text : `✗ ${result.text}`);
+        break;
+      }
+      case "assign": {
+        const task = resolveStandingTask(action.task, context.view);
+        if (task === undefined) {
+          lines.push(`✗ I can't find a standing task called “${action.task}”.`);
+          break;
+        }
+        const agent = standingAgent(action.agent, context.view);
+        if (typeof agent === "string") {
+          lines.push(`✗ ${agent}`);
+          break;
+        }
+        const result = control.assign(context.actor, context.ceoName, task.id, agent.id, agent.name);
         lines.push(result.ok ? result.text : `✗ ${result.text}`);
         break;
       }
@@ -517,9 +392,14 @@ export function carryOutStanding(actions: readonly PlannedStanding[], context: S
           lines.push("✗ I only set up a scheduled job when you ask for one yourself, with what it should do in your own words, like “every weekday at 9, summarise what changed yesterday”.");
           break;
         }
+        const placement = placementFor(action.agent, context.view);
+        if (typeof placement === "string") {
+          lines.push(`✗ ${placement}`);
+          break;
+        }
         const cron = parseCron(asked.cron)?.expression ?? asked.cron;
         const request = { kind: STANDING_KIND.schedule, cron, instruction: asked.instruction };
-        const result = control.create(context.actor, context.ceoName, request, "");
+        const result = control.create(context.actor, context.ceoName, request, "", placement);
         lines.push(result.ok ? result.text : `✗ ${result.text}`);
         break;
       }
