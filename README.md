@@ -703,7 +703,8 @@ curl -X POST localhost:2567/agents/runner/sync \
 Each sync carries the runner's whole state. `slots` lists every slot, at most
 4, each `idle`, `starting`, `working`, `needs-input` or `exited`, with its
 agent's `name`, `title` and `description` (see [Agent profiles](#agent-profiles)),
-and an optional `issueNumber`, `activity` line and `pr` (`{"number","title","url"}`),
+and an optional `issueNumber`, `activity` line, `pr` (`{"number","title","url"}`)
+and `spentTodayUsd`, what its agent has spent today across all its runs,
 or a `desk` (`{"seatId"}`) while it is lent to the CEO's desk, which it holds
 instead of an issue or a standing run, its status and activity then the desk
 session's. `events` lists what happened since the last answered sync, at most 8, each
