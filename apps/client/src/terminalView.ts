@@ -4,12 +4,12 @@
  * CEO has wheeled it.
  *
  * A desk's monitor zooms in on the screen's busy rows so they read from
- * across the room. The panel is read up close, so it shows them all: the
- * text grows until the terminal's width or its screen's rows fill the panel,
- * since an issue's agent keeps the runner's size, which every tab shares, and
- * as many rows as the panel has room for, the newest at the bottom. Scrolled back, the view stays on
- * the rows it shows as new ones arrive under it, the way a terminal's does;
- * scrolled to the bottom, it follows the agent live.
+ * across the room. The panel is read up close, so it shows them all, as
+ * many rows as it has room for, the newest at the bottom. An issue's agent
+ * keeps the runner's size, which every tab shares, so the text grows until
+ * the terminal's width or its screen's rows fill the panel. Scrolled back,
+ * the view stays on the rows it shows as new ones arrive under it, the way a
+ * terminal's does; scrolled to the bottom, it follows the agent live.
  */
 
 import {
@@ -189,8 +189,9 @@ export interface TerminalLayout {
  *
  * The text grows from {@link TERMINAL_FONT_PX} until the terminal's full width
  * or its screen's rows fill the canvas, up to {@link MAX_FONT_PX}, and is
- * smaller only if the full width would not fit otherwise. While there is more than fits, a scrollbar
- * says where the view is; scrolled back, a note at the bottom says how far.
+ * smaller only if the full width would not fit otherwise. While there is more
+ * than fits, a scrollbar says where the view is; scrolled back, a note at the
+ * bottom says how far.
  */
 export function paintTerminal(
   ctx: ScreenContext,
