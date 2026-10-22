@@ -807,17 +807,17 @@ defineTypes(Brainstorm, {
 });
 
 /**
- * One of the CEO's desk terminals (`./deskTerminal.ts`): a desk whose computer the CEO turned on,
+ * One desk terminal (`./deskTerminal.ts`): a desk whose computer a player turned on,
  * the coding agent lent to it, and how its session stands. State rather than
  * a broadcast, so every tab draws the session's terminal on that desk's
- * monitor, and the CEO's own tab opens the panel, from the same record. The
- * CEO may have several desks' computers on at once, one record each in
+ * monitor, and its player's own tab opens the panel, from the same record. A
+ * player may have several desks' computers on at once, one record each in
  * `OfficeState.desks`; a desk whose computer is off has none.
  */
 export class DeskTerminal extends Schema {
   /** The seat's interactable id, which it is keyed by in `OfficeState.desks`. */
   declare public seatId: string;
-  /** The CEO who turned it on, by occupant id. */
+  /** The player who turned it on, by occupant id. */
   declare public ownerId: string;
   /** The lent agent's occupant key, whose screen the desk shows; `""` until one is lent. */
   declare public agentId: string;
@@ -974,7 +974,7 @@ export class OfficeState extends Schema {
    * offers the drops that would be made, and says why while it offers none.
    */
   declare public issuesWritable: boolean;
-  /** The CEO's desk terminals whose computers are on, by seat id; see `./deskTerminal.ts`. */
+  /** The desk terminals whose computers are on, by seat id; see `./deskTerminal.ts`. */
   declare public desks: MapSchema<DeskTerminal>;
   declare public radio: Radio;
   declare public tv: Tv;

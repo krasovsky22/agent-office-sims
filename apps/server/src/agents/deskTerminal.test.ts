@@ -1,9 +1,10 @@
 /**
- * The CEO's desk terminals against a real runner link: sitting at a computer
- * lends the CEO a free slot, the slot reporting the desk opens it, standing up
+ * The desk terminals against a real runner link: sitting at a computer lends
+ * the player a free slot, the slot reporting the desk opens it, standing up
  * leaves it running and sitting again reattaches it, each desk runs its own
- * session at once, turning one off or the CEO leaving gives it back, and
- * nobody but the CEO is lent one.
+ * session at once, turning one off or its player leaving gives it back, every
+ * player is lent one of their own, and nobody else may size, turn off or
+ * prompt it.
  */
 
 import {
@@ -155,7 +156,7 @@ describe("DeskTerminal", () => {
     desk.turnOff(CEO, SEAT);
     desk.step();
     expect(state.desks.size).toBe(0);
-    expect(sync([lent])).toEqual([{ id: "command-2", slotId: "slot-1", kind: "desk-close", seatId: SEAT, reason: "the CEO turned it off" }]);
+    expect(sync([lent])).toEqual([{ id: "command-2", slotId: "slot-1", kind: "desk-close", seatId: SEAT, reason: "its player turned it off" }]);
     // Still reported until the runner has closed it: not closed twice, and still sitting there lends nothing.
     desk.step();
     expect(sync([lent]).filter((command) => command.kind === "desk-close")).toHaveLength(1);
@@ -178,7 +179,7 @@ describe("DeskTerminal", () => {
     desk.turnOff(CEO, SEAT);
     desk.step();
     expect(phaseAt(state)).toBe(DESK_TERMINAL_PHASE.off);
-    expect(sync([lent]).at(-1)).toMatchObject({ kind: "desk-close", slotId: "slot-1", seatId: SEAT, reason: "the CEO turned it off" });
+    expect(sync([lent]).at(-1)).toMatchObject({ kind: "desk-close", slotId: "slot-1", seatId: SEAT, reason: "its player turned it off" });
   });
 
   it("forgets a sitting with nothing running the moment the CEO stands up", () => {
@@ -245,12 +246,12 @@ describe("DeskTerminal", () => {
     // Turning one off leaves the other running.
     desk.turnOff(CEO, OTHER);
     desk.step();
-    expect(sync(both)).toEqual([{ id: "command-4", slotId: "slot-2", kind: "desk-close", seatId: OTHER, reason: "the CEO turned it off" }]);
+    expect(sync(both)).toEqual([{ id: "command-4", slotId: "slot-2", kind: "desk-close", seatId: OTHER, reason: "its player turned it off" }]);
     expect(phaseAt(state, OTHER)).toBe(DESK_TERMINAL_PHASE.off);
     expect(state.desks.get(SEAT)?.toJSON()).toMatchObject({ phase: DESK_TERMINAL_PHASE.open, agentId: liveAgentKey(runnerSlotAgentId("box", "slot-1")) });
   });
 
-  it("says a desk waits when every slot is lent to the CEO's other desks, and closes them all when the CEO leaves", () => {
+  it("says a desk waits when every slot is lent to the player's other desks, and closes them all when they leave", () => {
     const { state, ceo, desk, sync, ack } = setup();
     const OTHER = "seat-desk-north-2-1";
     sync([IDLE]);
@@ -273,7 +274,7 @@ describe("DeskTerminal", () => {
     state.occupants.delete(CEO);
     desk.step();
     expect(state.desks.size).toBe(0);
-    expect(sync(lent)).toEqual([expect.objectContaining({ kind: "desk-close", slotId: "slot-1", reason: "the CEO left" })]);
+    expect(sync(lent)).toEqual([expect.objectContaining({ kind: "desk-close", slotId: "slot-1", reason: "its player left" })]);
   });
 
   it("turns off when the CEO who turned it on leaves the office", () => {
@@ -288,10 +289,10 @@ describe("DeskTerminal", () => {
     state.occupants.delete(CEO);
     desk.step();
     expect(phaseAt(state)).toBe(DESK_TERMINAL_PHASE.off);
-    expect(sync([{ ...IDLE, desk: { seatId: SEAT } }])).toEqual([expect.objectContaining({ kind: "desk-close", reason: "the CEO left" })]);
+    expect(sync([{ ...IDLE, desk: { seatId: SEAT } }])).toEqual([expect.objectContaining({ kind: "desk-close", reason: "its player left" })]);
   });
 
-  it("gives the slot back when the CEO hands the role on, even standing", () => {
+  it("keeps the session running when the CEO hands the role on, since it is theirs as a player", () => {
     const { state, ceo, employee, desk, sync, ack } = setup();
     sync([IDLE]);
     ceo.interactableId = SEAT;
@@ -303,17 +304,88 @@ describe("DeskTerminal", () => {
     ceo.role = PLAYER_ROLE.exec;
     employee.role = PLAYER_ROLE.ceo;
     desk.step();
-    expect(phaseAt(state)).toBe(DESK_TERMINAL_PHASE.off);
-    expect(sync([{ ...IDLE, desk: { seatId: SEAT } }])).toEqual([expect.objectContaining({ kind: "desk-close", reason: "the CEO handed the role on" })]);
+    expect(state.desks.get(SEAT)?.toJSON()).toMatchObject({ ownerId: CEO, phase: DESK_TERMINAL_PHASE.open });
+    expect(sync([{ ...IDLE, desk: { seatId: SEAT } }])).toEqual([]);
   });
 
-  it("lends nothing to anyone but the CEO", () => {
-    const { state, employee, desk, sync } = setup();
+  it("lends every player a session of their own, which nobody else sizes, turns off or takes over", () => {
+    const { state, ceo, employee, desk, sync, ack } = setup();
+    const OTHER = "seat-desk-north-2-1";
+    const SLOT_1 = liveAgentKey(runnerSlotAgentId("box", "slot-1"));
+    const SLOT_2 = liveAgentKey(runnerSlotAgentId("box", "slot-2"));
+    // Players are lent slots in the order they came in: Dana, then Sam.
+    sync([IDLE, { ...IDLE, id: "slot-2", name: "Claude 2" }]);
+    employee.interactableId = SEAT;
+    ceo.interactableId = OTHER;
+    desk.step();
+    expect(sync([IDLE, { ...IDLE, id: "slot-2", name: "Claude 2" }])).toEqual([
+      { id: "command-1", slotId: "slot-1", kind: "desk-open", seatId: OTHER, requestedBy: "Dana" },
+      { id: "command-2", slotId: "slot-2", kind: "desk-open", seatId: SEAT, requestedBy: "Sam" },
+    ]);
+    // The prompt gate's answer, from the slot's lending on.
+    expect(desk.deskOwnerOf(SLOT_1)).toBe(CEO);
+    expect(desk.deskOwnerOf(SLOT_2)).toBe(employee.id);
+    expect(desk.deskOwnerOf(liveAgentKey(runnerSlotAgentId("box", "slot-3")))).toBeUndefined();
+    const both: RunnerSlotReport[] = [
+      { ...IDLE, desk: { seatId: OTHER } },
+      { ...IDLE, id: "slot-2", name: "Claude 2", desk: { seatId: SEAT } },
+    ];
+    ack(both);
+    desk.step();
+    expect(state.desks.get(SEAT)?.toJSON()).toMatchObject({ ownerId: employee.id, agentId: SLOT_2, phase: DESK_TERMINAL_PHASE.open });
+    expect(state.desks.get(OTHER)?.toJSON()).toMatchObject({ ownerId: CEO, agentId: SLOT_1, phase: DESK_TERMINAL_PHASE.open });
+
+    // The CEO can neither turn the employee's off nor size it; each sizes their own.
+    desk.turnOff(CEO, SEAT);
+    desk.resize(CEO, 90, 25);
+    desk.resize(employee.id, 100, 30);
+    desk.step();
+    expect(sync(both)).toEqual([
+      { id: "command-3", slotId: "slot-1", kind: "desk-resize", seatId: OTHER, cols: 90, rows: 25 },
+      { id: "command-4", slotId: "slot-2", kind: "desk-resize", seatId: SEAT, cols: 100, rows: 30 },
+    ]);
+    expect(phaseAt(state, SEAT)).toBe(DESK_TERMINAL_PHASE.open);
+    ack(both);
+
+    // The employee stands up, and the CEO sitting at that desk is lent nothing there: the session stays the employee's.
+    employee.interactableId = "";
+    ceo.interactableId = SEAT;
+    desk.step();
+    expect(state.desks.get(SEAT)?.toJSON()).toMatchObject({ ownerId: employee.id, agentId: SLOT_2 });
+    expect(sync(both)).toEqual([]);
+
+    // Their leaving ends their session alone, and the desk is the CEO's, sitting there, once a slot is free.
+    state.occupants.delete(employee.id);
+    desk.step();
+    expect(state.desks.get(SEAT)?.toJSON()).toMatchObject({ ownerId: CEO, phase: DESK_TERMINAL_PHASE.waiting });
+    expect(phaseAt(state, OTHER)).toBe(DESK_TERMINAL_PHASE.open);
+    expect(sync(both)).toEqual([{ id: "command-5", slotId: "slot-2", kind: "desk-close", seatId: SEAT, reason: "its player left" }]);
+    // Nobody here may prompt it while it still reports the desk, the CEO included, until its runner has closed it.
+    expect(desk.deskOwnerOf(SLOT_2)).toBe("");
+    desk.step();
+    expect(desk.deskOwnerOf(SLOT_2)).toBe("");
+    const closed: RunnerSlotReport[] = [{ ...IDLE, desk: { seatId: OTHER } }, { ...IDLE, id: "slot-2", name: "Claude 2" }];
+    ack(closed);
+    desk.step();
+    // Closed, it is free again, and lent to the CEO waiting at that desk.
+    expect(desk.deskOwnerOf(SLOT_2)).toBe(CEO);
+  });
+
+  it("keeps a desk off for the player who turned it off while they sit there, not for the next player", () => {
+    const { state, ceo, employee, desk, sync, ack } = setup();
     sync([IDLE]);
     employee.interactableId = SEAT;
     desk.step();
+    ack([{ ...IDLE, desk: { seatId: SEAT } }]);
+    desk.step();
+    desk.turnOff(employee.id, SEAT);
+    ack([IDLE]);
+    desk.step();
     expect(phaseAt(state)).toBe(DESK_TERMINAL_PHASE.off);
-    expect(sync([IDLE])).toEqual([]);
+    employee.interactableId = "";
+    ceo.interactableId = SEAT;
+    desk.step();
+    expect(state.desks.get(SEAT)?.toJSON()).toMatchObject({ ownerId: CEO, phase: DESK_TERMINAL_PHASE.starting });
   });
 
   it("lends nothing at a seat with no computer, such as the AI Manager's", () => {
@@ -417,6 +489,8 @@ describe("DeskTerminal", () => {
     expect(sync(both)).toEqual([]);
     expect(phaseAt(state)).toBe(DESK_TERMINAL_PHASE.open);
     expect(phaseAt(otherState, OTHER_SEAT)).toBe(DESK_TERMINAL_PHASE.open);
+    // Nobody in this room is the player at the other room's desk.
+    expect(desk.deskOwnerOf(liveAgentKey(runnerSlotAgentId("box", "slot-2")))).toBe("");
 
     other.dispose();
     expect(sync(both)).toEqual([{ id: "command-3", slotId: "slot-2", kind: "desk-close", seatId: OTHER_SEAT, reason: "the room closed" }]);

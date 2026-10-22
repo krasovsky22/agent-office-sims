@@ -68,6 +68,9 @@ describe("AgentMessages", () => {
         submitDirection: (senderId, agentId, text) => {
           directions.push([senderId, agentId, text]);
           next += 1;
+          if (next === 4) {
+            return AGENT_PROMPT_REJECTION.forbidden;
+          }
           return next === 3 ? AGENT_PROMPT_REJECTION.offline : { commandId: `command-${next}` };
         },
       },
@@ -77,6 +80,9 @@ describe("AgentMessages", () => {
     expect(messages.send(ceo, MAYA.id, "Maya", "add a test")).toBe("✓ Passing your words to Maya; I'll say here what comes of it.");
     expect(messages.send(ceo, MAYA.id, "Maya", "what is blocking you?")).toMatch(/^✓ /);
     expect(messages.send(ceo, MAYA.id, "Maya", "one more")).toBe("✗ I couldn't pass that to Maya: its runner could not be reached.");
+    expect(messages.send(ceo, MAYA.id, "Maya", "run the tests")).toBe(
+      "✗ I couldn't pass that to Maya: it is at another player's desk's computer, which only that player can prompt.",
+    );
     expect(directions[0]).toEqual(["session-dana", MAYA.id, "add a test"]);
 
     messages.settle("command-1", { kind: "queued" });

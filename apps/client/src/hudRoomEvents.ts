@@ -63,7 +63,7 @@ export interface HudRoomEventsHost {
 
 export function hudRoomEvents(host: HudRoomEventsHost): RoomConnectionEvents {
   let nextRefusalId = 1;
-  // The agent whose terminal panel is open: the one watched at its screen, or the one lent to the CEO's desk.
+  // The agent whose terminal panel is open: the one watched at its screen, or the one lent to a desk's computer.
   const openTerminalAgentId = (): string | undefined => {
     const { terminalAgentId, desk } = host.hud();
     return terminalAgentId ?? (desk === undefined || desk.agentId === "" ? undefined : desk.agentId);

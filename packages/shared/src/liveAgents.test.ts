@@ -135,7 +135,7 @@ describe("describeLiveAgentTask", () => {
     expect(describeLiveAgentTask("idle", "", "", "Bash: pnpm test")).toBe("idle");
   });
 
-  it("says where an idle agent lent to the CEO's desk is", () => {
-    expect(describeLiveAgentTask("idle", "", "", LENT_TO_DESK_ACTIVITY)).toBe("At the CEO's desk");
+  it("says where an idle agent lent to a desk's computer is", () => {
+    expect(describeLiveAgentTask("idle", "", "", LENT_TO_DESK_ACTIVITY)).toBe("At a desk's computer");
   });
 });

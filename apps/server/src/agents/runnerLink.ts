@@ -44,7 +44,7 @@
  * schedule it runs, as its task. Commands for standing tasks address the
  * runner rather than a slot, and ride the same outbox.
  *
- * A slot lent to the CEO's desk (`./deskTerminal.ts`) is on the floor too,
+ * A slot lent to a desk's computer (`./deskTerminal.ts`) is on the floor too,
  * idle and taking no issues while it is lent, so neither the board nor the
  * manager hands it work; its session's own status and activity are read by
  * the desk terminal through {@link RunnerLink.deskSlots}, not shown on its

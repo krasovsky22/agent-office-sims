@@ -70,10 +70,10 @@
  * A slot holding nothing can also be lent to a desk in the office
  * ({@link SlotPool.handle} with `desk-open`): a fresh session of its agent with
  * no issue and no first prompt, in a scratch worktree of the default branch,
- * that the CEO sitting at that desk prompts as any agent is prompted. A slot
+ * that the player sitting at that desk prompts as any agent is prompted. A slot
  * on a standing run is refused it, and it gives the slot up to an issue's
  * start, since work the office assigned comes first. It has no
- * task timeout and does not pause for a standup: the CEO turning the desk's
+ * task timeout and does not pause for a standup: its player turning the desk's
  * computer off is what bounds it, and the server closes it then. Ending,
  * however it ends, stops its agent and discards its worktree; a session that
  * ends without the server asking says so with a `desk-ended` event; see

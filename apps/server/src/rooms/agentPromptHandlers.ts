@@ -4,7 +4,7 @@
  *
  * Thin, like the manager's: it parses the untrusted payload, resolves the
  * sender, asks the one gate, `agentPromptRefusal` in `@sim/shared` (only the
- * CEO), and hands the prompt to
+ * CEO, or for an agent lent to a desk, only that desk's player), and hands the prompt to
  * `../agents/agentPrompts.ts`, which queues it for the agent's runner. A
  * refusal is answered to the sender alone, with its reason.
  *
@@ -36,6 +36,8 @@ import type { AgentPrompts } from "../agents/agentPrompts.js";
 export interface AgentPromptHandlerHost {
   readonly state: OfficeState;
   readonly prompts: Pick<AgentPrompts, "submit" | "submitKey">;
+  /** The player whose desk the agent is lent to, `undefined` when it is lent to none. */
+  readonly deskOwnerOf: (agentId: string) => string | undefined;
   /** Charges one prompt against the sender's budget; `false` drops it, and the limiter says so. */
   readonly allow: (client: Client) => boolean;
   /** Charges one key against the sender's budget for keys; `false` drops it, and the limiter says so. */
@@ -57,7 +59,7 @@ export function registerAgentPromptHandlers(
     if (message === undefined || sender === undefined) {
       return;
     }
-    const refusal = agentPromptRefusal(actorOf(sender));
+    const refusal = agentPromptRefusal(actorOf(sender), host.deskOwnerOf(message.agentId));
     if (refusal !== undefined) {
       refuse(client, message.agentId, refusal);
       return;
@@ -77,7 +79,7 @@ export function registerAgentPromptHandlers(
     if (message === undefined || sender === undefined) {
       return;
     }
-    const refusal = agentPromptRefusal(actorOf(sender));
+    const refusal = agentPromptRefusal(actorOf(sender), host.deskOwnerOf(message.agentId));
     if (refusal !== undefined) {
       refuse(client, message.agentId, refusal, message.key);
       return;

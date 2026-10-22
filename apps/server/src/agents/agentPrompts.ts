@@ -102,6 +102,8 @@ export interface AgentPromptsOptions {
   readonly publish: (entry: AgentPromptEntry) => void;
   readonly log?: (name: string, detail: Record<string, string | number>) => void;
   readonly answerTimeoutMs?: number;
+  /** The player whose desk the agent is lent to, `undefined` when it is lent to none: nobody else's prompt, key or direction goes to it. */
+  readonly deskOwnerOf?: (agentId: string) => string | undefined;
   /** Hears what came of each standup direction, by the id {@link AgentPrompts.submitDirection} gave it. */
   readonly directed?: (commandId: string, outcome: DirectionOutcome) => void;
 }
@@ -263,6 +265,10 @@ export class AgentPrompts {
     const sender = this.options.state.occupants.get(senderId);
     if (agent === undefined || !isLiveAgent(agent) || slot === undefined || sender === undefined) {
       return AGENT_PROMPT_REJECTION.noAgent;
+    }
+    const deskOwnerId = this.options.deskOwnerOf?.(agentId);
+    if (deskOwnerId !== undefined && deskOwnerId !== senderId) {
+      return AGENT_PROMPT_REJECTION.forbidden;
     }
     if (this.options.runner === undefined) {
       return AGENT_PROMPT_REJECTION.noAgent;

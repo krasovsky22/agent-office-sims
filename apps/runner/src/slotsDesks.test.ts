@@ -1,5 +1,5 @@
 /**
- * Desk sessions: an idle slot lent to the CEO's desk, its session sized,
+ * Desk sessions: an idle slot lent to a desk's computer, its session sized,
  * typed into and closed as asked, and refused or ended with a reason.
  */
 

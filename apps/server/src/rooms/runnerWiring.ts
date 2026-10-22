@@ -171,15 +171,18 @@ export function wireRunners(
       room.broadcast(SERVER_MESSAGE.agentPrompted, entry);
     },
     log: recordOfficeEvent,
+    deskOwnerOf: (agentId) => deskTerminal.deskOwnerOf(agentId),
     directed: (commandId, outcome) => {
       standup.settle(commandId, outcome);
       agentMessages.settle(commandId, outcome);
     },
   });
   const agentMessages = new AgentMessages({ state, prompts: runnerCommands === undefined ? undefined : agentPrompts, report: host.announce });
+  const deskTerminal = new DeskTerminal({ state, layout: host.layout, runner: runnerCommands, log: recordOfficeEvent });
   registerAgentPromptHandlers(room, {
     state,
     prompts: agentPrompts,
+    deskOwnerOf: (agentId) => deskTerminal.deskOwnerOf(agentId),
     allow: (client) => host.allow(client, CLIENT_MESSAGE.agentPrompt),
     allowKey: (client) => host.allow(client, CLIENT_MESSAGE.agentKey),
   });
@@ -237,7 +240,6 @@ export function wireRunners(
   });
   registerBrainstormHandlers(room, { state, brainstorms, allow: host.allow });
 
-  const deskTerminal = new DeskTerminal({ state, layout: host.layout, runner: runnerCommands, log: recordOfficeEvent });
   room.onMessage(CLIENT_MESSAGE.deskTerminalSize, (client, raw: unknown) => {
     // Kept, not acted on: the tick's step sends a changed size at most once.
     const size = parseDeskTerminalSizeMessage(raw);

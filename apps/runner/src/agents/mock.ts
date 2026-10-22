@@ -26,7 +26,7 @@
  * It pauses for a standup between one step and the next, saying so on its
  * screen, and carries on from that step once the standup is over.
  *
- * Lent to the CEO's desk, it is a pretend session instead: it comes up at its
+ * Lent to a desk's computer, it is a pretend session instead: it comes up at its
  * prompt and answers each prompt after a step of pretend work, running nothing.
  *
  * It does one real thing, writing a file in its worktree and committing it, so
