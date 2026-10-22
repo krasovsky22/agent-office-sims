@@ -303,7 +303,9 @@ a message in the panel and the radio keeps playing what it had. Should YouTube
 still refuse to play it in one tab, that tab says so and plays the default
 station until the radio changes. Your own `Mute` and volume are in the Status
 panel and the radio's panel, and the browser remembers them
-(`packages/shared/src/radio.ts`, `apps/client/src/radioPlayer.ts`).
+(`packages/shared/src/radio.ts`, `apps/client/src/radioPlayer.ts`). While the
+TV plays a YouTube video you can hear, the radio goes quiet for you, and it
+comes back when the TV changes channel or you mute the TV.
 
 The TV over the sideboard in the conference room switches between five
 channels, and everyone sees the same one. Standing at the foot of the table,
@@ -320,12 +322,14 @@ channels, and everyone sees the same one. Standing at the foot of the table,
 - **Status board**: whether the server connection and the runners are up, and
   each coding agent's state, task and spend today.
 - **YouTube**: a video or playlist link pasted into the panel, apart from the
-  radio's. The server checks it with YouTube as it does the radio's; the TV
-  then shows its still and title, and it plays with sound from the TV,
-  loudest in the conference room and faint across the office, at the same
-  point in every tab. With the panel open the video itself shows above it.
-  The TV's volume and `Mute` are in its panel, the browser keeps them apart
-  from the radio's, and the radio plays on.
+  radio's. The server checks it with YouTube as it does the radio's; the
+  video then plays on the TV's screen, with sound from the TV, loudest in the
+  conference room and faint across the office, at the same point in every
+  tab. YouTube's player is laid out in 3D behind the scene's canvas, which is
+  left see-through where the screen is, so whatever stands in front of the TV
+  still covers it. The TV's volume and `Mute` are in its panel, the browser
+  keeps them apart from the radio's, and the radio is quiet while you hear
+  the video.
 
 The boards are drawn in each tab from what it already holds, so they change
 as the office does (`packages/shared/src/tv.ts`, `apps/client/src/tvBoards.ts`,
@@ -2108,10 +2112,10 @@ Then confirm all twenty-nine:
     `Sprint board` puts this week's issues on the TV in both tabs, and
     `Status board` the connection, `1 runner connected` and each agent's
     state and spend. In the panel's link box `example.com` is refused at once;
-    a YouTube video plays above the panel with its title and still on the
-    TV in both tabs, loudest in the conference room, while the radio plays
-    on. `Esc` closes the panel and the video plays on, heard but not seen; a
-    board channel stops it. `apps/server/src/rooms/tvHandlers.test.ts` covers
+    a YouTube video plays on the TV's screen in both tabs, loudest in the
+    conference room, and the radio goes quiet. Milo walking in front of the TV
+    hides part of the video in the other tab. `Esc` closes the panel and the
+    video plays on; a board channel stops it and the radio comes back. `apps/server/src/rooms/tvHandlers.test.ts` covers
     the range check and YouTube's refusals, and `apps/client/src/tvBoards.test.ts`
     the sprint grouping.
 29. **`pnpm typecheck` passes** across the whole repository.
@@ -2458,9 +2462,9 @@ apps/client/       @sim/client   Three.js scene, React HUD overlay
   src/radio.ts            the listener's own radio volume and mute, and what the HUD says about the radio
   src/radioPlayer.ts      the radio's speakers in this tab: a station's stream, or a hidden YouTube player
   src/ui/RadioPanel.tsx   the radio's panel, opened beside it, and the mute and volume controls
-  src/tv.ts               what the HUD says about the TV, and the listener's own TV volume
+  src/tv.ts               what the HUD says about the TV, the listener's own TV volume, and when it quiets the radio
   src/tvBoards.ts         what the TV's daily, sprint and status boards say, worked out from what the HUD holds
-  src/tvPlayer.ts         the TV's YouTube player in this tab: heard from the TV, shown over the HUD while the TV is open
+  src/tvPlayer.ts         the TV's YouTube player in this tab, seen through the TV's screen and heard from it
   src/scene/tvScreen.ts   the TV's screen, painted for the channel it is on
   src/ui/TvPanel.tsx      the TV's panel, opened in front of it: the channels, a YouTube link, and its volume
   src/lift.ts             what the HUD says about the lift: a floor's line, who is there, why a ride was refused

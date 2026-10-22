@@ -4,6 +4,8 @@
  *
  * The volume is kept apart from the radio's, under its own key: the TV is a
  * second set of speakers, and turning one down leaves the other as it was.
+ * While a video is heard from the TV the radio is silent for this listener,
+ * so the two never play over each other.
  */
 
 import { TV_CHANNEL, TV_CHANNEL_NAME, TV_REJECTION, type TvRejection, isTvChannel } from "@sim/shared";
@@ -24,6 +26,15 @@ export interface TvView {
 /** Whether the TV is on its YouTube channel with a link to play. */
 export function playsYoutube(tv: TvView): boolean {
   return tv.channel === TV_CHANNEL.youtube && (tv.videoId !== "" || tv.listId !== "");
+}
+
+/**
+ * Whether the radio is to be silent for this listener: while the TV plays a
+ * video they can hear. Muted, turned to nothing, or refused by YouTube in this
+ * tab, the TV is silent and the radio plays.
+ */
+export function tvSilencesRadio(tv: TvView, tvVolume: number, refusedHere: boolean): boolean {
+  return playsYoutube(tv) && tvVolume > 0 && !refusedHere;
 }
 
 /** What the TV shows, in a line. */

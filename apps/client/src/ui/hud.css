@@ -1801,32 +1801,14 @@
   }
 }
 
-/* The TV's panel sits low, so its YouTube video shows above it. */
+/* The TV's panel sits low, so the TV stays in view above it. */
 .tv {
   top: auto;
   bottom: calc(13% + 56px);
 }
 
-/* The TV's one YouTube player: off screen while it is only heard, over the HUD while the TV is open. */
+/* The TV's one YouTube player, laid out behind the canvas under the TV's screen; the game loop sizes it. */
 .tv-video {
-  position: fixed;
-  left: -10000px;
-  top: 0;
-  width: 320px;
-  height: 180px;
-  pointer-events: none;
-}
-
-.tv-video--shown {
-  left: 50%;
-  top: 16px;
-  transform: translateX(-50%);
-  height: min(45vh, calc((100vw - 32px) * 9 / 16));
-  width: auto;
-  aspect-ratio: 16 / 9;
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
   background: #000;
 }
 

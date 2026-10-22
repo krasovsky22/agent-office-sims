@@ -1,12 +1,12 @@
 /**
  * Paints the conference room's TV for the channel it is on: the daily,
- * sprint, tickets and status boards, or the YouTube channel's thumbnail.
+ * sprint, tickets and status boards, or the YouTube channel waiting for a link.
  *
  * What each board says comes from `../tvBoards.ts` and, for tickets, the wall
  * board's own painter, so the TV and the open floor's board cannot disagree.
  * A YouTube video plays in a page of its own that a canvas cannot read, so
- * the TV shows its thumbnail and title; it is watched, and heard, through the
- * player `../tvPlayer.ts` keeps, which opens over the HUD at the TV.
+ * once there is one the screen is not painted at all: the game loop lays the
+ * player `../tvPlayer.ts` keeps behind the canvas and the video shows through.
  */
 
 import { type ProjectBoardSnapshot, TV_CHANNEL, TV_CHANNEL_NAME, type TvChannel } from "@sim/shared";
@@ -51,15 +51,7 @@ export type TvScreen =
     }
   | { readonly channel: typeof TV_CHANNEL.tickets; readonly snapshot: ProjectBoardSnapshot | undefined }
   | { readonly channel: typeof TV_CHANNEL.status; readonly board: StatusBoard }
-  | {
-      readonly channel: typeof TV_CHANNEL.youtube;
-      /** `""` before anyone has given it a link. */
-      readonly title: string;
-      readonly hasVideo: boolean;
-      readonly changedBy: string;
-      /** The video's thumbnail once it has loaded; absent for a playlist from its start, or while it loads. */
-      readonly thumbnail?: HTMLImageElement | undefined;
-    };
+  | { readonly channel: typeof TV_CHANNEL.youtube };
 
 interface Column {
   readonly title: string;
@@ -158,16 +150,9 @@ function paintColumns(context: CanvasRenderingContext2D, width: number, height: 
   });
 }
 
-function paintYoutube(context: CanvasRenderingContext2D, width: number, height: number, screen: Extract<TvScreen, { channel: "youtube" }>): void {
+function paintYoutube(context: CanvasRenderingContext2D, width: number, height: number): void {
   context.fillStyle = "#000000";
   context.fillRect(0, 0, width, height);
-  if (screen.thumbnail !== undefined) {
-    // Fills the screen, as a playing video would: YouTube's still is 4:3 with the 16:9 frame letterboxed in its middle.
-    const { width: imageWidth, height: imageHeight } = screen.thumbnail;
-    context.drawImage(screen.thumbnail, 0, imageHeight / 8, imageWidth, (imageHeight * 3) / 4, 0, 0, width, height);
-    context.fillStyle = "rgba(0, 0, 0, 0.45)";
-    context.fillRect(0, height - 220, width, 220);
-  }
   const centreY = height / 2 - 40;
   context.fillStyle = YOUTUBE_RED;
   context.beginPath();
@@ -185,14 +170,10 @@ function paintYoutube(context: CanvasRenderingContext2D, width: number, height: 
   context.textBaseline = "alphabetic";
   context.fillStyle = TEXT;
   context.font = `700 56px ${FONT_STACK}`;
-  const title = screen.hasVideo ? (screen.title === "" ? "YouTube" : screen.title) : "No video on yet";
-  context.fillText(fitText(context, title, width - MARGIN * 4), width / 2, height - 130);
+  context.fillText("No video on yet", width / 2, height - 130);
   context.font = `500 38px ${FONT_STACK}`;
   context.fillStyle = MUTED;
-  const hint = screen.hasVideo
-    ? `${screen.changedBy === "" ? "" : `Put on by ${screen.changedBy} · `}Press E at the TV to watch`
-    : "Press E at the TV and paste a YouTube link";
-  context.fillText(fitText(context, hint, width - MARGIN * 4), width / 2, height - 66);
+  context.fillText("Press E at the TV and paste a YouTube link", width / 2, height - 66);
 }
 
 /** Paints the whole face for `screen`. */
@@ -237,7 +218,7 @@ export function paintTvScreen(context: CanvasRenderingContext2D, width: number, 
       );
       break;
     case TV_CHANNEL.youtube:
-      paintYoutube(context, width, height, screen);
+      paintYoutube(context, width, height);
       break;
   }
   context.restore();
