@@ -171,6 +171,7 @@ export function wireRunners(
       room.broadcast(SERVER_MESSAGE.agentPrompted, entry);
     },
     log: recordOfficeEvent,
+    deskOwnerOf: (agentId) => deskTerminal.deskOwnerOf(agentId),
     directed: (commandId, outcome) => {
       standup.settle(commandId, outcome);
       agentMessages.settle(commandId, outcome);

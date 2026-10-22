@@ -7,7 +7,15 @@
 import { AGENT_KEYS, AGENT_PROMPT_REJECTION, OCCUPANT_KIND, type OfficeActor } from "@sim/shared";
 import { describe, expect, it } from "vitest";
 
-import { agentKeyOfKeyboard, agentKeyRejectionText, agentPromptAccessFor, agentPromptRejectionText } from "./agentPromptAccess.js";
+import {
+  DESK_HELD_ACCESS,
+  DESK_PROMPT_ACCESS,
+  agentKeyOfKeyboard,
+  agentKeyRejectionText,
+  agentPromptAccessFor,
+  agentPromptRejectionText,
+  watchedPromptAccess,
+} from "./agentPromptAccess.js";
 
 const PLAYER: OfficeActor = { id: "a", kind: OCCUPANT_KIND.human, isCeo: false };
 
@@ -25,6 +33,20 @@ describe("agentPromptAccessFor", () => {
       mayPrompt: false,
       summary: "Only the CEO can prompt this agent. You can watch its terminal.",
     });
+  });
+});
+
+describe("watchedPromptAccess", () => {
+  const ceo = agentPromptAccessFor({ ...PLAYER, isCeo: true }, "Dana");
+
+  it("keeps the player's access for an agent lent to no desk", () => {
+    expect(watchedPromptAccess(ceo, undefined, "a")).toBe(ceo);
+  });
+
+  it("is read-only, the CEO's included, for an agent lent to another player's desk, and the player's own for theirs", () => {
+    expect(watchedPromptAccess(ceo, "milo", "a")).toBe(DESK_HELD_ACCESS);
+    expect(DESK_HELD_ACCESS.mayPrompt).toBe(false);
+    expect(watchedPromptAccess(agentPromptAccessFor(PLAYER, "Dana"), "a", "a")).toBe(DESK_PROMPT_ACCESS);
   });
 });
 

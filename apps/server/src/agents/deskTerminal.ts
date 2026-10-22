@@ -192,12 +192,17 @@ export class DeskTerminal {
   /**
    * The player whose desk the agent `agentId` is lent to, for the prompt gate:
    * `undefined` while it is lent to no desk, and `""`, nobody here, while a
-   * desk in another room on the same runner link holds it.
+   * desk in another room on the same runner link holds it, or one closed here
+   * still reports it.
    */
   public deskOwnerOf(agentId: string): string | undefined {
     const slot = slotOf(agentId);
-    if (slot === undefined || this.lentSlots()?.has(slotKey(slot)) !== true) {
+    if (slot === undefined) {
       return undefined;
+    }
+    if (this.lentSlots()?.has(slotKey(slot)) !== true) {
+      const closing = `${slotKey(slot)}@`;
+      return [...this.closing].some((key) => key.startsWith(closing)) ? "" : undefined;
     }
     for (const session of this.sessions.values()) {
       if (session.lent !== undefined && sameSlot(session.lent, slot)) {
@@ -369,7 +374,7 @@ export class DeskTerminal {
   }
 
   private sendClose(slot: RunnerSlotRef, seatId: string, reason: string): void {
-    this.closing.add(`${slot.runnerId}:${slot.slotId}@${seatId}`);
+    this.closing.add(`${slotKey(slot)}@${seatId}`);
     this.options.runner?.enqueue(slot.runnerId, { kind: RUNNER_COMMAND_KIND.deskClose, slotId: slot.slotId, seatId, reason });
   }
 

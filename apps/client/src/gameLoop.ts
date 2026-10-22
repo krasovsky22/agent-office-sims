@@ -930,11 +930,17 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     }
     const watchedSeat = interactableById(layout, readingBoard)?.seatId;
     const terminalAgentId = watchedSeat === undefined ? answeringAgentId : room.holderOf(watchedSeat);
-    if (terminalAgentId !== host.hud().terminalAgentId) {
-      host.publish({ terminalAgentId });
+    const desks = room.desks();
+    let terminalDeskOwnerId: string | undefined;
+    for (const desk of desks?.values() ?? []) {
+      if (terminalAgentId !== undefined && desk.agentId === terminalAgentId) {
+        terminalDeskOwnerId = desk.ownerId;
+      }
+    }
+    if (terminalAgentId !== host.hud().terminalAgentId || terminalDeskOwnerId !== host.hud().terminalDeskOwnerId) {
+      host.publish({ terminalAgentId, terminalDeskOwnerId });
     }
     // A player sitting at a computer has its terminal, unless someone else has it on, which they are told, once.
-    const desks = room.desks();
     // A session lists only the prompts typed after it began.
     for (const seatId of deskPromptsAfter.keys()) {
       if (desks?.has(seatId) !== true) {

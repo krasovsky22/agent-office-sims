@@ -29,7 +29,7 @@ const CEO = "session-ceo";
 const SLOT_1 = liveAgentKey(runnerSlotAgentId("box", "slot-1"));
 const REPORTED = liveAgentKey("crewmate");
 
-function setup(options: { runner?: boolean } = {}) {
+function setup(options: { runner?: boolean; deskOwnerOf?: (agentId: string) => string | undefined } = {}) {
   let nextId = 1;
   let now = 1_000;
   const link = new RunnerLink({ repository: REPO, timeoutMs: 30_000, commandId: () => `command-${nextId++}` });
@@ -60,6 +60,7 @@ function setup(options: { runner?: boolean } = {}) {
     refuse: (sessionId, event) => refused.push({ sessionId, event }),
     publish: (entry) => published.push(entry),
     answerTimeoutMs: 30_000,
+    ...(options.deskOwnerOf === undefined ? {} : { deskOwnerOf: options.deskOwnerOf }),
     directed: (commandId, outcome) => directed.push({ commandId, outcome }),
   });
   /** One sync from the runner `box`, with one working slot, carrying prompt outcomes and acks. */
@@ -254,6 +255,21 @@ describe("AgentPrompts", () => {
       { sessionId: CEO, event: { agentId: SLOT_1, rejection: AGENT_PROMPT_REJECTION.unanswered, key: "enter" } },
     ]);
     expect(sync()).toEqual([]);
+  });
+
+  it("refuses an agent lent to another player's desk to the CEO's prompts, keys and directions alike, and takes them from that player", () => {
+    const { prompts, sync, state } = setup({ deskOwnerOf: (agentId) => (agentId === SLOT_1 ? "session-milo" : undefined) });
+    const milo = new HumanPlayer();
+    milo.id = "session-milo";
+    milo.name = "Milo";
+    state.occupants.set(milo.id, milo);
+    sync();
+    expect(prompts.submit(CEO, { agentId: SLOT_1, text: "push to main" })).toBe(AGENT_PROMPT_REJECTION.forbidden);
+    expect(prompts.submitKey(CEO, { agentId: SLOT_1, key: "enter" })).toBe(AGENT_PROMPT_REJECTION.forbidden);
+    expect(prompts.submitDirection(CEO, SLOT_1, "push to main")).toBe(AGENT_PROMPT_REJECTION.forbidden);
+    expect(sync()).toEqual([]);
+    expect(prompts.submit(milo.id, { agentId: SLOT_1, text: "Run the tests." })).toBeUndefined();
+    expect(sync()).toEqual([expect.objectContaining({ kind: "prompt", text: "Run the tests.", requestedBy: "Milo" })]);
   });
 
   describe("a standup's direction", () => {

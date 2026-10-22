@@ -360,7 +360,15 @@ describe("DeskTerminal", () => {
     expect(state.desks.get(SEAT)?.toJSON()).toMatchObject({ ownerId: CEO, phase: DESK_TERMINAL_PHASE.waiting });
     expect(phaseAt(state, OTHER)).toBe(DESK_TERMINAL_PHASE.open);
     expect(sync(both)).toEqual([{ id: "command-5", slotId: "slot-2", kind: "desk-close", seatId: SEAT, reason: "its player left" }]);
-    expect(desk.deskOwnerOf(SLOT_2)).toBeUndefined();
+    // Nobody here may prompt it while it still reports the desk, the CEO included, until its runner has closed it.
+    expect(desk.deskOwnerOf(SLOT_2)).toBe("");
+    desk.step();
+    expect(desk.deskOwnerOf(SLOT_2)).toBe("");
+    const closed: RunnerSlotReport[] = [{ ...IDLE, desk: { seatId: OTHER } }, { ...IDLE, id: "slot-2", name: "Claude 2" }];
+    ack(closed);
+    desk.step();
+    // Closed, it is free again, and lent to the CEO waiting at that desk.
+    expect(desk.deskOwnerOf(SLOT_2)).toBe(CEO);
   });
 
   it("keeps a desk off for the player who turned it off while they sit there, not for the next player", () => {
