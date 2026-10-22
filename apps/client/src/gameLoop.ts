@@ -50,6 +50,7 @@ import {
   tvLoudness,
 } from "@sim/shared";
 import * as THREE from "three";
+import { CSS3DObject, CSS3DRenderer } from "three/examples/jsm/renderers/CSS3DRenderer.js";
 
 import {
   AGENT_MENU_HOLD_MS,
@@ -71,7 +72,7 @@ import { managerAccessFor } from "./managerAccess.js";
 import { chime, needsYouTitle, newlyWaiting, notifyNeedsYou } from "./needsYou.js";
 import { UNPLAYABLE_HERE } from "./radio.js";
 import { RadioPlayer } from "./radioPlayer.js";
-import { TV_UNPLAYABLE_HERE, type TvView, playsYoutube } from "./tv.js";
+import { TV_UNPLAYABLE_HERE, type TvView, playsYoutube, tvSilencesRadio } from "./tv.js";
 import { SPRINT_DAYS, dailyBoard, sprintColumns, statusBoard } from "./tvBoards.js";
 import { TvPlayer } from "./tvPlayer.js";
 import { recurringRow, standingAccessFor } from "./standingAccess.js";
@@ -130,10 +131,8 @@ const TV_REPAINT_MS = 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** The video's still, for the TV's screen; YouTube serves it to any page. */
-function thumbnailUrl(videoId: string): string {
-  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-}
+/** How wide the TV's video is laid out, in CSS pixels, before it is scaled down onto the screen. */
+const TV_VIDEO_WIDTH_PX = 960;
 
 /** What it reads while the player is watching a live agent's terminal. */
 const CLOSE_TERMINAL_LABEL = "Close the terminal";
@@ -252,7 +251,8 @@ export interface GameLoop {
 export function startGameLoop(host: GameLoopHost): GameLoop {
   const canvas = requireCanvas();
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // Transparent, so the TV's video laid out behind the canvas shows through the hole its screen leaves.
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   // One directional light casts, the floor receives, and nothing else
   // participates — see the notes in `scene/office.ts` and `scene/lighting.ts`.
@@ -291,6 +291,29 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
   let officeWork: readonly WorkData[] = [];
 
   const camera = createCamera(canvas, layout);
+
+  // The TV's YouTube player, a page of its own that WebGL cannot draw, is laid
+  // out in 3D behind the canvas, under the TV's screen, by the same camera;
+  // only where the screen is seen is it cleared, so walls, furniture and people
+  // in front of the TV still cover the video, and anywhere else the canvas does.
+  const tvPlayer = new TvPlayer(() => host.tvNotice(TV_UNPLAYABLE_HERE));
+  const videoRenderer = new CSS3DRenderer();
+  videoRenderer.domElement.style.cssText = "position:fixed;inset:0;pointer-events:none";
+  canvas.before(videoRenderer.domElement);
+  const videoScene = new THREE.Scene();
+  const tvScreenMesh = wallDecor.tvScreen;
+  if (tvScreenMesh !== undefined) {
+    const video = new CSS3DObject(tvPlayer.element);
+    video.element.style.pointerEvents = "none";
+    video.element.style.width = `${TV_VIDEO_WIDTH_PX}px`;
+    video.element.style.height = `${Math.round((TV_VIDEO_WIDTH_PX * tvScreenMesh.scale.y) / tvScreenMesh.scale.x)}px`;
+    tvScreenMesh.updateWorldMatrix(true, false);
+    // The screen is a unit plane scaled to its size; the video is that many pixels, so scaled down by them.
+    video.matrixAutoUpdate = false;
+    video.matrix.copy(tvScreenMesh.matrixWorld).multiply(new THREE.Matrix4().makeScale(1 / TV_VIDEO_WIDTH_PX, 1 / TV_VIDEO_WIDTH_PX, 1));
+    videoScene.add(video);
+    videoScene.updateMatrixWorld(true);
+  }
   const controller = new PlayerController(camera, canvas);
   controller.attach();
   controller.setCameraMode(readCameraMode(browserStorage()));
@@ -299,6 +322,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     const width = window.innerWidth;
     const height = window.innerHeight;
     renderer.setSize(width, height, false);
+    videoRenderer.setSize(width, height);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
   };
@@ -319,14 +343,11 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
   let radioShownAt = -1;
 
   let tvSpot = interactableById(layout, TV_INTERACTABLE_ID);
-  const tvPlayer = new TvPlayer(() => host.tvNotice(TV_UNPLAYABLE_HERE));
   // The TV as last published, so React hears only of a change.
   let tvShownKey = "";
   // What the TV's screen last painted, so it repaints only when its board changes.
   let tvPainted = "";
   let tvCheckedAt = -TV_REPAINT_MS;
-  // The YouTube channel's still, loaded once a video, and then drawn on the screen.
-  let tvThumbnail: { readonly videoId: string; image: HTMLImageElement | undefined } | undefined;
 
   /** Looks through the other camera, and keeps the choice for the next visit. */
   const toggleCameraMode = () => {
@@ -865,7 +886,24 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     if (liftOpen !== host.hud().liftOpen) {
       host.publish({ liftOpen, liftNotice: undefined });
     }
-    // The radio plays from the replicated state in every tab, louder the nearer the player stands.
+    // The TV's YouTube channel plays in every tab while it is on, on the TV's screen and heard from it.
+    const tv = room.tv();
+    let radioSilenced = false;
+    if (tv !== undefined) {
+      const tvKey = `${tv.channel}|${tv.videoId}|${tv.listId}|${tv.startedAt}|${tv.title}|${tv.changedBy}`;
+      if (tvKey !== tvShownKey) {
+        tvShownKey = tvKey;
+        tvCheckedAt = -TV_REPAINT_MS;
+        host.publish({ tv: tv.toJSON() as TvView });
+        wallDecor.showTvVideo(playsYoutube(tv));
+      }
+      const { volume, muted } = host.hud().tvSettings;
+      const near = tvSpot === undefined ? 1 : tvLoudness(distanceToInteractable(tvSpot, controller.pose));
+      const tvVolume = muted ? 0 : volume * near;
+      tvPlayer.update(tv, tvVolume);
+      radioSilenced = tvSilencesRadio(tv, tvVolume, tvPlayer.refused);
+    }
+    // The radio plays from the replicated state in every tab, louder the nearer the player stands, and gives way to the TV's video.
     const radio = room.radio();
     if (radio !== undefined) {
       if (radio.startedAt !== radioShownAt || radio.stationId !== host.hud().radio.stationId) {
@@ -874,20 +912,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
       }
       const { volume, muted } = host.hud().radioSettings;
       const near = radioSpot === undefined ? 1 : radioLoudness(distanceToInteractable(radioSpot, controller.pose));
-      radioPlayer.update(radio, muted ? 0 : volume * near);
-    }
-    // The TV's YouTube channel plays in every tab while it is on, from the TV, apart from the radio.
-    const tv = room.tv();
-    if (tv !== undefined) {
-      const tvKey = `${tv.channel}|${tv.videoId}|${tv.listId}|${tv.startedAt}|${tv.title}|${tv.changedBy}`;
-      if (tvKey !== tvShownKey) {
-        tvShownKey = tvKey;
-        tvCheckedAt = -TV_REPAINT_MS;
-        host.publish({ tv: tv.toJSON() as TvView });
-      }
-      const { volume, muted } = host.hud().tvSettings;
-      const near = tvSpot === undefined ? 1 : tvLoudness(distanceToInteractable(tvSpot, controller.pose));
-      tvPlayer.update(tv, muted ? 0 : volume * near, tvOpen);
+      radioPlayer.update(radio, muted || radioSilenced ? 0 : volume * near);
     }
     const managerOpen = readingBoard === MANAGER_INTERACTABLE_ID;
     if (managerOpen !== host.hud().managerOpen) {
@@ -1009,7 +1034,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     if (nowMs - tvCheckedAt >= TV_REPAINT_MS) {
       tvCheckedAt = nowMs;
       const screen = tvScreen(Date.now());
-      const painted = `${JSON.stringify(screen)}|${screen.channel === TV_CHANNEL.youtube && screen.thumbnail !== undefined}`;
+      const painted = JSON.stringify(screen);
       if (painted !== tvPainted) {
         tvPainted = painted;
         wallDecor.paintTv((context, width, height) => paintTvScreen(context, width, height, screen));
@@ -1043,6 +1068,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     floorScene.street?.update(deltaSeconds, lighting.daylight.interior);
 
     renderer.render(scene, camera);
+    videoRenderer.render(videoScene, camera);
 
     if (debugEnabled && nowMs >= nextDebugMs) {
       nextDebugMs = nowMs + DEBUG_INTERVAL_MS;
@@ -1070,28 +1096,9 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
           channel: TV_CHANNEL.status,
           board: statusBoard(hud.roster, hud.status, hud.runnerSpend),
         };
-      case TV_CHANNEL.youtube: {
-        const { videoId } = hud.tv;
-        if (videoId !== "" && tvThumbnail?.videoId !== videoId) {
-          const image = new Image();
-          // Drawn into the screen's texture, which a still from another origin would taint.
-          image.crossOrigin = "anonymous";
-          const loading = { videoId, image: undefined as HTMLImageElement | undefined };
-          image.onload = () => {
-            loading.image = image;
-            tvCheckedAt = -TV_REPAINT_MS;
-          };
-          image.src = thumbnailUrl(videoId);
-          tvThumbnail = loading;
-        }
-        return {
-          channel: TV_CHANNEL.youtube,
-          title: hud.tv.title,
-          hasVideo: playsYoutube(hud.tv),
-          changedBy: hud.tv.changedBy,
-          thumbnail: tvThumbnail?.videoId === videoId ? tvThumbnail.image : undefined,
-        };
-      }
+      case TV_CHANNEL.youtube:
+        // Seen only before anyone gives it a link: with one, the video shows through the screen instead.
+        return { channel: TV_CHANNEL.youtube };
       default:
         return {
           channel: TV_CHANNEL.daily,

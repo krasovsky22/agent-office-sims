@@ -8,7 +8,8 @@
  * frame, bezel, shelf board and book is one instance of a single batch of unit
  * boxes, artwork is painted once into a texture shared by every frame showing
  * it, and nothing casts a shadow. The clocks move, showing the office's own
- * time of day, and the TV's screen is repainted for the channel it is on.
+ * time of day, and the TV's screen is repainted for the channel it is on, or
+ * cleared to let the video laid behind the canvas show through it.
  */
 
 import {
@@ -72,6 +73,14 @@ export interface WallDecorView {
   showMinute(minuteOfDay: number): void;
   /** Repaints the TV's screen, `TV_CANVAS_WIDTH` texels wide; a layout with no TV ignores it. */
   paintTv(paint: (context: CanvasRenderingContext2D, width: number, height: number) => void): void;
+  /** The TV's screen, a unit plane scaled to its size, for a video to be laid over; absent for a layout with no TV. */
+  readonly tvScreen: THREE.Mesh | undefined;
+  /**
+   * Clears the TV's screen to nothing, alpha included, so the page behind a
+   * transparent canvas shows through wherever the screen is seen; and paints it
+   * again. Whatever stands in front of the screen still draws over the hole.
+   */
+  showTvVideo(shown: boolean): void;
 }
 
 /** One box, in a piece's own frame, for the shared instanced batch. */
@@ -147,6 +156,9 @@ export function buildWallDecor(
   const plane = new THREE.PlaneGeometry(1, 1);
   const hands: { readonly hour: THREE.Object3D; readonly minute: THREE.Object3D }[] = [];
   const tvTextures: THREE.CanvasTexture[] = [];
+  const tvScreens: THREE.Mesh[] = [];
+  // Writes (0, 0, 0, 0) as it is, with no blending and no fog tinting it; not OPAQUE, so three keeps the alpha.
+  const tvHole = new THREE.MeshBasicMaterial({ color: 0x000000, opacity: 0, blending: THREE.NoBlending, fog: false, toneMapped: false });
 
   const clockFace = new THREE.MeshLambertMaterial({
     map: canvasTexture(256, 256, maxAnisotropy, (ctx, w) => paintClockFace(ctx, w)),
@@ -180,11 +192,12 @@ export function buildWallDecor(
     size: { readonly width: number; readonly height: number },
     y: number,
     z: number,
-  ): void => {
+  ): THREE.Mesh => {
     const mesh = new THREE.Mesh(plane, material);
     mesh.scale.set(size.width, size.height, 1);
     mesh.position.set(0, y, z);
     piece.add(mesh);
+    return mesh;
   };
 
   for (const spec of decor) {
@@ -216,7 +229,7 @@ export function buildWallDecor(
         const texture = canvasTexture(TV_CANVAS_WIDTH, Math.round((TV_CANVAS_WIDTH * spec.height) / spec.width), maxAnisotropy, paintTvSlide);
         tvTextures.push(texture);
         const screen = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false });
-        addFace(piece, screen, spec, centreY, TV_DEPTH + FACE_OFFSET);
+        tvScreens.push(addFace(piece, screen, spec, centreY, TV_DEPTH + FACE_OFFSET));
         break;
       }
       case "whiteboard": {
@@ -288,6 +301,10 @@ export function buildWallDecor(
 
   scene.add(root);
 
+  // shortcut: the video is laid over the first TV only; give each its own player if a floor ever hangs two.
+  const tvScreen = tvScreens[0];
+  const tvPainted = tvScreen?.material;
+
   return {
     group: root,
     showMinute(minuteOfDay) {
@@ -306,6 +323,12 @@ export function buildWallDecor(
           paint(context, canvas.width, canvas.height);
           texture.needsUpdate = true;
         }
+      }
+    },
+    tvScreen,
+    showTvVideo(shown) {
+      if (tvScreen !== undefined && tvPainted !== undefined) {
+        tvScreen.material = shown ? tvHole : tvPainted;
       }
     },
   };

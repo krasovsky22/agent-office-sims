@@ -1,8 +1,8 @@
 /**
  * The conference room's TV, opened with `E` in front of it: switch it to
  * another channel, which everyone then sees, or give its YouTube channel a
- * video or playlist link. On YouTube the video itself shows above the panel,
- * from the one player this tab keeps for the TV (`../tvPlayer.ts`).
+ * video or playlist link. On YouTube the video plays on the TV itself, from
+ * the one player this tab keeps for it (`../tvPlayer.ts`).
  *
  * Like the radio's panel it takes the keyboard while it has focus (see
  * `keys.ts`), so typing a link does not walk the player; `Enter` plays it and

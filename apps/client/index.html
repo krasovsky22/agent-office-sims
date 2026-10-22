@@ -14,8 +14,9 @@
         font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
       }
 
-      /* The canvas fills the window; the HUD is a transparent layer above it. */
+      /* The canvas fills the window; the HUD is a transparent layer above it, and the TV's video a layer below. */
       #scene {
+        position: relative;
         display: block;
         width: 100%;
         height: 100%;
