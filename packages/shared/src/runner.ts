@@ -204,7 +204,7 @@ export const RUNNER_COMMAND_KIND = {
   profile: "profile",
   /** Close or reopen an issue on GitHub, for the CEO who dragged its card across the board. */
   issueState: "issue-state",
-  /** Lend an idle slot to the CEO's desk: a fresh agent the CEO prompts there; see {@link RunnerDeskOpenCommand}. */
+  /** Lend an idle slot to a desk's computer: a fresh agent the player sitting there prompts; see {@link RunnerDeskOpenCommand}. */
   deskOpen: "desk-open",
   /** End the slot's desk session: the CEO stood up. */
   deskClose: "desk-close",
@@ -768,9 +768,9 @@ export interface RunnerProfileCommand extends AgentProfile {
 }
 
 /**
- * Lend the slot to the CEO's desk: start a fresh session of its agent with no
+ * Lend the slot to a desk's computer: start a fresh session of its agent with no
  * issue and no first prompt, in a scratch worktree of the default branch, for
- * the CEO sitting at `seatId` to prompt from the office. Only an idle slot
+ * the player sitting at `seatId` to prompt from the office. Only an idle slot
  * holding no issue and no standing run takes one; any other is refused with a
  * {@link RunnerDeskEndedEvent}, as is one past the day's budget.
  */

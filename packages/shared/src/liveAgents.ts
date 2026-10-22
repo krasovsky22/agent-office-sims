@@ -187,11 +187,11 @@ export function taskReference(url: string): string {
 }
 
 /**
- * What a slot lent to the CEO's desk does on the floor, instead of its
+ * What a slot lent to a desk's computer does on the floor, instead of its
  * session's activity; the one activity an idle agent's line shows, since the
  * agent is taken though it holds no task.
  */
-export const LENT_TO_DESK_ACTIVITY = "At the CEO's desk";
+export const LENT_TO_DESK_ACTIVITY = "At a desk's computer";
 
 /**
  * The line under a live agent's name: what it is doing, as briefly as it reads.

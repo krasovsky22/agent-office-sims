@@ -77,9 +77,9 @@
  * the agents' updates in turn and passes the CEO's directions on as prompts,
  * and tells the runners a standup is on so they pause their agents for it.
  *
- * Nor is the CEO's desk terminal, beyond its step on the tick: the CEO
+ * Nor are the desk terminals, beyond their step on the tick: a player
  * sitting at a desk with a computer is lent a runner's slot to prompt there,
- * and given it back once the CEO turns it off, by `agents/deskTerminal.ts`.
+ * and given it back once they turn it off, by `agents/deskTerminal.ts`.
  *
  * Nor are the runner slots' terminal screens, beyond passing them on: the
  * store in `agents/screens.ts` hands the room each batch of frames it accepts,

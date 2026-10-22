@@ -7,7 +7,9 @@
  * player, so the panel's composer is enabled exactly when the server would
  * take the prompt, and everyone else is told why. Like `managerAccess.ts` for
  * the manager's composer. The keys the CEO presses on an agent's choice
- * screen are held to the same rule, and have words of their own here.
+ * screen are held to the same rule, and have words of their own here. At a
+ * desk's computer the panel is its player's own, which the gate lets them
+ * alone prompt, so it uses {@link DESK_PROMPT_ACCESS} instead.
  */
 
 import {
@@ -27,6 +29,12 @@ export interface AgentPromptAccess {
   /** One sentence on what this player may do, and why, for the panel. */
   readonly summary: string;
 }
+
+/** The local player's access at their own desk's computer, which only they may prompt. */
+export const DESK_PROMPT_ACCESS: AgentPromptAccess = {
+  mayPrompt: true,
+  summary: "This desk's computer is a coding agent of your own. What you send is typed into it once it waits at its prompt; it runs on the runner's machine, and keeps running when you stand up, until you turn it off.",
+};
 
 /**
  * The local player's access.
@@ -51,7 +59,7 @@ export function agentPromptAccessFor(actor: OfficeActor, ceoName: string | undef
 export function agentPromptRejectionText(rejection: AgentPromptRejection, agentName: string): string {
   switch (rejection) {
     case AGENT_PROMPT_REJECTION.forbidden:
-      return "Only the CEO can prompt a coding agent.";
+      return "Only the CEO can prompt a coding agent, and only the player at its desk one lent to a desk's computer.";
     case AGENT_PROMPT_REJECTION.noAgent:
       return `${agentName} does not take prompts from the office.`;
     case AGENT_PROMPT_REJECTION.offline:
@@ -74,7 +82,7 @@ export function agentKeyRejectionText(rejection: AgentPromptRejection, agentName
   const label = AGENT_KEY_LABEL[key];
   switch (rejection) {
     case AGENT_PROMPT_REJECTION.forbidden:
-      return "Only the CEO can answer a coding agent's screen.";
+      return "Only the CEO can answer a coding agent's screen, and only the player at its desk one lent to a desk's computer.";
     case AGENT_PROMPT_REJECTION.noAgent:
       return `${agentName} does not take keys from the office.`;
     case AGENT_PROMPT_REJECTION.offline:

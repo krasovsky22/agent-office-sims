@@ -1,6 +1,6 @@
 /**
  * The desk terminal's shared rules: which seats have a computer to use, and
- * that only the CEO may use one.
+ * that every player may use one.
  */
 
 import { describe, expect, it } from "vitest";
@@ -28,10 +28,11 @@ describe("deskTerminalSeat", () => {
 });
 
 describe("deskTerminalRefusal", () => {
-  it("lets the CEO alone use a desk's computer", () => {
+  it("lets every player use a desk's computer, and nothing else", () => {
     const actor = { id: "a", kind: OCCUPANT_KIND.human };
     expect(deskTerminalRefusal({ ...actor, isCeo: true })).toBeUndefined();
-    expect(deskTerminalRefusal({ ...actor, isCeo: false })).toBe("forbidden");
+    expect(deskTerminalRefusal({ ...actor, isCeo: false })).toBeUndefined();
+    expect(deskTerminalRefusal({ id: "b", kind: OCCUPANT_KIND.liveAgent, isCeo: false })).toBe("forbidden");
   });
 });
 

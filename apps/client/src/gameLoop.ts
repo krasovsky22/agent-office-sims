@@ -62,7 +62,7 @@ import {
 } from "./agentMenu.js";
 import { agentProfileAccessFor } from "./agentProfileAccess.js";
 import { agentPromptAccessFor } from "./agentPromptAccess.js";
-import { deskForbiddenText, deskPanelFor, deskScreenKey, sameDeskPanel } from "./deskTerminalAccess.js";
+import { deskPanelFor, deskScreenKey, deskTakenText, sameDeskPanel } from "./deskTerminalAccess.js";
 import { standupAccessFor } from "./standupAccess.js";
 import { boardAccessFor } from "./boardAccess.js";
 import { browserStorage, readDebugEnabled, readPropsEnabled, requireCanvas } from "./browserEnv.js";
@@ -595,8 +595,8 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
 
   // The desk panel's Stand up button, taken by the next frame as `E` would be.
   let standUpRequested = false;
-  // The computer the local player last sat at and was told is the CEO's alone, so it is said once a sitting.
-  let toldDeskForbidden = "";
+  // The computer the local player last sat at and was told is someone else's, so it is said once a sitting.
+  let toldDeskTaken = "";
   // The last prompt entry id from before each desk's computer was turned on, by seat, so its panel lists that session's prompts across sittings.
   const deskPromptsAfter = new Map<string, number>();
   // The agent whose long-press menu is open, or `undefined`. Local to this tab, like a board's close-up.
@@ -933,7 +933,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     if (terminalAgentId !== host.hud().terminalAgentId) {
       host.publish({ terminalAgentId });
     }
-    // The CEO sitting at a computer has its terminal; anyone else is told why not, once.
+    // A player sitting at a computer has its terminal, unless someone else has it on, which they are told, once.
     const desks = room.desks();
     // A session lists only the prompts typed after it began.
     for (const seatId of deskPromptsAfter.keys()) {
@@ -951,11 +951,12 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
       host.publish({ desk: deskPanel });
     }
     const deskSeat = deskTerminalSeat(layout, locallyHeldWith);
+    const deskOwnerId = deskSeat === undefined ? undefined : desks?.get(deskSeat.id)?.ownerId;
     if (deskSeat === undefined) {
-      toldDeskForbidden = "";
-    } else if (room.viewOf(localId)?.isCeo === false && toldDeskForbidden !== deskSeat.id) {
-      toldDeskForbidden = deskSeat.id;
-      host.notice(deskForbiddenText(host.hud().roster.find((entry) => entry.isCeo)?.name));
+      toldDeskTaken = "";
+    } else if (deskOwnerId !== undefined && deskOwnerId !== localId && toldDeskTaken !== deskSeat.id) {
+      toldDeskTaken = deskSeat.id;
+      host.notice(deskTakenText(host.hud().roster.find((entry) => entry.id === deskOwnerId)?.name));
     }
 
     room.sendPose(controller.pose, nowMs);
@@ -1050,7 +1051,7 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
           agentScreens.show(id, view.interactableId, room.screenOf(id), nowMs, camera.position);
         }
       }
-      // Each of the CEO's desks shows its own lent agent's terminal, in every tab, and is lit while one is on its way.
+      // Each desk that is on shows its own lent agent's terminal, in every tab, and is lit while one is on its way.
       for (const desk of desks?.values() ?? []) {
         const deskKey = deskScreenKey(desk);
         if (deskKey !== undefined) {

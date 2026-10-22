@@ -104,7 +104,7 @@ interface AgentTerminalPanelProps {
   /** The latest of the local player's prompts that was not typed, for any agent. */
   readonly refusal: AgentPromptRefusal | undefined;
   readonly actions: AgentTerminalActions;
-  /** Set when this is the CEO's own desk's computer, whose `close` stands the CEO up and leaves it on. */
+  /** Set when this is the local player's own desk's computer, whose `close` stands them up and leaves it on. */
   readonly desk?: DeskPanelView | undefined;
 }
 
@@ -224,9 +224,6 @@ function useDeskTerminalSize(
     };
   }, [canvasRef, deskAgentId, resizeDesk]);
 }
-
-/** What the panel says of the local player's access at their own desk's computer. */
-const DESK_ACCESS = "You are the CEO: this desk's computer is a coding agent of your own. What you send is typed into it once it waits at its prompt; it runs on the runner's machine, and keeps running when you stand up, until you turn it off.";
 
 export function AgentTerminalPanel({ agentId, agent, links, prompts, access, localId, refusal, actions, desk }: AgentTerminalPanelProps) {
   const { canvasRef, onWheel } = useTerminalCanvas(agentId, actions.screenOf);
@@ -399,7 +396,7 @@ export function AgentTerminalPanel({ agentId, agent, links, prompts, access, loc
 
       {access === undefined ? null : (
         <p className={mayPrompt ? "hud__role" : "hud__role hud__role--readonly"} role="note">
-          {desk !== undefined && access.mayPrompt ? DESK_ACCESS : access.summary}
+          {access.summary}
         </p>
       )}
       <form

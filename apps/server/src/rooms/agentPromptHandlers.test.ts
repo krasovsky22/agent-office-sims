@@ -3,7 +3,8 @@
  * sockets and a real runner link, with the test playing the runner.
  *
  * What only a running room shows is the acceptance: a prompt from anyone but
- * the CEO is refused to its sender with the reason and never queued; the
+ * the CEO is refused to its sender with the reason and never queued, except
+ * for an agent lent to a desk, which takes them from that desk's player alone; the
  * CEO's goes to the runner once, marked as the CEO's;
  * once the runner says it typed it, both tabs are told who said what to whom;
  * one the runner refused as busy is told to the sender alone; and prompts are
@@ -20,6 +21,7 @@ import {
   type AgentPromptHistoryEvent,
   type AgentPromptRejectedEvent,
   CLIENT_MESSAGE,
+  DESK_TERMINAL_PHASE,
   OFFICE_ROOM_NAME,
   type OfficeState,
   RUNNER_PROMPT_OUTCOME,
@@ -280,5 +282,45 @@ describe("answering a coding agent's choice screen from its terminal panel", () 
     // Prompts still have all of theirs.
     prompt(dana, "go on");
     expect(await commandsAfterAWhile()).toHaveLength(1);
+  });
+});
+
+describe("prompting the coding agent at a desk's computer", () => {
+  it("takes prompts and keys from the player who turned the desk on alone, the CEO refused", async () => {
+    const { dana, milo } = await openOffice();
+    const room = matchMaker.getLocalRoomById(milo.room.roomId) as unknown as Room<OfficeState> | undefined;
+    const seated = room?.state.occupants.get(milo.room.sessionId);
+    if (seated === undefined) {
+      throw new Error("Milo is not in the office");
+    }
+    const SEAT = "seat-desk-north-1-1";
+    // As a granted sit would leave him; the slot comes free for the desk to be lent it.
+    seated.interactableId = SEAT;
+    const idle = { id: "slot-1", name: "Claude 1", title: "Software Developer", description: "", status: "idle" as const, issueNumber: undefined, activity: "", pr: undefined };
+    link.sync({ runnerId: "box", repo: REPO, acked: [], slots: [idle], events: [] });
+    await settled(() => dana.room.state.desks?.get(SEAT)?.phase === DESK_TERMINAL_PHASE.starting);
+    const opened = link.sync({ runnerId: "box", repo: REPO, acked: [], slots: [idle], events: [] });
+    const open = opened.kind === "accepted" ? opened.commands.filter((command) => command.kind === "desk-open") : [];
+    expect(open).toEqual([expect.objectContaining({ slotId: "slot-1", seatId: SEAT, requestedBy: "Milo" })]);
+    link.sync({ runnerId: "box", repo: REPO, acked: open.map((command) => command.id), slots: [{ ...idle, desk: { seatId: SEAT } }], events: [] });
+
+    prompt(dana, "push to main");
+    dana.room.send(CLIENT_MESSAGE.agentKey, { agentId: AGENT, key: "enter" });
+    await settled(() => dana.rejections.length === 2);
+    expect(dana.rejections).toEqual([
+      { agentId: AGENT, rejection: AGENT_PROMPT_REJECTION.forbidden },
+      { agentId: AGENT, rejection: AGENT_PROMPT_REJECTION.forbidden, key: "enter" },
+    ]);
+
+    prompt(milo, "Run the tests.");
+    milo.room.send(CLIENT_MESSAGE.agentKey, { agentId: AGENT, key: "1" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const sent = link.sync({ runnerId: "box", repo: REPO, acked: [], slots: [{ ...idle, desk: { seatId: SEAT } }], events: [] });
+    const typed = sent.kind === "accepted" ? sent.commands.filter((command) => command.kind === "prompt" || command.kind === "key") : [];
+    expect(typed).toEqual([
+      expect.objectContaining({ kind: "prompt", slotId: "slot-1", text: "Run the tests.", requestedBy: "Milo" }),
+      expect.objectContaining({ kind: "key", slotId: "slot-1", key: "1", requestedBy: "Milo" }),
+    ]);
+    expect(milo.rejections).toEqual([]);
   });
 });

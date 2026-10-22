@@ -28,6 +28,7 @@
 import { MANAGER_STATUS, STANDING_ACTION } from "@sim/shared";
 import { useSyncExternalStore } from "react";
 
+import { DESK_PROMPT_ACCESS } from "../agentPromptAccess.js";
 import { NO_LINKS, terminalLinks } from "../agentTerminal.js";
 import { nowPlaying } from "../radio.js";
 import { deskPrompts } from "../deskTerminalAccess.js";
@@ -283,7 +284,7 @@ export function Hud({ store, actions }: { store: HudStore; actions: HudActions }
           agent={deskAgent}
           links={NO_LINKS}
           prompts={deskPrompts(agentPrompts, desk)}
-          access={agentPromptAccess}
+          access={DESK_PROMPT_ACCESS}
           localId={roster.find((entry) => entry.isLocal)?.id}
           refusal={agentPromptRefusal}
           actions={{ ...actions.terminal, close: actions.standUp }}

@@ -24,6 +24,12 @@ describe("agentPromptRefusal", () => {
       AGENT_PROMPT_REJECTION.forbidden,
     );
   });
+
+  it("lets only a desk's player prompt the agent lent to it, the CEO refused", () => {
+    expect(agentPromptRefusal(actor({}), "session-1")).toBeUndefined();
+    expect(agentPromptRefusal(actor({ isCeo: true }), "session-2")).toBe(AGENT_PROMPT_REJECTION.forbidden);
+    expect(agentPromptRefusal(actor({}), "")).toBe(AGENT_PROMPT_REJECTION.forbidden);
+  });
 });
 
 describe("agent keys", () => {

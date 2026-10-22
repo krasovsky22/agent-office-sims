@@ -4,7 +4,9 @@
  *
  * A prompt is code-steering input to a process that runs commands on the
  * runner's host, so it is held to the same rule as handing that agent work:
- * only the CEO. The server asks
+ * only the CEO. An agent lent to a desk's computer is the exception: it takes
+ * prompts from the player who turned that desk on, and from nobody else, the
+ * CEO included (`./deskTerminal.ts`). The server asks
  * {@link agentPromptRefusal} on every prompt before anything is queued; the
  * client asks it only to disable the panel's composer and say why.
  *
@@ -23,7 +25,7 @@ import type { OfficeActor } from "./work.js";
 
 /** Why a prompt for a coding agent was not typed into its terminal. Refusal changes nothing. */
 export const AGENT_PROMPT_REJECTION = {
-  /** Only the CEO prompts the coding agents. */
+  /** Only the CEO prompts the coding agents, and only a desk's player the agent lent to it. */
   forbidden: "forbidden",
   /** Not a runner's coding agent in the office, or no longer here. */
   noAgent: "no-agent",
@@ -46,9 +48,13 @@ export type AgentPromptRejection = (typeof AGENT_PROMPT_REJECTION)[keyof typeof 
 /**
  * Whether an actor may prompt a coding agent, and if not, why. **The one gate.**
  *
+ * @param deskOwnerId the player whose desk the agent is lent to, `undefined` when it is lent to none.
  * @returns `undefined` when they may, else the rejection to send them.
  */
-export function agentPromptRefusal(actor: OfficeActor): AgentPromptRejection | undefined {
+export function agentPromptRefusal(actor: OfficeActor, deskOwnerId?: string): AgentPromptRejection | undefined {
+  if (deskOwnerId !== undefined) {
+    return actor.id === deskOwnerId ? undefined : AGENT_PROMPT_REJECTION.forbidden;
+  }
   return actor.isCeo ? undefined : AGENT_PROMPT_REJECTION.forbidden;
 }
 

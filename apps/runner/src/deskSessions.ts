@@ -3,10 +3,10 @@
  *
  * A slot holding nothing can be lent to a desk in the office (a `desk-open`
  * command): a fresh session of its agent with no issue and no first prompt,
- * in a scratch worktree of the default branch, that the CEO sitting at that
+ * in a scratch worktree of the default branch, that the player sitting at that
  * desk prompts as any agent is prompted. The pool in `./slots.ts` decides
  * which slot and when; this is what a session on one does, from its start to
- * its end. It has no task timeout and does not pause for a standup: the CEO
+ * its end. It has no task timeout and does not pause for a standup: its player
  * turning the desk's computer off is what bounds it. Ending, however it ends, stops its agent
  * and discards its worktree; a session that ends without the server asking
  * says so with a `desk-ended` event.
@@ -64,7 +64,7 @@ export interface DeskOnSlot {
   live: boolean;
   /** What its agent has said it cost, in US dollars. */
   spentUsd: number;
-  /** Its terminal's size, the CEO's panel's once the server has said; the runner's own until then. */
+  /** Its terminal's size, its player's panel's once the server has said; the runner's own until then. */
   cols: number;
   rows: number;
 }
@@ -81,7 +81,7 @@ export interface DeskSessionsHost {
   readonly eventId: () => string;
   readonly log: (line: string) => void;
   readonly debug: (line: string) => void;
-  /** Queues what came of the CEO's prompt or key until a sync carrying it is answered. */
+  /** Queues what came of its player's prompt or key until a sync carrying it is answered. */
   readonly reportOutcome: (slot: Slot, commandId: string, outcome: RunnerPromptOutcomeKind) => void;
 }
 
@@ -90,7 +90,7 @@ export class DeskSessions {
 
   /**
    * Lends the slot to a desk: a fresh session of its agent, at its prompt, for
-   * the CEO sitting there. Refused, with a `desk-ended` event saying why, for a
+   * the player sitting there. Refused, with a `desk-ended` event saying why, for a
    * slot holding an issue or a standing run or lent to another desk, past the day's budget, or
    * with an agent or a runner that takes no desk sessions.
    */
@@ -185,7 +185,7 @@ export class DeskSessions {
         }
       },
       turnDone: () => report(RUNNER_SLOT_STATUS.idle, TURN_DONE),
-      // Nothing to hand in: a pull request it opens at the CEO's word is on GitHub for the CEO to see.
+      // Nothing to hand in: a pull request it opens at its player's word is on GitHub for them to see.
       prOpened: (pr) => {
         if (desk.live) {
           this.host.log(`${slot.id} at ${desk.requestedBy}'s desk opened ${pr.simulated === true ? "a simulated pull request" : pr.url}`);
@@ -227,7 +227,7 @@ export class DeskSessions {
     }
   }
 
-  /** Sizes the desk session's terminal, and its agent's, to the CEO's panel. */
+  /** Sizes the desk session's terminal, and its agent's, to its player's panel. */
   public resize(slot: Slot, command: DeskResizeCommand): void {
     const desk = slot.desk;
     if (desk?.seatId !== command.seatId) {
@@ -241,9 +241,9 @@ export class DeskSessions {
   }
 
   /**
-   * A prompt the CEO typed at the desk: given only while its agent waits at
+   * A prompt its player typed at the desk: given only while its agent waits at
    * its prompt, and reported either way. A standup's direction is not kept for
-   * a desk session, since the CEO is the one at its desk.
+   * a desk session, since its player is the one at its desk.
    */
   public prompt(slot: Slot, desk: DeskOnSlot, command: PromptCommand): void {
     const outcome = this.promptable(slot, desk);
@@ -263,7 +263,7 @@ export class DeskSessions {
     return promptOutcome(slot.status, desk.live ? desk.agentRun : undefined);
   }
 
-  /** A key the CEO pressed at the desk: pressed only while its agent waits on a person, and reported either way. */
+  /** A key its player pressed at the desk: pressed only while its agent waits on a person, and reported either way. */
   public key(slot: Slot, desk: DeskOnSlot, command: KeyCommand): void {
     const label = AGENT_KEY_LABEL[command.key];
     const outcome = keyOutcome(slot.status, desk.live ? desk.agentRun : undefined);
@@ -302,7 +302,7 @@ export class DeskSessions {
     slot.desk = undefined;
     slot.status = RUNNER_SLOT_STATUS.idle;
     slot.activity = "";
-    // Issue work is run at the runner's own size, whatever the CEO's panel was.
+    // Issue work is run at the runner's own size, whatever its player's panel was.
     slot.screen.resize(SCREEN_COLS, SCREEN_ROWS);
     if (message !== undefined) {
       this.emit(slot, desk.seatId, message);

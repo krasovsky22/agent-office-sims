@@ -533,7 +533,7 @@ describe("the runners' books", () => {
     await dana.room.leave();
   });
 
-  it("tells every tab the CEO's desk has no coding agent while no runner is connected, forgets it on standing up, and turns it off on the CEO's word", async () => {
+  it("tells every tab a desk has no coding agent while no runner is connected, forgets it on standing up, and turns it off on its player's word", async () => {
     const dana = await openOffice("Dana");
     const milo = await joinOffice(dana, "Milo");
     const seated = serverRoom(dana).state.occupants.get(dana.room.sessionId);

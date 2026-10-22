@@ -1,42 +1,42 @@
 /**
- * The CEO's desk terminals, on the server: which desks' computers the CEO has
+ * The desk terminals, on the server: which desks' computers each player has
  * on, which runner's slot is lent to each, and how each session stands.
  *
- * Sitting is all it takes. While the CEO sits at a desk with a computer
+ * Sitting is all it takes. While a player sits at a desk with a computer
  * (`deskTerminalSeat` in `@sim/shared`), this lends the desk the first free
  * runner's slot, one idle with no issue, standing run or desk, and no work in
  * the office waiting for it, with a `desk-open` command; the runner starts a
  * fresh session of its agent there, and the slot's screen becomes the desk's.
- * The CEO prompts it, and presses keys on it, as the CEO prompts any coding
- * agent, through `./agentPrompts.ts`, so the same gate and the same budgets
- * hold. Standing up leaves the computer on: the session keeps running, its
- * terminal still on the desk's monitor, and the CEO sitting at that desk again
- * is back at the same session. Each desk is its own session, so the CEO may
- * sit at another computer and turn that one on too, as many as there are free
- * slots; with none free, that desk waits for one and says so. A session is
- * closed with `desk-close`, and the slot is back on the floor for issue work,
- * only when the CEO turns that desk off, or is no longer the CEO who turned it
- * on (left for good, or handed the role on), so a session is never left
- * running that nobody may turn off. A sitting with no
+ * The player prompts it, and presses keys on it, as the CEO prompts any coding
+ * agent, through `./agentPrompts.ts`, so the same budgets hold; the gate lets
+ * that player alone through for it (`deskOwnerOf`). Standing up leaves the
+ * computer on: the session keeps running, its terminal still on the desk's
+ * monitor, and the player sitting at that desk again is back at the same
+ * session; anyone else sitting there gets nothing. Each desk is its own
+ * session, so a player may sit at another computer and turn that one on too,
+ * as many as there are free slots; with none free, that desk waits for one and
+ * says so. A session is closed with `desk-close`, and the slot is back on the
+ * floor for issue work, only when the player who turned it on turns it off or
+ * leaves for good, so a session is never left running that nobody may turn
+ * off. A sitting with no
  * slot lent (every agent busy, no runner, or the session ended) leaves nothing
- * running, and standing up forgets it. The CEO's panel says how many cells it has
+ * running, and standing up forgets it. The player's panel says how many cells it has
  * room for, and the session's terminal is sized to that with `desk-resize`, so
- * its agent wraps its output to the width the CEO reads it at.
+ * its agent wraps its output to the width they read it at.
  *
  * It is declarative, as the work's reconciliation is (`./runnerWork.ts`): each
- * step compares where the CEO sits, and which desks are on, with what the runners report, and sends
+ * step compares where the players sit, and which desks are on, with what the runners report, and sends
  * only what closes the gap. A slot reporting a desk no room has lent it to,
  * as after the server restarted, is closed too. Every room's
  * terminal shares the one runner link, so which slot is lent to which desk is
  * kept per link, not per room: no room lends, or closes, another's slot.
  *
- * Only the CEO is ever lent a slot, since what its agent runs, it runs on the
- * runner's host: the rule is `deskTerminalRefusal`, the prompt gate. Anyone
- * else sitting at a desk gets nothing from here.
+ * Every player may be lent a slot (`deskTerminalRefusal`), though what its
+ * agent runs, it runs on the runner's host.
  *
  * What it decides is written to the replicated `desks`, one `DeskTerminal` per
  * desk that is on, which every tab reads to draw each session's terminal on its
- * desk's monitor, and the CEO's tab to open the panel at the desk they sit at. Synchronous, and run on the tick: it reads what the
+ * desk's monitor, and its player's tab to open the panel at the desk they sit at. Synchronous, and run on the tick: it reads what the
  * runner link already holds and never waits on a runner.
  */
 
@@ -62,6 +62,7 @@ import {
 
 import type { RunnerDeskSlot, RunnerEventRecord, RunnerSlotRef } from "./runnerLink.js";
 import { runnerSlotAgentId } from "./runnerLink.js";
+import { slotOf } from "./runnerWork.js";
 
 /** What the desk terminal needs of the runner link. */
 export interface DeskRunner {
@@ -84,7 +85,7 @@ export interface DeskTerminalOptions {
   readonly log?: (name: string, detail: Record<string, string | number>) => void;
 }
 
-/** One of the CEO's desks' computers while it is on, and the slot lent to it. */
+/** One desk's computer while it is on, whose it is, and the slot lent to it. */
 interface Session {
   readonly seatId: string;
   readonly ownerId: string;
@@ -93,9 +94,9 @@ interface Session {
   lent: RunnerSlotRef | undefined;
   /** The slot has reported the desk since it was lent. */
   opened: boolean;
-  /** Why it ended without the CEO turning it off, once it has; nothing more is lent this sitting. */
+  /** Why it ended without its player turning it off, once it has; nothing more is lent this sitting. */
   ended: string | undefined;
-  /** The cells the CEO's panel has room for, once it has said. */
+  /** The cells its player's panel has room for, once it has said. */
   size: TerminalSize | undefined;
   /** The size last sent to the lent slot, cleared whenever another is lent. */
   sentSize: TerminalSize | undefined;
@@ -106,8 +107,8 @@ interface TerminalSize {
   readonly rows: number;
 }
 
-/** The CEO, and the desk with a computer they sit at, if any. */
-interface Ceo {
+/** A player, and the desk with a computer they sit at, if any. */
+interface Player {
   readonly id: string;
   readonly name: string;
   readonly seatId: string | undefined;
@@ -129,8 +130,8 @@ export class DeskTerminal {
   private readonly sessions = new Map<string, Session>();
   /** Slots reporting a desk this room has asked to close, by `runner:slot@seat`, until they stop reporting it. */
   private readonly closing = new Set<string>();
-  /** The seat the CEO turned the computer off at while sitting there, so it stays off until they stand up. */
-  private turnedOffAt: string | undefined;
+  /** The seat each player turned the computer off at while sitting there, by player, so it stays off until they stand up. */
+  private readonly turnedOffAt = new Map<string, string>();
 
   public constructor(private readonly options: DeskTerminalOptions) {}
 
@@ -142,29 +143,34 @@ export class DeskTerminal {
   }
 
   /**
-   * One step: closes every session once its CEO is gone, and any the CEO has
-   * stood up from with nothing running; lends one if the CEO sits at a desk
-   * whose computer is off; and writes where each stands to the state.
+   * One step: closes every session once its player is gone, and any its player
+   * has stood up from with nothing running; lends one to each player sitting
+   * at a desk whose computer is off; and writes where each stands to the state.
    */
   public step(): void {
-    const ceo = this.ceo();
-    if (this.turnedOffAt !== undefined && ceo?.seatId !== this.turnedOffAt) {
-      this.turnedOffAt = undefined;
-    }
-    for (const session of [...this.sessions.values()]) {
-      if (ceo?.id !== session.ownerId) {
-        this.close(session, ceo === undefined ? "the CEO left" : "the CEO handed the role on");
-      } else if (ceo.seatId !== session.seatId && session.lent === undefined) {
-        this.close(session, "the CEO stood up");
+    const players = this.players();
+    for (const [ownerId, seatId] of this.turnedOffAt) {
+      if (players.get(ownerId)?.seatId !== seatId) {
+        this.turnedOffAt.delete(ownerId);
       }
     }
-    if (ceo?.seatId !== undefined && ceo.seatId !== this.turnedOffAt && !this.sessions.has(ceo.seatId)) {
-      this.sessions.set(ceo.seatId, { seatId: ceo.seatId, ownerId: ceo.id, ownerName: ceo.name, lent: undefined, opened: false, ended: undefined, size: undefined, sentSize: undefined });
-      this.options.log?.("desk-terminal-sat", { seat: ceo.seatId, by: ceo.name });
+    for (const session of [...this.sessions.values()]) {
+      const owner = players.get(session.ownerId);
+      if (owner === undefined) {
+        this.close(session, "its player left");
+      } else if (owner.seatId !== session.seatId && session.lent === undefined) {
+        this.close(session, "its player stood up");
+      }
+    }
+    for (const player of players.values()) {
+      if (player.seatId !== undefined && player.seatId !== this.turnedOffAt.get(player.id) && !this.sessions.has(player.seatId)) {
+        this.sessions.set(player.seatId, { seatId: player.seatId, ownerId: player.id, ownerName: player.name, lent: undefined, opened: false, ended: undefined, size: undefined, sentSize: undefined });
+        this.options.log?.("desk-terminal-sat", { seat: player.seatId, by: player.name });
+      }
     }
     const slots = this.options.runner?.hasRunners() === true ? this.options.runner.deskSlots() : [];
     for (const session of this.sessions.values()) {
-      this.advance(session, slots, ceo?.seatId === session.seatId);
+      this.advance(session, slots, players.get(session.ownerId)?.seatId === session.seatId);
       this.sendSize(session);
     }
     this.closeStrays(slots);
@@ -172,19 +178,37 @@ export class DeskTerminal {
   }
 
   /**
-   * Takes the cells the CEO's panel has room for, from the CEO sitting at one
-   * of their desks; the next step sizes that desk's terminal to them.
+   * Takes the cells a player's panel has room for, from that player sitting at
+   * one of their desks; the next step sizes that desk's terminal to them.
    */
   public resize(ownerId: string, cols: number, rows: number): void {
-    const ceo = this.ceo();
-    const session = ceo?.id === ownerId && ceo.seatId !== undefined ? this.sessions.get(ceo.seatId) : undefined;
+    const seatId = this.players().get(ownerId)?.seatId;
+    const session = seatId === undefined ? undefined : this.sessions.get(seatId);
     if (session?.ownerId === ownerId) {
       session.size = { cols, rows };
     }
   }
 
   /**
-   * Turns one desk's computer off for the CEO who turned it on: closes that
+   * The player whose desk the agent `agentId` is lent to, for the prompt gate:
+   * `undefined` while it is lent to no desk, and `""`, nobody here, while a
+   * desk in another room on the same runner link holds it.
+   */
+  public deskOwnerOf(agentId: string): string | undefined {
+    const slot = slotOf(agentId);
+    if (slot === undefined || this.lentSlots()?.has(slotKey(slot)) !== true) {
+      return undefined;
+    }
+    for (const session of this.sessions.values()) {
+      if (session.lent !== undefined && sameSlot(session.lent, slot)) {
+        return session.ownerId;
+      }
+    }
+    return "";
+  }
+
+  /**
+   * Turns one desk's computer off for the player who turned it on: closes that
    * desk's session alone, whether they sit there or not, and lends nothing
    * more at that desk until they have stood up from it.
    */
@@ -193,8 +217,8 @@ export class DeskTerminal {
     if (session?.ownerId !== ownerId) {
       return;
     }
-    this.close(session, "the CEO turned it off");
-    this.turnedOffAt = session.seatId;
+    this.close(session, "its player turned it off");
+    this.turnedOffAt.set(ownerId, session.seatId);
   }
 
   /** Ends the session the runner says ended, or never started, with its reason. */
@@ -214,19 +238,20 @@ export class DeskTerminal {
     }
   }
 
-  /** The CEO, with the desk with a computer they sit at, if any. */
-  private ceo(): Ceo | undefined {
+  /** Every player who may use a desk's computer, by id, with the desk with a computer they sit at, if any. */
+  private players(): Map<string, Player> {
+    const players = new Map<string, Player>();
     for (const occupant of this.options.state.occupants.values()) {
       if (!isHumanPlayer(occupant) || deskTerminalRefusal(actorOf(occupant)) !== undefined) {
         continue;
       }
-      return { id: occupant.id, name: occupant.name, seatId: deskTerminalSeat(this.options.layout, occupant.interactableId)?.id };
+      players.set(occupant.id, { id: occupant.id, name: occupant.name, seatId: deskTerminalSeat(this.options.layout, occupant.interactableId)?.id });
     }
-    return undefined;
+    return players;
   }
 
   /**
-   * Follows the lent slot, or lends one; a fresh slot only while the CEO sits
+   * Follows the lent slot, or lends one; a fresh slot only while its player sits
    * there, since one lent to an empty chair would only be forgotten.
    */
   private advance(session: Session, slots: readonly RunnerDeskSlot[], sitting: boolean): void {
@@ -275,7 +300,7 @@ export class DeskTerminal {
     this.options.log?.("desk-terminal-lent", { seat: session.seatId, agent: free.slotId, by: session.ownerName });
   }
 
-  /** Sizes the lent slot's terminal to the CEO's panel, when that is news to it. */
+  /** Sizes the lent slot's terminal to its player's panel, when that is news to it. */
   private sendSize(session: Session): void {
     const { lent, size, sentSize } = session;
     if (lent === undefined || size === undefined || (sentSize?.cols === size.cols && sentSize.rows === size.rows)) {

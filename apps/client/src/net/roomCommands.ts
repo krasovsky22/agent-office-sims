@@ -215,12 +215,12 @@ export abstract class RoomCommands {
     return true;
   }
 
-  /** Says how many cells the CEO's desk terminal panel has room for, which its session's terminal is sized to. */
+  /** Says how many cells the local player's desk terminal panel has room for, which its session's terminal is sized to. */
   public sendDeskTerminalSize(cols: number, rows: number): void {
     this.room?.send(CLIENT_MESSAGE.deskTerminalSize, { cols, rows } satisfies DeskTerminalSizeMessage);
   }
 
-  /** Turns one of the CEO's desks' computers off, ending that desk's session alone. */
+  /** Turns one of the local player's desks' computers off, ending that desk's session alone. */
   public sendDeskTerminalOff(seatId: string): void {
     this.room?.send(CLIENT_MESSAGE.deskTerminalOff, { seatId } satisfies DeskTerminalOffMessage);
   }

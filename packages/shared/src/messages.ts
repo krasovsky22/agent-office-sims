@@ -112,9 +112,9 @@ export const CLIENT_MESSAGE = {
   standupEnd: "standup:end",
   /** Give one agent at the standup, or every one, a direction. Only the CEO is listened to. */
   standupDirect: "standup:direct",
-  /** The size the CEO's desk terminal panel has room for, in cells; see `deskTerminal.ts`. */
+  /** The size the player's desk terminal panel has room for, in cells; see `deskTerminal.ts`. */
   deskTerminalSize: "desk:size",
-  /** Turn one of the CEO's desks' computers off, ending that desk's session alone. Only the CEO who turned it on is listened to. */
+  /** Turn one of the player's desks' computers off, ending that desk's session alone. Only the player who turned it on is listened to. */
   deskTerminalOff: "desk:off",
   /** Tune the office radio to a station or a YouTube link, from beside it; anyone may. See `radio.ts`. */
   radioTune: "radio:tune",
@@ -559,7 +559,7 @@ export interface AgentKeyMessage {
   readonly key: AgentKey;
 }
 
-/** The cells the CEO's desk terminal panel has room for, which the desk session's terminal is sized to. */
+/** The cells the player's desk terminal panel has room for, which the desk session's terminal is sized to. */
 export interface DeskTerminalSizeMessage {
   readonly cols: number;
   readonly rows: number;

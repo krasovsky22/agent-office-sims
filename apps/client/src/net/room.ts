@@ -314,7 +314,7 @@ export class RoomConnection extends RoomCommands {
   }
 
   /**
-   * The CEO's desk terminals that are on, by seat id, as of the last patch, or
+   * The desk terminals that are on, by seat id, as of the last patch, or
    * `undefined` before the state arrives. Read in place by the game loop, which must not allocate.
    */
   public desks(): OfficeState["desks"] | undefined {

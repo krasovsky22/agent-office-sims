@@ -2,16 +2,15 @@
  * What the local player's desk shows them while they sit at a computer, in
  * words the HUD can show.
  *
- * Nothing is decided here. The server lends each of the CEO's desks a coding
+ * Nothing is decided here. The server lends each player's desks a coding
  * agent (`desks` in the replicated state, one `DeskTerminal` per desk that is
- * on) and this module only reads those records for the local player: the desk
- * the CEO sits at opens the terminal panel on its own lent agent's terminal,
+ * on) and this module only reads those records for the local player: a desk
+ * of theirs they sit at opens the terminal panel on its own lent agent's terminal,
  * with a line saying why there is no terminal yet when there is none, and again
- * on the same session each time the CEO sits back down there, since each keeps
- * running until they turn it off; anyone else sitting at a computer is told why it stays
- * off for them, since `deskTerminalRefusal` in `@sim/shared` holds it to the
- * rule for prompting a coding agent. Like `agentPromptAccess.ts` for the
- * panel's composer.
+ * on the same session each time they sit back down there, since each keeps
+ * running until they turn it off; sitting at a computer someone else has on
+ * tells them whose it is, since that session is theirs alone. Like
+ * `agentPromptAccess.ts` for the panel's composer.
  */
 
 import { type AgentPromptEntry, DESK_TERMINAL_PHASE, type DeskTerminal } from "@sim/shared";
@@ -25,7 +24,7 @@ export interface DeskReadings {
   values(): Iterable<DeskReading>;
 }
 
-/** What the CEO's desk panel shows. */
+/** What a player's desk panel shows. */
 export interface DeskPanelView {
   /** The desk's seat, which its Turn off button names. */
   readonly seatId: string;
@@ -94,7 +93,7 @@ function othersOn(desks: DeskReadings, localId: string, seatId: string): boolean
 /**
  * Why the desk has no terminal to prompt yet, or any more.
  *
- * @param othersOn the CEO's other desks hold agents, so turning one off frees one here.
+ * @param othersOn the player's other desks hold agents, so turning one off frees one here.
  */
 export function deskPhaseText(phase: string, note: string, othersOn = false): string {
   switch (phase) {
@@ -111,10 +110,10 @@ export function deskPhaseText(phase: string, note: string, othersOn = false): st
   }
 }
 
-/** What anyone but the CEO is told on sitting at a computer. */
-export function deskForbiddenText(ceoName: string | undefined): string {
-  const who = ceoName === undefined ? "the CEO" : `the CEO, ${ceoName},`;
-  return `Only ${who} can use a desk's computer: what its coding agent runs, it runs on the runner's machine.`;
+/** What a player is told on sitting at a computer someone else has on. */
+export function deskTakenText(ownerName: string | undefined): string {
+  const who = ownerName === undefined ? "Someone else" : ownerName;
+  return `${who} has this desk's computer on: only they can use it or turn it off.`;
 }
 
 /** Whether two panel views read the same, so an unchanged one is not published again. */

@@ -174,7 +174,7 @@ export interface HudSnapshot {
   readonly managerAccess?: ManagerAccess | undefined;
   /** The live agent whose terminal the local player opened with `E` behind its chair or from the roster, or `undefined`. */
   readonly terminalAgentId?: string | undefined;
-  /** The CEO's own desk's computer while the local player is the CEO sitting at one, or `undefined`. */
+  /** The local player's own desk's computer while they sit at one, or `undefined`. */
   readonly desk?: DeskPanelView | undefined;
   /** What the runners' real agents have spent today; absent, or no runners, until a runner reports. */
   readonly runnerSpend?: RunnerSpendTotal | undefined;

@@ -1,5 +1,5 @@
 /**
- * What the local player's desk shows them: each of the CEO's desks opens on its
+ * What the local player's desk shows them: each of their own desks opens on its
  * own lent agent's terminal, or says why there is none, and nobody else's does.
  */
 
@@ -8,11 +8,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   type DeskReading,
-  deskForbiddenText,
   deskPanelFor,
   deskPhaseText,
   deskPrompts,
   deskScreenKey,
+  deskTakenText,
   sameDeskPanel,
 } from "./deskTerminalAccess.js";
 
@@ -35,7 +35,7 @@ function on(...desks: DeskReading[]): Map<string, DeskReading> {
 }
 
 describe("deskPanelFor", () => {
-  it("opens the CEO's own desk on its agent's terminal", () => {
+  it("opens the player's own desk on its agent's terminal", () => {
     expect(deskPanelFor(on(OPEN), "me", SEAT, 0)).toEqual({ seatId: SEAT, agentId: AGENT, message: "", needsInput: false, activity: "Bash: ls", promptsAfter: 0 });
     expect(deskPanelFor(on({ ...OPEN, needsInput: true }), "me", SEAT, 0)?.needsInput).toBe(true);
   });
@@ -82,7 +82,7 @@ describe("deskPrompts", () => {
 });
 
 describe("deskPhaseText", () => {
-  it("says what the CEO can do about each", () => {
+  it("says what the player can do about each", () => {
     expect(deskPhaseText(DESK_TERMINAL_PHASE.noRunner, "")).toMatch(/No agent runner is connected/);
     expect(deskPhaseText(DESK_TERMINAL_PHASE.waiting, "")).toMatch(/Every coding agent is busy/);
     expect(deskPhaseText(DESK_TERMINAL_PHASE.ended, "Claude exited with code 1.")).toBe(
@@ -102,7 +102,7 @@ describe("deskPanelFor with several desks on", () => {
     expect(deskPanelFor(desks, "me", OTHER, 0)).toMatchObject({ seatId: OTHER, agentId: OTHER_AGENT });
   });
 
-  it("says turning another desk off frees an agent when the CEO's other desks hold every one", () => {
+  it("says turning another desk off frees an agent when the player's other desks hold every one", () => {
     const waiting: DeskReading = { ...OPEN, seatId: OTHER, agentId: "", phase: DESK_TERMINAL_PHASE.waiting };
     expect(deskPanelFor(on(OPEN, waiting), "me", OTHER, 0)?.message).toBe(deskPhaseText(DESK_TERMINAL_PHASE.waiting, "", true));
     expect(deskPhaseText(DESK_TERMINAL_PHASE.waiting, "", true)).toMatch(/turn another desk's computer off/);
@@ -110,10 +110,10 @@ describe("deskPanelFor with several desks on", () => {
   });
 });
 
-describe("deskForbiddenText", () => {
-  it("names the CEO when the roster shows who it is", () => {
-    expect(deskForbiddenText("Dana")).toMatch(/^Only the CEO, Dana, can use a desk's computer/);
-    expect(deskForbiddenText(undefined)).toMatch(/^Only the CEO can use a desk's computer/);
+describe("deskTakenText", () => {
+  it("names whose the computer is when the roster shows it", () => {
+    expect(deskTakenText("Dana")).toMatch(/^Dana has this desk's computer on: only they/);
+    expect(deskTakenText(undefined)).toMatch(/^Someone else has this desk's computer on/);
   });
 });
 
