@@ -235,6 +235,8 @@ export function failureReason(rejection: AgentPromptRejection): string {
       return "its runner never said it was typed, or it left first";
     case AGENT_PROMPT_REJECTION.unavailable:
       return "its work ended before it could be typed";
+    case AGENT_PROMPT_REJECTION.forbidden:
+      return "it is at another player's desk's computer, which only that player can prompt";
     default:
       return "its runner did not type it";
   }
