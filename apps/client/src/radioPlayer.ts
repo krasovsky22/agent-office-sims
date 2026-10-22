@@ -161,13 +161,19 @@ export class RadioPlayer {
         }
         // A single video loops by being its own one-item playlist.
         const loopList = radio.listId === "" ? { playlist: radio.videoId } : { list: radio.listId, listType: "playlist" };
-        this.youtube = new yt.Player(mount, {
+        // Kept only once ready: until then the player has none of its methods.
+        new yt.Player(mount, {
           width: 200,
           height: 200,
           ...(radio.videoId === "" ? {} : { videoId: radio.videoId }),
           playerVars: { autoplay: 1, controls: 0, loop: 1, ...loopList },
           events: {
             onReady: ({ target }) => {
+              if (this.playingKey !== key) {
+                target.destroy();
+                return;
+              }
+              this.youtube = target;
               target.setVolume(Math.round(Math.max(this.volume, 0) * 100));
               const offset = Math.max((Date.now() - radio.startedAt) / 1000, 0);
               const duration = target.getDuration();

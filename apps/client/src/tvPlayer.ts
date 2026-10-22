@@ -82,13 +82,19 @@ export class TvPlayer {
         }
         // A single video loops by being its own one-item playlist.
         const loopList = tv.listId === "" ? { playlist: tv.videoId } : { list: tv.listId, listType: "playlist" };
-        this.youtube = new yt.Player(mount, {
+        // Kept only once ready: until then the player has none of its methods.
+        new yt.Player(mount, {
           width: 640,
           height: 360,
           ...(tv.videoId === "" ? {} : { videoId: tv.videoId }),
           playerVars: { autoplay: 1, controls: 0, loop: 1, playsinline: 1, ...loopList },
           events: {
             onReady: ({ target }) => {
+              if (this.playingKey !== key) {
+                target.destroy();
+                return;
+              }
+              this.youtube = target;
               target.setVolume(Math.round(Math.max(this.volume, 0) * 100));
               const offset = Math.max((Date.now() - tv.startedAt) / 1000, 0);
               const duration = target.getDuration();
