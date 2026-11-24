@@ -28,6 +28,7 @@ import {
   type DeskTerminalSizeMessage,
   type Emote,
   type EmoteMessage,
+  type HighFiveMessage,
   type InteractMessage,
   type IssueState,
   type IssueStateMessage,
@@ -180,6 +181,11 @@ export abstract class RoomCommands {
   /** Tells the others the local player jumped; the local avatar has already left the floor. */
   public sendJump(): void {
     this.room?.send(CLIENT_MESSAGE.jump);
+  }
+
+  /** Tells the others the local player high-fived an agent; both avatars have already left the floor here. */
+  public sendHighFive(agentId: string): void {
+    this.room?.send(CLIENT_MESSAGE.highFive, { agentId } satisfies HighFiveMessage);
   }
 
   /** Tells the AI manager something. The conversation broadcast is the reply. */

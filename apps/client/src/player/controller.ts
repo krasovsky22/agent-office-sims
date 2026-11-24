@@ -132,6 +132,9 @@ const CAMERA_KEY = "KeyV";
 /** Jumps. Named in the README as `Space`. */
 const JUMP_KEY = "Space";
 
+/** High-fives the agent the player faces. Named in the help as `F`. */
+const HIGH_FIVE_KEY = "KeyF";
+
 const MOVEMENT_KEYS = new Set([
   ...FORWARD_KEYS,
   ...BACKWARD_KEYS,
@@ -139,7 +142,7 @@ const MOVEMENT_KEYS = new Set([
   ...RIGHT_KEYS,
 ]);
 
-const ALL_KEYS = new Set([...MOVEMENT_KEYS, INTERACT_KEY, CAMERA_KEY, JUMP_KEY]);
+const ALL_KEYS = new Set([...MOVEMENT_KEYS, INTERACT_KEY, CAMERA_KEY, JUMP_KEY, HIGH_FIVE_KEY]);
 
 export interface Pose {
   x: number;
@@ -363,6 +366,7 @@ export class PlayerController {
   private closeRequested = false;
   private cameraToggleRequested = false;
   private jumpRequested = false;
+  private highFiveRequested = false;
   /** Set on the frame a jump starts, until {@link takeJumpStart} reads it. */
   private jumpStarted = false;
   /** How long the player has been in the air, or `undefined` on the floor. */
@@ -422,6 +426,12 @@ export class PlayerController {
       if (event.code === CAMERA_KEY) {
         if (!event.repeat) {
           this.cameraToggleRequested = true;
+        }
+        return;
+      }
+      if (event.code === HIGH_FIVE_KEY) {
+        if (!event.repeat) {
+          this.highFiveRequested = true;
         }
         return;
       }
@@ -599,6 +609,26 @@ export class PlayerController {
     const started = this.jumpStarted;
     this.jumpStarted = false;
     return started;
+  }
+
+  /** Takes a pending `F` press, if there is one. */
+  public takeHighFiveRequest(): boolean {
+    const requested = this.highFiveRequested;
+    this.highFiveRequested = false;
+    return requested;
+  }
+
+  /**
+   * Leaves the floor for a high five, as `Space` would; refused in a chair or
+   * in mid-air. Unlike `Space` it does not set {@link takeJumpStart}: the high
+   * five is relayed instead of the jump.
+   */
+  public startJump(): boolean {
+    if (this.hold !== undefined || this.airborneSeconds !== undefined) {
+      return false;
+    }
+    this.airborneSeconds = 0;
+    return true;
   }
 
   /** Takes a pending `V` press, if there is one. */

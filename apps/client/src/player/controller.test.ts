@@ -474,6 +474,23 @@ describe("PlayerController jumping", () => {
     expect(controller.takeJumpStart()).toBe(true);
   });
 
+  it("takes one high five per F press, leaving the floor for it only from the floor", () => {
+    window.dispatchEvent(keyDown("KeyF"));
+    window.dispatchEvent(keyDown("KeyF", true));
+    expect(controller.takeHighFiveRequest()).toBe(true);
+    expect(controller.takeHighFiveRequest()).toBe(false);
+
+    expect(controller.startJump()).toBe(true);
+    expect(controller.startJump()).toBe(false);
+    window.dispatchEvent(keyDown("Space"));
+    controller.update(FRAME);
+    expect(controller.takeJumpStart()).toBe(false);
+
+    controller.update(JUMP_SECONDS);
+    controller.setHold(firstSeat());
+    expect(controller.startJump()).toBe(false);
+  });
+
   it("does not jump from a chair, nor stand up for it", () => {
     const seat = firstSeat();
     controller.teleport(seat.anchor.x, seat.anchor.z, seat.anchor.yaw);

@@ -22,3 +22,15 @@ export function jumpHeight(elapsedSeconds: number): number {
   const t = elapsedSeconds / JUMP_SECONDS;
   return 4 * JUMP_HEIGHT * t * (1 - t);
 }
+
+/**
+ * How near a player has to be to an agent for a high five, in metres. Looser
+ * than the client's facing reach, since the server judges by poses a little
+ * ahead of the bodies a browser draws.
+ */
+export const HIGH_FIVE_REACH = 3.3;
+
+/** Whether two bodies on the floor are near enough to high-five. */
+export function inHighFiveReach(a: { readonly x: number; readonly z: number }, b: { readonly x: number; readonly z: number }): boolean {
+  return Math.hypot(a.x - b.x, a.z - b.z) <= HIGH_FIVE_REACH;
+}

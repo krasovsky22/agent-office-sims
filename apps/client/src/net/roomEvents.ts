@@ -20,6 +20,7 @@ import {
   type ChatEvent,
   type EmoteEvent,
   type IssueStateResultEvent,
+  type HighFiveEvent,
   type JumpEvent,
   type LiftFloorsEvent,
   type LiftRejectedEvent,
@@ -56,6 +57,8 @@ export interface RoomConnectionEvents {
   onEmote?: (event: EmoteEvent) => void;
   /** Another occupant jumped; the local player's own jump is not echoed back. */
   onJump?: (event: JumpEvent) => void;
+  /** A player high-fived an agent; the local player's own high five is not echoed back. */
+  onHighFive?: (event: HighFiveEvent) => void;
   /** An occupant said something. Fired for the local player too. */
   onChat?: (event: ChatEvent) => void;
   /** The local client's own emote or chat was dropped by the rate limiter. */
@@ -126,6 +129,7 @@ export interface RoomConnectionEvents {
 const FORWARDED = {
   [SERVER_MESSAGE.emote]: "onEmote",
   [SERVER_MESSAGE.jump]: "onJump",
+  [SERVER_MESSAGE.highFive]: "onHighFive",
   [SERVER_MESSAGE.chat]: "onChat",
   [SERVER_MESSAGE.throttled]: "onThrottled",
   [SERVER_MESSAGE.projectBoard]: "onProjectBoard",

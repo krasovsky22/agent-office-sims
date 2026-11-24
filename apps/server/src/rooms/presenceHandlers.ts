@@ -1,6 +1,6 @@
 /**
- * The room's handlers for being on the floor: moving, jumping, using things,
- * emoting, chatting, and changing one's name.
+ * The room's handlers for being on the floor: moving, jumping, high-fiving an
+ * agent, using things, emoting, chatting, and changing one's name.
  *
  * Thin, like the room's other handlers: each parses the untrusted payload and
  * hands it to the rule that decides — `../sim/movement.ts` for a pose or a
@@ -13,14 +13,18 @@ import { type Client, type Room } from "@colyseus/core";
 import {
   CLIENT_MESSAGE,
   type EmoteEvent,
+  type HighFiveEvent,
   type JumpEvent,
   type NameRejectedEvent,
   type OfficeState,
   SERVER_MESSAGE,
   type ThrottledEvent,
+  inHighFiveReach,
+  isLiveAgent,
   nameRefusal,
   parseChatMessage,
   parseEmoteMessage,
+  parseHighFiveMessage,
   parseInteractMessage,
   parsePoseMessage,
   parseRenameMessage,
@@ -65,6 +69,30 @@ export function registerPresenceHandlers(
     }
     // Not back to the jumper, who drew the jump the moment the key went down.
     room.broadcast(SERVER_MESSAGE.jump, { occupantId: client.sessionId } satisfies JumpEvent, { except: client });
+  });
+
+  room.onMessage(CLIENT_MESSAGE.highFive, (client, raw: unknown) => {
+    const message = parseHighFiveMessage(raw);
+    const player = host.state.occupants.get(client.sessionId);
+    const motion = host.interaction.motions.get(client.sessionId);
+    const agent = message === undefined ? undefined : host.state.occupants.get(message.agentId);
+    if (
+      message === undefined ||
+      player === undefined ||
+      motion === undefined ||
+      agent === undefined ||
+      !isLiveAgent(agent) ||
+      agent.fired ||
+      !inHighFiveReach(player, agent) ||
+      // The player's own jump rule is the cooldown, so a held key cannot spam the room.
+      !tryJump(player, motion, host.now())
+    ) {
+      return;
+    }
+    // Only the bodies hop: the agent's seat, walk and task are left as they are.
+    room.broadcast(SERVER_MESSAGE.highFive, { playerId: client.sessionId, agentId: message.agentId } satisfies HighFiveEvent, {
+      except: client,
+    });
   });
 
   room.onMessage(CLIENT_MESSAGE.interact, (client, raw: unknown) => {
