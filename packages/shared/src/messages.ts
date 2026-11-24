@@ -70,6 +70,8 @@ export const CLIENT_MESSAGE = {
   rename: "player:rename",
   /** The sender's avatar jumped; no payload. See `jump.ts`. */
   jump: "jump",
+  /** The sender high-fived the coding agent it faces; both jump. See `jump.ts`. */
+  highFive: "high-five",
   /** A request to use a named interactable the sender believes it is next to. */
   interact: "interact",
   /** A request to stop using whatever the sender is currently engaged with. */
@@ -145,6 +147,8 @@ export const SERVER_MESSAGE = {
   chat: "chat",
   /** An occupant jumped; every client but the jumper's, which drew it already, draws it. */
   jump: "jump",
+  /** A player high-fived an agent; every client but the player's, which drew it already, draws both jumping. */
+  highFive: "high-five",
   /** Sent only to the client whose message was dropped by a rate limit. */
   throttled: "throttled",
   /**
@@ -341,6 +345,18 @@ export interface EmoteEvent {
 /** An occupant jumped, as broadcast to every other client in the room. */
 export interface JumpEvent {
   readonly occupantId: string;
+}
+
+/** A player high-fiving the coding agent it faces. */
+export interface HighFiveMessage {
+  /** The agent's occupant key. */
+  readonly agentId: string;
+}
+
+/** A player high-fived an agent, as broadcast to every other client in the room. */
+export interface HighFiveEvent {
+  readonly playerId: string;
+  readonly agentId: string;
 }
 
 /** An occupant spoke, as broadcast to every client in the room. */
@@ -1035,6 +1051,15 @@ export function parseAgentActionMessage(raw: unknown): AgentActionMessage | unde
     return undefined;
   }
   return { agentId, action: candidate.action };
+}
+
+/** Validates a raw `high-five` payload; whether the agent is there and near is the server's call. */
+export function parseHighFiveMessage(raw: unknown): HighFiveMessage | undefined {
+  const agentId = asRecord(raw)?.agentId;
+  if (typeof agentId !== "string" || agentId === "" || agentId.length > MAX_AGENT_KEY_LENGTH) {
+    return undefined;
+  }
+  return { agentId };
 }
 
 /** Validates a raw `work:assign` payload. */

@@ -225,6 +225,7 @@ export interface GameLoop {
       | "onLocalSpawn"
       | "onOccupantsChanged"
       | "onJump"
+      | "onHighFive"
       | "onEmote"
       | "onChat"
       | "onProjectBoard"
@@ -516,6 +517,10 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     onJump: (event) => {
       avatars.get(event.occupantId)?.jump();
     },
+    onHighFive: (event) => {
+      avatars.get(event.playerId)?.jump();
+      avatars.get(event.agentId)?.jump(true);
+    },
 
     onEmote: (event) => {
       avatars.get(event.occupantId)?.showEmote(event.emote, performance.now());
@@ -727,8 +732,9 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     }
 
     if (facing !== undefined) {
-      const hold = `Cancel task or fire ${room.occupantName(facing) ?? "the agent"}`;
-      prompt = prompt === undefined ? { keys: "Hold E", label: hold, blocked: false } : { ...prompt, hold };
+      const name = room.occupantName(facing) ?? "the agent";
+      const hold = `Cancel task or fire ${name}`;
+      prompt = prompt === undefined ? { keys: "F", label: `High five ${name}`, blocked: false, hold } : { ...prompt, hold };
     }
 
     const keys = prompt?.keys ?? "";
@@ -773,6 +779,11 @@ export function startGameLoop(host: GameLoopHost): GameLoop {
     // Only standing free with nothing open: with a panel open, `E` closes it.
     const facing = locallyHeldWith === "" && readingBoard === "" && agentMenuId === undefined ? faceAgent() : undefined;
     const target = refreshPrompt(locallyHeldWith, facing);
+    if (controller.takeHighFiveRequest() && facing !== undefined && controller.startJump()) {
+      avatars.get(localId)?.jump();
+      avatars.get(facing)?.jump(true);
+      room.sendHighFive(facing);
+    }
     // Standing still behind a working agent's chair leans the camera in over
     // its shoulder, to read its monitor; `E` still opens the whole terminal.
     const shoulder = target?.kind === INTERACTION_KIND.screen ? shoulderViewOf(target) : undefined;

@@ -161,7 +161,9 @@ same rule (`packages/shared/src/playerName.ts`).
 
 Walk with `W A S D` or the arrow keys, and jump with `Space`, standing or on
 the move; everyone in the office sees the jump, and walls and furniture still
-stop you in the air. Click the canvas to capture the mouse,
+stop you in the air. Facing a coding agent up close, `F` high-fives it: you
+both jump, an agent at its desk hopping in its chair without leaving its task,
+and everyone sees it. Click the canvas to capture the mouse,
 then move it to swing the camera; `Esc` releases it. `V`, or the button under
 the HUD's hints, switches between the camera behind you and first person, at
 your avatar's eyes with its hands in view; the browser remembers the choice.
@@ -2341,7 +2343,7 @@ packages/shared/   @sim/shared   the contract both sides import
 apps/server/       @sim/server   Colyseus room and simulation tick
   src/rooms/workHandlers.ts  the CEO's work commands: assign, release, move
   src/rooms/issueStateHandlers.ts  the CEO's drops on Closed and Open, sent to a runner, and the answer sent back
-  src/rooms/presenceHandlers.ts  moving, jumping, using things, emoting, chatting and renaming
+  src/rooms/presenceHandlers.ts  moving, jumping, high fives, using things, emoting, chatting and renaming
   src/rooms/runnerWiring.ts  what a room builds round the runners: the work's host, the prompts, the standing tasks, the standup, the desk terminal
   src/sim/expression.ts   per-occupant emote, chat, manager-message and agent-prompt budgets
   src/sim/clock.ts        the building's in-game clock, stepped by every floor's simulation tick

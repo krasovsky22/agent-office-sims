@@ -701,9 +701,13 @@ export class Avatar {
     this.body.root.visible = !hidden;
   }
 
-  /** Starts the body on the jump arc, from the floor; one already in the air starts over. */
-  public jump(): void {
-    if (!isSeated(this.animation)) {
+  /**
+   * Starts the body on the jump arc, from the floor; one already in the air starts over.
+   *
+   * @param evenSeated hops a seated body in its chair too, as an agent at work does for a high five.
+   */
+  public jump(evenSeated = false): void {
+    if (evenSeated || !isSeated(this.animation)) {
       this.jumpSeconds = 0;
     }
   }
